@@ -1,0 +1,151 @@
+@import 'tailwindcss';
+
+/* ============================================================
+   MAIA Engine — Design System
+   VS Code inspired · 高级灰 · 科技感
+   ============================================================ */
+
+@theme {
+  /* ── Background ── */
+  --color-maia-bg: #f0f2f5;
+  --color-maia-surface: #ffffff;
+  --color-maia-sidebar: #e8ecf1;
+  --color-maia-sidebar-hover: #dde2e8;
+  --color-maia-sidebar-active: #d4dae2;
+
+  /* ── Border ── */
+  --color-maia-border: #d8dce3;
+  --color-maia-border-light: #e5e8ed;
+
+  /* ── Text ── */
+  --color-maia-text: #3b3f48;
+  --color-maia-text-secondary: #5f6470;
+  --color-maia-text-muted: #949aa5;
+  --color-maia-text-heading: #1e2127;
+
+  /* ── Accent (purple-blue, muted tech feel) ── */
+  --color-maia-accent: #6c5ce7;
+  --color-maia-accent-light: #f0edff;
+  --color-maia-accent-hover: #5a4bd1;
+  --color-maia-accent-border: #d5cff7;
+
+  /* ── Status ── */
+  --color-maia-success: #10a37f;
+  --color-maia-success-bg: #e6f7f1;
+  --color-maia-warning: #e5a50a;
+  --color-maia-warning-bg: #fef9e7;
+  --color-maia-danger: #e05050;
+  --color-maia-danger-bg: #fdeaea;
+
+  /* ── Chat bubbles ── */
+  --color-maia-chat-user: #f0edff;
+  --color-maia-chat-agent: #ffffff;
+  --color-maia-chat-system: #faf9f7;
+
+  /* ── Card accent borders ── */
+  --color-maia-card-blue: #e8f0fe;
+  --color-maia-card-green: #e6f7f1;
+  --color-maia-card-amber: #fef6e6;
+  --color-maia-card-purple: #f0edff;
+}
+
+/* ============================================================
+   Base — VS Code inspired typography & spacing
+   ============================================================ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family:
+    'Inter',
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.65;
+  letter-spacing: 0.025em;
+  color: var(--color-maia-text);
+  background: var(--color-maia-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Headings get tighter tracking */
+h1, h2, h3, h4, h5, h6 {
+  letter-spacing: 0.01em;
+  font-weight: 600;
+}
+
+/* Code-like elements get monospace spacing */
+code, pre, .font-mono {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'SF Mono', ui-monospace, monospace;
+  letter-spacing: 0;
+  font-size: 12px;
+}
+
+/* ============================================================
+   Scrollbar — VS Code style, thin & subtle
+   ============================================================ */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #c8cdd4;
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #a0a7b0;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ============================================================
+   Selection
+   ============================================================ */
+
+::selection {
+  background: var(--color-maia-accent-light);
+  color: var(--color-maia-text-heading);
+}
+
+/* ============================================================
+   Focus ring — subtle, consistent
+   ============================================================ */
+
+:focus-visible {
+  outline: 2px solid var(--color-maia-accent);
+  outline-offset: -1px;
+}
+
+/* ============================================================
+   Transitions
+   ============================================================ */
+
+.panel-transition {
+  transition: width 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
