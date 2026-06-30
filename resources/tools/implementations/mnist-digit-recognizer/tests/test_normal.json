@@ -1,0 +1,7 @@
+{
+  "input": {
+    "image_path": "/data/test_sample.edf",
+    "model_path": "/data/test_sample.edf"
+  },
+  "description": "正常输入"
+}

@@ -4,6 +4,10 @@ import { DataPreviewView } from './DataPreviewView'
 import { CodeReviewView } from './CodeReviewView'
 import { OrchestrationView } from './OrchestrationView'
 import { TaskMonitorView } from './TaskMonitorView'
+import { AgentEditorView } from './AgentEditorView'
+import { AgentDetailView } from './AgentDetailView'
+import { ToolEditorView } from './ToolEditorView'
+import { ToolDetailView } from './ToolDetailView'
 
 export function CenterPanel() {
   const { activeView } = useUIStore()
@@ -27,6 +31,7 @@ function ViewTabBar() {
     { id: 'code-review', label: '🔍 代码核验' },
     { id: 'orchestration', label: '🎯 编排' },
     { id: 'task-monitor', label: '📡 监控' },
+    { id: 'agent-editor', label: '🤖 Agent 编辑器' },
   ]
 
   return (
@@ -60,5 +65,13 @@ function ViewRouter({ view }: { view: ActiveView }) {
       return <OrchestrationView />
     case 'task-monitor':
       return <TaskMonitorView />
+    case 'agent-editor':
+      return <AgentEditorView />
+    case 'agent-detail':
+      return <AgentDetailView />
+    case 'tool-editor':
+      return <ToolEditorView />
+    case 'tool-detail':
+      return <ToolDetailView />
   }
 }

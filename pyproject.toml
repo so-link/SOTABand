@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68.0", "wheel"]
+requires = ["setuptools>=65.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,9 +7,17 @@ name = "maia-engine"
 version = "0.1.0"
 description = "多智能体驱动的多模态智能处理引擎 — Multi-Agent Intelligent Architecture"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "jmlv" }]
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "openai>=1.50.0",
+    "sse-starlette>=2.0.0",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+]
 
 [project.optional-dependencies]
 dev = [

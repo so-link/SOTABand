@@ -1,0 +1,20 @@
+"""Auto-generated Task Agent: {agent_name}"""
+
+from typing import AsyncGenerator
+from core.agent.base import BaseAgent, AgentContext
+
+
+class {AgentClassName}(BaseAgent):
+    """{agent_description}"""
+
+    async def execute(self, ctx: AgentContext, **kwargs) -> AsyncGenerator[dict, None]:
+        content = kwargs.get("content", "")
+        attachments = kwargs.get("attachments", [])
+
+        # TODO: 在此实现具体的任务处理逻辑
+        # 1. 接收输入数据
+        # 2. 调用所需工具处理
+        # 3. 返回处理结果
+
+        yield {{"event": "content", "data": {{"text": f"Agent {agent_id} processing..."}}}}
+        yield {{"event": "done", "data": {{"messageId": ctx.session_id}}}}

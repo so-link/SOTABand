@@ -1,0 +1,17 @@
+"""Auto-generated Observer Agent: {agent_name}"""
+
+from typing import AsyncGenerator
+from core.agent.base import BaseAgent, AgentContext
+
+
+class {AgentClassName}(BaseAgent):
+    """{agent_description}"""
+
+    async def execute(self, ctx: AgentContext, **kwargs) -> AsyncGenerator[dict, None]:
+        # TODO: 在此实现观测逻辑
+        # 1. 监控系统指标
+        # 2. 收集执行状态
+        # 3. 生成观测报告
+
+        yield {{"event": "content", "data": {{"text": "Observer report generated"}}}}
+        yield {{"event": "done", "data": {{"messageId": ctx.session_id}}}}

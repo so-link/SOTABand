@@ -1,0 +1,20 @@
+"""Auto-generated Orchestrator Agent: {agent_name}"""
+
+from typing import AsyncGenerator
+from core.agent.base import BaseAgent, AgentContext
+
+
+class {AgentClassName}(BaseAgent):
+    """{agent_description}"""
+
+    async def execute(self, ctx: AgentContext, **kwargs) -> AsyncGenerator[dict, None]:
+        content = kwargs.get("content", "")
+
+        # TODO: 在此实现编排逻辑
+        # 1. 解析任务描述
+        # 2. 生成编排 DAG
+        # 3. 协调多 Agent 执行
+        # 4. 汇总结果
+
+        yield {{"event": "content", "data": {{"text": f"Orchestrating: {{content}}"}}}}
+        yield {{"event": "done", "data": {{"messageId": ctx.session_id}}}}

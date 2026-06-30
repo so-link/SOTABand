@@ -1,8 +1,11 @@
 import { create } from 'zustand'
 import type { Message, FileAttachment } from '@/types/chat'
 import { MockChatService } from '@/services/mock/chat'
+import { ApiChatService } from '@/services/api/chat'
 
-const chatService = new MockChatService()
+// 开发模式下可通过 VITE_USE_MOCK 切换回 mock 服务
+const useMock = import.meta.env.VITE_USE_MOCK === 'true'
+const chatService = useMock ? new MockChatService() : new ApiChatService()
 
 interface ChatState {
   messages: Message[]

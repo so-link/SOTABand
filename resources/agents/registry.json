@@ -1,0 +1,67 @@
+[
+  {
+    "id": "test-agent",
+    "name": "Test",
+    "version": "0.1.0",
+    "role": "task",
+    "status": "active",
+    "spec_path": "definitions/test-agent.md",
+    "impl_path": "implementations/test-agent/",
+    "tools": [],
+    "tags": [],
+    "created_at": "2026-06-29T05:43:09Z",
+    "health": "healthy"
+  },
+  {
+    "id": "time-weather-reporter",
+    "name": "时间天气汇报员",
+    "version": "0.1.0",
+    "role": "task",
+    "status": "active",
+    "spec_path": "definitions/time-weather-reporter.md",
+    "impl_path": "implementations/time-weather-reporter/",
+    "tools": [],
+    "tags": [],
+    "created_at": "2026-06-29T07:45:36Z",
+    "health": "healthy"
+  },
+  {
+    "id": "demo-agent",
+    "name": "Demo",
+    "version": "0.1.0",
+    "role": "task",
+    "status": "active",
+    "spec_path": "definitions/demo-agent.md",
+    "impl_path": "implementations/demo-agent/",
+    "tools": [],
+    "tags": [],
+    "created_at": "2026-06-29T08:03:30Z",
+    "health": "healthy"
+  },
+  {
+    "id": "weather-report-agent",
+    "name": "广州天气报告 Agent",
+    "version": "0.1.0",
+    "role": "task",
+    "status": "active",
+    "spec_path": "definitions/weather-report-agent.md",
+    "impl_path": "implementations/weather-report-agent/",
+    "tools": [],
+    "tags": [],
+    "created_at": "2026-06-29T08:12:05Z",
+    "health": "healthy"
+  },
+  {
+    "id": "guangzhou-weather-reporter",
+    "name": "广州天气定时报告器",
+    "version": "0.1.0",
+    "role": "task",
+    "status": "active",
+    "spec_path": "definitions/guangzhou-weather-reporter.md",
+    "impl_path": "implementations/guangzhou-weather-reporter/",
+    "tools": [],
+    "tags": [],
+    "created_at": "2026-06-29T08:55:48Z",
+    "health": "healthy"
+  }
+]

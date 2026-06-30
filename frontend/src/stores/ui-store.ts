@@ -6,6 +6,10 @@ export type ActiveView =
   | 'code-review'
   | 'orchestration'
   | 'task-monitor'
+  | 'agent-editor'
+  | 'agent-detail'
+  | 'tool-editor'
+  | 'tool-detail'
 
 interface UIState {
   leftPanelOpen: boolean

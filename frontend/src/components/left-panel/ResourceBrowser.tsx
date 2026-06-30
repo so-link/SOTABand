@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Database,
   Wrench,
@@ -8,6 +8,7 @@ import {
   ChevronRight,
   ChevronDown,
   Star,
+  Plus,
 } from 'lucide-react'
 import { useResourceStore } from '@/stores/resource-store'
 import { useUIStore } from '@/stores/ui-store'
@@ -38,11 +39,19 @@ export function ResourceBrowser() {
     taskResources,
     selectedResource,
     selectResource,
+    fetchAgentsFromApi,
+    fetchToolsFromApi,
   } = useResourceStore()
-  const { rightPanelOpen, toggleRightPanel } = useUIStore()
+  const { rightPanelOpen, toggleRightPanel, setActiveView } = useUIStore()
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
-    new Set(['data', 'tool'])
+    new Set(['data', 'tool', 'agent'])
   )
+
+  // 启动时从 API 加载真实 Agent 列表
+  useEffect(() => {
+    fetchAgentsFromApi()
+    fetchToolsFromApi()
+  }, [fetchAgentsFromApi, fetchToolsFromApi])
 
   const toggleSection = (type: string) => {
     setExpandedSections((prev) => {
@@ -66,7 +75,13 @@ export function ResourceBrowser() {
 
   const handleResourceClick = (resource: Resource) => {
     selectResource(resource)
-    if (!rightPanelOpen) toggleRightPanel()
+    if (resource.type === 'agent') {
+      setActiveView('agent-detail')
+    } else if (resource.type === 'tool') {
+      setActiveView('tool-detail')
+    } else if (!rightPanelOpen) {
+      toggleRightPanel()
+    }
   }
 
   return (
@@ -95,6 +110,30 @@ export function ResourceBrowser() {
               <span className="text-[10px] text-maia-text-muted bg-maia-bg rounded-full px-1.5 py-0.5 tracking-tight">
                 {resources.length}
               </span>
+              {section.type === 'agent' && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    useUIStore.getState().setActiveView('agent-editor')
+                  }}
+                  className="flex items-center justify-center h-4 w-4 rounded hover:bg-maia-accent/10 text-maia-text-muted hover:text-maia-accent transition-colors"
+                  title="创建新 Agent"
+                >
+                  <Plus className="h-3 w-3" />
+                </button>
+              )}
+              {section.type === 'tool' && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    useUIStore.getState().setActiveView('tool-editor')
+                  }}
+                  className="flex items-center justify-center h-4 w-4 rounded hover:bg-amber-500/10 text-maia-text-muted hover:text-amber-500 transition-colors"
+                  title="创建新工具"
+                >
+                  <Plus className="h-3 w-3" />
+                </button>
+              )}
             </button>
 
             {/* Section items — indented to align under parent label */}

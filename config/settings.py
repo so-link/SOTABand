@@ -2,11 +2,51 @@
 全局配置
 =========
 
-系统全局配置，支持从环境变量、配置文件加载。
+系统全局配置，支持从环境变量、.env 文件加载。
+
+配置优先级: 环境变量 > .env 文件 > 代码默认值
 """
 
 from dataclasses import dataclass, field
+from pathlib import Path
+import os
 from typing import Optional
+
+# 自动加载项目根目录的 .env 文件
+def _load_dotenv():
+    env_file = Path(__file__).resolve().parent.parent / ".env"
+    if env_file.exists():
+        with open(env_file) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, val = line.partition("=")
+                key, val = key.strip(), val.strip().strip('"').strip("'")
+                if key and key not in os.environ:
+                    os.environ[key] = val
+
+_load_dotenv()
+
+
+@dataclass
+class LLMConfig:
+    """LLM 配置 — 默认 DeepSeek v4
+
+    api_key 读取优先级:
+    1. 环境变量 DEEPSEEK_API_KEY
+    2. 项目根目录 .env 文件中的 DEEPSEEK_API_KEY=xxx
+    3. 代码中直接赋值 settings.llm.api_key = "xxx"
+    """
+
+    provider: str = "deepseek"
+    api_key: str = field(default_factory=lambda: os.getenv("DEEPSEEK_API_KEY", ""))
+    base_url: str = "https://api.deepseek.com/v1"
+    model: str = "deepseek-v4-pro"
+    max_tokens: int = 100000
+    temperature: float = 0.7
+    streaming: bool = True
+    timeout: int = 60
 
 
 @dataclass
@@ -69,7 +109,7 @@ class AppConfig:
     app_name: str = "MAIA Engine"
     debug: bool = False
     api_host: str = "0.0.0.0"
-    api_port: int = 8000
+    api_port: int = 8001
     cors_origins: list = field(default_factory=lambda: ["*"])
 
 
@@ -78,6 +118,7 @@ class Settings:
     """全局配置"""
 
     app: AppConfig = field(default_factory=AppConfig)
+    llm: LLMConfig = field(default_factory=LLMConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
     agent: AgentConfig = field(default_factory=AgentConfig)

@@ -1,0 +1,7 @@
+{
+  "input": {
+    "image_path": "/nonexistent/file.edf",
+    "model_path": "/nonexistent/file.edf"
+  },
+  "description": "异常输入"
+}

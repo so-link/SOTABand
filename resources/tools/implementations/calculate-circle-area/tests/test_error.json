@@ -1,0 +1,6 @@
+{
+  "input": {
+    "radius": "not_a_number"
+  },
+  "description": "异常输入"
+}
