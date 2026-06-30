@@ -11,6 +11,7 @@ from config.settings import settings
 from app.api.routes.chat_routes import router as chat_router
 from app.api.routes.agent_routes import router as agent_router
 from app.api.routes.tool_routes import router as tool_router
+from app.api.routes.data_routes import router as data_router
 
 
 @asynccontextmanager
@@ -48,6 +49,7 @@ app.add_middleware(
 app.include_router(chat_router, prefix="/api/chat", tags=["chat"])
 app.include_router(agent_router, prefix="/api/agent", tags=["agent"])
 app.include_router(tool_router, prefix="/api/tool", tags=["tool"])
+app.include_router(data_router, prefix="/api/data", tags=["data"])
 
 
 @app.get("/")

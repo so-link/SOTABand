@@ -1,8 +1,9 @@
 import { create } from 'zustand'
-import type { Resource, ResourceType, AgentResource, ToolResource } from '@/types/resources'
+import type { Resource, ResourceType, AgentResource, ToolResource, DataResource } from '@/types/resources'
 import { MockResourceService } from '@/services/mock/resources'
 import { agentApi } from '@/services/api/agent'
 import { toolApi } from '@/services/api/tool'
+import { dataApi } from '@/services/api/data'
 
 const resourceService = new MockResourceService()
 
@@ -20,6 +21,7 @@ interface ResourceState {
   fetchAllResources: () => Promise<void>
   fetchAgentsFromApi: () => Promise<void>
   fetchToolsFromApi: () => Promise<void>
+  fetchDatasetsFromApi: () => Promise<void>
 }
 
 export const useResourceStore = create<ResourceState>((set) => ({
@@ -114,6 +116,34 @@ export const useResourceStore = create<ResourceState>((set) => ({
         })
       )
       set({ toolResources: tools, isLoading: false })
+    } catch {
+      set({ isLoading: false })
+    }
+  },
+
+  fetchDatasetsFromApi: async () => {
+    set({ isLoading: true })
+    try {
+      const result = await dataApi.list()
+      const datasets: DataResource[] = (result.datasets || []).map(
+        (d: Record<string, unknown>) => ({
+          id: d.id as string,
+          name: (d.name as string) || (d.id as string),
+          description: '',
+          type: 'data' as const,
+          version: (d.version as string) || '0.1.0',
+          status: (d.status as string) === 'active' ? 'active' as const : 'active' as const,
+          createdAt: (d.created_at as string) || '',
+          updatedAt: '',
+          tags: (d.tags as string[]) || [],
+          format: ((d.formats as string[])?.[0]) || 'unknown',
+          filePath: (d.data_path as string) || '',
+          fileSize: (d.total_size as number) || 0,
+          source: 'upload' as const,
+          lineage: [],
+        })
+      )
+      set({ dataResources: datasets, isLoading: false })
     } catch {
       set({ isLoading: false })
     }

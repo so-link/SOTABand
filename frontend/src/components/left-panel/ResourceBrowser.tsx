@@ -41,17 +41,19 @@ export function ResourceBrowser() {
     selectResource,
     fetchAgentsFromApi,
     fetchToolsFromApi,
+    fetchDatasetsFromApi,
   } = useResourceStore()
   const { rightPanelOpen, toggleRightPanel, setActiveView } = useUIStore()
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
-    new Set(['data', 'tool', 'agent'])
+    new Set(['data', 'tool', 'agent', 'data'])
   )
 
   // 启动时从 API 加载真实 Agent 列表
   useEffect(() => {
     fetchAgentsFromApi()
     fetchToolsFromApi()
-  }, [fetchAgentsFromApi, fetchToolsFromApi])
+    fetchDatasetsFromApi()
+  }, [fetchAgentsFromApi, fetchToolsFromApi, fetchDatasetsFromApi])
 
   const toggleSection = (type: string) => {
     setExpandedSections((prev) => {
@@ -79,6 +81,8 @@ export function ResourceBrowser() {
       setActiveView('agent-detail')
     } else if (resource.type === 'tool') {
       setActiveView('tool-detail')
+    } else if (resource.type === 'data') {
+      setActiveView('data-preview')
     } else if (!rightPanelOpen) {
       toggleRightPanel()
     }
@@ -130,6 +134,18 @@ export function ResourceBrowser() {
                   }}
                   className="flex items-center justify-center h-4 w-4 rounded hover:bg-amber-500/10 text-maia-text-muted hover:text-amber-500 transition-colors"
                   title="创建新工具"
+                >
+                  <Plus className="h-3 w-3" />
+                </button>
+              )}
+              {section.type === 'data' && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    useUIStore.getState().setActiveView('data-preview')
+                  }}
+                  className="flex items-center justify-center h-4 w-4 rounded hover:bg-blue-500/10 text-maia-text-muted hover:text-blue-500 transition-colors"
+                  title="添加数据集"
                 >
                   <Plus className="h-3 w-3" />
                 </button>
