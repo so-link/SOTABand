@@ -22,6 +22,7 @@ interface ToolEditorState {
   runTests: () => Promise<void>
   registerTool: () => Promise<void>
   setStep: (step: EditorStep) => void
+  prefill: (text: string) => void
   reset: () => void
 }
 
@@ -33,6 +34,9 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
   setDescription: (text) => set({ description: text }),
   setGeneratedMd: (md) => set({ generatedMd: md }),
   setStep: (step) => set({ step }),
+
+  /** 从外部预填描述（如对话跳转过来） */
+  prefill: (text: string) => set({ step: 1, description: text, generatedMd: '', generatedCode: '', testData: null, sandboxResults: null, registeredId: null, error: null }),
 
   reset: () => set({
     step: 1, description: '', generatedMd: '', generatedCode: '',

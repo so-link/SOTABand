@@ -47,8 +47,37 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => ({
 
   uploadFiles: async (files: FileList) => {
     const fileArray = Array.from(files)
-    await fileService.upload(fileArray)
-    await get().loadTree()
+    const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001'
+
+    for (const file of fileArray) {
+      try {
+        const formData = new FormData()
+        formData.append('file', file)
+        const res = await fetch(`${BASE_URL}/api/file/upload`, {
+          method: 'POST',
+          body: formData,
+        })
+        if (!res.ok) continue
+        const uploaded = await res.json()
+        // 将上传成功的文件插入到文件树
+        const { root } = get()
+        if (root) {
+          const newNode: FileTreeNode = {
+            id: uploaded.id,
+            name: uploaded.fileName,
+            type: 'file',
+            category: 'unknown',
+            path: uploaded.filePath,        // ← 服务器上的真实路径
+            format: uploaded.format,
+            size: uploaded.fileSize,
+          }
+          root.children = [...(root.children || []), newNode]
+          set({ root: { ...root } })
+        }
+      } catch {
+        // 上传失败，跳过
+      }
+    }
   },
 
   setSearchQuery: (query) => set({ searchQuery: query }),

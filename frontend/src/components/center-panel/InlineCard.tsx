@@ -3,6 +3,7 @@ import { Card, CardHeader, CardBody } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useUIStore, type ActiveView } from '@/stores/ui-store'
+import { useToolEditorStore } from '@/stores/tool-editor-store'
 import {
   Database,
   Wrench,
@@ -34,6 +35,8 @@ export function InlineCard({ card }: InlineCardProps) {
       return <ResultSummaryCard title={title} summary={summary} data={data} />
     case 'orchestration-preview':
       return <OrchestrationPreviewCard title={title} summary={summary} data={data} setActiveView={setActiveView} />
+    case 'create-tool':
+      return <CreateToolCard title={title} summary={summary} data={data} />
     default:
       return null
   }
@@ -222,6 +225,36 @@ function ResultSummaryCard({ title, summary }: { title: string; summary: string;
       </CardHeader>
       <CardBody>
         <p className="text-xs text-gray-500">{summary}</p>
+      </CardBody>
+    </Card>
+  )
+}
+
+// ── Create Tool Card ──
+
+function CreateToolCard({ title, summary, data }: { title: string; summary: string; data: Record<string, unknown> }) {
+  const setActiveView = useUIStore((s) => s.setActiveView)
+  const desc = (data.description as string) || summary
+
+  const handleCreate = () => {
+    useToolEditorStore.getState().prefill(desc)
+    setActiveView('tool-editor')
+  }
+
+  return (
+    <Card className="border-purple-200 bg-purple-50/50">
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Wrench className="h-4 w-4 text-purple-500" />
+          <span className="text-xs font-medium">{title}</span>
+          <Badge variant="accent">新工具</Badge>
+        </div>
+      </CardHeader>
+      <CardBody>
+        <p className="text-xs text-gray-500 mb-3">{summary}</p>
+        <Button size="sm" className="text-xs" onClick={handleCreate}>
+          创建新工具 <ArrowRight className="h-3 w-3" />
+        </Button>
       </CardBody>
     </Card>
   )

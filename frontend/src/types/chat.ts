@@ -13,6 +13,7 @@ export type CardType =
   | 'execution-progress'
   | 'result-summary'
   | 'orchestration-preview'
+  | 'create-tool'
 
 /** 内联卡片数据 */
 export interface InlineCard {

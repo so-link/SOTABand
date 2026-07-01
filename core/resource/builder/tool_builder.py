@@ -182,7 +182,7 @@ class ToolCodeBuilder(BaseBuilder):
 
         if "string" in ptype:
             if "path" in name.lower():
-                return ("/data/test_sample.edf", "", "/nonexistent/file.edf")
+                return ("/hdd/sdc1/jmlv/LLM/data/photo.png", "", "/hdd/sdc1/jmlv/LLM/data/photo.png")
             return ("hello", "", None)
 
         if "int" in ptype:

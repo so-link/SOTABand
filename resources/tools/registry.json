@@ -103,5 +103,35 @@
     "tags": [],
     "usage_count": 0,
     "created_at": "2026-06-30T02:48:17Z"
+  },
+  {
+    "id": "city-flight-info-locator",
+    "name": "城市航班与附近飞机查询",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/city-flight-info-locator.md",
+    "impl_path": "implementations/city-flight-info-locator/",
+    "input_schema": {},
+    "output_schema": {},
+    "tags": [],
+    "usage_count": 0,
+    "created_at": "2026-06-30T15:20:04Z"
+  },
+  {
+    "id": "face-detection",
+    "name": "人脸检测",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/face-detection.md",
+    "impl_path": "implementations/face-detection/",
+    "input_schema": {},
+    "output_schema": {},
+    "tags": [],
+    "usage_count": 0,
+    "created_at": "2026-06-30T16:13:27Z"
   }
 ]
