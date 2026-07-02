@@ -15,6 +15,30 @@ class ToolCodeBuilder(BaseBuilder):
     def __init__(self, llm_client=None):
         self.llm = llm_client or create_llm_client()
 
+    async def extract_param_metadata(self, spec_md: str) -> list[dict]:
+        """让 LLM 从 MD spec 中提取参数元数据，用于后续智能参数提取"""
+        prompt = f"""从以下工具 MD 规范文档中提取输入参数列表，返回 JSON 数组。
+
+每个参数包含: name(参数名), type(类型), required(是否必填 true/false), default(默认值或null), desc(一句话中文描述), hints(用户可能如何描述这个参数的示例, 数组)
+
+MD 文档:
+{spec_md[:3000]}
+
+返回格式(仅 JSON):
+[{{"name":"image_path","type":"string","required":true,"default":null,"desc":"待检测图片的文件路径","hints":["图片","照片","图像","这张图"]}}, ...]"""
+
+        response = await self.llm.chat(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1, max_tokens=1000,
+        )
+        try:
+            clean = response.strip()
+            if clean.startswith("```"):
+                clean = clean.split("\n", 1)[1].rsplit("\n", 1)[0]
+            return json.loads(clean)
+        except Exception:
+            return []
+
     async def setup_venv(self, tool_id: str, dependencies: list[str] = None) -> str:
         """为工具创建独立虚拟环境并安装依赖，返回 venv 的 Python 路径"""
         import subprocess

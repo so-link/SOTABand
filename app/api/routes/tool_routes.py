@@ -183,10 +183,17 @@ async def register_tool(req: RegisterToolRequest):
     if sandbox["failed"]:
         raise HTTPException(400, f"沙箱测试未通过: {sandbox['failed']}")
 
+    # 提取参数元数据
+    param_meta = []
+    try:
+        param_meta = await builder.extract_param_metadata(req.spec_md)
+    except Exception:
+        pass
+
     resource = {
         "id": req.tool_id, "name": req.tool_name, "version": req.version,
         "raw_md": req.spec_md, "code": code, "tags": req.tags,
-        "test_data": test_data,
+        "test_data": test_data, "param_meta": param_meta,
     }
     tool_id = await registry.register(resource)
     entry = await registry.get(tool_id)
@@ -349,3 +356,20 @@ async def search_tools(q: str = "", tags: str = ""):
     tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
     results = await discoverer.search(query=q, tags=tag_list)
     return {"tools": results}
+
+
+@router.delete("/{tool_id}")
+async def delete_tool(tool_id: str):
+    """删除工具（registry + code + venv）"""
+    entry = await registry.get(tool_id)
+    if not entry:
+        raise HTTPException(404, f"Tool '{tool_id}' not found")
+    import shutil
+    impl_dir = registry._get_impl_dir() / tool_id
+    if impl_dir.exists():
+        shutil.rmtree(impl_dir, ignore_errors=True)
+    spec_path = registry._get_def_dir() / f"{tool_id}.md"
+    if spec_path.exists():
+        spec_path.unlink()
+    await registry.unregister(tool_id)
+    return {"deleted": tool_id}

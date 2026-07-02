@@ -1,4 +1,4 @@
-"""MAIA Engine — FastAPI 应用入口
+"""SOTABand Engine — FastAPI 应用入口
 
 系统启动时自动加载交互 Agent，等待用户输入。
 """
@@ -21,14 +21,14 @@ async def lifespan(app: FastAPI):
     # 启动时：导入交互Agent（触发单例初始化）
     from app.api.routes.chat_routes import interactive_agent as _ia
 
-    print(f"[MAIA] 交互Agent 已就绪 (id={_ia.agent_id})")
-    print(f"[MAIA] LLM: {settings.llm.provider}/{settings.llm.model}")
-    print(f"[MAIA] API: http://{settings.app.api_host}:{settings.app.api_port}")
+    print(f"[SOTABand] 交互Agent 已就绪 (id={_ia.agent_id})")
+    print(f"[SOTABand] LLM: {settings.llm.provider}/{settings.llm.model}")
+    print(f"[SOTABand] API: http://{settings.app.api_host}:{settings.app.api_port}")
 
     yield  # 应用运行中
 
     # 关闭时：清理
-    print("[MAIA] 服务关闭")
+    print("[SOTABand] 服务关闭")
 
 
 app = FastAPI(

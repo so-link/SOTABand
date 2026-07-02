@@ -1,4 +1,4 @@
-# MAIA Engine 架构设计
+# SOTABand Engine 架构设计
 
 > 多智能体驱动的多模态智能处理引擎
 

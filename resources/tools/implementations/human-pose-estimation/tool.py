@@ -38,11 +38,10 @@ def execute(**kwargs) -> dict[str, Any]:
         from mediapipe.tasks.python.vision import PoseLandmarker, PoseLandmarkerOptions
 
         model_path = _ensure_model()
-        base_options = mp.tasks.BaseOptions(model_asset_path=model_path)
         options = PoseLandmarkerOptions(
-            base_options=base_options,
+            base_options=mp.tasks.BaseOptions(model_asset_path=model_path),
             running_mode=mp.tasks.vision.RunningMode.IMAGE,
-            num_poses=10,  # 检测画面中所有人（最多10人）
+            num_poses=10,
         )
 
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -140,7 +139,7 @@ def execute(**kwargs) -> dict[str, Any]:
                 x2, y2 = int(lm2.x * w), int(lm2.y * h)
                 conn_key = tuple(sorted((p1, p2)))
                 line_color = conn_color_map.get(conn_key, (0, 0, 0))  # 默认黑色
-                cv2.line(output_img, (x1, y1), (x2, y2), line_color, 100)  # 原为4，改为30更粗更醒目
+                cv2.line(output_img, (x1, y1), (x2, y2), line_color, 2)  # 原为4，改为30更粗更醒目
 
         # 保存结果图像
         result_dir = os.path.join(os.path.dirname(image_path) or "/tmp", "results")

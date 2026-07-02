@@ -10,7 +10,7 @@
 
 ### 1.1 开机即启动：交互 Agent
 
-MAIA Engine 启动时，**交互 Agent（Interactive Agent）作为第一个 Agent 自动启动**。它是系统的默认入口，无需用户手动创建。
+SOTABand Engine 启动时，**交互 Agent（Interactive Agent）作为第一个 Agent 自动启动**。它是系统的默认入口，无需用户手动创建。
 
 ```
 系统启动 (python -m app.main)
@@ -247,7 +247,7 @@ builtin: true
 ## 1. 功能概述
 
 负责与用户进行自然语言对话，理解用户意图，引导任务编排流程。
-是 MAIA Engine 的主交互入口，所有用户请求首先经过此 Agent。
+是 SOTABand Engine 的主交互入口，所有用户请求首先经过此 Agent。
 
 系统启动时自动加载运行，等待用户输入，调用 DeepSeek v4 大模型
 解析用户意图，并将结果以流式 SSE 返回前端界面。
@@ -289,7 +289,7 @@ builtin: true
 ### 5.2 System Prompt 结构
 
 ```
-你是 MAIA Engine 的交互Agent。
+你是 SOTABand Engine 的交互Agent。
 你的职责是理解用户意图，帮助用户完成数据处理任务。
 
 当前可用的工具:
@@ -613,7 +613,7 @@ Agent 空间自动刷新 → 前端左侧面板可看到新 Agent
 ### 7.1 进程架构
 
 ```
-┌─ MAIA API Server (主进程) ─────────────────────────────────┐
+┌─ SOTABand API Server (主进程) ─────────────────────────────────┐
 │  FastAPI (HTTP + SSE)                                      │
 │  AgentFactory + ProcessManager                             │
 │  通信总线客户端                                              │

@@ -1,65 +1,5 @@
 [
   {
-    "id": "json-formatter",
-    "name": "JSON Formatter",
-    "version": "0.1.0",
-    "type": "function",
-    "language": "python",
-    "status": "active",
-    "spec_path": "definitions/json-formatter.md",
-    "impl_path": "implementations/json-formatter/",
-    "input_schema": {},
-    "output_schema": {},
-    "tags": [],
-    "usage_count": 0,
-    "created_at": "2026-06-29T09:24:28Z"
-  },
-  {
-    "id": "number-square-calculator",
-    "name": "数字平方计算器",
-    "version": "0.1.0",
-    "type": "function",
-    "language": "python",
-    "status": "active",
-    "spec_path": "definitions/number-square-calculator.md",
-    "impl_path": "implementations/number-square-calculator/",
-    "input_schema": {},
-    "output_schema": {},
-    "tags": [],
-    "usage_count": 0,
-    "created_at": "2026-06-29T09:31:42Z"
-  },
-  {
-    "id": "calculate-square",
-    "name": "平方计算器",
-    "version": "0.1.0",
-    "type": "function",
-    "language": "python",
-    "status": "active",
-    "spec_path": "definitions/calculate-square.md",
-    "impl_path": "implementations/calculate-square/",
-    "input_schema": {},
-    "output_schema": {},
-    "tags": [],
-    "usage_count": 0,
-    "created_at": "2026-06-29T09:33:09Z"
-  },
-  {
-    "id": "number-cuber",
-    "name": "数字三次方计算器",
-    "version": "0.1.0",
-    "type": "function",
-    "language": "python",
-    "status": "active",
-    "spec_path": "definitions/number-cuber.md",
-    "impl_path": "implementations/number-cuber/",
-    "input_schema": {},
-    "output_schema": {},
-    "tags": [],
-    "usage_count": 0,
-    "created_at": "2026-06-29T10:13:39Z"
-  },
-  {
     "id": "calculate-circle-area",
     "name": "计算圆面积",
     "version": "0.1.0",
@@ -72,7 +12,23 @@
     "output_schema": {},
     "tags": [],
     "usage_count": 0,
-    "created_at": "2026-06-29T16:08:03Z"
+    "created_at": "2026-06-29T16:08:03Z",
+    "param_meta": [
+      {
+        "name": "radius",
+        "type": "float",
+        "required": true,
+        "default": null,
+        "desc": "圆的半径，必须为非负数值",
+        "hints": [
+          "半径",
+          "圆的半径",
+          "半径值",
+          "r",
+          "radius"
+        ]
+      }
+    ]
   },
   {
     "id": "get-weather",
@@ -87,7 +43,23 @@
     "output_schema": {},
     "tags": [],
     "usage_count": 0,
-    "created_at": "2026-06-29T16:10:08Z"
+    "created_at": "2026-06-29T16:10:08Z",
+    "param_meta": [
+      {
+        "name": "city",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "需要查询天气的城市名称，支持中文或英文",
+        "hints": [
+          "北京",
+          "上海",
+          "London",
+          "城市名",
+          "查询的城市"
+        ]
+      }
+    ]
   },
   {
     "id": "mnist-digit-recognizer",
@@ -102,22 +74,37 @@
     "output_schema": {},
     "tags": [],
     "usage_count": 0,
-    "created_at": "2026-06-30T02:48:17Z"
-  },
-  {
-    "id": "city-flight-info-locator",
-    "name": "城市航班与附近飞机查询",
-    "version": "0.1.0",
-    "type": "function",
-    "language": "python",
-    "status": "active",
-    "spec_path": "definitions/city-flight-info-locator.md",
-    "impl_path": "implementations/city-flight-info-locator/",
-    "input_schema": {},
-    "output_schema": {},
-    "tags": [],
-    "usage_count": 0,
-    "created_at": "2026-06-30T15:20:04Z"
+    "created_at": "2026-06-30T02:48:17Z",
+    "param_meta": [
+      {
+        "name": "image_path",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "待识别图片的本地文件路径，支持常见格式如PNG、JPG",
+        "hints": [
+          "图片路径",
+          "图像文件",
+          "要识别的图片",
+          "手写数字图片",
+          "本地图片"
+        ]
+      },
+      {
+        "name": "model_path",
+        "type": "string",
+        "required": false,
+        "default": "./mnist_model.pth",
+        "desc": "预训练模型权重文件的路径",
+        "hints": [
+          "模型文件",
+          "权重文件",
+          "模型路径",
+          "pth文件",
+          "预训练模型"
+        ]
+      }
+    ]
   },
   {
     "id": "face-detection",
@@ -130,39 +117,26 @@
     "impl_path": "implementations/face-detection/",
     "input_schema": {},
     "output_schema": {},
+    "param_meta": [
+      {
+        "name": "image_path",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "待检测图片的文件路径",
+        "hints": [
+          "图片路径",
+          "图片文件",
+          "照片",
+          "图像",
+          "要检测的图片",
+          "这张图"
+        ]
+      }
+    ],
     "tags": [],
     "usage_count": 0,
-    "created_at": "2026-06-30T16:13:27Z"
-  },
-  {
-    "id": "face-tracking",
-    "name": "人脸检测与框选",
-    "version": "0.1.0",
-    "type": "function",
-    "language": "python",
-    "status": "active",
-    "spec_path": "definitions/face-tracking.md",
-    "impl_path": "implementations/face-tracking/",
-    "input_schema": {},
-    "output_schema": {},
-    "tags": [],
-    "usage_count": 0,
-    "created_at": "2026-07-02T02:53:48Z"
-  },
-  {
-    "id": "face-detection-opencv",
-    "name": "人脸检测与标注",
-    "version": "0.1.0",
-    "type": "function",
-    "language": "python",
-    "status": "active",
-    "spec_path": "definitions/face-detection-opencv.md",
-    "impl_path": "implementations/face-detection-opencv/",
-    "input_schema": {},
-    "output_schema": {},
-    "tags": [],
-    "usage_count": 0,
-    "created_at": "2026-07-02T03:37:17Z"
+    "created_at": "2026-07-02T08:58:19Z"
   },
   {
     "id": "human-pose-estimation",
@@ -177,7 +151,22 @@
     "output_schema": {},
     "tags": [],
     "usage_count": 0,
-    "created_at": "2026-07-02T03:57:13Z"
+    "created_at": "2026-07-02T03:57:13Z",
+    "param_meta": [
+      {
+        "name": "image_path",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "待检测图片的文件路径，支持jpg/png等常见格式",
+        "hints": [
+          "图片",
+          "照片",
+          "图像",
+          "这张图"
+        ]
+      }
+    ]
   },
   {
     "id": "pose-extraction",
@@ -192,6 +181,94 @@
     "output_schema": {},
     "tags": [],
     "usage_count": 0,
-    "created_at": "2026-07-02T04:28:38Z"
+    "created_at": "2026-07-02T04:28:38Z",
+    "param_meta": [
+      {
+        "name": "image_path",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "输入图像的本地路径，支持常见格式如jpg、png",
+        "hints": [
+          "图片路径",
+          "图像文件",
+          "输入图片",
+          "照片路径",
+          "要提取姿态的图像"
+        ]
+      },
+      {
+        "name": "conf_threshold",
+        "type": "float",
+        "required": false,
+        "default": 0.5,
+        "desc": "关键点置信度阈值，范围0-1，低于此值的关节不绘制",
+        "hints": [
+          "置信度",
+          "阈值",
+          "关键点置信度",
+          "检测阈值",
+          "最低置信度"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "etth-line-plot",
+    "name": "ETTh 时序可视化",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/etth-line-plot.md",
+    "impl_path": "implementations/etth-line-plot/",
+    "input_schema": {},
+    "output_schema": {},
+    "tags": [],
+    "usage_count": 0,
+    "created_at": "2026-07-02T07:33:28Z",
+    "param_meta": [
+      {
+        "name": "csv_path",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "ETTh 数据 CSV 文件的绝对路径或相对路径",
+        "hints": [
+          "文件路径",
+          "CSV文件",
+          "数据文件",
+          "数据路径"
+        ]
+      },
+      {
+        "name": "field",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "需要展示的字段名称，如 HUFL, HULL, MUFL, MULL, LUFL, LULL, OT 之一",
+        "hints": [
+          "字段",
+          "列名",
+          "展示字段",
+          "OT",
+          "HUFL"
+        ]
+      },
+      {
+        "name": "length",
+        "type": "int",
+        "required": true,
+        "default": null,
+        "desc": "需要展示的时序点数量，从数据末尾向前取指定长度的记录",
+        "hints": [
+          "长度",
+          "数据点数量",
+          "最近N条",
+          "展示数量",
+          "点数"
+        ]
+      }
+    ]
   }
 ]

@@ -9,6 +9,7 @@ import {
   ChevronDown,
   Star,
   Plus,
+  Minus,
 } from 'lucide-react'
 import { useResourceStore } from '@/stores/resource-store'
 import { useUIStore } from '@/stores/ui-store'
@@ -73,6 +74,20 @@ export function ResourceBrowser() {
       case 'task': return taskResources
       default: return []
     }
+  }
+
+  const handleDelete = async (resource: Resource, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!confirm(`确定删除 "${resource.name}"？此操作不可恢复。`)) return
+    const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001'
+    const typePath = resource.type === 'data' ? 'data' : resource.type === 'tool' ? 'tool' : 'agent'
+    try {
+      await fetch(`${BASE_URL}/api/${typePath}/${resource.id}`, { method: 'DELETE' })
+      // 刷新列表
+      if (resource.type === 'data') fetchDatasetsFromApi()
+      else if (resource.type === 'tool') fetchToolsFromApi()
+      else if (resource.type === 'agent') fetchAgentsFromApi()
+    } catch { /* ignore */ }
   }
 
   const handleResourceClick = (resource: Resource) => {
@@ -183,6 +198,14 @@ export function ResourceBrowser() {
                         v{resource.version}
                       </span>
                     )}
+                    {/* Delete button */}
+                    <button
+                      onClick={(e) => handleDelete(resource, e)}
+                      className="opacity-0 group-hover:opacity-100 hover:!opacity-100 flex items-center justify-center h-4 w-4 rounded hover:bg-red-100 text-maia-text-muted hover:text-red-500 transition-all shrink-0"
+                      title="删除"
+                    >
+                      <Minus className="h-3 w-3" />
+                    </button>
                   </button>
                 ))}
                 {resources.length === 0 && (

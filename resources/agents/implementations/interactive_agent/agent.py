@@ -8,7 +8,7 @@ from core.agent.base import BaseAgent, AgentContext, AgentSpec, AgentRole
 from core.llm.client import create_llm_client, LLMClient
 
 
-SYSTEM_PROMPT = """你是 MAIA Engine 的交互 Agent，一个多智能体多模态智能处理引擎的对话入口。
+SYSTEM_PROMPT = """你是 SOTABand Engine 的交互 Agent，一个多智能体多模态智能处理引擎的对话入口。
 
 ## 你的职责
 1. 理解用户的自然语言意图
@@ -45,7 +45,7 @@ class InteractiveAgent(BaseAgent):
             name="交互Agent",
             version="1.0.0",
             role=AgentRole.INTERACTIVE,
-            description="MAIA Engine 主交互入口，处理用户对话",
+            description="SOTABand Engine 主交互入口，处理用户对话",
             inputs={
                 "content": {"type": "string", "required": True},
                 "attachments": {"type": "list", "required": False},
@@ -103,26 +103,19 @@ class InteractiveAgent(BaseAgent):
         if matched_tool:
             tool_result = await self._execute_tool(matched_tool, content, dataset_paths)
             if tool_result:
-                # 如果工具返回图片，先发送 content 事件让前端直接渲染
-                if (isinstance(tool_result, dict) and
-                    tool_result.get("output_format") == "image" and
-                    isinstance(tool_result.get("data"), dict)):
-                    img_path = tool_result["data"].get("image_path", "")
-                    if img_path:
-                        yield {
-                            "event": "content",
-                            "data": {"text": f"\n[IMAGE:{img_path}]\n"},
-                        }
-
                 yield {
                     "event": "card",
                     "data": {
                         "type": "result-summary",
                         "title": f"工具执行: {matched_tool['name']}",
-                        "summary": json.dumps(tool_result, ensure_ascii=False, default=str)[:500],
+                        "summary": tool_result.get("message", json.dumps(tool_result, ensure_ascii=False, default=str)[:200]),
                         "data": {"tool_id": matched_tool["id"], "result": tool_result},
                     },
                 }
+                # 图片/表格/失败 → 直接结束，不调 LLM
+                if tool_result.get("output_format") in ("image", "table") or tool_result.get("status") == "failed":
+                    yield {"event": "done", "data": {"messageId": f"msg-{int(time.time() * 1000)}"}}
+                    return
             else:
                 tool_failed = True
                 yield {
@@ -141,11 +134,16 @@ class InteractiveAgent(BaseAgent):
             return
 
         user_msg = self._build_user_message(content, attachments, dataset_paths)
-        # 工具结果作为上下文注入（仅成功时）
+        # 工具结果作为上下文注入（仅文字摘要，不含图片路径）
         if tool_result:
+            summary = tool_result.get("message", "") or tool_result.get("summary", "")
+            if not summary:
+                # 提取不含 image_path/data 的关键信息
+                info = {k: v for k, v in tool_result.items() if k not in ("data", "image_path", "output_format")}
+                summary = json.dumps(info, ensure_ascii=False, default=str)[:300]
             user_msg += (
-                f"\n\n[系统提示: 工具 {matched_tool['id']} 已自动执行，"
-                f"实际结果为: {json.dumps(tool_result, ensure_ascii=False, default=str)[:800]}。"
+                f"\n\n[系统提示: 工具 {matched_tool['id']} 已自动执行。"
+                f"结果: {summary}。"
                 f"请基于此真实结果回复用户，不要自行推测或计算。]"
             )
         history.append({"role": "user", "content": user_msg})
@@ -310,8 +308,13 @@ class InteractiveAgent(BaseAgent):
                     f.write(test_script)
                     tmp_path = f.name
                 try:
+                    # 传递环境和工具目录
+                    env = os.environ.copy()
+                    env["TOOL_DIR"] = str(impl_path.parent)
+                    env.setdefault("CUDA_VISIBLE_DEVICES", "0")
                     proc = subprocess.run([python_exe, tmp_path],
-                                        capture_output=True, text=True, timeout=30)
+                                        capture_output=True, text=True, timeout=30,
+                                        env=env)
                     if proc.returncode == 0:
                         return _json.loads(proc.stdout.strip())
                     else:
@@ -331,57 +334,49 @@ class InteractiveAgent(BaseAgent):
             return {"status": "failed", "message": f"工具执行异常: {str(e)[:300]}"}
 
     async def _extract_params(self, query: str, tool_id: str, dataset_paths: list[str] = None) -> dict:
-        """从用户查询中提取工具调用参数，自动注入数据集路径"""
+        """基于 registry 预提取的 param_meta + LLM 智能提取参数"""
+        from pathlib import Path as _Path
+
+        params = {}
+
+        path_param_names = self._get_path_params(tool_id)
+        if dataset_paths and path_param_names:
+            for i, param_name in enumerate(path_param_names):
+                if i < len(dataset_paths):
+                    params[param_name] = dataset_paths[i]
+
         try:
-            # 1. 先读取工具的 MD spec，找出路径类型的参数
-            path_param_names = self._get_path_params(tool_id)
+            from core.resource.registry.tool_registry import ToolRegistry
+            reg = ToolRegistry()
+            entry = await reg.get(tool_id)
+            if not entry:
+                return params
+            param_meta = entry.get("param_meta", [])
+            if not param_meta:
+                return params
 
-            # 2. 自动注入数据集路径到匹配的参数
-            auto_params = {}
-            if dataset_paths and path_param_names:
-                for i, param_name in enumerate(path_param_names):
-                    if i < len(dataset_paths):
-                        auto_params[param_name] = dataset_paths[i]
-
-            # 3. 让 LLM 提取其余参数
-            context_parts = []
-            if auto_params:
-                context_parts.append(f"已自动注入的参数: {json.dumps(auto_params)}（这些是数据集路径，不要修改）")
-            if dataset_paths:
-                context_parts.append(f"可用数据集路径: {json.dumps(dataset_paths)}")
-
-            context = "\n".join(context_parts)
             prompt = (
-                f"用户查询: \"{query}\"\n"
-                f"工具ID: {tool_id}\n"
-                f"{context}\n\n"
-                f"请提取工具需要的其他参数，返回 JSON。\n"
-                f"已有参数不要重复，只提取额外参数。如果没有额外参数，返回 {{}}。"
-                f"只返回 JSON，不要其他内容。"
+                f"Extract tool parameters from user query.\n\n"
+                f"Parameter definitions:\n{json.dumps(param_meta, ensure_ascii=False, indent=2)}\n\n"
+                f"User query: \"{query}\"\n\n"
             )
+            if params:
+                prompt += f"Already injected: {json.dumps(params, ensure_ascii=False)}\n"
+            prompt += "\nReturn JSON with extracted parameters. Parameter names MUST match definitions. Only include parameters clearly inferable from the query."
+
             response = await self.llm.chat(
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.1, max_tokens=500,
+                temperature=0.0, max_tokens=300,
             )
             clean = response.strip()
             if clean.startswith("```"):
                 clean = clean.split("\n", 1)[1].rsplit("\n", 1)[0]
-            extra_params = json.loads(clean)
-
-            # 4. 合并自动参数和 LLM 提取的参数
-            merged = {**auto_params, **extra_params}
-            return merged
+            extra = json.loads(clean)
+            params.update(extra)
         except Exception:
-            import re
-            params = {}
-            if dataset_paths:
-                path_names = self._get_path_params(tool_id)
-                if path_names:
-                    params[path_names[0]] = dataset_paths[0]
-            numbers = re.findall(r'\d+\.?\d*', query)
-            if numbers:
-                params["number"] = float(numbers[0])
-            return params
+            pass
+
+        return params
 
     def _get_path_params(self, tool_id: str) -> list[str]:
         """从工具的 MD spec 中解析路径类型参数名（如 data_path, input_file 等）"""

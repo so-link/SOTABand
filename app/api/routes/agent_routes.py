@@ -262,3 +262,24 @@ async def stop_agent(agent_id: str):
 async def restart_agent(agent_id: str):
     """重启 Agent 子进程"""
     return await agent_factory.restart(agent_id)
+
+
+@router.delete("/{agent_id}")
+async def delete_agent(agent_id: str):
+    """删除 Agent（registry + code + 停止进程）"""
+    entry = await registry.get(agent_id)
+    if not entry:
+        raise HTTPException(404, f"Agent '{agent_id}' not found")
+    import shutil
+    # 停止进程
+    await agent_factory.stop(agent_id)
+    # 删除代码
+    impl_dir = registry._get_impl_dir() / agent_id
+    if impl_dir.exists():
+        shutil.rmtree(impl_dir, ignore_errors=True)
+    # 删除 MD
+    spec_path = registry._get_def_dir() / f"{agent_id}.md"
+    if spec_path.exists():
+        spec_path.unlink()
+    await registry.unregister(agent_id)
+    return {"deleted": agent_id}

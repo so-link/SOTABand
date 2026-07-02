@@ -45,6 +45,7 @@ class ToolRegistry(BaseRegistry):
             "impl_path": f"implementations/{tool_id}/",
             "input_schema": resource.get("input_schema", {}),
             "output_schema": resource.get("output_schema", {}),
+            "param_meta": resource.get("param_meta", []),
             "tags": resource.get("tags", []),
             "usage_count": 0,
             "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -85,9 +86,7 @@ class ToolRegistry(BaseRegistry):
 
     async def unregister(self, tool_id: str):
         data = self._read()
-        for e in data:
-            if e["id"] == tool_id:
-                e["status"] = "archived"
+        data = [e for e in data if e["id"] != tool_id]
         self._write(data)
 
     async def get(self, tool_id: str) -> dict | None:

@@ -54,7 +54,7 @@ class StorageConfig:
     """存储配置"""
 
     backend: str = "sqlite"  # sqlite | postgresql | mysql
-    database_url: str = "sqlite:///maia.db"
+    database_url: str = "sqlite:///sotaband.db"
     file_store_path: str = "./data/files"
     cache_backend: str = "memory"  # memory | redis
     redis_url: Optional[str] = None

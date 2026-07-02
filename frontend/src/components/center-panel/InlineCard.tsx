@@ -231,13 +231,18 @@ function ResultSummaryCard({ title, summary, data }: { title: string; summary: s
       <CardBody>
         <p className="text-xs text-gray-500 mb-2">{summary}</p>
 
-        {/* Visual: Image */}
-        {outputFormat === 'image' && (
+        {/* Image */}
+        {outputFormat === 'image' ? (
           <ImageOutput data={outputData} />
+        ) : null}
+
+        {/* Table — 有 columns+rows 就渲染 */}
+        {((outputData.columns as unknown[])?.length > 0 || (outputData.rows as unknown[])?.length > 0) && (
+          <TableOutput data={outputData} />
         )}
 
-        {/* Visual: Table */}
-        {outputFormat === 'table' && (
+        {/* Plain table format */}
+        {outputFormat === 'table' && !(outputData.columns as unknown[])?.length && (
           <TableOutput data={outputData} />
         )}
       </CardBody>

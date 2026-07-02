@@ -62,9 +62,9 @@ const MOCK_RESOURCES: Record<ResourceType, Resource[]> = {
   ],
   model: [
     {
-      id: 'model-001', name: 'MAIA-LLM-v3', description: '多模态大语言模型，支持文本/图像理解与生成', type: 'model', version: '3.2.0',
+      id: 'model-001', name: 'SOTABand-LLM-v3', description: '多模态大语言模型，支持文本/图像理解与生成', type: 'model', version: '3.2.0',
       status: 'active', createdAt: '2026-06-01T00:00:00Z', updatedAt: '2026-06-20T00:00:00Z', tags: ['LLM', '多模态'],
-      framework: 'PyTorch', modelType: 'multimodal', paramCount: 72000000000, weightPath: '/models/maia-llm-v3.pt',
+      framework: 'PyTorch', modelType: 'multimodal', paramCount: 72000000000, weightPath: '/models/sotaband-llm-v3.pt',
       inputFormat: ['text', 'image'], outputFormat: ['text', 'json'], deploymentStatus: 'deployed',
     },
     {
@@ -114,7 +114,7 @@ const MOCK_RESOURCES: Record<ResourceType, Resource[]> = {
     {
       id: 'user-001', name: 'jmlv', description: '系统管理员', type: 'user', version: '1.0.0',
       status: 'active', createdAt: '2026-06-01T00:00:00Z', updatedAt: '2026-06-01T00:00:00Z', tags: ['admin'],
-      email: 'admin@maia.local', role: 'admin', tenantId: 'tenant-001',
+      email: 'admin@sotaband.local', role: 'admin', tenantId: 'tenant-001',
       resourceQuota: { maxStorage: 107374182400, maxConcurrentTasks: 10, maxAgents: 50 },
       explorationHistory: ['task-001', 'task-002', 'task-003'],
     },

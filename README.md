@@ -23,7 +23,7 @@
 ## 项目结构
 
 ```
-maia-engine/
+sotaband-engine/
 ├── app/                    应用层 — 用户交互界面
 │   ├── api/                REST/GraphQL API 接口
 │   ├── ui/                 Web 前端页面 & 组件

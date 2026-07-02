@@ -352,3 +352,24 @@ async def search_datasets(q: str = "", tags: str = ""):
     tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
     results = await discoverer.search(query=q, tags=tag_list)
     return {"datasets": results}
+
+
+@router.delete("/{dataset_id}")
+async def delete_dataset(dataset_id: str):
+    """删除数据集（registry + data files）"""
+    entry = await registry.get(dataset_id)
+    if not entry:
+        raise HTTPException(404, f"Dataset '{dataset_id}' not found")
+
+    import shutil
+    # 删除数据文件
+    data_path = Path(entry.get("data_path", ""))
+    if data_path.exists():
+        shutil.rmtree(data_path, ignore_errors=True)
+    # 删除 MD 文档
+    spec_path = registry._get_def_dir() / f"{dataset_id}.md"
+    if spec_path.exists():
+        spec_path.unlink()
+    # 从 registry 移除
+    await registry.unregister(dataset_id)
+    return {"deleted": dataset_id}

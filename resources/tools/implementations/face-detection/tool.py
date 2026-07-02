@@ -51,6 +51,11 @@ def execute(**kwargs) -> Dict[str, Any]:
         # 加载Haar级联分类器
         cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
         if not os.path.isfile(cascade_path):
+            # venv 中可能缺失，尝试从工具目录加载
+            tool_dir = os.environ.get('TOOL_DIR', '')
+            if tool_dir:
+                cascade_path = os.path.join(tool_dir, 'haarcascade_frontalface_default.xml')
+        if not os.path.isfile(cascade_path):
             return {"status": "failed", "message": "Haar级联文件缺失", "data": []}
         
         face_cascade = cv2.CascadeClassifier(cascade_path)

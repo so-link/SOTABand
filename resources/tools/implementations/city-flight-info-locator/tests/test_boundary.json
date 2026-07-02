@@ -1,9 +1,0 @@
-{
-  "input": {
-    "city": "",
-    "radius_km": "",
-    "flight_limit": 0,
-    "airport_code": ""
-  },
-  "description": "边界值"
-}

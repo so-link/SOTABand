@@ -1,0 +1,8 @@
+{
+  "input": {
+    "csv_path": "/hdd/sdc1/jmlv/LLM/data/photo.png",
+    "field": null,
+    "length": -1
+  },
+  "description": "异常输入"
+}

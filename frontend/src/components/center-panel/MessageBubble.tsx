@@ -33,7 +33,7 @@ const ROLE_STYLES: Record<Message['role'], {
   agent: {
     container: '',
     icon: Bot,
-    label: 'MAIA Agent',
+    label: 'SOTABand Agent',
     iconBg: 'bg-purple-100 text-purple-600',
   },
 }

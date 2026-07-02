@@ -1,9 +1,0 @@
-{
-  "input": {
-    "city": null,
-    "radius_km": null,
-    "flight_limit": -1,
-    "airport_code": null
-  },
-  "description": "异常输入"
-}

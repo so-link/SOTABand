@@ -1,4 +1,4 @@
-# MAIA Engine — Web 用户交互界面设计
+# SOTABand Engine — Web 用户交互界面设计
 
 > 探索式多智能体交互界面 · 设计文档 v0.1
 

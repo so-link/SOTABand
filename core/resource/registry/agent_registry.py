@@ -70,9 +70,7 @@ class AgentRegistry(BaseRegistry):
 
     async def unregister(self, resource_id: str) -> None:
         data = self._read()
-        for e in data:
-            if e["id"] == resource_id:
-                e["status"] = "archived"
+        data = [e for e in data if e["id"] != resource_id]
         self._write(data)
 
     async def get(self, resource_id: str) -> dict | None:

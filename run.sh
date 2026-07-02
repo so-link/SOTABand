@@ -1,5 +1,5 @@
 #!/bin/bash
-# MAIA Engine 启动脚本
+# SOTABand Engine 启动脚本
 
 set -e
 
@@ -9,7 +9,7 @@ BACKEND_PORT="${BACKEND_PORT:-8001}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"
 
 echo "========================================"
-echo "  MAIA Engine"
+echo "  SOTABand Engine"
 echo "========================================"
 
 # ── 后端 ──
