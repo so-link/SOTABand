@@ -1,0 +1,7 @@
+{
+  "input": {
+    "image_path": "/hdd/sdc1/jmlv/LLM/data/photo.png",
+    "conf_threshold": "not_a_number"
+  },
+  "description": "异常输入"
+}

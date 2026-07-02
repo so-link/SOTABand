@@ -1,0 +1,10 @@
+{
+  "input": {
+    "image_path": "",
+    "output_dir": "",
+    "cascade_file": "",
+    "min_face_size": 0,
+    "confidence_threshold": 0.0
+  },
+  "description": "边界值"
+}

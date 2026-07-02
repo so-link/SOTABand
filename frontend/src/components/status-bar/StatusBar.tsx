@@ -20,7 +20,7 @@ export function StatusBar() {
           <span>资源: 23</span>
         </div>
         <span className="text-[10px] tracking-wider opacity-60">
-          MAIA v0.1.0
+          SOTABand v0.1.0
         </span>
       </div>
     </footer>

@@ -103,6 +103,17 @@ class InteractiveAgent(BaseAgent):
         if matched_tool:
             tool_result = await self._execute_tool(matched_tool, content, dataset_paths)
             if tool_result:
+                # 如果工具返回图片，先发送 content 事件让前端直接渲染
+                if (isinstance(tool_result, dict) and
+                    tool_result.get("output_format") == "image" and
+                    isinstance(tool_result.get("data"), dict)):
+                    img_path = tool_result["data"].get("image_path", "")
+                    if img_path:
+                        yield {
+                            "event": "content",
+                            "data": {"text": f"\n[IMAGE:{img_path}]\n"},
+                        }
+
                 yield {
                     "event": "card",
                     "data": {
@@ -263,9 +274,12 @@ class InteractiveAgent(BaseAgent):
         return base
 
     async def _execute_tool(self, tool_info: dict, user_query: str, dataset_paths: list[str] = None) -> dict | None:
-        """实际执行工具并返回结果"""
+        """实际执行工具并返回结果（优先使用工具独立 venv）"""
         try:
-            import importlib.util
+            import subprocess
+            import json as _json
+            import tempfile
+            import os
             from pathlib import Path
 
             tool_id = tool_info["id"]
@@ -273,21 +287,48 @@ class InteractiveAgent(BaseAgent):
             impl_path = project_root / "resources" / "tools" / "implementations" / tool_id / "tool.py"
 
             if not impl_path.exists():
-                return None
+                return {"status": "failed", "message": f"工具代码不存在: {impl_path}"}
 
-            spec = importlib.util.spec_from_file_location(f"tool_{tool_id}", str(impl_path))
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-
-            if not hasattr(module, "execute"):
-                return None
-
-            # 用 LLM 提取参数（传入数据集路径上下文）
+            # 提取参数
             params = await self._extract_params(user_query, tool_id, dataset_paths)
-            result = module.execute(**params)
-            return result
+
+            # 检查是否有独立 venv
+            venv_python = project_root / "resources" / "tools" / "implementations" / tool_id / ".venv" / "bin" / "python"
+            python_exe = str(venv_python) if venv_python.exists() else None
+
+            if python_exe:
+                # 使用工具独立 venv，子进程执行
+                code = impl_path.read_text()
+                test_script = (
+                    f"import json, sys\n"
+                    f"code = {_json.dumps(code)}\n"
+                    f"exec(code)\n"
+                    f"result = execute(**{_json.dumps(params)})\n"
+                    f"print(json.dumps(result, default=str))\n"
+                )
+                with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+                    f.write(test_script)
+                    tmp_path = f.name
+                try:
+                    proc = subprocess.run([python_exe, tmp_path],
+                                        capture_output=True, text=True, timeout=30)
+                    if proc.returncode == 0:
+                        return _json.loads(proc.stdout.strip())
+                    else:
+                        return {"status": "failed", "message": proc.stderr[:300]}
+                finally:
+                    os.unlink(tmp_path)
+            else:
+                # 回退：同进程加载执行
+                import importlib.util
+                spec = importlib.util.spec_from_file_location(f"tool_{tool_id}", str(impl_path))
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                if hasattr(module, "execute"):
+                    return module.execute(**params)
+                return {"status": "failed", "message": "工具未实现 execute()"}
         except Exception as e:
-            return None  # 返回 None 表示失败，触发失败报告
+            return {"status": "failed", "message": f"工具执行异常: {str(e)[:300]}"}
 
     async def _extract_params(self, query: str, tool_id: str, dataset_paths: list[str] = None) -> dict:
         """从用户查询中提取工具调用参数，自动注入数据集路径"""

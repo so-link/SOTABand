@@ -47,11 +47,19 @@ created: {日期}
 
 ## 3. 输出规范
 
+### 3.1 标准输出字段
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | status | string | 执行状态 (success/failed) |
 | message | string | 结果说明 |
-| data | dict | 输出数据 |
+| output_format | string | **必须指定** — text / image / table / file |
+| data | dict | 输出数据，格式由 output_format 决定 |
+
+### 3.2 output_format 说明
+- `text`: data 含 `{"text": "..."}` — 纯文本展示
+- `image`: data 含 `{"image_path": "/path/to/result.png"}` — 界面直接绘制图片（仅支持路径方式，不支持 base64）
+- `table`: data 含 `{"columns":["c1","c2"], "rows":[[...],...]}` — 渲染为表格
+- `file`: data 含 `{"file_path": "/path/to/result.csv"}` — 文件下载链接
 
 ## 4. 依赖环境
 
@@ -98,7 +106,16 @@ result = execute(...)
 |------|------|------|
 | 0.1.0 | {日期} | 初始版本 |
 
-规则：tool-id 使用小写字母+连字符；type 推断为 function/script/api-wrapper；合理填充所有字段。只输出 Markdown。"""
+规则：
+1. tool-id 使用小写字母+连字符
+2. type 推断为 function/script/api-wrapper
+3. **output_format 必须根据用户需求推断：**
+   - 图片生成/绘制/可视化 → image
+   - 数据处理/统计/查询返回结构化数据 → table
+   - 文件转换/下载 → file
+   - 一般计算/文本回复 → text
+4. 合理填充所有字段
+5. 只输出 Markdown"""
 
 
 @router.post("/generate-spec")
@@ -173,6 +190,25 @@ async def register_tool(req: RegisterToolRequest):
     }
     tool_id = await registry.register(resource)
     entry = await registry.get(tool_id)
+
+    # 创建工具独立虚拟环境并安装依赖
+    deps = []
+    if req.spec_md:
+        import re as _re
+        dep_section = _re.search(r'## 4\.\s*依赖环境\n(.*?)(?=\n##|\Z)', req.spec_md, _re.DOTALL)
+        if dep_section:
+            for line in dep_section.group(1).strip().split("\n"):
+                if line.startswith("|") and "---" not in line and "依赖" not in line:
+                    parts = [p.strip() for p in line.split("|")[1:-1]]
+                    if parts and parts[0] and not parts[0].startswith("--"):
+                        deps.append(parts[0])
+    if deps:
+        try:
+            await builder.setup_venv(tool_id, deps)
+            entry["venv"] = True
+        except Exception:
+            pass
+
     return {"tool_id": tool_id, "entry": entry, "sandbox_results": sandbox}
 
 

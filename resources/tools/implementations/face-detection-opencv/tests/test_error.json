@@ -1,0 +1,10 @@
+{
+  "input": {
+    "image_path": "/hdd/sdc1/jmlv/LLM/data/photo.png",
+    "output_dir": null,
+    "cascade_file": null,
+    "min_face_size": -1,
+    "confidence_threshold": "not_a_number"
+  },
+  "description": "异常输入"
+}

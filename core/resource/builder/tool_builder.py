@@ -15,6 +15,35 @@ class ToolCodeBuilder(BaseBuilder):
     def __init__(self, llm_client=None):
         self.llm = llm_client or create_llm_client()
 
+    async def setup_venv(self, tool_id: str, dependencies: list[str] = None) -> str:
+        """为工具创建独立虚拟环境并安装依赖，返回 venv 的 Python 路径"""
+        import subprocess
+        import sys
+        from pathlib import Path as _Path
+
+        tools_dir = _Path(__file__).resolve().parent.parent.parent.parent / "resources" / "tools" / "implementations"
+        venv_dir = tools_dir / tool_id / ".venv"
+
+        venv_python = venv_dir / "bin" / "python"
+
+        if not venv_python.exists():
+            subprocess.run([sys.executable, "-m", "venv", str(venv_dir)],
+                         capture_output=True, timeout=60)
+
+        # 安装依赖
+        if dependencies:
+            pip = str(venv_dir / "bin" / "pip")
+            # 先升级 pip
+            subprocess.run([pip, "install", "--upgrade", "pip"],
+                         capture_output=True, timeout=60)
+            # 安装依赖
+            for dep in dependencies:
+                if dep.strip():
+                    subprocess.run([pip, "install", dep.strip()],
+                                 capture_output=True, timeout=120)
+
+        return str(venv_python)
+
     async def validate_spec(self, spec: dict) -> bool:
         md = spec.get("raw_md", "")
         required = ["功能概述", "输入规范", "输出规范", "依赖环境", "运行机制"]
@@ -92,10 +121,16 @@ class ToolCodeBuilder(BaseBuilder):
 
             test_script = (
                 f"import json\n"
+                f"import sys\n"
                 f"code = {_json.dumps(code)}\n"
-                f"exec(code)\n"
-                f"result = execute(**{_json.dumps(test_input)})\n"
-                f"print(json.dumps(result, default=str))\n"
+                f"try:\n"
+                f"    exec(code)\n"
+                f"    result = execute(**{_json.dumps(test_input)})\n"
+                f"    print(json.dumps(result, default=str))\n"
+                f"except ModuleNotFoundError as e:\n"
+                f"    print(json.dumps({{'status':'failed','message':f'缺少依赖: {{e.name}}，请用 pip install {{e.name}} 安装','error':'ModuleNotFoundError'}}))\n"
+                f"except Exception as e:\n"
+                f"    print(json.dumps({{'status':'failed','message':str(e),'error':type(e).__name__}}))\n"
             )
             with _tmp.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
                 f.write(test_script)
@@ -112,13 +147,27 @@ class ToolCodeBuilder(BaseBuilder):
                         output_data = _json.loads(output_data)
                     except _json.JSONDecodeError:
                         pass
-                    results["passed"].append("功能测试: execute() 执行成功")
+                    # 检查是否是 ModuleNotFoundError
+                    if isinstance(output_data, dict) and output_data.get("error") == "ModuleNotFoundError":
+                        results["failed"].append(output_data.get('message', '缺少依赖'))
+                    else:
+                        results["passed"].append("功能测试: execute() 执行成功")
                     results["test_details"] = {
                         "input": test_input,
                         "output": output_data,
                     }
                 else:
-                    results["failed"].append(f"功能测试失败:\n{proc.stderr[:200]}")
+                    # 解析 stderr 中的 ModuleNotFoundError
+                    err_msg = proc.stderr[:200]
+                    if "ModuleNotFoundError" in err_msg:
+                        import re as _re
+                        match = _re.search(r"No module named '(\S+)'", err_msg)
+                        if match:
+                            results["failed"].append(f"缺少依赖: {match.group(1)}，请 pip install {match.group(1)}")
+                        else:
+                            results["failed"].append(f"缺少依赖:\n{err_msg}")
+                    else:
+                        results["failed"].append(f"功能测试失败:\n{err_msg}")
                     results["test_details"] = {
                         "input": test_input,
                         "output": None,
@@ -145,7 +194,13 @@ class ToolCodeBuilder(BaseBuilder):
             "description": "",
             "inputs": [],
             "outputs": [],
+            "output_format": "text",  # 从 MD 解析
         }
+
+        # 解析 output_format
+        out_match = re.search(r'output_format\s*\|\s*(\w+)', md)
+        if out_match:
+            result["output_format"] = out_match.group(1)
 
         # 解析 frontmatter
         fm_match = re.search(r'^---\n(.*?)\n---', md, re.DOTALL)
@@ -204,28 +259,42 @@ class ToolCodeBuilder(BaseBuilder):
 
     async def _llm_generate(self, parsed: dict) -> str:
         """LLM 生成工具代码"""
-        prompt = f"""Generate a Python tool function based on this specification:
+        # 从 MD spec 解析的参数构建严格约束
+        inputs = parsed.get('inputs', [])
+        param_names = [inp.get('name', '?') for inp in inputs]
+        validations = []
+        for inp in inputs:
+            if inp.get('required', True):
+                n = inp['name']
+                validations.append(
+                    f'    if "{n}" not in kwargs: '
+                    f'return {{"status": "failed", "message": "缺少必需参数: {n}", "data": {{}}}}'
+                )
+        fmt = parsed.get('output_format', 'text')
 
-Tool ID: {parsed.get('id', 'custom-tool')}
-Tool Name: {parsed.get('name', 'Custom Tool')}
-Language: {parsed.get('language', 'python')}
+        prompt = f"""Generate a Python tool function. You MUST use EXACTLY the specified inputs and outputs.
 
-Input parameters:
-{json.dumps(parsed.get('inputs', []), indent=2, ensure_ascii=False)}
+Tool: {parsed.get('name', 'Tool')}
+Function parameters (use ONLY these names via **kwargs): {', '.join(param_names)}
 
-Output format:
-{json.dumps(parsed.get('outputs', []), indent=2, ensure_ascii=False)}
+Required parameter validation:
+{chr(10).join(validations) if validations else '    pass'}
 
-Requirements:
-1. Create a function: def execute(**kwargs) -> dict[str, Any]:
-2. Validate all required input parameters
-3. Return a dict with at least: {{"status": "success"|"failed", "message": "", "data": {{}}}}
-4. Handle errors gracefully with try/except
-5. Add docstring with Args and Returns
-6. If it's a data processing tool, handle file I/O properly
-7. Import only standard library + specified dependencies
+Output format: \"{fmt}\"
+You MUST return EXACTLY:
+- image: {{"status":"success","output_format":"image","message":"...","data":{{"image_path":"<real file path>"}}}}
+- table: {{"status":"success","output_format":"table","message":"...","data":{{"columns":["c1","c2"],"rows":[[v1,v2],...]}}}}
+- text:  {{"status":"success","output_format":"text","message":"...","data":{{"text":"<result>"}}}}
+- file:  {{"status":"success","output_format":"file","message":"...","data":{{"file_path":"<real path>"}}}}
+- error: {{"status":"failed","message":"<reason>","data":{{}}}}
 
-Return ONLY the Python code, no explanations. """
+Rules:
+1. def execute(**kwargs) -> dict[str, Any]
+2. Use EXACT parameter names from the list above
+3. Return EXACT output format for \"{fmt}\"
+4. No extra imports beyond what's needed
+
+Return ONLY Python code, no markdown."""
 
         response = await self.llm.chat(
             messages=[{"role": "user", "content": prompt}],

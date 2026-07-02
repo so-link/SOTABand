@@ -50,6 +50,19 @@ async def upload_file(file: UploadFile = File(...)):
     }
 
 
+@router.get("/image")
+async def serve_image(path: str):
+    """提供图片文件（用于界面渲染）"""
+    from pathlib import Path as _Path
+    from fastapi.responses import FileResponse
+    import mimetypes
+    img_path = _Path(path)
+    if not img_path.exists():
+        raise HTTPException(404, "图片不存在")
+    mime_type, _ = mimetypes.guess_type(str(img_path))
+    return FileResponse(img_path, media_type=mime_type or "image/png")
+
+
 @router.get("/list")
 async def list_files():
     """列出所有已上传文件"""

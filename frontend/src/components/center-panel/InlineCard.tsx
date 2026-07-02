@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { InlineCard as InlineCardType } from '@/types/chat'
 import { Card, CardHeader, CardBody } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -213,7 +214,11 @@ function ExecutionProgressCard({ title, summary }: { title: string; summary: str
 
 // ---- Result Summary Card ----
 
-function ResultSummaryCard({ title, summary }: { title: string; summary: string; data: Record<string, unknown> }) {
+function ResultSummaryCard({ title, summary, data }: { title: string; summary: string; data: Record<string, unknown> }) {
+  const result = (data.result as Record<string, unknown>) || {}
+  const outputFormat = result.output_format as string || ''
+  const outputData = (result.data as Record<string, unknown>) || {}
+
   return (
     <Card className="border-emerald-200 bg-emerald-50/50">
       <CardHeader>
@@ -224,9 +229,80 @@ function ResultSummaryCard({ title, summary }: { title: string; summary: string;
         </div>
       </CardHeader>
       <CardBody>
-        <p className="text-xs text-gray-500">{summary}</p>
+        <p className="text-xs text-gray-500 mb-2">{summary}</p>
+
+        {/* Visual: Image */}
+        {outputFormat === 'image' && (
+          <ImageOutput data={outputData} />
+        )}
+
+        {/* Visual: Table */}
+        {outputFormat === 'table' && (
+          <TableOutput data={outputData} />
+        )}
       </CardBody>
     </Card>
+  )
+}
+
+// ── Visual Output Components ──
+
+function ImageOutput({ data }: { data: Record<string, unknown> }) {
+  const imagePath = (data.image_path || data.path) as string | undefined
+  const [error, setError] = useState(false)
+  if (!imagePath) return <p className="text-xs text-gray-400">图片路径不可用</p>
+
+  const src = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001'}/api/file/image?path=${encodeURIComponent(imagePath)}`
+
+  return (
+    <div className="mt-2 rounded-lg overflow-hidden border border-gray-200">
+      {error ? (
+        <div className="p-3 text-xs text-red-500 bg-red-50">
+          图片加载失败: {imagePath}
+        </div>
+      ) : (
+        <img
+          src={src}
+          alt="工具输出图片"
+          className="w-full max-h-[400px] object-contain bg-gray-50"
+          onError={() => setError(true)}
+        />
+      )}
+    </div>
+  )
+}
+
+function TableOutput({ data }: { data: Record<string, unknown> }) {
+  const columns = (data.columns as string[]) || []
+  const rows = (data.rows as unknown[][]) || []
+
+  if (columns.length === 0) return <p className="text-xs text-gray-400">表格数据不可用</p>
+
+  return (
+    <div className="mt-2 rounded-lg border border-gray-200 overflow-auto max-h-[300px]">
+      <table className="w-full text-xs">
+        <thead className="bg-gray-50">
+          <tr>
+            {columns.map((col, i) => (
+              <th key={i} className="px-3 py-2 text-left font-medium text-gray-600 border-b border-gray-200 whitespace-nowrap">
+                {col}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr key={i} className="hover:bg-gray-50">
+              {(row as unknown[]).map((cell, j) => (
+                <td key={j} className="px-3 py-1.5 text-gray-700 border-b border-gray-100 whitespace-nowrap">
+                  {String(cell ?? '')}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }
 

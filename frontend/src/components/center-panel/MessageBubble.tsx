@@ -74,9 +74,33 @@ export function MessageBubble({ message }: MessageBubbleProps) {
             </div>
           ) : (
             <>
+              {/* Render images from cards */}
+              {cards && cards.map(card => {
+                if (card.type === 'result-summary' && card.data) {
+                  const result = (card.data as Record<string, unknown>).result as Record<string, unknown> | undefined
+                  if (result?.output_format === 'image') {
+                    const imgData = result.data as Record<string, unknown> | undefined
+                    const imgPath = imgData?.image_path as string | undefined
+                    if (imgPath) {
+                      const src = `http://localhost:8001/api/file/image?path=${encodeURIComponent(imgPath)}`
+                      return (
+                        <img key={card.id} src={src} alt="工具输出"
+                          className="w-full max-h-[400px] object-contain rounded-lg border border-gray-200 bg-gray-50 mb-3"
+                          onError={(e) => {
+                            const t = e.target as HTMLImageElement
+                            t.outerHTML = `<div class="text-xs text-red-500 p-2 bg-red-50 rounded">图片加载失败: ${imgPath}</div>`
+                          }}
+                        />
+                      )
+                    }
+                  }
+                }
+                return null
+              })}
+
               {/* Text content */}
               <div className="text-[13px] leading-relaxed text-maia-text tracking-wide">
-                <div dangerouslySetInnerHTML={{ __html: formatHtml(formattedContent) }} />
+                <div dangerouslySetInnerHTML={{ __html: renderWithImages(formatHtml(formattedContent)) }} />
               </div>
 
               {/* Attachments */}
@@ -130,4 +154,15 @@ function renderMarkdown(text: string): string {
 
 function formatHtml(text: string): string {
   return `<p>${text}</p>`
+}
+
+/** 将 [IMAGE:path] 转换为 img 标签 */
+function renderWithImages(html: string): string {
+  return html.replace(
+    /\[IMAGE:([^\]]+)\]/g,
+    (_m, path) => {
+      const url = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001'}/api/file/image?path=${encodeURIComponent(path)}`
+      return `<img src="${url}" alt="工具输出" style="max-width:100%;max-height:400px;border-radius:8px;margin:8px 0" />`
+    }
+  )
 }

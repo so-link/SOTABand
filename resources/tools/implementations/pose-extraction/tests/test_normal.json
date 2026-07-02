@@ -1,0 +1,7 @@
+{
+  "input": {
+    "image_path": "/hdd/sdc1/jmlv/LLM/data/photo.png",
+    "conf_threshold": 1.0
+  },
+  "description": "正常输入"
+}

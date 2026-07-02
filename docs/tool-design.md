@@ -81,11 +81,52 @@ created: {日期}
 
 ## 3. 输出规范
 
+### 3.1 标准输出字段
+
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| output_path | string | 处理后数据保存路径 |
-| metadata | dict | 处理参数和统计信息 |
 | status | string | 执行状态 (success/failed) |
+| message | string | 结果说明 |
+| output_format | string | 输出格式: text / image / table / file（见 3.2） |
+| data | dict/list | 输出数据，格式由 output_format 决定 |
+
+### 3.2 可视化输出格式
+
+工具支持以下可被界面直接渲染的输出格式：
+
+| output_format | data 格式 | 界面渲染方式 |
+|---------------|----------|-------------|
+| `text` | `{"text": "..."}` | 纯文本展示 |
+| `image` | `{"image_path": "/path/to/file.png"}`（仅路径方式） | **直接绘制图片** |
+| `table` | `{"columns": ["col1","col2"], "rows": [[...],...]}` | **渲染为表格** |
+| `file` | `{"file_path": "/path/to/result.csv"}` | 文件下载链接 |
+
+**示例 — 图片输出：**
+```json
+{
+  "status": "success",
+  "output_format": "image",
+  "data": {
+    "image_path": "/data/results/spectrogram.png"
+  }
+}
+```
+
+**示例 — 表格输出：**
+```json
+{
+  "status": "success", 
+  "output_format": "table",
+  "data": {
+    "columns": ["通道", "频率(Hz)", "功率(dB)"],
+    "rows": [
+      ["C3", 10.5, -12.3],
+      ["C4", 8.2, -14.1],
+      ["F3", 12.1, -10.8]
+    ]
+  }
+}
+```
 
 ## 4. 依赖环境
 

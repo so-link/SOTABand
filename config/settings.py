@@ -106,7 +106,7 @@ class ObservabilityConfig:
 class AppConfig:
     """应用配置"""
 
-    app_name: str = "MAIA Engine"
+    app_name: str = "SOTABand"
     debug: bool = False
     api_host: str = "0.0.0.0"
     api_port: int = 8001

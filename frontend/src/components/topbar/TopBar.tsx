@@ -29,7 +29,7 @@ export function TopBar() {
         <div className="flex items-center gap-1.5 ml-1">
           <Brain className="h-4 w-4 text-maia-accent" />
           <span className="text-[13px] font-semibold text-maia-text-heading tracking-wide">
-            MAIA Engine
+            SOTABand 优智联邦
           </span>
         </div>
 
