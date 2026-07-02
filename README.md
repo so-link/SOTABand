@@ -1,4 +1,4 @@
-# SOTABand Engine
+# SOTABand Engine (优智联邦）
 
 > 多智能体驱动的多模态智能处理引擎
 >
