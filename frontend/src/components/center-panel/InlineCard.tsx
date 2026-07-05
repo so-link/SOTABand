@@ -231,6 +231,9 @@ function ResultSummaryCard({ title, summary, data }: { title: string; summary: s
       <CardBody>
         <p className="text-xs text-gray-500 mb-2">{summary}</p>
 
+        {/* Full result data (non-image fields) */}
+        <FullResult result={result} />
+
         {/* Image */}
         {outputFormat === 'image' ? (
           <ImageOutput data={outputData} />
@@ -247,6 +250,19 @@ function ResultSummaryCard({ title, summary, data }: { title: string; summary: s
         )}
       </CardBody>
     </Card>
+  )
+}
+
+// ── Full Result Display ──
+
+function FullResult({ result }: { result: Record<string, unknown> }) {
+  return (
+    <details className="mt-2">
+      <summary className="text-[11px] text-maia-text-muted cursor-pointer hover:text-maia-text">完整返回数据</summary>
+      <pre className="mt-1 p-2 rounded bg-white border border-maia-border text-[10px] font-mono leading-relaxed max-h-[200px] overflow-auto whitespace-pre-wrap">
+        {JSON.stringify(result, null, 2)}
+      </pre>
+    </details>
   )
 }
 

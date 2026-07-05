@@ -1,0 +1,7 @@
+{
+  "input": {
+    "file_path": "/hdd/sdc1/jmlv/LLM/data/photo.png",
+    "max_rows": -1
+  },
+  "description": "异常输入"
+}

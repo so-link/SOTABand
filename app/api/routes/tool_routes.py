@@ -165,7 +165,7 @@ async def test_tool(req: GenerateToolCodeRequest):
     test_data = await builder.generate_test_data(spec)
     normal_input = test_data.get("normal", {}).get("input", {})
 
-    results = await builder.dry_run(code, normal_input)
+    results = await builder.dry_run(code, normal_input, req.tool_id)
     return {"code": code, "sandbox_results": results, "test_data": test_data}
 
 
@@ -178,7 +178,7 @@ async def register_tool(req: RegisterToolRequest):
     code = req.code or (await builder.build(spec))
     test_data = req.test_data or await builder.generate_test_data(spec)
     normal_input = test_data.get("normal", {}).get("input", {})
-    sandbox = await builder.dry_run(code, normal_input)
+    sandbox = await builder.dry_run(code, normal_input, req.tool_id)
 
     if sandbox["failed"]:
         raise HTTPException(400, f"沙箱测试未通过: {sandbox['failed']}")
@@ -258,7 +258,7 @@ async def update_tool_code(tool_id: str, req: RegisterToolRequest):
     test_data = req.test_data or await builder.generate_test_data(spec)
     normal_input = test_data.get("normal", {}).get("input", {})
     # 如果测试输入为空，至少传一个空 dict 验证代码能跑
-    sandbox = await builder.dry_run(code, normal_input or {})
+    sandbox = await builder.dry_run(code, normal_input or {}, tool_id)
 
     if sandbox["failed"]:
         raise HTTPException(400, f"沙箱测试未通过: {sandbox['failed']}")

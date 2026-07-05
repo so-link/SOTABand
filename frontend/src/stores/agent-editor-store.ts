@@ -92,8 +92,9 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
         step: 4,
         isGenerating: false,
       })
-    } catch (e) {
-      set({ error: String(e), isGenerating: false })
-    }
+      // 刷新左侧 Agent 空间列表
+      const { useResourceStore } = await import('@/stores/resource-store')
+      useResourceStore.getState().fetchAgentsFromApi()
+    } catch (e) { set({ error: String(e), isGenerating: false }) }
   },
 }))

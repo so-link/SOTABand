@@ -270,5 +270,192 @@
         ]
       }
     ]
+  },
+  {
+    "id": "file-visualizer",
+    "name": "文件可视化器",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/file-visualizer.md",
+    "impl_path": "implementations/file-visualizer/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "file_path",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "待可视化的文件路径",
+        "hints": [
+          "文件路径",
+          "可视化文件",
+          "展示这个CSV",
+          "打开这张图片",
+          "看看这个文件"
+        ]
+      },
+      {
+        "name": "max_rows",
+        "type": "integer",
+        "required": false,
+        "default": 1000,
+        "desc": "CSV模式下返回的最大行数",
+        "hints": [
+          "最多显示几行",
+          "限制行数",
+          "只显示前100行",
+          "行数上限"
+        ]
+      }
+    ],
+    "tags": [],
+    "usage_count": 0,
+    "created_at": "2026-07-03T07:57:20Z"
+  },
+  {
+    "id": "meal-replacement-shape-prediction-training",
+    "name": "代餐奶昔形状预测模型训练",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/meal-replacement-shape-prediction-training.md",
+    "impl_path": "implementations/meal-replacement-shape-prediction-training/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "data_path",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "CSV数据集文件路径，需包含7个特征列和2个目标列",
+        "hints": [
+          "数据集路径",
+          "数据文件",
+          "CSV文件",
+          "数据路径"
+        ]
+      },
+      {
+        "name": "model_type",
+        "type": "string",
+        "required": false,
+        "default": "random_forest",
+        "desc": "模型类型，支持random_forest, gradient_boosting, linear_regression, svr, mlp",
+        "hints": [
+          "模型",
+          "算法",
+          "训练模型类型",
+          "随机森林",
+          "梯度提升"
+        ]
+      },
+      {
+        "name": "random_state",
+        "type": "int",
+        "required": false,
+        "default": 42,
+        "desc": "随机种子，保证结果可复现",
+        "hints": [
+          "随机种子",
+          "种子",
+          "随机数",
+          "随机状态"
+        ]
+      },
+      {
+        "name": "test_size",
+        "type": "float",
+        "required": false,
+        "default": 0.2,
+        "desc": "测试集比例",
+        "hints": [
+          "测试比例",
+          "测试集大小",
+          "测试划分",
+          "验证比例"
+        ]
+      },
+      {
+        "name": "output_dir",
+        "type": "string",
+        "required": false,
+        "default": "./models",
+        "desc": "模型保存目录",
+        "hints": [
+          "输出目录",
+          "模型保存路径",
+          "存储目录",
+          "输出文件夹"
+        ]
+      }
+    ],
+    "tags": [],
+    "usage_count": 0,
+    "created_at": "2026-07-03T08:32:18Z"
+  },
+  {
+    "id": "milkshake-data-analysis",
+    "name": "奶昔数据分析",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/milkshake-data-analysis.md",
+    "impl_path": "implementations/milkshake-data-analysis/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "mode",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "功能模式，可选 train（训练）或 predict（预测）",
+        "hints": [
+          "模式",
+          "训练还是预测",
+          "功能选项",
+          "train",
+          "predict"
+        ]
+      },
+      {
+        "name": "csv_file",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "CSV 数据文件的路径",
+        "hints": [
+          "CSV文件",
+          "数据文件",
+          "文件路径",
+          "数据集",
+          "csv路径"
+        ]
+      },
+      {
+        "name": "model_type",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "回归模型类型，可选 random_forest、xgboost、gradient_boosting、svr、linear_regression、ridge",
+        "hints": [
+          "模型",
+          "算法",
+          "选择模型",
+          "random_forest",
+          "xgboost",
+          "模型类型"
+        ]
+      }
+    ],
+    "tags": [],
+    "usage_count": 0,
+    "created_at": "2026-07-03T09:10:28Z"
   }
 ]

@@ -39,47 +39,54 @@ MD 文档:
         except Exception:
             return []
 
-    async def setup_venv(self, tool_id: str, dependencies: list[str] = None) -> str:
-        """为工具创建独立虚拟环境并安装依赖，返回 venv 的 Python 路径"""
+    async def setup_venv(self, tool_id: str, dependencies: list[str] = None) -> str | None:
+        """检查兼容性。依赖与主环境兼容则返回 None（用主Python），否则创建 venv"""
+        import importlib, sys
+
+        if not dependencies:
+            return None
+
+        # 测试主环境是否能导入所有依赖
+        for dep in dependencies:
+            if not dep.strip():
+                continue
+            pkg = dep.strip().split(">=")[0].split("==")[0].split("<")[0].strip()
+            try:
+                importlib.import_module(pkg)
+            except ImportError:
+                break
+        else:
+            return None  # 全部可导入，主环境兼容
+
+        # 不兼容 → 创建 venv
         import subprocess
-        import sys
         from pathlib import Path as _Path
 
         tools_dir = _Path(__file__).resolve().parent.parent.parent.parent / "resources" / "tools" / "implementations"
         venv_dir = tools_dir / tool_id / ".venv"
-
         venv_python = venv_dir / "bin" / "python"
 
         if not venv_python.exists():
             subprocess.run([sys.executable, "-m", "venv", str(venv_dir)],
                          capture_output=True, timeout=60)
-
-        # 安装依赖
-        if dependencies:
             pip = str(venv_dir / "bin" / "pip")
-            # 先升级 pip
-            subprocess.run([pip, "install", "--upgrade", "pip"],
-                         capture_output=True, timeout=60)
-            # 安装依赖
+            subprocess.run([pip, "install", "numpy>=1.24,<2.0"],
+                         capture_output=True, timeout=120)
             for dep in dependencies:
                 if dep.strip():
                     subprocess.run([pip, "install", dep.strip()],
                                  capture_output=True, timeout=120)
 
         return str(venv_python)
-
     async def validate_spec(self, spec: dict) -> bool:
         md = spec.get("raw_md", "")
         required = ["功能概述", "输入规范", "输出规范", "依赖环境", "运行机制"]
         return all(s in md for s in required)
 
     async def build(self, spec: dict) -> str:
-        """生成工具代码"""
-        # 从 MD 解析结构化信息
-        parsed = self._parse_spec(spec)
-
-        # 使用 LLM 生成代码（工具逻辑差异大，不适合模板）
-        return await self._llm_generate(parsed)
+        """生成工具代码 — 传递完整 MD spec 给 LLM"""
+        raw_md = spec.get("raw_md", "")
+        return await self._llm_generate(raw_md)
 
     async def generate_test_data(self, spec: dict) -> dict:
         """根据输入规范自动构造测试数据"""
@@ -107,8 +114,8 @@ MD 文档:
             "error": {"input": test_error, "description": "异常输入"},
         }
 
-    async def dry_run(self, code: str, test_input: dict = None) -> dict:
-        """沙箱测试"""
+    async def dry_run(self, code: str, test_input: dict = None, tool_id: str = None) -> dict:
+        """沙箱测试 — 优先使用工具独立 venv 的 Python"""
         results = {"passed": [], "failed": [], "errors": []}
 
         # 1. 语法检查
@@ -135,13 +142,20 @@ MD 文档:
         else:
             results["passed"].append("无外部依赖")
 
-        # 4. 功能测试（在子进程中执行，防止死循环挂起）
+        # 4. 功能测试（用工具 venv 的 Python 执行）
         try:
             import subprocess as _sp
             import json as _json
             import sys as _sys
             import tempfile as _tmp
             import os as _os
+
+            # 确定 Python 执行器：优先工具 venv
+            python_exe = _sys.executable
+            if tool_id:
+                venv_py = Path(__file__).resolve().parent.parent.parent.parent / "resources" / "tools" / "implementations" / tool_id / ".venv" / "bin" / "python"
+                if venv_py.exists():
+                    python_exe = str(venv_py)
 
             test_script = (
                 f"import json\n"
@@ -162,7 +176,7 @@ MD 文档:
 
             try:
                 proc = _sp.run(
-                    [_sys.executable, tmp_path],
+                    [python_exe, tmp_path],
                     capture_output=True, text=True, timeout=10,
                 )
                 if proc.returncode == 0:
@@ -281,44 +295,27 @@ MD 文档:
 
         return ("test", "", None)
 
-    async def _llm_generate(self, parsed: dict) -> str:
-        """LLM 生成工具代码"""
-        # 从 MD spec 解析的参数构建严格约束
-        inputs = parsed.get('inputs', [])
-        param_names = [inp.get('name', '?') for inp in inputs]
-        validations = []
-        for inp in inputs:
-            if inp.get('required', True):
-                n = inp['name']
-                validations.append(
-                    f'    if "{n}" not in kwargs: '
-                    f'return {{"status": "failed", "message": "缺少必需参数: {n}", "data": {{}}}}'
-                )
-        fmt = parsed.get('output_format', 'text')
+    async def _llm_generate(self, spec_md: str) -> str:
+        """LLM 生成工具代码 — 基于完整 MD 规范文档"""
+        prompt = f"""You are a Python code generator. Generate a tool function that STRICTLY follows the specification below.
 
-        prompt = f"""Generate a Python tool function. You MUST use EXACTLY the specified inputs and outputs.
+=== TOOL SPECIFICATION ===
+{spec_md}
+=== END SPECIFICATION ===
 
-Tool: {parsed.get('name', 'Tool')}
-Function parameters (use ONLY these names via **kwargs): {', '.join(param_names)}
+CRITICAL RULES:
+1. Function signature MUST be: def execute(**kwargs) -> dict[str, Any]
+2. Parameter names MUST match EXACTLY what the spec defines in the input table
+3. For EVERY required parameter (required=是), add a validation check at the top
+4. The return dict MUST include: status, output_format, message, data
+5. Use the EXACT output_format specified in the spec
+6. If output_format is "image": save the result to a real file path and return image_path in data
+7. If output_format is "table": return data with "columns" and "rows" arrays
+8. Handle ALL errors gracefully with try/except, returning status="failed"
+9. Import only standard library and the dependencies listed in the spec
+10. The docstring should describe Args and Returns based on the spec
 
-Required parameter validation:
-{chr(10).join(validations) if validations else '    pass'}
-
-Output format: \"{fmt}\"
-You MUST return EXACTLY:
-- image: {{"status":"success","output_format":"image","message":"...","data":{{"image_path":"<real file path>"}}}}
-- table: {{"status":"success","output_format":"table","message":"...","data":{{"columns":["c1","c2"],"rows":[[v1,v2],...]}}}}
-- text:  {{"status":"success","output_format":"text","message":"...","data":{{"text":"<result>"}}}}
-- file:  {{"status":"success","output_format":"file","message":"...","data":{{"file_path":"<real path>"}}}}
-- error: {{"status":"failed","message":"<reason>","data":{{}}}}
-
-Rules:
-1. def execute(**kwargs) -> dict[str, Any]
-2. Use EXACT parameter names from the list above
-3. Return EXACT output format for \"{fmt}\"
-4. No extra imports beyond what's needed
-
-Return ONLY Python code, no markdown."""
+Return ONLY the Python code, no explanations, no markdown fences."""
 
         response = await self.llm.chat(
             messages=[{"role": "user", "content": prompt}],

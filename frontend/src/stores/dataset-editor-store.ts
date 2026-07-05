@@ -102,6 +102,9 @@ export const useDatasetEditorStore = create<DatasetEditorState>((set, get) => ({
         '', files.length, totalSize, formats, sourceFiles,
       )
       set({ registeredId: result.dataset_id, step: 3, isGenerating: false })
+      // 刷新数据空间列表
+      const { useResourceStore } = await import('@/stores/resource-store')
+      useResourceStore.getState().fetchDatasetsFromApi()
     } catch (e) { set({ error: String(e), isGenerating: false }) }
   },
 }))

@@ -54,7 +54,7 @@ function Step1() {
   return (
     <div className="max-w-2xl mx-auto">
       <h3 className="text-lg font-semibold text-maia-text-heading mb-2 tracking-wide">Step 1: 描述工具需求</h3>
-      <p className="text-sm text-maia-text-secondary mb-4">用自然语言描述你需要什么工具，系统会调用 DeepSeek v4 生成标准化的 MD 工具描述文档。</p>
+      <p className="text-sm text-maia-text-secondary mb-4">用自然语言描述你需要什么工具，系统会调用大模型生成标准化的 MD 工具描述文档。</p>
       <textarea value={description} onChange={(e) => setDescription(e.target.value)}
         placeholder='例如: "我需要一个EEG带通滤波器，支持delta/theta/alpha/beta/gamma频段，Butterworth滤波器，输入EDF文件，输出滤波后的EDF文件"'
         rows={6} className="w-full rounded-lg border border-maia-border bg-white px-4 py-3 text-[13px] tracking-wide outline-none resize-none focus:border-maia-accent/40 placeholder:text-maia-text-muted" />

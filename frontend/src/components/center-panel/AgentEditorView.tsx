@@ -90,7 +90,7 @@ function Step1Description() {
         Step 1: 描述你的 Agent 需求
       </h3>
       <p className="text-sm text-maia-text-secondary mb-4">
-        用自然语言描述你需要什么样的 Agent，系统会调用 DeepSeek v4 自动生成标准化的 MD 规范文档。
+        用自然语言描述你需要什么样的 Agent，系统会调用大模型自动生成标准化的 MD 规范文档。
       </p>
 
       <textarea

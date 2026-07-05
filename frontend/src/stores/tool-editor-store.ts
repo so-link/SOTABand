@@ -84,6 +84,9 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
     try {
       const result = await toolApi.register(generatedMd, generatedCode, testData || {})
       set({ registeredId: result.tool_id, step: 4, isGenerating: false })
+      // 刷新左侧工具空间列表
+      const { useResourceStore } = await import('@/stores/resource-store')
+      useResourceStore.getState().fetchToolsFromApi()
     } catch (e) { set({ error: String(e), isGenerating: false }) }
   },
 }))

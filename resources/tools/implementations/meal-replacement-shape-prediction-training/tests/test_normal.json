@@ -1,0 +1,10 @@
+{
+  "input": {
+    "data_path": "/hdd/sdc1/jmlv/LLM/data/photo.png",
+    "model_type": "hello",
+    "random_state": 3,
+    "test_size": 1.0,
+    "output_dir": "hello"
+  },
+  "description": "正常输入"
+}

@@ -57,7 +57,7 @@ export const toolApi = {
     return fetchWithTimeout(`${BASE_URL}/api/tool/register`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ specMd, code, toolId, toolName, testData }),
-    }, 30000) as Promise<{ tool_id: string; entry: Record<string, unknown>; sandbox_results: Record<string, unknown> }>
+    }, 180000) as Promise<{ tool_id: string; entry: Record<string, unknown>; sandbox_results: Record<string, unknown> }>
   },
 
   async list() {

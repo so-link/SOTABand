@@ -73,6 +73,7 @@ class InteractiveAgent(BaseAgent):
         super().__init__(spec, config=spec.config)
         self.llm = llm_client or create_llm_client()
         self._sessions: dict[str, list[dict]] = {}
+        self._pending_calls: dict[str, dict] = {}
 
     async def execute(
         self, ctx: AgentContext, **kwargs
@@ -100,8 +101,64 @@ class InteractiveAgent(BaseAgent):
         # 如果预匹配到工具 → 先执行工具，用真实结果驱动 LLM 回复
         tool_result = None
         tool_failed = False
+        # 检查是否有未完成的参数收集任务
+        session_key = ctx.session_id or "default"
+        pending = self._pending_calls.get(session_key)
+
+        if pending:
+            # 用户可能在回答上一轮的参数问题
+            stop_keywords = ["停止", "取消", "算了", "不用了", "换一个"]
+            if any(kw in content for kw in stop_keywords) or matched_tool:
+                # 用户取消或换了新工具 → 清除 pending
+                self._pending_calls.pop(session_key, None)
+                if matched_tool:
+                    pass  # 继续走下面的新工具流程
+                else:
+                    yield {"event": "content", "data": {"text": "好的，已取消之前的工具调用。"}}
+                    yield {"event": "done", "data": {"messageId": f"msg-{int(time.time() * 1000)}"}}
+                    return
+            else:
+                # 解析用户的回答，提取参数值
+                answer_params = await self._extract_answer_params(
+                    content, pending["tool_id"], pending["missing"][0]
+                )
+                pending["params"].update(answer_params)
+                # 重新检查缺失
+                pending["missing"] = await self._check_missing_params(
+                    pending["tool_id"], pending["params"]
+                )
+                if pending["missing"]:
+                    # 还有缺失 → 继续问下一个
+                    p = pending["missing"][0]
+                    yield {"event": "content", "data": {"text": f"请提供 **{p['name']}**（{p.get('desc', '')}）的值。"}}
+                    yield {"event": "done", "data": {"messageId": f"msg-{int(time.time() * 1000)}"}}
+                    return
+                else:
+                    # 参数齐备 → 执行工具 + LLM 分析
+                    self._pending_calls.pop(session_key, None)
+                    matched_tool = {"id": pending["tool_id"], "name": pending["tool_name"]}
+                    skip_param_extract = pending["params"]  # 使用已收集的参数
+
         if matched_tool:
-            tool_result = await self._execute_tool(matched_tool, content, dataset_paths)
+            # 参数（pending 已收集或重新提取）
+            if 'skip_param_extract' in dir() and skip_param_extract:
+                params = skip_param_extract
+            else:
+                params = await self._extract_params(content, matched_tool["id"], dataset_paths)
+            missing = await self._check_missing_params(matched_tool["id"], params)
+            if missing:
+                # 参数不足 → 逐一引导，存储 pending 状态
+                self._pending_calls[session_key] = {
+                    "tool_id": matched_tool["id"],
+                    "tool_name": matched_tool["name"],
+                    "params": params,
+                    "missing": missing,
+                }
+                p = missing[0]
+                yield {"event": "content", "data": {"text": f"要使用 **{matched_tool['name']}** 工具，请提供以下参数:\n\n**{p['name']}** — {p.get('desc', '')}"}}
+                yield {"event": "done", "data": {"messageId": f"msg-{int(time.time() * 1000)}"}}
+                return
+            tool_result = await self._execute_tool(matched_tool, content, dataset_paths, params)
             if tool_result:
                 yield {
                     "event": "card",
@@ -271,7 +328,7 @@ class InteractiveAgent(BaseAgent):
 
         return base
 
-    async def _execute_tool(self, tool_info: dict, user_query: str, dataset_paths: list[str] = None) -> dict | None:
+    async def _execute_tool(self, tool_info: dict, user_query: str, dataset_paths: list[str] = None, pre_params: dict = None) -> dict | None:
         """实际执行工具并返回结果（优先使用工具独立 venv）"""
         try:
             import subprocess
@@ -287,8 +344,8 @@ class InteractiveAgent(BaseAgent):
             if not impl_path.exists():
                 return {"status": "failed", "message": f"工具代码不存在: {impl_path}"}
 
-            # 提取参数
-            params = await self._extract_params(user_query, tool_id, dataset_paths)
+            # 提取参数（优先用已提取的）
+            params = pre_params if pre_params else await self._extract_params(user_query, tool_id, dataset_paths)
 
             # 检查是否有独立 venv
             venv_python = project_root / "resources" / "tools" / "implementations" / tool_id / ".venv" / "bin" / "python"
@@ -333,6 +390,46 @@ class InteractiveAgent(BaseAgent):
         except Exception as e:
             return {"status": "failed", "message": f"工具执行异常: {str(e)[:300]}"}
 
+    async def _extract_answer_params(self, answer: str, tool_id: str, param: dict) -> dict:
+        """从用户回答中提取单个参数的值"""
+        try:
+            prompt = (
+                f"用户正在回答关于工具参数的提问。\n"
+                f"参数名: {param['name']}\n"
+                f"参数描述: {param.get('desc', '')}\n"
+                f"用户回答: \"{answer}\"\n\n"
+                f"提取参数值，返回 JSON: {{\"{param['name']}\": <value>}}\n"
+                f"如果用户回答中包含数值，保持数值类型。只返回 JSON。"
+            )
+            response = await self.llm.chat(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0, max_tokens=100,
+            )
+            clean = response.strip()
+            if clean.startswith("```"):
+                clean = clean.split("\n", 1)[1].rsplit("\n", 1)[0]
+            return json.loads(clean)
+        except Exception:
+            # 降级：直接把用户输入作为参数值
+            return {param['name']: answer.strip()}
+
+    async def _check_missing_params(self, tool_id: str, current_params: dict) -> list[str]:
+        """返回缺失的必填参数名列表"""
+        try:
+            from core.resource.registry.tool_registry import ToolRegistry
+            reg = ToolRegistry()
+            entry = await reg.get(tool_id)
+            if not entry:
+                return []
+            param_meta = entry.get("param_meta", [])
+            missing = []
+            for p in param_meta:
+                if p.get("required") and p.get("name") not in current_params:
+                    missing.append(p)
+            return missing
+        except Exception:
+            return []
+
     async def _extract_params(self, query: str, tool_id: str, dataset_paths: list[str] = None) -> dict:
         """基于 registry 预提取的 param_meta + LLM 智能提取参数"""
         from pathlib import Path as _Path
@@ -340,6 +437,7 @@ class InteractiveAgent(BaseAgent):
         params = {}
 
         path_param_names = self._get_path_params(tool_id)
+        all_valid_names = set(path_param_names)
         if dataset_paths and path_param_names:
             for i, param_name in enumerate(path_param_names):
                 if i < len(dataset_paths):
@@ -372,7 +470,13 @@ class InteractiveAgent(BaseAgent):
             if clean.startswith("```"):
                 clean = clean.split("\n", 1)[1].rsplit("\n", 1)[0]
             extra = json.loads(clean)
+            # 只保留 MD spec 中定义的参数名
+            valid_names = {p.get("name") for p in param_meta if p.get("name")}
+            extra = {k: v for k, v in extra.items() if k in valid_names}
             params.update(extra)
+            # 最终过滤：确保不返回任何未定义的参数
+            all_valid_names.update(valid_names)
+            params = {k: v for k, v in params.items() if k in all_valid_names}
         except Exception:
             pass
 

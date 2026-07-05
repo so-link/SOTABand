@@ -1,0 +1,10 @@
+{
+  "input": {
+    "data_path": "",
+    "model_type": "",
+    "random_state": 0,
+    "test_size": 0.0,
+    "output_dir": ""
+  },
+  "description": "边界值"
+}
