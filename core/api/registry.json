@@ -1,0 +1,193 @@
+[
+  {
+    "id": "api-data-register",
+    "name": "数据集注册API",
+    "version": "1.0.0",
+    "category": "resource",
+    "status": "active",
+    "spec_path": "definitions/api-data-register.md",
+    "impl_module": "core.resource.registry.data_registry",
+    "impl_class": "DataRegistry",
+    "impl_method": "register",
+    "is_async": true,
+    "input_schema": {
+      "id": "string",
+      "name": "string",
+      "raw_md": "string",
+      "data_path": "string",
+      "file_count": "int",
+      "total_size": "int",
+      "formats": "list"
+    },
+    "output_schema": {
+      "dataset_id": "string"
+    },
+    "tags": ["数据", "注册", "管理"],
+    "created_at": "2026-07-06T00:00:00Z"
+  },
+  {
+    "id": "api-data-delete",
+    "name": "数据集删除API",
+    "version": "1.0.0",
+    "category": "resource",
+    "status": "active",
+    "spec_path": "definitions/api-data-delete.md",
+    "impl_module": "core.resource.registry.data_registry",
+    "impl_class": "DataRegistry",
+    "impl_method": "unregister",
+    "is_async": true,
+    "input_schema": {
+      "resource_id": "string"
+    },
+    "output_schema": {},
+    "tags": ["数据", "删除", "管理"],
+    "created_at": "2026-07-06T00:00:00Z"
+  },
+  {
+    "id": "api-data-list",
+    "name": "数据集列表API",
+    "version": "1.0.0",
+    "category": "resource",
+    "status": "active",
+    "spec_path": "definitions/api-data-list.md",
+    "impl_module": "core.resource.registry.data_registry",
+    "impl_class": "DataRegistry",
+    "impl_method": "list_all",
+    "is_async": true,
+    "input_schema": {},
+    "output_schema": {
+      "datasets": "list"
+    },
+    "tags": ["数据", "列表", "检索"],
+    "created_at": "2026-07-06T00:00:00Z"
+  },
+  {
+    "id": "api-tool-register",
+    "name": "工具注册API",
+    "version": "1.0.0",
+    "category": "resource",
+    "status": "active",
+    "spec_path": "definitions/api-tool-register.md",
+    "impl_module": "core.resource.registry.tool_registry",
+    "impl_class": "ToolRegistry",
+    "impl_method": "register",
+    "is_async": true,
+    "input_schema": {
+      "id": "string",
+      "name": "string",
+      "raw_md": "string",
+      "code": "string",
+      "tags": "list"
+    },
+    "output_schema": {
+      "tool_id": "string"
+    },
+    "tags": ["工具", "注册", "管理"],
+    "created_at": "2026-07-06T00:00:00Z"
+  },
+  {
+    "id": "api-tool-list",
+    "name": "工具列表API",
+    "version": "1.0.0",
+    "category": "resource",
+    "status": "active",
+    "spec_path": "definitions/api-tool-list.md",
+    "impl_module": "core.resource.registry.tool_registry",
+    "impl_class": "ToolRegistry",
+    "impl_method": "list_all",
+    "is_async": true,
+    "input_schema": {},
+    "output_schema": {
+      "tools": "list"
+    },
+    "tags": ["工具", "列表", "检索"],
+    "created_at": "2026-07-06T00:00:00Z"
+  },
+  {
+    "id": "api-llm-chat",
+    "name": "LLM对话API",
+    "version": "1.0.0",
+    "category": "llm",
+    "status": "active",
+    "spec_path": "definitions/api-llm-chat.md",
+    "impl_module": "core.llm.client",
+    "impl_class": "DeepSeekClient",
+    "impl_method": "chat",
+    "is_async": true,
+    "input_schema": {
+      "messages": "list",
+      "temperature": "float",
+      "max_tokens": "int"
+    },
+    "output_schema": {
+      "content": "string"
+    },
+    "tags": ["LLM", "对话", "AI"],
+    "created_at": "2026-07-06T00:00:00Z"
+  },
+  {
+    "id": "api-llm-chat-stream",
+    "name": "LLM流式对话API",
+    "version": "1.0.0",
+    "category": "llm",
+    "status": "active",
+    "spec_path": "definitions/api-llm-chat-stream.md",
+    "impl_module": "core.llm.client",
+    "impl_class": "DeepSeekClient",
+    "impl_method": "chat_stream",
+    "is_async": true,
+    "input_schema": {
+      "messages": "list",
+      "temperature": "float",
+      "max_tokens": "int"
+    },
+    "output_schema": {
+      "stream": "AsyncGenerator"
+    },
+    "tags": ["LLM", "流式", "AI"],
+    "created_at": "2026-07-06T00:00:00Z"
+  },
+  {
+    "id": "api-agent-start",
+    "name": "Agent启动API",
+    "version": "1.0.0",
+    "category": "resource",
+    "status": "active",
+    "spec_path": "definitions/api-agent-start.md",
+    "impl_module": "core.agent.factory",
+    "impl_class": "AgentFactory",
+    "impl_method": "start",
+    "is_async": true,
+    "input_schema": {
+      "agent_id": "string",
+      "impl_path": "string"
+    },
+    "output_schema": {
+      "agent_id": "string",
+      "status": "string"
+    },
+    "tags": ["Agent", "启动", "管理"],
+    "created_at": "2026-07-06T00:00:00Z"
+  },
+  {
+    "id": "api-agent-stop",
+    "name": "Agent停止API",
+    "version": "1.0.0",
+    "category": "resource",
+    "status": "active",
+    "spec_path": "definitions/api-agent-stop.md",
+    "impl_module": "core.agent.factory",
+    "impl_class": "AgentFactory",
+    "impl_method": "stop",
+    "is_async": true,
+    "input_schema": {
+      "agent_id": "string"
+    },
+    "output_schema": {
+      "agent_id": "string",
+      "status": "string"
+    },
+    "tags": ["Agent", "停止", "管理"],
+    "created_at": "2026-07-06T00:00:00Z"
+  }
+]
