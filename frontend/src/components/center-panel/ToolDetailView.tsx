@@ -43,6 +43,8 @@ export function ToolDetailView() {
   const [editedCode, setEditedCode] = useState('')
   const [showSpec, setShowSpec] = useState(false)
   const [showCode, setShowCode] = useState(false)
+  const [showDemand, setShowDemand] = useState(false)
+  const [demandText, setDemandText] = useState('')
   const [formValues, setFormValues] = useState<Record<string, string>>({})
   const [output, setOutput] = useState<Record<string, unknown> | null>(null)
   const [isExecuting, setIsExecuting] = useState(false)
@@ -65,6 +67,9 @@ export function ToolDetailView() {
         const init: Record<string, string> = {}
         fields.forEach(f => { init[f.name] = f.default || '' })
         setFormValues(init)
+        if (data.has_demand && data.demand_md) {
+          setDemandText(data.demand_md)
+        }
       })
       .catch(() => {})
   }, [tool])
@@ -156,11 +161,17 @@ export function ToolDetailView() {
           <Badge variant="success">v{tool.version}</Badge>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => { setShowSpec(!showSpec); if (showCode) setShowCode(false) }}
+          {demandText && (
+            <button onClick={() => { setShowDemand(!showDemand); if (showSpec) setShowSpec(false); if (showCode) setShowCode(false) }}
+              className="flex items-center gap-1 text-[11px] text-maia-accent hover:underline">
+              <FileText className="h-3 w-3" />{showDemand ? '收起需求' : '查看需求描述'}
+            </button>
+          )}
+          <button onClick={() => { setShowSpec(!showSpec); if (showCode) setShowCode(false); if (showDemand) setShowDemand(false) }}
             className="flex items-center gap-1 text-[11px] text-maia-accent hover:underline">
             <FileText className="h-3 w-3" />{showSpec ? '收起 MD' : '查看 MD 文档'}
           </button>
-          <button onClick={() => { setShowCode(!showCode); if (showSpec) setShowSpec(false) }}
+          <button onClick={() => { setShowCode(!showCode); if (showSpec) setShowSpec(false); if (showDemand) setShowDemand(false) }}
             className="flex items-center gap-1 text-[11px] text-maia-accent hover:underline">
             <FileCode className="h-3 w-3" />{showCode ? '收起代码' : '查看代码'}
           </button>
@@ -179,6 +190,19 @@ export function ToolDetailView() {
                   <button onClick={() => setShowSpec(false)}><X className="h-3 w-3 text-maia-text-muted" /></button>
                 </div>
                 <pre className="text-[11px] font-mono leading-relaxed text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto bg-maia-bg rounded p-3">{specMd || '加载中...'}</pre>
+              </CardBody>
+            </Card>
+          )}
+
+          {/* Demand panel */}
+          {showDemand && demandText && (
+            <Card className="border-maia-border">
+              <CardBody>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-medium text-maia-text-secondary tracking-wide">用户需求描述</span>
+                  <button onClick={() => setShowDemand(false)}><X className="h-3 w-3 text-maia-text-muted" /></button>
+                </div>
+                <pre className="text-[11px] font-mono leading-relaxed text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto bg-maia-bg rounded p-3">{demandText}</pre>
               </CardBody>
             </Card>
           )}

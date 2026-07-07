@@ -1,0 +1,10 @@
+{
+  "input": {
+    "image_path": "",
+    "prompt": "",
+    "negative_prompt": "",
+    "strength": 0.0,
+    "size": ""
+  },
+  "description": "边界值"
+}

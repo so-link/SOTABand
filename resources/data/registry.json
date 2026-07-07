@@ -49,5 +49,143 @@
     "tags": [],
     "quality_score": null,
     "created_at": "2026-07-03T07:22:08Z"
+  },
+  {
+    "id": "ds_20260707021907092588",
+    "name": "飞机",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/ds_20260707021907092588.md",
+    "data_path": "/hdd/sdc1/jmlv/LLM/data/downloads/20260707021907092588",
+    "file_count": 1,
+    "total_size": 244665,
+    "formats": [
+      "jpg"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-06T18:19:07Z"
+  },
+  {
+    "id": "ds_20260707022059792261",
+    "name": "森林着火",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/ds_20260707022059792261.md",
+    "data_path": "/hdd/sdc1/jmlv/LLM/data/downloads/20260707022059792261",
+    "file_count": 1,
+    "total_size": 897513,
+    "formats": [
+      "jpg"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-06T18:21:00Z"
+  },
+  {
+    "id": "ds_20260707065838279082",
+    "name": "校园",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/ds_20260707065838279082.md",
+    "data_path": "/hdd/sdc1/jmlv/LLM/data/downloads/20260707065838279082",
+    "file_count": 1,
+    "total_size": 1250524,
+    "formats": [
+      "jpg"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-06T22:58:39Z"
+  },
+  {
+    "id": "ds_20260707070553868871",
+    "name": "飞机大炮",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/ds_20260707070553868871.md",
+    "data_path": "/hdd/sdc1/jmlv/LLM/data/downloads/20260707070553868871",
+    "file_count": 1,
+    "total_size": 641265,
+    "formats": [
+      "jpg"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-06T23:06:54Z"
+  },
+  {
+    "id": "ds_20260707070951567095",
+    "name": "西红柿",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/ds_20260707070951567095.md",
+    "data_path": "/hdd/sdc1/jmlv/LLM/data/downloads/20260707070951567095",
+    "file_count": 1,
+    "total_size": 200786,
+    "formats": [
+      "jpg"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-06T23:09:52Z"
+  },
+  {
+    "id": "ds_20260707072213232916",
+    "name": "建筑",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/ds_20260707072213232916.md",
+    "data_path": "/hdd/sdc1/jmlv/LLM/data/downloads/20260707072213232916",
+    "file_count": 2,
+    "total_size": 1852629,
+    "formats": [
+      "jpg",
+      "jpg"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-06T23:22:14Z"
+  },
+  {
+    "id": "ds_20260707073640041603",
+    "name": "大炮",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/ds_20260707073640041603.md",
+    "data_path": "/hdd/sdc1/jmlv/LLM/data/downloads/20260707073640041603",
+    "file_count": 1,
+    "total_size": 591889,
+    "formats": [
+      "jpg"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-06T23:37:41Z"
+  },
+  {
+    "id": "ds_20260707094230739406",
+    "name": "农田",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/ds_20260707094230739406.md",
+    "data_path": "/hdd/sdc1/jmlv/LLM/data/downloads/20260707094230739406",
+    "file_count": 2,
+    "total_size": 1776630,
+    "formats": [
+      "jpg",
+      "jpg"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-07T01:42:32Z"
   }
 ]

@@ -1,0 +1,397 @@
+<div><table><tr><td colspan=10 style='font-size:22px;font-weight:700;text-align:center'>项目收支明细账</td></tr><tr><td>x2js/计算机科学与工程学院</td><td>2023-01至2026-12</td></tr><tr><td colspan=3>C9250550/计算机科学与工程学院2025年学生研究计</td></tr></table></div><div>
+	<table cellspacing="0" rules="all" border="1" id="GV_Jg" style="width:100%;border-collapse:collapse;">
+		<tr>
+			<th scope="col">凭证日期</th><th scope="col">凭证编号</th><th scope="col">科目编号</th><th scope="col">科目名称</th><th scope="col">摘要</th><th scope="col">项目支出</th><th scope="col">项目收入</th><th scope="col">项目借款</th><th scope="col">项目还款</th><th scope="col">余额</th>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl02_LBL_pzrq"></span>
+                    <input type="hidden" name="GV_Jg$ctl02$HID_tjlx" id="GV_Jg_ctl02_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">&nbsp;</td><td style="vnd.ms-excel.numberformat:@">&nbsp;</td><td>&nbsp;</td><td>年初余额</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">&nbsp;</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">&nbsp;</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">&nbsp;</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">&nbsp;</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl03_LBL_pzrq"></span>
+                    <input type="hidden" name="GV_Jg$ctl03$HID_tjlx" id="GV_Jg_ctl03_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">&nbsp;</td><td style="vnd.ms-excel.numberformat:@">&nbsp;</td><td>&nbsp;</td><td>期初余额</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">&nbsp;</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">&nbsp;</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">&nbsp;</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">&nbsp;</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl04_LBL_pzrq">2025-06-24</span>
+                    <input type="hidden" name="GV_Jg$ctl04$HID_tjlx" id="GV_Jg_ctl04_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z19049</td><td style="vnd.ms-excel.numberformat:@">60010102</td><td>教育经费项目拨款</td><td>教务处拨各学院中央教育教学改革专项经费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">74,000.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">74,000.00</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl05_LBL_pzrq">2025-07-07</span>
+                    <input type="hidden" name="GV_Jg$ctl05$HID_tjlx" id="GV_Jg_ctl05_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z04885</td><td style="vnd.ms-excel.numberformat:@">7201010102-3020201</td><td>项目-版面费</td><td>计算机科学与工程学院徐红云报版面费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">2,000.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">72,000.00</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl06_LBL_pzrq">2025-07-07</span>
+                    <input type="hidden" name="GV_Jg$ctl06$HID_tjlx" id="GV_Jg_ctl06_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z04888</td><td style="vnd.ms-excel.numberformat:@">7201010102-3029930</td><td>项目-云服务及信息计算费</td><td>计算机科学与工程学院毛爱华报信息技术服务费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">2,000.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">70,000.00</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl07_LBL_pzrq">2025-07-07</span>
+                    <input type="hidden" name="GV_Jg$ctl07$HID_tjlx" id="GV_Jg_ctl07_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z04978</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院林伟伟报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">1,445.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">68,555.00</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl08_LBL_pzrq">2025-07-07</span>
+                    <input type="hidden" name="GV_Jg$ctl08$HID_tjlx" id="GV_Jg_ctl08_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z04978</td><td style="vnd.ms-excel.numberformat:@">7201010102-3020203</td><td>项目-书报杂志讲义资料费</td><td>计算机科学与工程学院林伟伟报书报杂志讲义资料费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">555.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">68,000.00</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl09_LBL_pzrq">2025-07-09</span>
+                    <input type="hidden" name="GV_Jg$ctl09$HID_tjlx" id="GV_Jg_ctl09_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z06376</td><td style="vnd.ms-excel.numberformat:@">7201010102-3020701</td><td>项目-邮寄费</td><td>计算机科学与工程学院俞鹤伟报邮寄费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">259.10</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">67,740.90</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl10_LBL_pzrq">2025-07-17</span>
+                    <input type="hidden" name="GV_Jg$ctl10$HID_tjlx" id="GV_Jg_ctl10_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z15520</td><td style="vnd.ms-excel.numberformat:@">7201010102-3020201</td><td>项目-版面费</td><td>计算机科学与工程学院汪烜烨报版面费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">2,000.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">65,740.90</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl11_LBL_pzrq">2025-07-17</span>
+                    <input type="hidden" name="GV_Jg$ctl11$HID_tjlx" id="GV_Jg_ctl11_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z16298</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院郑运平报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">31.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">65,709.90</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl12_LBL_pzrq">2025-07-17</span>
+                    <input type="hidden" name="GV_Jg$ctl12$HID_tjlx" id="GV_Jg_ctl12_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z16298</td><td style="vnd.ms-excel.numberformat:@">7201010102-3021301</td><td>项目-设备维修（护）费</td><td>计算机科学与工程学院郑运平报设备维修（护）费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">1,969.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">63,740.90</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl13_LBL_pzrq">2025-07-18</span>
+                    <input type="hidden" name="GV_Jg$ctl13$HID_tjlx" id="GV_Jg_ctl13_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z17755</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院俞鹤伟报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">847.92</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">62,892.98</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl14_LBL_pzrq">2025-07-22</span>
+                    <input type="hidden" name="GV_Jg$ctl14$HID_tjlx" id="GV_Jg_ctl14_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z18970</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院李粤报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">1,998.70</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">60,894.28</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl15_LBL_pzrq">2025-09-04</span>
+                    <input type="hidden" name="GV_Jg$ctl15$HID_tjlx" id="GV_Jg_ctl15_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z04274</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院冼允廷报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">1,099.40</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">59,794.88</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl16_LBL_pzrq">2025-09-04</span>
+                    <input type="hidden" name="GV_Jg$ctl16$HID_tjlx" id="GV_Jg_ctl16_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z04410</td><td style="vnd.ms-excel.numberformat:@">7201010102-3029914</td><td>项目-专利费</td><td>计算机科学与工程学院冼允廷报专利费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">900.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">58,894.88</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl17_LBL_pzrq">2025-09-05</span>
+                    <input type="hidden" name="GV_Jg$ctl17$HID_tjlx" id="GV_Jg_ctl17_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z04716</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院陈伟能报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">1,499.58</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">57,395.30</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl18_LBL_pzrq">2025-09-08</span>
+                    <input type="hidden" name="GV_Jg$ctl18$HID_tjlx" id="GV_Jg_ctl18_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z06449</td><td style="vnd.ms-excel.numberformat:@">7201010102-3029914</td><td>项目-专利费</td><td>计算机科学与工程学院冼进报专利费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">900.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">56,495.30</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl19_LBL_pzrq">2025-09-08</span>
+                    <input type="hidden" name="GV_Jg$ctl19$HID_tjlx" id="GV_Jg_ctl19_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z06507</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院俞鹤伟代202221044895报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">723.98</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">55,771.32</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl20_LBL_pzrq">2025-09-08</span>
+                    <input type="hidden" name="GV_Jg$ctl20$HID_tjlx" id="GV_Jg_ctl20_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z06507</td><td style="vnd.ms-excel.numberformat:@">7201010102-3020701</td><td>项目-邮寄费</td><td>计算机科学与工程学院俞鹤伟代202221044895报邮寄费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">137.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">55,634.32</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl21_LBL_pzrq">2025-09-08</span>
+                    <input type="hidden" name="GV_Jg$ctl21$HID_tjlx" id="GV_Jg_ctl21_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z06655</td><td style="vnd.ms-excel.numberformat:@">7201010102-3020203</td><td>项目-书报杂志讲义资料费</td><td>计算机科学与工程学院俞鹤伟报书报杂志讲义资料费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">32.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">55,602.32</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl22_LBL_pzrq">2025-09-09</span>
+                    <input type="hidden" name="GV_Jg$ctl22$HID_tjlx" id="GV_Jg_ctl22_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z07693</td><td style="vnd.ms-excel.numberformat:@">7201010102-302110101</td><td>项目-旅费</td><td>计算机科学与工程学院冼进报差旅费用</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">700.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">54,902.32</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl23_LBL_pzrq">2025-09-09</span>
+                    <input type="hidden" name="GV_Jg$ctl23$HID_tjlx" id="GV_Jg_ctl23_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z07693</td><td style="vnd.ms-excel.numberformat:@">7201010102-302110102</td><td>项目-补助</td><td>计算机科学与工程学院冼进报差旅费用-补助</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">400.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">54,502.32</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl24_LBL_pzrq">2025-09-17</span>
+                    <input type="hidden" name="GV_Jg$ctl24$HID_tjlx" id="GV_Jg_ctl24_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z15499</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院余志文报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">530.36</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">53,971.96</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl25_LBL_pzrq">2025-09-18</span>
+                    <input type="hidden" name="GV_Jg$ctl25$HID_tjlx" id="GV_Jg_ctl25_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z15880</td><td style="vnd.ms-excel.numberformat:@">7201010102-3029999</td><td>项目-其他商品服务支出</td><td>计算机科学与工程学院余志文报其他商品服务支出</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">300.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">53,671.96</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl26_LBL_pzrq">2025-09-18</span>
+                    <input type="hidden" name="GV_Jg$ctl26$HID_tjlx" id="GV_Jg_ctl26_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z15915</td><td style="vnd.ms-excel.numberformat:@">7201010102-3020701</td><td>项目-邮寄费</td><td>计算机科学与工程学院余志文报快递费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">25.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">53,646.96</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl27_LBL_pzrq">2025-09-18</span>
+                    <input type="hidden" name="GV_Jg$ctl27$HID_tjlx" id="GV_Jg_ctl27_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z15915</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院余志文报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">438.89</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">53,208.07</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl28_LBL_pzrq">2025-09-18</span>
+                    <input type="hidden" name="GV_Jg$ctl28$HID_tjlx" id="GV_Jg_ctl28_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z16530</td><td style="vnd.ms-excel.numberformat:@">7201010102-3029930</td><td>项目-云服务及信息计算费</td><td>计算机科学与工程学院李家春报信息技术服务费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">500.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">52,708.07</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl29_LBL_pzrq">2025-09-18</span>
+                    <input type="hidden" name="GV_Jg$ctl29$HID_tjlx" id="GV_Jg_ctl29_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z16530</td><td style="vnd.ms-excel.numberformat:@">7201010102-3020203</td><td>项目-书报杂志讲义资料费</td><td>计算机科学与工程学院李家春报书报杂志讲义资料费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">38.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">52,670.07</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl30_LBL_pzrq">2025-09-18</span>
+                    <input type="hidden" name="GV_Jg$ctl30$HID_tjlx" id="GV_Jg_ctl30_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z16530</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院李家春报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">1,462.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">51,208.07</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl31_LBL_pzrq">2025-09-18</span>
+                    <input type="hidden" name="GV_Jg$ctl31$HID_tjlx" id="GV_Jg_ctl31_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z17228</td><td style="vnd.ms-excel.numberformat:@">7201010102-3029914</td><td>项目-专利费</td><td>计算机科学与工程学院胡劲松报专利费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">2,000.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">49,208.07</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl32_LBL_pzrq">2025-09-18</span>
+                    <input type="hidden" name="GV_Jg$ctl32$HID_tjlx" id="GV_Jg_ctl32_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z17271</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院黄艳报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">966.40</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">48,241.67</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl33_LBL_pzrq">2025-09-18</span>
+                    <input type="hidden" name="GV_Jg$ctl33$HID_tjlx" id="GV_Jg_ctl33_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z17329</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院冼楚华报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">511.81</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">47,729.86</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl34_LBL_pzrq">2025-09-19</span>
+                    <input type="hidden" name="GV_Jg$ctl34$HID_tjlx" id="GV_Jg_ctl34_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z18516</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院何克晶报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">2,000.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">45,729.86</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl35_LBL_pzrq">2025-09-29</span>
+                    <input type="hidden" name="GV_Jg$ctl35$HID_tjlx" id="GV_Jg_ctl35_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z27835</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院吴永贤报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">720.98</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">45,008.88</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl36_LBL_pzrq">2025-09-29</span>
+                    <input type="hidden" name="GV_Jg$ctl36$HID_tjlx" id="GV_Jg_ctl36_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z27863</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院吴永贤报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">597.42</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">44,411.46</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl37_LBL_pzrq">2025-09-29</span>
+                    <input type="hidden" name="GV_Jg$ctl37$HID_tjlx" id="GV_Jg_ctl37_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z27921</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院吴永贤报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">681.60</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">43,729.86</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl38_LBL_pzrq">2025-10-11</span>
+                    <input type="hidden" name="GV_Jg$ctl38$HID_tjlx" id="GV_Jg_ctl38_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z02989</td><td style="vnd.ms-excel.numberformat:@">7201010102-3021801</td><td>项目-实验材料费</td><td>计算机科学与工程学院魏凤凤报实验材料费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">2,000.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">41,729.86</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl39_LBL_pzrq">2025-10-13</span>
+                    <input type="hidden" name="GV_Jg$ctl39$HID_tjlx" id="GV_Jg_ctl39_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z04613</td><td style="vnd.ms-excel.numberformat:@">7201010102-3029914</td><td>项目-专利费</td><td>计算机科学与工程学院黄艳报专利费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">1,000.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">40,729.86</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl40_LBL_pzrq">2025-10-13</span>
+                    <input type="hidden" name="GV_Jg$ctl40$HID_tjlx" id="GV_Jg_ctl40_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z04617</td><td style="vnd.ms-excel.numberformat:@">7201010102-3021801</td><td>项目-实验材料费</td><td>计算机科学与工程学院陈伟能报实验材料费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">348.34</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">40,381.52</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl41_LBL_pzrq">2025-10-13</span>
+                    <input type="hidden" name="GV_Jg$ctl41$HID_tjlx" id="GV_Jg_ctl41_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z04617</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院陈伟能报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">152.08</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">40,229.44</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl42_LBL_pzrq">2025-10-15</span>
+                    <input type="hidden" name="GV_Jg$ctl42$HID_tjlx" id="GV_Jg_ctl42_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z07192</td><td style="vnd.ms-excel.numberformat:@">7201010102-3020201</td><td>项目-版面费</td><td>计算机科学与工程学院钟竞辉报版面费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">2,000.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">38,229.44</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl43_LBL_pzrq">2025-10-15</span>
+                    <input type="hidden" name="GV_Jg$ctl43$HID_tjlx" id="GV_Jg_ctl43_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z07194</td><td style="vnd.ms-excel.numberformat:@">7201010102-3029930</td><td>项目-云服务及信息计算费</td><td>计算机科学与工程学院董敏报信息技术服务费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">322.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">37,907.44</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl44_LBL_pzrq">2025-10-15</span>
+                    <input type="hidden" name="GV_Jg$ctl44$HID_tjlx" id="GV_Jg_ctl44_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z07277</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院苏锦钿报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">790.80</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">37,116.64</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl45_LBL_pzrq">2025-10-15</span>
+                    <input type="hidden" name="GV_Jg$ctl45$HID_tjlx" id="GV_Jg_ctl45_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z07299</td><td style="vnd.ms-excel.numberformat:@">7201010102-3029914</td><td>项目-专利费</td><td>计算机科学与工程学院董敏报专利费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">2,998.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">34,118.64</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl46_LBL_pzrq">2025-10-16</span>
+                    <input type="hidden" name="GV_Jg$ctl46$HID_tjlx" id="GV_Jg_ctl46_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z07595</td><td style="vnd.ms-excel.numberformat:@">7201010102-30201</td><td>项目-办公费</td><td>计算机科学与工程学院苏锦钿报办公费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">1,209.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">32,909.64</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl47_LBL_pzrq">2025-10-16</span>
+                    <input type="hidden" name="GV_Jg$ctl47$HID_tjlx" id="GV_Jg_ctl47_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z07797</td><td style="vnd.ms-excel.numberformat:@">7201010102-3021801</td><td>项目-实验材料费</td><td>计算机科学与工程学院董敏报实验材料费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">368.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">32,541.64</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl48_LBL_pzrq">2025-10-16</span>
+                    <input type="hidden" name="GV_Jg$ctl48$HID_tjlx" id="GV_Jg_ctl48_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z07797</td><td style="vnd.ms-excel.numberformat:@">7201010102-3020203</td><td>项目-书报杂志讲义资料费</td><td>计算机科学与工程学院董敏报书报杂志讲义资料费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">110.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">32,431.64</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl49_LBL_pzrq">2025-10-16</span>
+                    <input type="hidden" name="GV_Jg$ctl49$HID_tjlx" id="GV_Jg_ctl49_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z07797</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院董敏报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">202.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">32,229.64</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl50_LBL_pzrq">2025-10-24</span>
+                    <input type="hidden" name="GV_Jg$ctl50$HID_tjlx" id="GV_Jg_ctl50_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z17359</td><td style="vnd.ms-excel.numberformat:@">7201010102-302110102</td><td>项目-补助</td><td>计算机科学与工程学院冼楚华报差旅费用-补助</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">80.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">32,149.64</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl51_LBL_pzrq">2025-10-24</span>
+                    <input type="hidden" name="GV_Jg$ctl51$HID_tjlx" id="GV_Jg_ctl51_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z17359</td><td style="vnd.ms-excel.numberformat:@">7201010102-302110101</td><td>项目-旅费</td><td>计算机科学与工程学院冼楚华报差旅费用</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">922.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">31,227.64</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl52_LBL_pzrq">2025-10-27</span>
+                    <input type="hidden" name="GV_Jg$ctl52$HID_tjlx" id="GV_Jg_ctl52_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z18544</td><td style="vnd.ms-excel.numberformat:@">7201010102-3020203</td><td>项目-书报杂志讲义资料费</td><td>计算机科学与工程学院杜广龙报打印费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">696.50</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">30,531.14</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl53_LBL_pzrq">2025-10-27</span>
+                    <input type="hidden" name="GV_Jg$ctl53$HID_tjlx" id="GV_Jg_ctl53_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z18563</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院冼楚华报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">486.19</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">30,044.95</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl54_LBL_pzrq">2025-10-27</span>
+                    <input type="hidden" name="GV_Jg$ctl54$HID_tjlx" id="GV_Jg_ctl54_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z18589</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院刘捷报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">2,000.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">28,044.95</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl55_LBL_pzrq">2025-10-28</span>
+                    <input type="hidden" name="GV_Jg$ctl55$HID_tjlx" id="GV_Jg_ctl55_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z19483</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院马千里报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">2,000.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">26,044.95</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl56_LBL_pzrq">2025-10-28</span>
+                    <input type="hidden" name="GV_Jg$ctl56$HID_tjlx" id="GV_Jg_ctl56_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z19715</td><td style="vnd.ms-excel.numberformat:@">7201010102-3021899</td><td>项目-其他专用材料费</td><td>计算机科学与工程学院胡金龙报其他专用材料费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">2,000.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">24,044.95</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl57_LBL_pzrq">2025-10-29</span>
+                    <input type="hidden" name="GV_Jg$ctl57$HID_tjlx" id="GV_Jg_ctl57_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z20415</td><td style="vnd.ms-excel.numberformat:@">7201010102-30201</td><td>项目-办公费</td><td>计算机科学与工程学院徐玲玲报办公费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">880.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">23,164.95</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl58_LBL_pzrq">2025-10-29</span>
+                    <input type="hidden" name="GV_Jg$ctl58$HID_tjlx" id="GV_Jg_ctl58_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z20593</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院张通报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">942.65</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">22,222.30</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl59_LBL_pzrq">2025-10-29</span>
+                    <input type="hidden" name="GV_Jg$ctl59$HID_tjlx" id="GV_Jg_ctl59_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z20627</td><td style="vnd.ms-excel.numberformat:@">7201010102-3020203</td><td>项目-书报杂志讲义资料费</td><td>计算机科学与工程学院徐玲玲报书报杂志讲义资料费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">800.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">21,422.30</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl60_LBL_pzrq">2025-10-29</span>
+                    <input type="hidden" name="GV_Jg$ctl60$HID_tjlx" id="GV_Jg_ctl60_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z20767</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院池品优报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">2,000.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">19,422.30</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl61_LBL_pzrq">2025-10-29</span>
+                    <input type="hidden" name="GV_Jg$ctl61$HID_tjlx" id="GV_Jg_ctl61_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z20825</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院张通报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">957.85</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">18,464.45</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl62_LBL_pzrq">2025-10-29</span>
+                    <input type="hidden" name="GV_Jg$ctl62$HID_tjlx" id="GV_Jg_ctl62_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z20930</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院龚月姣报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">1,983.98</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">16,480.47</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl63_LBL_pzrq">2025-10-29</span>
+                    <input type="hidden" name="GV_Jg$ctl63$HID_tjlx" id="GV_Jg_ctl63_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z21172</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院庞冬梅报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">788.64</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">15,691.83</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl64_LBL_pzrq">2025-10-29</span>
+                    <input type="hidden" name="GV_Jg$ctl64$HID_tjlx" id="GV_Jg_ctl64_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z21172</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院庞冬梅报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">1,196.70</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">14,495.13</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl65_LBL_pzrq">2025-10-29</span>
+                    <input type="hidden" name="GV_Jg$ctl65$HID_tjlx" id="GV_Jg_ctl65_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z21172</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院庞冬梅报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">14.66</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">14,480.47</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl66_LBL_pzrq">2025-10-29</span>
+                    <input type="hidden" name="GV_Jg$ctl66$HID_tjlx" id="GV_Jg_ctl66_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z21226</td><td style="vnd.ms-excel.numberformat:@">7201010102-3029914</td><td>项目-专利费</td><td>计算机科学与工程学院李方报专利费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">900.54</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">13,579.93</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl67_LBL_pzrq">2025-10-29</span>
+                    <input type="hidden" name="GV_Jg$ctl67$HID_tjlx" id="GV_Jg_ctl67_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z21226</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院李方报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">1,099.46</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">12,480.47</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl68_LBL_pzrq">2025-10-29</span>
+                    <input type="hidden" name="GV_Jg$ctl68$HID_tjlx" id="GV_Jg_ctl68_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z21521</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院刘竹琳报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">875.40</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">11,605.07</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl69_LBL_pzrq">2025-10-30</span>
+                    <input type="hidden" name="GV_Jg$ctl69$HID_tjlx" id="GV_Jg_ctl69_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z21585</td><td style="vnd.ms-excel.numberformat:@">7201010102-3020701</td><td>项目-邮寄费</td><td>计算机科学与工程学院张通报快递费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">99.50</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">11,505.57</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl70_LBL_pzrq">2025-10-30</span>
+                    <input type="hidden" name="GV_Jg$ctl70$HID_tjlx" id="GV_Jg_ctl70_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z22328</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院徐玲玲报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">320.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">11,185.57</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl71_LBL_pzrq">2025-10-30</span>
+                    <input type="hidden" name="GV_Jg$ctl71$HID_tjlx" id="GV_Jg_ctl71_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z22395</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院刘竹琳报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">1,086.80</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">10,098.77</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl72_LBL_pzrq">2025-11-07</span>
+                    <input type="hidden" name="GV_Jg$ctl72$HID_tjlx" id="GV_Jg_ctl72_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z04806</td><td style="vnd.ms-excel.numberformat:@">7201010102-3029930</td><td>项目-云服务及信息计算费</td><td>计算机科学与工程学院韦佳报信息技术服务费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">2,000.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">8,098.77</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl73_LBL_pzrq">2025-11-07</span>
+                    <input type="hidden" name="GV_Jg$ctl73$HID_tjlx" id="GV_Jg_ctl73_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z04894</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院杜广龙报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">672.54</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">7,426.23</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl74_LBL_pzrq">2025-11-07</span>
+                    <input type="hidden" name="GV_Jg$ctl74$HID_tjlx" id="GV_Jg_ctl74_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z04909</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院杜广龙报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">626.32</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">6,799.91</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl75_LBL_pzrq">2025-11-07</span>
+                    <input type="hidden" name="GV_Jg$ctl75$HID_tjlx" id="GV_Jg_ctl75_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z04943</td><td style="vnd.ms-excel.numberformat:@">7201010102-30239</td><td>项目-其他交通费用</td><td>计算机科学与工程学院高英报交通费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">1,861.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">4,938.91</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl76_LBL_pzrq">2025-11-07</span>
+                    <input type="hidden" name="GV_Jg$ctl76$HID_tjlx" id="GV_Jg_ctl76_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z04943</td><td style="vnd.ms-excel.numberformat:@">7201010102-3020701</td><td>项目-邮寄费</td><td>计算机科学与工程学院高英报邮寄费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">139.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">4,799.91</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl77_LBL_pzrq">2025-12-10</span>
+                    <input type="hidden" name="GV_Jg$ctl77$HID_tjlx" id="GV_Jg_ctl77_HID_tjlx" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">Z11023</td><td style="vnd.ms-excel.numberformat:@">60010102</td><td>教育经费项目拨款</td><td>本科生院收回各学院教改项目经费</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">-4,799.91</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl78_LBL_pzrq">负责人：吕建明</span>
+                    <input type="hidden" name="GV_Jg$ctl78$HID_tjlx" id="GV_Jg_ctl78_HID_tjlx" value="1" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">&nbsp;</td><td style="vnd.ms-excel.numberformat:@">&nbsp;</td><td>&nbsp;</td><td>C9250550/计算机科学与工程学院2025年学生研究计 合计</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">69,200.09</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">69,200.09</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td>
+		</tr><tr>
+			<td style="vnd.ms-excel.numberformat:@">
+                    <span id="GV_Jg_ctl79_LBL_pzrq">总计</span>
+                    <input type="hidden" name="GV_Jg$ctl79$HID_tjlx" id="GV_Jg_ctl79_HID_tjlx" value="1" /> 
+                </td><td style="vnd.ms-excel.numberformat:@">&nbsp;</td><td style="vnd.ms-excel.numberformat:@">&nbsp;</td><td>&nbsp;</td><td>总计</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">69,200.09</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">69,200.09</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td><td class="numberCol" style="vnd.ms-excel.numberformat:#,##0.00">0.00</td>
+		</tr>
+	</table>
+</div><div><table><tr><td colspan=7>2026-07-05制表</td><td colspan=3>单位名称：华南理工大学</td></tr></table></div>

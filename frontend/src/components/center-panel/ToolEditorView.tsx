@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import {
 
   Wrench, ArrowRight, ArrowLeft, CheckCircle2, XCircle,
@@ -92,6 +93,20 @@ function Step3() {
   const passed = (sandboxResults as Record<string, unknown>)?.passed as string[] || []
   const failed = (sandboxResults as Record<string, unknown>)?.failed as string[] || []
   const tested = passed.length > 0 || failed.length > 0
+  const [testInputs, setTestInputs] = useState<Record<string, string>>({})
+
+  // 初始化测试输入（从 testData 中提取）
+  useEffect(() => {
+    if (testData) {
+      const normal = (testData as Record<string, unknown>).normal as Record<string, unknown> | undefined
+      if (normal?.input) {
+        const input = normal.input as Record<string, unknown>
+        const init: Record<string, string> = {}
+        Object.entries(input).forEach(([k, v]) => { init[k] = String(v ?? '') })
+        setTestInputs(init)
+      }
+    }
+  }, [testData])
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -103,6 +118,20 @@ function Step3() {
         </div>
         <div className="col-span-2">
           <div className="flex items-center gap-1.5 mb-2"><Play className="h-3.5 w-3.5 text-amber-500" /><span className="text-xs font-medium text-maia-text-secondary tracking-wide">沙箱测试</span></div>
+
+          {/* Editable test inputs */}
+          {Object.keys(testInputs).length > 0 && (
+            <div className="mb-2 space-y-1.5">
+              <div className="text-[10px] text-maia-text-muted uppercase tracking-wider">测试输入</div>
+              {Object.entries(testInputs).map(([key, val]) => (
+                <input key={key} type="text" value={val}
+                  onChange={e => setTestInputs(p => ({...p, [key]: e.target.value}))}
+                  className="w-full h-7 rounded border border-maia-border px-2 text-[11px] font-mono outline-none focus:border-maia-accent/40"
+                  placeholder={key} />
+              ))}
+            </div>
+          )}
+
           <Card className="border-maia-border">
             <CardBody>
               <div className="space-y-1.5">
@@ -113,7 +142,6 @@ function Step3() {
               </div>
             </CardBody>
           </Card>
-          {testData && <div className="mt-2 text-[10px] text-maia-text-muted">测试数据已自动生成</div>}
           <Button variant="outline" size="sm" className="mt-2 w-full" onClick={runTests} disabled={isTesting || !generatedCode}>
             {isTesting ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />测试中...</> : <><Play className="h-3.5 w-3.5" />运行沙箱测试</>}
           </Button>

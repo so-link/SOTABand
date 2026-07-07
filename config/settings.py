@@ -50,6 +50,45 @@ class LLMConfig:
 
 
 @dataclass
+class DoubaoConfig:
+    """豆包 (Doubao) LLM 配置"""
+
+    api_key: str = field(default_factory=lambda: os.getenv("DOUBAO_API_KEY", ""))
+    base_url: str = field(default_factory=lambda: os.getenv("DOUBAO_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"))
+    model: str = field(default_factory=lambda: os.getenv("DOUBAO_MODEL", "doubao-pro-32k"))
+
+
+def get_llm_api_config(provider: str = "deepseek") -> dict:
+    """API 调用：返回 LLM 配置（含 api_key）"""
+    if provider == "doubao":
+        return {
+            "provider": "doubao",
+            "api_key": settings.doubao.api_key,
+            "base_url": settings.doubao.base_url,
+            "model": settings.doubao.model,
+        }
+    return {
+        "provider": "deepseek",
+        "api_key": settings.llm.api_key,
+        "base_url": settings.llm.base_url,
+        "model": settings.llm.model,
+    }
+
+
+def get_llm_config(provider: str = "deepseek"):
+    """根据 provider 返回对应的 LLM 配置"""
+    if provider == "doubao":
+        cfg = DoubaoConfig()
+        return LLMConfig(
+            provider="doubao",
+            api_key=cfg.api_key,
+            base_url=cfg.base_url,
+            model=cfg.model,
+        )
+    return settings.llm
+
+
+@dataclass
 class StorageConfig:
     """存储配置"""
 
@@ -119,6 +158,7 @@ class Settings:
 
     app: AppConfig = field(default_factory=AppConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
+    doubao: DoubaoConfig = field(default_factory=DoubaoConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
     agent: AgentConfig = field(default_factory=AgentConfig)

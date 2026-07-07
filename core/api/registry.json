@@ -189,5 +189,28 @@
     },
     "tags": ["Agent", "停止", "管理"],
     "created_at": "2026-07-06T00:00:00Z"
+  },
+  {
+    "id": "api-llm-get-config",
+    "name": "LLM配置获取API",
+    "version": "1.0.0",
+    "category": "llm",
+    "status": "active",
+    "spec_path": "definitions/api-llm-get-config.md",
+    "impl_module": "config.settings",
+    "impl_class": "",
+    "impl_method": "get_llm_api_config",
+    "is_async": false,
+    "input_schema": {
+      "provider": "string (可选, 'deepseek' 或 'doubao', 默认 'deepseek')"
+    },
+    "output_schema": {
+      "api_key": "string",
+      "base_url": "string",
+      "model": "string",
+      "provider": "string"
+    },
+    "tags": ["LLM", "配置", "密钥"],
+    "created_at": "2026-07-06T00:00:00Z"
   }
 ]

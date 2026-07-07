@@ -27,6 +27,7 @@ class RegisterToolRequest(BaseModel):
     version: str = "0.1.0"
     tags: list[str] = Field(default_factory=list)
     test_data: dict = Field(default_factory=dict)
+    demand_desc: str = Field(default="", alias="demandDesc")
 
     model_config = {"populate_by_name": True}
 

@@ -1,0 +1,8 @@
+{
+  "input": {
+    "prompt": null,
+    "num_images": -1,
+    "dataset_name": null
+  },
+  "description": "异常输入"
+}

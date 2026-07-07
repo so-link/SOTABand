@@ -89,10 +89,29 @@ class InteractiveAgent(BaseAgent):
         # 解析附件中的数据集路径
         dataset_paths = self._resolve_dataset_paths(attachments)
 
-        # 预匹配：检查用户查询是否直接命中了已有工具
-        matched_tool = self._pre_match_tool(content)
-
         session_key = ctx.session_id or "default"
+
+        # 如果有 pending 的参数收集 → 只处理参数回答，不做工具匹配
+        pending = self._pending_calls.get(session_key)
+        if pending:
+            # 解析用户的回答，提取参数值
+            answer_params = await self._extract_answer_params(
+                content, pending["tool_id"], pending["missing"][0]
+            )
+            pending["params"].update(answer_params)
+            pending["missing"] = await self._check_missing_params(pending["tool_id"], pending["params"])
+            if pending["missing"]:
+                p = pending["missing"][0]
+                yield {"event": "content", "data": {"text": f"请提供 **{p['name']}** ({p.get('desc', '')}) 的值。"}}
+                yield {"event": "done", "data": {"messageId": f"msg-{int(time.time() * 1000)}"}}
+                return
+            # 参数齐备 → 执行工具
+            self._pending_calls.pop(session_key, None)
+            matched_tool = {"id": pending["tool_id"], "name": pending["tool_name"]}
+            skip_param_extract = pending["params"]
+        else:
+            matched_tool = self._pre_match_tool(content)
+
         history = self._sessions.get(session_key, [])
         if not history:
             system_content = self._build_system_with_context()
@@ -101,44 +120,6 @@ class InteractiveAgent(BaseAgent):
         # 如果预匹配到工具 → 先执行工具，用真实结果驱动 LLM 回复
         tool_result = None
         tool_failed = False
-        # 检查是否有未完成的参数收集任务
-        session_key = ctx.session_id or "default"
-        pending = self._pending_calls.get(session_key)
-
-        if pending:
-            # 用户可能在回答上一轮的参数问题
-            stop_keywords = ["停止", "取消", "算了", "不用了", "换一个"]
-            if any(kw in content for kw in stop_keywords) or matched_tool:
-                # 用户取消或换了新工具 → 清除 pending
-                self._pending_calls.pop(session_key, None)
-                if matched_tool:
-                    pass  # 继续走下面的新工具流程
-                else:
-                    yield {"event": "content", "data": {"text": "好的，已取消之前的工具调用。"}}
-                    yield {"event": "done", "data": {"messageId": f"msg-{int(time.time() * 1000)}"}}
-                    return
-            else:
-                # 解析用户的回答，提取参数值
-                answer_params = await self._extract_answer_params(
-                    content, pending["tool_id"], pending["missing"][0]
-                )
-                pending["params"].update(answer_params)
-                # 重新检查缺失
-                pending["missing"] = await self._check_missing_params(
-                    pending["tool_id"], pending["params"]
-                )
-                if pending["missing"]:
-                    # 还有缺失 → 继续问下一个
-                    p = pending["missing"][0]
-                    yield {"event": "content", "data": {"text": f"请提供 **{p['name']}**（{p.get('desc', '')}）的值。"}}
-                    yield {"event": "done", "data": {"messageId": f"msg-{int(time.time() * 1000)}"}}
-                    return
-                else:
-                    # 参数齐备 → 执行工具 + LLM 分析
-                    self._pending_calls.pop(session_key, None)
-                    matched_tool = {"id": pending["tool_id"], "name": pending["tool_name"]}
-                    skip_param_extract = pending["params"]  # 使用已收集的参数
-
         if matched_tool:
             # 参数（pending 已收集或重新提取）
             if 'skip_param_extract' in dir() and skip_param_extract:
@@ -340,6 +321,7 @@ class InteractiveAgent(BaseAgent):
             tool_id = tool_info["id"]
             project_root = Path(__file__).resolve().parent.parent.parent.parent.parent
             impl_path = project_root / "resources" / "tools" / "implementations" / tool_id / "tool.py"
+            self._current_process = None  # 用于外部终止
 
             if not impl_path.exists():
                 return {"status": "failed", "message": f"工具代码不存在: {impl_path}"}
@@ -356,6 +338,7 @@ class InteractiveAgent(BaseAgent):
                 code = impl_path.read_text()
                 test_script = (
                     f"import json, sys\n"
+                    f"sys.path.insert(0, {_json.dumps(str(project_root))})\n"
                     f"code = {_json.dumps(code)}\n"
                     f"exec(code)\n"
                     f"result = execute(**{_json.dumps(params)})\n"
@@ -370,7 +353,7 @@ class InteractiveAgent(BaseAgent):
                     env["TOOL_DIR"] = str(impl_path.parent)
                     env.setdefault("CUDA_VISIBLE_DEVICES", "0")
                     proc = subprocess.run([python_exe, tmp_path],
-                                        capture_output=True, text=True, timeout=30,
+                                        capture_output=True, text=True,
                                         env=env)
                     if proc.returncode == 0:
                         return _json.loads(proc.stdout.strip())
@@ -385,7 +368,11 @@ class InteractiveAgent(BaseAgent):
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
                 if hasattr(module, "execute"):
-                    return module.execute(**params)
+                    result = module.execute(**params)
+                    # 兼容 async/sync
+                    if hasattr(result, '__await__'):
+                        return await result
+                    return result
                 return {"status": "failed", "message": "工具未实现 execute()"}
         except Exception as e:
             return {"status": "failed", "message": f"工具执行异常: {str(e)[:300]}"}

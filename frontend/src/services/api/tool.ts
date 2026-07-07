@@ -52,11 +52,11 @@ export const toolApi = {
     }, 30000) as Promise<{ code: string; sandbox_results: Record<string, unknown>; test_data: Record<string, unknown> }>
   },
 
-  async register(specMd: string, code: string, testData: Record<string, unknown>) {
+  async register(specMd: string, code: string, testData: Record<string, unknown>, demandDesc: string = '') {
     const { toolId, toolName } = extractIdName(specMd)
     return fetchWithTimeout(`${BASE_URL}/api/tool/register`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ specMd, code, toolId, toolName, testData }),
+      body: JSON.stringify({ specMd, code, toolId, toolName, testData, demandDesc }),
     }, 180000) as Promise<{ tool_id: string; entry: Record<string, unknown>; sandbox_results: Record<string, unknown> }>
   },
 

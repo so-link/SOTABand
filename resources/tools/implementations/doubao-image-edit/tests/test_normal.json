@@ -1,0 +1,10 @@
+{
+  "input": {
+    "image_path": "/hdd/sdc1/jmlv/LLM/data/photo.png",
+    "prompt": "hello",
+    "negative_prompt": "hello",
+    "strength": 1.0,
+    "size": "hello"
+  },
+  "description": "正常输入"
+}

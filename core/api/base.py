@@ -37,15 +37,20 @@ class BaseApi(ABC):
 
         return self._instance
 
-    async def call(self, **kwargs) -> dict[str, Any]:
-        """调用 API（异步）"""
+    def call(self, **kwargs) -> dict[str, Any]:
+        """调用 API（同步，支持在 sync 工具代码中使用）"""
         fn = self._get_callable()
-        if self.spec.get("is_async", True):
-            return await fn(**kwargs)
+        is_async = self.spec.get("is_async", True)
+        if is_async:
+            import asyncio
+            try:
+                loop = asyncio.get_running_loop()
+                # 已有运行中的事件循环 → 用 run_coroutine_threadsafe 或直接创建 task
+                import concurrent.futures
+                future = asyncio.run_coroutine_threadsafe(fn(**kwargs), loop)
+                return future.result(timeout=60)
+            except RuntimeError:
+                # 无事件循环 → 用 asyncio.run
+                return asyncio.run(fn(**kwargs))
         else:
             return fn(**kwargs)
-
-    def call_sync(self, **kwargs) -> dict[str, Any]:
-        """调用 API（同步）"""
-        fn = self._get_callable()
-        return fn(**kwargs)

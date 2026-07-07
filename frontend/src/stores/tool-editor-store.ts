@@ -82,7 +82,7 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
     if (!generatedMd.trim()) return
     set({ isGenerating: true, error: null })
     try {
-      const result = await toolApi.register(generatedMd, generatedCode, testData || {})
+      const result = await toolApi.register(generatedMd, generatedCode, testData || {}, get().description)
       set({ registeredId: result.tool_id, step: 4, isGenerating: false })
       // 刷新左侧工具空间列表
       const { useResourceStore } = await import('@/stores/resource-store')

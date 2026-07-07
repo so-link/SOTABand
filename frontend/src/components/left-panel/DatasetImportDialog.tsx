@@ -40,12 +40,11 @@ export function DatasetImportDialog({ onImport, onClose }: Props) {
     if (!selected) return
     setImporting(true)
     try {
-      const res = await fetch(`${BASE_URL}/api/data/${selected}/preview`)
-      if (!res.ok) return
-      const preview = await res.json()
       const ds = datasets.find(d => d.id === selected)
       const dsPath = ds?.data_path || ''
-      const files = (preview.files as Array<Record<string, unknown>>) || []
+      const filesRes = await fetch(`${BASE_URL}/api/data/${selected}/files`)
+      const fileData = filesRes.ok ? await filesRes.json() : {files:[]}
+      const files = (fileData.files as Array<Record<string, unknown>>) || []
 
       const dsNode: FileTreeNode = {
         id: ds?.id || selected,

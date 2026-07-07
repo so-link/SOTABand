@@ -32,7 +32,9 @@ class DataRegistry(BaseRegistry):
     def _get_data_dir(self) -> Path:
         return DATA_DIR / "datasets"
 
-    async def register(self, resource: dict) -> str:
+    async def register(self, resource: dict = None, **kwargs) -> str:
+        if resource is None:
+            resource = kwargs
         ds_id = resource.get("id", f"dataset-{int(time.time())}")
         entry = {
             "id": ds_id,

@@ -1,8 +1,0 @@
-{
-  "input": {
-    "csv_path": "/hdd/sdc1/jmlv/LLM/data/photo.png",
-    "field": "hello",
-    "length": 3
-  },
-  "description": "正常输入"
-}

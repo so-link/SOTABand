@@ -15,6 +15,31 @@ class ToolCodeBuilder(BaseBuilder):
     def __init__(self, llm_client=None):
         self.llm = llm_client or create_llm_client()
 
+    @staticmethod
+    def _parse_spec_inputs(spec_md: str) -> list[dict]:
+        """从 MD spec 的输入规范表格解析参数（兜底方案，不依赖 LLM）"""
+        import re as _re
+        inputs = []
+        in_section = False
+        for line in spec_md.split("\n"):
+            if "输入规范" in line:
+                in_section = True
+                continue
+            if in_section and line.startswith("##") and "输入" not in line:
+                break
+            if in_section and line.startswith("|") and "参数名" not in line and "---" not in line:
+                parts = [p.strip() for p in line.split("|")[1:-1]]
+                if len(parts) >= 2 and parts[0]:
+                    inputs.append({
+                        "name": parts[0],
+                        "type": parts[1] if len(parts) > 1 else "string",
+                        "required": "是" in parts[2] if len(parts) > 2 else True,
+                        "default": parts[3] if len(parts) > 3 and parts[3] not in ("-", "—", "") else None,
+                        "desc": parts[4] if len(parts) > 4 else "",
+                        "hints": [],
+                    })
+        return inputs
+
     async def extract_param_metadata(self, spec_md: str) -> list[dict]:
         """让 LLM 从 MD spec 中提取参数元数据，用于后续智能参数提取"""
         prompt = f"""从以下工具 MD 规范文档中提取输入参数列表，返回 JSON 数组。
@@ -70,7 +95,7 @@ MD 文档:
             subprocess.run([sys.executable, "-m", "venv", str(venv_dir)],
                          capture_output=True, timeout=60)
             pip = str(venv_dir / "bin" / "pip")
-            subprocess.run([pip, "install", "numpy>=1.24,<2.0"],
+            subprocess.run([pip, "install", "requests", "numpy>=1.24,<2.0"],
                          capture_output=True, timeout=120)
             for dep in dependencies:
                 if dep.strip():
@@ -84,9 +109,32 @@ MD 文档:
         return all(s in md for s in required)
 
     async def build(self, spec: dict) -> str:
-        """生成工具代码 — 传递完整 MD spec 给 LLM"""
+        """生成工具代码 — LLM 生成 + 自动注入标准头部"""
         raw_md = spec.get("raw_md", "")
-        return await self._llm_generate(raw_md)
+        code = await self._llm_generate(raw_md)
+        return self._inject_header(code)
+
+    @staticmethod
+    def _inject_header(code: str) -> str:
+        """在每个生成的工具代码头部自动注入路径初始化（不依赖 LLM 编写）"""
+        header = '''# === SOTABand 工具标准头部（自动注入） ===
+import os, sys, json, time
+from pathlib import Path
+
+_tool_dir = os.environ.get("TOOL_DIR", "")
+if _tool_dir:
+    _PROJECT_ROOT = Path(_tool_dir).resolve().parent.parent.parent.parent
+else:
+    _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+# === 头部结束 ===
+
+'''
+        # 如果代码已有头部，不重复注入
+        if '_PROJECT_ROOT' in code:
+            return code
+        return header + code
 
     async def generate_test_data(self, spec: dict) -> dict:
         """根据输入规范自动构造测试数据"""
@@ -160,6 +208,7 @@ MD 文档:
             test_script = (
                 f"import json\n"
                 f"import sys\n"
+                f"sys.path.insert(0, {_json.dumps(str(Path(__file__).resolve().parent.parent.parent.parent))})\n"
                 f"code = {_json.dumps(code)}\n"
                 f"try:\n"
                 f"    exec(code)\n"
@@ -296,26 +345,49 @@ MD 文档:
         return ("test", "", None)
 
     async def _llm_generate(self, spec_md: str) -> str:
-        """LLM 生成工具代码 — 基于完整 MD 规范文档"""
+        """LLM 生成工具代码 — 基于完整 MD 规范文档，解析 API 调用标记"""
+        # 解析【xxx】API 调用标记
+        import re as _re
+        api_calls = _re.findall(r'【(.+?)】', spec_md)
+        api_info = ""
+        if api_calls:
+            from core.api.registry import ApiRegistry
+            reg = ApiRegistry()
+            all_apis = reg._read()
+            api_lines = []
+            for name in api_calls:
+                for api in all_apis:
+                    if api.get("name") == name:
+                        api_lines.append(
+                            f"  {name} → from core.api import get_api; "
+                            f"api = get_api(\"{api['id']}\"); "
+                            f"result = api.call({', '.join(api.get('input_schema', {}).keys())})"
+                        )
+            if api_lines:
+                api_info = (
+                    "\n=== SYSTEM API CALLS ===\n"
+                    "The spec references these system APIs. You MUST call them in the generated code:\n"
+                    + "\n".join(api_lines) +
+                    "\n=== END API CALLS ===\n"
+                )
+
         prompt = f"""You are a Python code generator. Generate a tool function that STRICTLY follows the specification below.
 
 === TOOL SPECIFICATION ===
 {spec_md}
 === END SPECIFICATION ===
+{api_info}
+RULES:
+1. Function MUST be synchronous: def execute(**kwargs) -> dict[str, Any]
+2. Parameter names MUST match the spec's input table EXACTLY
+3. Validate ALL required parameters at the top of execute()
+4. Return format: {{"status":"success"|"failed", "output_format":"...", "message":"...", "data":{{}}}}
+5. Use _PROJECT_ROOT / "data" / "downloads" / ... for file paths (DON'T hardcode /data/)
+6. For API calls: from core.api import get_api; api = get_api("xxx"); result = api.call(key=value)
+7. Handle ALL errors with try/except, return {{"status":"failed","message":str(e),...}}
+8. NEVER use async/await
 
-CRITICAL RULES:
-1. Function signature MUST be: def execute(**kwargs) -> dict[str, Any]
-2. Parameter names MUST match EXACTLY what the spec defines in the input table
-3. For EVERY required parameter (required=是), add a validation check at the top
-4. The return dict MUST include: status, output_format, message, data
-5. Use the EXACT output_format specified in the spec
-6. If output_format is "image": save the result to a real file path and return image_path in data
-7. If output_format is "table": return data with "columns" and "rows" arrays
-8. Handle ALL errors gracefully with try/except, returning status="failed"
-9. Import only standard library and the dependencies listed in the spec
-10. The docstring should describe Args and Returns based on the spec
-
-Return ONLY the Python code, no explanations, no markdown fences."""
+Return ONLY the Python code, no markdown fences."""
 
         response = await self.llm.chat(
             messages=[{"role": "user", "content": prompt}],

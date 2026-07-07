@@ -1,0 +1,1 @@
+问候工具。输出'hello world'

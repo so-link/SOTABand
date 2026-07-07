@@ -214,64 +214,6 @@
     ]
   },
   {
-    "id": "etth-line-plot",
-    "name": "ETTh 时序可视化",
-    "version": "0.1.0",
-    "type": "function",
-    "language": "python",
-    "status": "active",
-    "spec_path": "definitions/etth-line-plot.md",
-    "impl_path": "implementations/etth-line-plot/",
-    "input_schema": {},
-    "output_schema": {},
-    "tags": [],
-    "usage_count": 0,
-    "created_at": "2026-07-02T07:33:28Z",
-    "param_meta": [
-      {
-        "name": "csv_path",
-        "type": "string",
-        "required": true,
-        "default": null,
-        "desc": "ETTh 数据 CSV 文件的绝对路径或相对路径",
-        "hints": [
-          "文件路径",
-          "CSV文件",
-          "数据文件",
-          "数据路径"
-        ]
-      },
-      {
-        "name": "field",
-        "type": "string",
-        "required": true,
-        "default": null,
-        "desc": "需要展示的字段名称，如 HUFL, HULL, MUFL, MULL, LUFL, LULL, OT 之一",
-        "hints": [
-          "字段",
-          "列名",
-          "展示字段",
-          "OT",
-          "HUFL"
-        ]
-      },
-      {
-        "name": "length",
-        "type": "int",
-        "required": true,
-        "default": null,
-        "desc": "需要展示的时序点数量，从数据末尾向前取指定长度的记录",
-        "hints": [
-          "长度",
-          "数据点数量",
-          "最近N条",
-          "展示数量",
-          "点数"
-        ]
-      }
-    ]
-  },
-  {
     "id": "file-visualizer",
     "name": "文件可视化器",
     "version": "0.1.0",
@@ -457,5 +399,194 @@
     "tags": [],
     "usage_count": 0,
     "created_at": "2026-07-03T09:10:28Z"
+  },
+  {
+    "id": "data-cleaner-extract",
+    "name": "数据清洗工具",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/data-cleaner-extract.md",
+    "impl_path": "implementations/data-cleaner-extract/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "input_file",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "待清洗的文本文件路径，支持 .txt、.log 等文本格式",
+        "hints": [
+          "输入文件",
+          "文件路径",
+          "待清洗文件",
+          "文本文件"
+        ]
+      }
+    ],
+    "tags": [],
+    "usage_count": 0,
+    "created_at": "2026-07-06T04:11:04Z"
+  },
+  {
+    "id": "image-synthesis-doubao",
+    "name": "图片合成工具（豆包大模型）",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/image-synthesis-doubao.md",
+    "impl_path": "implementations/image-synthesis-doubao/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "prompt",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "图片生成的自然语言描述要求",
+        "hints": [
+          "图片描述",
+          "生成图片的提示词",
+          "描述",
+          "画面",
+          "prompt"
+        ]
+      },
+      {
+        "name": "num_images",
+        "type": "int",
+        "required": true,
+        "default": null,
+        "desc": "需要合成的图片数量（正整数）",
+        "hints": [
+          "图片数量",
+          "生成几张",
+          "数量",
+          "num_images"
+        ]
+      },
+      {
+        "name": "dataset_name",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "数据集名称，用于注册图片集合",
+        "hints": [
+          "数据集名",
+          "名称",
+          "dataset_name",
+          "数据集"
+        ]
+      }
+    ],
+    "tags": [],
+    "usage_count": 0,
+    "created_at": "2026-07-06T18:07:37Z"
+  },
+  {
+    "id": "greeting-tool",
+    "name": "问候工具",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/greeting-tool.md",
+    "impl_path": "implementations/greeting-tool/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [],
+    "tags": [],
+    "usage_count": 0,
+    "created_at": "2026-07-07T00:54:25Z"
+  },
+  {
+    "id": "doubao-image-edit",
+    "name": "图片编辑（Doubao）",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/doubao-image-edit.md",
+    "impl_path": "implementations/doubao-image-edit/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "image_path",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "待编辑的图片文件路径，支持常见格式如 jpg/png",
+        "hints": [
+          "图片",
+          "照片",
+          "图像",
+          "图片路径",
+          "这个文件"
+        ]
+      },
+      {
+        "name": "prompt",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "编辑要求描述，例如“高清优化，细节拉满，写实画质”",
+        "hints": [
+          "编辑描述",
+          "要求",
+          "提示词",
+          "想要的效果",
+          "改成什么样子"
+        ]
+      },
+      {
+        "name": "negative_prompt",
+        "type": "string",
+        "required": false,
+        "default": "模糊，水印，文字，畸形",
+        "desc": "不希望出现的负面内容，如模糊、水印",
+        "hints": [
+          "负向提示词",
+          "避免的内容",
+          "不要出现",
+          "排除",
+          "反面描述"
+        ]
+      },
+      {
+        "name": "strength",
+        "type": "float",
+        "required": false,
+        "default": 0.7,
+        "desc": "编辑强度，范围0到1，值越大修改幅度越大",
+        "hints": [
+          "编辑强度",
+          "变化程度",
+          "强度值",
+          "修改力度"
+        ]
+      },
+      {
+        "name": "size",
+        "type": "string",
+        "required": false,
+        "default": "2048x2048",
+        "desc": "输出图片尺寸，格式为“宽x高”，如“1024x1024”",
+        "hints": [
+          "尺寸",
+          "分辨率",
+          "宽高",
+          "输出大小",
+          "图片尺寸"
+        ]
+      }
+    ],
+    "tags": [],
+    "usage_count": 0,
+    "created_at": "2026-07-07T01:06:13Z"
   }
 ]

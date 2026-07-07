@@ -109,6 +109,12 @@ result = execute(...)
 规则：
 1. tool-id 使用小写字母+连字符
 2. type 推断为 function/script/api-wrapper
+3. output_format 必须根据用户需求推断
+4. 合理填充所有字段
+5. 只输出 Markdown
+6. 【重要】用户描述中的【xxxx】标记表示系统API调用，在生成的MD文档中必须原封不动保留【】符号和其中的API名称
+1. tool-id 使用小写字母+连字符
+2. type 推断为 function/script/api-wrapper
 3. **output_format 必须根据用户需求推断：**
    - 图片生成/绘制/可视化 → image
    - 数据处理/统计/查询返回结构化数据 → table
@@ -183,12 +189,14 @@ async def register_tool(req: RegisterToolRequest):
     if sandbox["failed"]:
         raise HTTPException(400, f"沙箱测试未通过: {sandbox['failed']}")
 
-    # 提取参数元数据
+    # 提取参数元数据（LLM 不行则用 MD 表格解析兜底）
     param_meta = []
     try:
         param_meta = await builder.extract_param_metadata(req.spec_md)
     except Exception:
         pass
+    if not param_meta:
+        param_meta = builder._parse_spec_inputs(req.spec_md)
 
     resource = {
         "id": req.tool_id, "name": req.tool_name, "version": req.version,
@@ -196,6 +204,11 @@ async def register_tool(req: RegisterToolRequest):
         "test_data": test_data, "param_meta": param_meta,
     }
     tool_id = await registry.register(resource)
+
+    # 保存用户需求描述
+    if hasattr(req, 'demand_desc') and req.demand_desc:
+        (registry._get_def_dir() / f"{tool_id}-demand.md").write_text(req.demand_desc)
+
     entry = await registry.get(tool_id)
 
     # 创建工具独立虚拟环境并安装依赖
@@ -239,7 +252,11 @@ async def get_tool(tool_id: str):
     code_path = registry._get_impl_dir() / tool_id / "tool.py"
     code = code_path.read_text() if code_path.exists() else ""
 
-    return {**entry, "spec_md": spec_md, "code": code}
+    demand_path = registry._get_def_dir() / f"{tool_id}-demand.md"
+    has_demand = demand_path.exists()
+    demand_md = demand_path.read_text() if has_demand else ""
+
+    return {**entry, "spec_md": spec_md, "code": code, "has_demand": has_demand, "demand_md": demand_md}
 
 
 @router.post("/{tool_id}/update-code")
@@ -335,19 +352,52 @@ async def execute_tool(tool_id: str, req: ExecuteToolRequest):
     if not impl_dir.exists():
         raise HTTPException(400, f"工具代码不存在: {impl_dir}")
 
-    import importlib.util
-    spec = importlib.util.spec_from_file_location(f"tool_{tool_id}", str(impl_dir))
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    # 检查是否有独立 venv，有则用子进程执行（与对话界面一致）
+    from pathlib import Path as _Path
+    import subprocess, tempfile, os, json, sys as _sys
 
-    if not hasattr(module, "execute"):
-        raise HTTPException(500, "工具代码未实现 execute() 函数")
+    venv_python = registry._get_impl_dir() / tool_id / ".venv" / "bin" / "python"
+    python_exe = str(venv_python) if venv_python.exists() else None
 
-    try:
-        result = module.execute(**req.params)
-        return {"status": "success", "result": result}
-    except Exception as e:
-        return {"status": "failed", "error": str(e)}
+    if python_exe:
+        code = impl_dir.read_text()
+        params_json = json.dumps(req.params)
+        test_script = (
+            f"import json, sys, os\n"
+            f"sys.path.insert(0, {json.dumps(str(_Path(__file__).resolve().parent.parent.parent.parent))})\n"
+            f"os.environ['TOOL_DIR'] = {json.dumps(str(impl_dir.parent))}\n"
+            f"code = {json.dumps(code)}\n"
+            f"exec(code)\n"
+            f"result = execute(**{params_json})\n"
+            f"print(json.dumps(result, default=str))\n"
+        )
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(test_script)
+            tmp_path = f.name
+        try:
+            proc = subprocess.run([python_exe, tmp_path], capture_output=True, text=True)
+            if proc.returncode == 0:
+                result = json.loads(proc.stdout.strip())
+                return {"status": "success", "result": result}
+            else:
+                return {"status": "failed", "error": proc.stderr[:500]}
+        finally:
+            os.unlink(tmp_path)
+    else:
+        # 无 venv，同进程加载执行
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(f"tool_{tool_id}", str(impl_dir))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        if not hasattr(module, "execute"):
+            raise HTTPException(500, "工具代码未实现 execute() 函数")
+
+        try:
+            result = module.execute(**req.params)
+            return {"status": "success", "result": result}
+        except Exception as e:
+            return {"status": "failed", "error": str(e)}
 
 
 @router.get("/search/find")

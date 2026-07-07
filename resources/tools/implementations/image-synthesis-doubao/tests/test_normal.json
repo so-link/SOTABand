@@ -1,0 +1,8 @@
+{
+  "input": {
+    "prompt": "hello",
+    "num_images": 3,
+    "dataset_name": "hello"
+  },
+  "description": "正常输入"
+}
