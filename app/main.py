@@ -13,6 +13,7 @@ from app.api.routes.agent_routes import router as agent_router
 from app.api.routes.tool_routes import router as tool_router
 from app.api.routes.data_routes import router as data_router
 from app.api.routes.file_routes import router as file_router
+from app.api.routes.api_routes import router as api_list_router
 
 
 @asynccontextmanager
@@ -52,6 +53,7 @@ app.include_router(agent_router, prefix="/api/agent", tags=["agent"])
 app.include_router(tool_router, prefix="/api/tool", tags=["tool"])
 app.include_router(data_router, prefix="/api/data", tags=["data"])
 app.include_router(file_router, prefix="/api/file", tags=["file"])
+app.include_router(api_list_router, prefix="/api/apis", tags=["api"])
 
 
 @app.get("/")

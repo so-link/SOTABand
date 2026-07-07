@@ -1,7 +1,14 @@
 import { create } from 'zustand'
 import { agentApi } from '@/services/api/agent'
+import { apiApi } from '@/services/api/api'
+import { toolApi } from '@/services/api/tool'
 
 export type EditorStep = 1 | 2 | 3 | 4
+
+export interface AutocompleteItem {
+  name: string
+  id: string
+}
 
 interface AgentEditorState {
   step: EditorStep
@@ -13,6 +20,10 @@ interface AgentEditorState {
   isGenerating: boolean
   error: string | null
 
+  // Autocomplete data (lazy-loaded)
+  apiItems: AutocompleteItem[]
+  toolItems: AutocompleteItem[]
+
   setDescription: (text: string) => void
   setGeneratedMd: (md: string) => void
   generateSpec: () => Promise<void>
@@ -20,6 +31,10 @@ interface AgentEditorState {
   registerAgent: () => Promise<void>
   setStep: (step: EditorStep) => void
   reset: () => void
+
+  // Lazy fetch autocomplete items
+  fetchApis: () => Promise<void>
+  fetchTools: () => Promise<void>
 }
 
 export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
@@ -31,6 +46,8 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
   registeredId: null,
   isGenerating: false,
   error: null,
+  apiItems: [],
+  toolItems: [],
 
   setDescription: (text) => set({ description: text }),
 
@@ -47,7 +64,41 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
       sandboxResults: null,
       registeredId: null,
       error: null,
+      apiItems: [],
+      toolItems: [],
     }),
+
+  fetchApis: async () => {
+    // Only fetch once
+    if (get().apiItems.length > 0) return
+    try {
+      const result = await apiApi.list()
+      const apis = (result.apis || []).map((a: Record<string, unknown>) => ({
+        name: (a.name as string) || (a.id as string),
+        id: (a.id as string) || '',
+      }))
+      set({ apiItems: apis })
+    } catch {
+      // Silently fail — autocomplete will just show nothing
+    }
+  },
+
+  fetchTools: async () => {
+    // Only fetch once
+    if (get().toolItems.length > 0) return
+    try {
+      const result = await toolApi.list()
+      const tools = ((result as Record<string, unknown>).tools as Array<Record<string, unknown>> || []).map(
+        (t: Record<string, unknown>) => ({
+          name: (t.name as string) || (t.id as string),
+          id: (t.id as string) || '',
+        })
+      )
+      set({ toolItems: tools })
+    } catch {
+      // Silently fail
+    }
+  },
 
   generateSpec: async () => {
     const { description } = get()
@@ -86,7 +137,7 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
 
     set({ isGenerating: true, error: null })
     try {
-      const result = await agentApi.register(generatedMd, generatedCode)
+      const result = await agentApi.register(generatedMd, generatedCode, get().description)
       set({
         registeredId: result.agent_id,
         step: 4,

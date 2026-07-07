@@ -56,9 +56,16 @@ async def main():
     if not impl_path.is_absolute():
         impl_path = PROJECT_ROOT / impl_path
 
-    # 加载 Agent
-    agent = load_agent(impl_path, args.agent_id)
-    await agent.on_start()
+    # 加载 Agent — 失败时仍建立协议通道以报告错误
+    try:
+        agent = load_agent(impl_path, args.agent_id)
+        await agent.on_start()
+        agent_loaded = True
+    except Exception as e:
+        import traceback
+        load_error = f"Agent 加载失败: {e}\n{traceback.format_exc()}"
+        agent = None
+        agent_loaded = False
 
     # 通过 stdin/stdout JSON-line 协议通信
     reader = asyncio.StreamReader()
@@ -73,6 +80,12 @@ async def main():
         """发送 JSON 行到主进程"""
         line = json.dumps(event, ensure_ascii=False) + "\n"
         writer.write(line.encode())
+
+    # 加载失败 → 通知主进程后退出
+    if not agent_loaded:
+        send_event({"event": "error", "data": {"message": load_error[:500]}})
+        send_event({"event": "done", "data": {"messageId": "fatal"}})
+        return
 
     while True:
         try:

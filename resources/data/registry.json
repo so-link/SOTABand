@@ -187,5 +187,113 @@
     "tags": [],
     "quality_score": null,
     "created_at": "2026-07-07T01:42:32Z"
+  },
+  {
+    "id": "ds_20260707161316987522",
+    "name": "generated_images",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/ds_20260707161316987522.md",
+    "data_path": "/hdd/sdc1/jmlv/LLM/data/downloads/20260707161316987522",
+    "file_count": 1,
+    "total_size": 1228927,
+    "formats": [
+      "jpg"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-07T08:13:19Z"
+  },
+  {
+    "id": "ds_20260707171251441283",
+    "name": "无人机着火",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/ds_20260707171251441283.md",
+    "data_path": "/hdd/sdc1/jmlv/LLM/data/downloads/20260707171251441283",
+    "file_count": 2,
+    "total_size": 443768,
+    "formats": [
+      "jpg",
+      "jpg"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-07T09:12:52Z"
+  },
+  {
+    "id": "ds_20260707174552010229",
+    "name": "办公室",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/ds_20260707174552010229.md",
+    "data_path": "/hdd/sdc1/jmlv/LLM/data/downloads/20260707174552010229",
+    "file_count": 3,
+    "total_size": 1713172,
+    "formats": [
+      "jpg",
+      "jpg",
+      "jpg"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-07T09:46:01Z"
+  },
+  {
+    "id": "ds_20260707174623856782",
+    "name": "办公室",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/ds_20260707174623856782.md",
+    "data_path": "/hdd/sdc1/jmlv/LLM/data/downloads/20260707174623856782",
+    "file_count": 3,
+    "total_size": 1535614,
+    "formats": [
+      "jpg",
+      "jpg",
+      "jpg"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-07T09:46:25Z"
+  },
+  {
+    "id": "ds_20260707180201427615",
+    "name": "宇宙飞船",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/ds_20260707180201427615.md",
+    "data_path": "/hdd/sdc1/jmlv/LLM/data/downloads/20260707180201427615",
+    "file_count": 2,
+    "total_size": 1370335,
+    "formats": [
+      "jpg",
+      "jpg"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-07T10:02:04Z"
+  },
+  {
+    "id": "ds_20260707182838402690",
+    "name": "大飞机",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/ds_20260707182838402690.md",
+    "data_path": "/hdd/sdc1/jmlv/LLM/data/downloads/20260707182838402690",
+    "file_count": 1,
+    "total_size": 236394,
+    "formats": [
+      "jpg"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-07T10:28:39Z"
   }
 ]

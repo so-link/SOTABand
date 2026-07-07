@@ -30,6 +30,7 @@ class RegisterAgentRequest(BaseModel):
     role: str = "task"
     version: str = "0.1.0"
     tags: list[str] = Field(default_factory=list)
+    demand_desc: str = Field(default="", alias="demandDesc")
 
     model_config = {"populate_by_name": True}
 

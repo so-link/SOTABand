@@ -63,5 +63,44 @@
     "tags": [],
     "created_at": "2026-06-29T08:55:48Z",
     "health": "healthy"
+  },
+  {
+    "id": "echo-agent",
+    "name": "回显 Agent",
+    "version": "0.1.0",
+    "role": "interactive",
+    "status": "active",
+    "spec_path": "definitions/echo-agent.md",
+    "impl_path": "implementations/echo-agent/",
+    "tools": [],
+    "tags": [],
+    "created_at": "2026-07-07T03:37:24Z",
+    "health": "healthy"
+  },
+  {
+    "id": "weather-query-agent",
+    "name": "天气查询助手",
+    "version": "0.1.0",
+    "role": "interactive",
+    "status": "active",
+    "spec_path": "definitions/weather-query-agent.md",
+    "impl_path": "implementations/weather-query-agent/",
+    "tools": [],
+    "tags": [],
+    "created_at": "2026-07-07T07:38:43Z",
+    "health": "healthy"
+  },
+  {
+    "id": "image-generation-editing-agent",
+    "name": "图片生成与编辑Agent",
+    "version": "0.1.0",
+    "role": "task",
+    "status": "active",
+    "spec_path": "definitions/image-generation-editing-agent.md",
+    "impl_path": "implementations/image-generation-editing-agent/",
+    "tools": [],
+    "tags": [],
+    "created_at": "2026-07-07T10:01:09Z",
+    "health": "healthy"
   }
 ]

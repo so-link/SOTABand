@@ -47,7 +47,8 @@ export const agentApi = {
   /** 注册 Agent */
   async register(
     specMd: string,
-    code: string
+    code: string,
+    demandDesc: string = ''
   ): Promise<{ agent_id: string; entry: Record<string, unknown> }> {
     const idMatch = specMd.match(/^id:\s*(.+)$/m)
     const nameMatch = specMd.match(/^name:\s*(.+)$/m)
@@ -62,6 +63,7 @@ export const agentApi = {
         agentId: idMatch?.[1]?.trim() || 'custom-agent',
         agentName: nameMatch?.[1]?.trim() || 'Custom Agent',
         role: roleMatch?.[1]?.trim() || 'task',
+        demandDesc,
       }),
     })
     if (!res.ok) {
