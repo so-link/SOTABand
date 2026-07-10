@@ -39,32 +39,6 @@
     "health": "healthy"
   },
   {
-    "id": "weather-report-agent",
-    "name": "广州天气报告 Agent",
-    "version": "0.1.0",
-    "role": "task",
-    "status": "active",
-    "spec_path": "definitions/weather-report-agent.md",
-    "impl_path": "implementations/weather-report-agent/",
-    "tools": [],
-    "tags": [],
-    "created_at": "2026-06-29T08:12:05Z",
-    "health": "healthy"
-  },
-  {
-    "id": "guangzhou-weather-reporter",
-    "name": "广州天气定时报告器",
-    "version": "0.1.0",
-    "role": "task",
-    "status": "active",
-    "spec_path": "definitions/guangzhou-weather-reporter.md",
-    "impl_path": "implementations/guangzhou-weather-reporter/",
-    "tools": [],
-    "tags": [],
-    "created_at": "2026-06-29T08:55:48Z",
-    "health": "healthy"
-  },
-  {
     "id": "echo-agent",
     "name": "回显 Agent",
     "version": "0.1.0",

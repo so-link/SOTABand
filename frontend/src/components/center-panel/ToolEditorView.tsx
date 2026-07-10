@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, type KeyboardEvent } from 'react'
+import { createPortal } from 'react-dom'
 import {
-
   Wrench, ArrowRight, ArrowLeft, CheckCircle2, XCircle,
   Loader2, FileCode, Play, CheckCheck, Rocket,
 } from 'lucide-react'
@@ -52,13 +52,97 @@ export function ToolEditorView() {
 
 function Step1() {
   const { description, setDescription, generateSpec, isGenerating, error } = useToolEditorStore()
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001'
+
+  // Autocomplete data
+  const [apiItems, setApiItems] = useState<Array<{name:string,id:string}>>([])
+  const [toolItems, setToolItems] = useState<Array<{name:string,id:string}>>([])
+
+  // Dropdown state
+  const [show, setShow] = useState(false)
+  const [filtered, setFiltered] = useState<Array<{name:string,id:string}>>([])
+  const [selIdx, setSelIdx] = useState(0)
+  const [ddPos, setDdPos] = useState({ top: 0, left: 0 })
+  const [trigger, setTrigger] = useState<'@' | '$'>('@')
+  const [tRange, setTRange] = useState({ start: 0, end: 0 })
+
+  useEffect(() => {
+    fetch(`${BASE}/api/apis/list`).then(r => r.json()).then(d => {
+      const items = ((d.apis||[]) as Array<Record<string,unknown>>).map((a:Record<string,unknown>) => ({name:(a.name as string)||(a.id as string)||'', id:(a.id as string)||''}))
+      setApiItems(items)
+    }).catch(()=>{})
+    fetch(`${BASE}/api/tool/list`).then(r => r.json()).then(d => {
+      const items = (((d as Record<string,unknown>).tools||[]) as Array<Record<string,unknown>>).map((t:Record<string,unknown>) => ({name:(t.name as string)||(t.id as string)||'', id:(t.id as string)||''}))
+      setToolItems(items)
+    }).catch(()=>{})
+  }, [])
+
+  function getPos() {
+    const ta = textareaRef.current
+    if (!ta) return { top: 0, left: 0 }
+    const r = ta.getBoundingClientRect()
+    return { top: r.bottom + 4, left: r.left }
+  }
+
+  function doShow(value: string, pos: number) {
+    let trig: '@' | '$' | null = null; let start = -1
+    for (let i = pos - 1; i >= 0; i--) {
+      if (value[i] === ' ' || value[i] === '\n') break
+      if (value[i] === '@' || value[i] === '$') { trig = value[i] as '@' | '$'; start = i; break }
+    }
+    if (!trig) { setShow(false); return }
+    const q = value.substring(start + 1, pos).toLowerCase()
+    const src = trig === '@' ? apiItems : toolItems
+    const f = q ? src.filter(it => it.name.toLowerCase().includes(q) || it.id.toLowerCase().includes(q)) : src
+    setTrigger(trig); setFiltered(f); setSelIdx(0); setTRange({start, end: pos}); setDdPos(getPos()); setShow(true)
+  }
+
+  function doSelect(item: {name:string,id:string}) {
+    const fmt = trigger === '@' ? `【${item.name}】` : `【【${item.name}】】`
+    const before = description.substring(0, tRange.start)
+    const after = description.substring(tRange.end)
+    const newVal = before + fmt + after
+    const newPos = before.length + fmt.length
+    setDescription(newVal); setShow(false)
+    requestAnimationFrame(() => { const ta = textareaRef.current; if (ta) { ta.focus(); ta.setSelectionRange(newPos, newPos) } })
+  }
+
+  function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    setDescription(e.target.value)
+    doShow(e.target.value, e.target.selectionStart)
+  }
+
+  function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (!show || filtered.length === 0) return
+    if (e.key === 'ArrowDown') { e.preventDefault(); setSelIdx(i => (i + 1) % filtered.length) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setSelIdx(i => (i - 1 + filtered.length) % filtered.length) }
+    else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); if (filtered[selIdx]) doSelect(filtered[selIdx]) }
+    else if (e.key === 'Escape') { e.preventDefault(); setShow(false) }
+  }
+
+  const isLoading = trigger === '@' ? apiItems.length === 0 : toolItems.length === 0
+
   return (
     <div className="max-w-2xl mx-auto">
       <h3 className="text-lg font-semibold text-maia-text-heading mb-2 tracking-wide">Step 1: 描述工具需求</h3>
-      <p className="text-sm text-maia-text-secondary mb-4">用自然语言描述你需要什么工具，系统会调用大模型生成标准化的 MD 工具描述文档。</p>
-      <textarea value={description} onChange={(e) => setDescription(e.target.value)}
+      <p className="text-sm text-maia-text-secondary mb-4">
+        用自然语言描述你需要什么工具。输入 <code className="text-maia-accent bg-maia-accent/5 px-1 rounded">@</code> 引用系统 API，输入 <code className="text-maia-accent bg-maia-accent/5 px-1 rounded">$</code> 引用注册工具。
+      </p>
+      <textarea ref={textareaRef} value={description} onChange={handleChange} onKeyDown={handleKeyDown}
         placeholder='例如: "我需要一个EEG带通滤波器，支持delta/theta/alpha/beta/gamma频段，Butterworth滤波器，输入EDF文件，输出滤波后的EDF文件"'
         rows={6} className="w-full rounded-lg border border-maia-border bg-white px-4 py-3 text-[13px] tracking-wide outline-none resize-none focus:border-maia-accent/40 placeholder:text-maia-text-muted" />
+      {show && (isLoading || filtered.length > 0) && createPortal(
+        <div className="fixed z-[9999] w-72 max-h-48 overflow-y-auto rounded-lg border border-maia-border bg-white shadow-lg py-1" style={{ top: ddPos.top, left: ddPos.left }}>
+          {isLoading ? <div className="px-3 py-2 text-[12px] text-maia-text-muted">加载中...</div> :
+            filtered.map((item, i) => (
+              <button key={item.id} className={`w-full text-left px-3 py-1.5 flex flex-col gap-0 transition-colors ${i === selIdx ? 'bg-maia-accent/10 text-maia-accent' : 'hover:bg-maia-bg text-maia-text'}`}
+                onMouseDown={e => { e.preventDefault(); doSelect(item) }}>
+                <span className="text-[12px] font-medium tracking-wide truncate">{trigger === '@' ? `【${item.name}】` : `【【${item.name}】】`}</span>
+                <span className="text-[10px] text-maia-text-muted truncate">{item.id}</span>
+              </button>
+            ))}
+        </div>, document.body)}
       {error && <div className="flex items-center gap-1.5 mt-2 text-xs text-maia-danger"><XCircle className="h-3 w-3" />{error}</div>}
       <div className="flex justify-end mt-4">
         <Button onClick={generateSpec} disabled={!description.trim() || isGenerating}>

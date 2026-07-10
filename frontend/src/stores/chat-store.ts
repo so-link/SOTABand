@@ -105,11 +105,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
           ),
         }))
       }
-    } catch {
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e)
       set((s) => ({
         messages: s.messages.map((m) =>
           m.id === agentMsgId
-            ? { ...m, content: '⚠️ 响应失败，请重试。' }
+            ? { ...m, content: `⚠️ ${errMsg || '响应失败，请重试。'}` }
             : m
         ),
       }))

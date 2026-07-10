@@ -111,8 +111,9 @@ class InteractiveAgent(BaseAgent):
 
         # 如果有 pending 的参数收集 → 只处理参数回答，不做工具匹配
         pending = self._pending_calls.get(session_key)
+        in_param_collection = pending is not None
         if pending:
-            # 解析用户的回答，提取参数值
+            # 用户的回应只用于填写参数，不触发新工具匹配
             answer_params = await self._extract_answer_params(
                 content, pending["tool_id"], pending["missing"][0]
             )
@@ -122,11 +123,12 @@ class InteractiveAgent(BaseAgent):
                 p = pending["missing"][0]
                 yield {"event": "content", "data": {"text": f"请提供 **{p['name']}** ({p.get('desc', '')}) 的值。"}}
                 return
-            # 参数齐备 → 执行工具
+            # 参数齐备 → 执行之前匹配的工具
             self._pending_calls.pop(session_key, None)
             matched_tool = {"id": pending["tool_id"], "name": pending["tool_name"]}
             skip_param_extract = pending["params"]
-        else:
+
+        if not in_param_collection:
             matched_tool = self._pre_match_tool(content)
 
         history = self._sessions.get(session_key, [])
@@ -226,8 +228,8 @@ class InteractiveAgent(BaseAgent):
             full_response = ""
             async for token in self.llm.chat_stream(
                 messages=history,
-                temperature=kwargs.get("temperature", self.config.get("temperature", 0.7)),
-                max_tokens=kwargs.get("max_tokens", self.config.get("max_tokens", 4096)),
+                temperature=self.config.get("temperature", 0.7),
+                max_tokens=self.config.get("max_tokens", 4096),
             ):
                 full_response += token
                 yield {"event": "content", "data": {"text": token}}
@@ -510,27 +512,21 @@ class InteractiveAgent(BaseAgent):
             return {"status": "failed", "message": f"工具执行异常: {str(e)[:300]}"}
 
     async def _extract_answer_params(self, answer: str, tool_id: str, param: dict) -> dict:
-        """从用户回答中提取单个参数的值"""
-        try:
-            prompt = (
-                f"用户正在回答关于工具参数的提问。\n"
-                f"参数名: {param['name']}\n"
-                f"参数描述: {param.get('desc', '')}\n"
-                f"用户回答: \"{answer}\"\n\n"
-                f"提取参数值，返回 JSON: {{\"{param['name']}\": <value>}}\n"
-                f"如果用户回答中包含数值，保持数值类型。只返回 JSON。"
-            )
-            response = await self.llm.chat(
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.0, max_tokens=100,
-            )
-            clean = response.strip()
-            if clean.startswith("```"):
-                clean = clean.split("\n", 1)[1].rsplit("\n", 1)[0]
-            return json.loads(clean)
-        except Exception:
-            # 降级：直接把用户输入作为参数值
-            return {param['name']: answer.strip()}
+        """从用户回答中提取单个参数的值 — 直接使用用户输入作为参数值"""
+        val = answer.strip()
+        # 类型转换：如果参数类型是 int/float，尝试转换
+        ptype = param.get("type", "string")
+        if "int" in ptype:
+            try:
+                val = int(val)
+            except (ValueError, TypeError):
+                pass
+        elif "float" in ptype:
+            try:
+                val = float(val)
+            except (ValueError, TypeError):
+                pass
+        return {param["name"]: val}
 
     async def _check_missing_params(self, tool_id: str, current_params: dict) -> list[str]:
         """返回缺失的必填参数名列表"""

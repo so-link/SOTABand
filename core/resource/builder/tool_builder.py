@@ -163,24 +163,74 @@ if str(_PROJECT_ROOT) not in sys.path:
         }
 
     async def dry_run(self, code: str, test_input: dict = None, tool_id: str = None) -> dict:
-        """沙箱测试 — 优先使用工具独立 venv 的 Python"""
+        """沙箱测试 — 语法/接口/静态分析/功能测试"""
         results = {"passed": [], "failed": [], "errors": []}
 
         # 1. 语法检查
+        tree = None
         try:
-            ast.parse(code)
+            tree = ast.parse(code)
             results["passed"].append("语法检查通过")
         except SyntaxError as e:
             results["failed"].append(f"语法错误: {e}")
             return results
 
-        # 2. 接口检查
-        if "def execute" in code:
-            results["passed"].append("实现 execute() 函数")
-        else:
+        # 2. 接口检查 + 签名验证
+        if "def execute" not in code:
             results["failed"].append("未找到 execute() 函数")
+            return results
 
-        # 3. 依赖检查
+        # 检查 execute 签名：必须有 **kwargs 或参数
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "execute":
+                has_kwargs = any(
+                    isinstance(a, ast.arg) and a.arg == "kwargs" and hasattr(node.args, 'kwarg') and node.args.kwarg
+                    for a in ([node.args.kwarg] if node.args.kwarg else [])
+                )
+                has_params = bool(node.args.args)
+                if has_kwargs or (has_params and any(
+                    isinstance(a, ast.arg) for a in node.args.args
+                )):
+                    sig = "execute(**kwargs)" if node.args.kwarg else f"execute({', '.join(a.arg for a in node.args.args)})"
+                    results["passed"].append(f"函数签名: {sig}")
+                else:
+                    results["failed"].append("execute() 缺少参数定义（应为 execute(**kwargs)）")
+                break
+
+        # 3. 静态分析 — 检测未定义变量引用
+        defined_names = set()
+        # 收集所有函数参数和局部变量赋值
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                for a in node.args.args:
+                    defined_names.add(a.arg)
+                if node.args.kwarg:
+                    defined_names.add(node.args.kwarg.arg)
+            elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                defined_names.add(node.id)
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    defined_names.add(alias.asname or alias.name.split('.')[0])
+            elif isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    defined_names.add(alias.asname or alias.name)
+
+        builtins = {"print", "len", "range", "int", "str", "float", "bool", "list", "dict",
+                     "set", "tuple", "type", "isinstance", "hasattr", "getattr", "setattr",
+                     "enumerate", "zip", "map", "filter", "sorted", "reversed", "min", "max",
+                     "sum", "abs", "round", "open", "Exception", "ValueError", "TypeError",
+                     "KeyError", "IndexError", "OSError", "RuntimeError", "json", "True", "False", "None"}
+        undefined = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+                if node.id not in defined_names and node.id not in builtins:
+                    undefined.add(node.id)
+        if undefined:
+            results["failed"].append(f"未定义的变量引用: {', '.join(sorted(undefined))}")
+        else:
+            results["passed"].append("静态分析通过（无未定义变量）")
+
+        # 4. 依赖检查
         imports = re.findall(r'^(?:import\s+(\S+)|from\s+(\S+))', code, re.MULTILINE)
         deps = [i[0] or i[1] for i in imports if i[0] or i[1]]
         stdlib = {"sys", "os", "json", "pathlib", "typing", "re", "math", "datetime", "subprocess"}
@@ -190,7 +240,7 @@ if str(_PROJECT_ROOT) not in sys.path:
         else:
             results["passed"].append("无外部依赖")
 
-        # 4. 功能测试（用工具 venv 的 Python 执行）
+        # 5. 功能测试（用工具 venv 的 Python 执行）
         try:
             import subprocess as _sp
             import json as _json
@@ -380,12 +430,14 @@ if str(_PROJECT_ROOT) not in sys.path:
 RULES:
 1. Function MUST be synchronous: def execute(**kwargs) -> dict[str, Any]
 2. Parameter names MUST match the spec's input table EXACTLY
-3. Validate ALL required parameters at the top of execute()
-4. Return format: {{"status":"success"|"failed", "output_format":"...", "message":"...", "data":{{}}}}
-5. Use _PROJECT_ROOT / "data" / "downloads" / ... for file paths (DON'T hardcode /data/)
-6. For API calls: from core.api import get_api; api = get_api("xxx"); result = api.call(key=value)
-7. Handle ALL errors with try/except, return {{"status":"failed","message":str(e),...}}
-8. NEVER use async/await
+3. Validate ALL required parameters at the top of execute() using kwargs.get("param_name")
+4. ALWAYS access parameters via kwargs.get("name", default) — NEVER use kwargs["name"] or bare kwargs
+5. Return format: {{"status":"success"|"failed", "output_format":"...", "message":"...", "data":{{}}}}
+6. Use _PROJECT_ROOT / "data" / "downloads" / ... for file paths (DON'T hardcode /data/)
+7. For API calls: from core.api import get_api; api = get_api("xxx"); result = api.call(key=value)
+8. Handle ALL errors with try/except, return {{"status":"failed","message":str(e),...}}
+9. NEVER use async/await
+10. NEVER reference undefined variables — only use names that are imported, defined locally, or built-in
 
 Return ONLY the Python code, no markdown fences."""
 
