@@ -1,48 +1,72 @@
 @import 'tailwindcss';
 
 /* ============================================================
-   SOTABand — Design System
-   VS Code inspired · 高级灰 · 科技感
+   SOTABand — Design System v3
+   深色科技风 · Cyber Terminal · Light ↔ Dark
    ============================================================ */
 
 @theme {
-  /* ── Background ── */
+  /* ── 深色默认 ── */
+  --color-maia-bg: #0a0e14;
+  --color-maia-surface: #11161d;
+  --color-maia-sidebar: #0d1117;
+  --color-maia-sidebar-hover: #161b24;
+  --color-maia-sidebar-active: #1a2030;
+  --color-maia-border: #1e2733;
+  --color-maia-border-light: #24303f;
+  --color-maia-border-glow: #1a3347;
+  --color-maia-text: #c8d2e0;
+  --color-maia-text-secondary: #8b9bb5;
+  --color-maia-text-muted: #536078;
+  --color-maia-text-heading: #e4ecf8;
+  --color-maia-accent: #00d0ff;
+  --color-maia-accent-light: #0a1a28;
+  --color-maia-accent-hover: #33dbff;
+  --color-maia-accent-border: #0a3a50;
+  --color-maia-accent-glow: rgba(0, 208, 255, 0.15);
+  --color-maia-success: #00e676;
+  --color-maia-success-bg: #0a1e14;
+  --color-maia-warning: #ffb300;
+  --color-maia-warning-bg: #1e1808;
+  --color-maia-danger: #ff5252;
+  --color-maia-danger-bg: #1e0a0a;
+  --color-maia-chat-user: #0d1f30;
+  --color-maia-chat-agent: #111922;
+  --color-maia-chat-system: #121212;
+  --color-maia-card-blue: #0d1f30;
+  --color-maia-card-green: #0a1e14;
+  --color-maia-card-amber: #1e1808;
+  --color-maia-card-purple: #140d28;
+}
+
+/* ── 浅色主题覆盖 ── */
+[data-theme="light"] {
   --color-maia-bg: #f0f2f5;
   --color-maia-surface: #ffffff;
   --color-maia-sidebar: #e8ecf1;
   --color-maia-sidebar-hover: #dde2e8;
   --color-maia-sidebar-active: #d4dae2;
-
-  /* ── Border ── */
   --color-maia-border: #d8dce3;
   --color-maia-border-light: #e5e8ed;
-
-  /* ── Text ── */
+  --color-maia-border-glow: #c8d6e5;
   --color-maia-text: #3b3f48;
   --color-maia-text-secondary: #5f6470;
   --color-maia-text-muted: #949aa5;
   --color-maia-text-heading: #1e2127;
-
-  /* ── Accent (purple-blue, muted tech feel) ── */
   --color-maia-accent: #6c5ce7;
   --color-maia-accent-light: #f0edff;
   --color-maia-accent-hover: #5a4bd1;
   --color-maia-accent-border: #d5cff7;
-
-  /* ── Status ── */
+  --color-maia-accent-glow: rgba(108, 92, 231, 0.12);
   --color-maia-success: #10a37f;
   --color-maia-success-bg: #e6f7f1;
   --color-maia-warning: #e5a50a;
   --color-maia-warning-bg: #fef9e7;
   --color-maia-danger: #e05050;
   --color-maia-danger-bg: #fdeaea;
-
-  /* ── Chat bubbles ── */
   --color-maia-chat-user: #f0edff;
   --color-maia-chat-agent: #ffffff;
   --color-maia-chat-system: #faf9f7;
-
-  /* ── Card accent borders ── */
   --color-maia-card-blue: #e8f0fe;
   --color-maia-card-green: #e6f7f1;
   --color-maia-card-amber: #fef6e6;
@@ -50,102 +74,36 @@
 }
 
 /* ============================================================
-   Base — VS Code inspired typography & spacing
+   Base
    ============================================================ */
-
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-html, body, #root {
-  height: 100%;
-  width: 100%;
-  overflow: hidden;
-}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body, #root { height: 100%; width: 100%; overflow: hidden; }
 
 body {
-  font-family:
-    'Inter',
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
-    Roboto,
-    sans-serif;
-  font-size: 13px;
-  font-weight: 400;
-  line-height: 1.65;
-  letter-spacing: 0.025em;
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px; font-weight: 400; line-height: 1.68;
+  letter-spacing: 0.03em;
   color: var(--color-maia-text);
   background: var(--color-maia-bg);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  text-rendering: optimizeLegibility;
 }
 
-/* Headings get tighter tracking */
-h1, h2, h3, h4, h5, h6 {
-  letter-spacing: 0.01em;
-  font-weight: 600;
-}
+h1,h2,h3,h4,h5,h6 { letter-spacing: 0.04em; font-weight: 650; }
 
-/* Code-like elements get monospace spacing */
-code, pre, .font-mono {
+code, pre, .font-mono, .mono {
   font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'SF Mono', ui-monospace, monospace;
-  letter-spacing: 0;
-  font-size: 12px;
+  letter-spacing: 0.03em; font-size: 12px;
 }
 
-/* ============================================================
-   Scrollbar — VS Code style, thin & subtle
-   ============================================================ */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-maia-text-muted); border-radius: 3px; opacity: 0.3; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-maia-text-secondary); }
 
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: #c8cdd4;
-  border-radius: 4px;
-  border: 2px solid transparent;
-  background-clip: content-box;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #a0a7b0;
-  border: 2px solid transparent;
-  background-clip: content-box;
-}
-::-webkit-scrollbar-corner {
-  background: transparent;
-}
+::selection { background: var(--color-maia-accent-glow); color: var(--color-maia-accent); }
+:focus-visible { outline: 2px solid var(--color-maia-accent); outline-offset: 1px; }
 
-/* ============================================================
-   Selection
-   ============================================================ */
+.panel-transition { transition: width 200ms cubic-bezier(0.16, 1, 0.3, 1); }
 
-::selection {
-  background: var(--color-maia-accent-light);
-  color: var(--color-maia-text-heading);
-}
-
-/* ============================================================
-   Focus ring — subtle, consistent
-   ============================================================ */
-
-:focus-visible {
-  outline: 2px solid var(--color-maia-accent);
-  outline-offset: -1px;
-}
-
-/* ============================================================
-   Transitions
-   ============================================================ */
-
-.panel-transition {
-  transition: width 180ms cubic-bezier(0.16, 1, 0.3, 1);
-}
+[data-theme="dark"] .glow-subtle { box-shadow: 0 0 8px var(--color-maia-accent-glow); }

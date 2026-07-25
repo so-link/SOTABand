@@ -1,15 +1,17 @@
 import { useState, useEffect } from 'react'
 import {
   Wrench, FileCode, FileText, X, Play, Loader2,
-  CheckCheck, Save, Bot,
+  CheckCheck, Save, Bot, Code, Pencil,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardBody } from '@/components/ui/card'
 import { useResourceStore } from '@/stores/resource-store'
+import { useUIStore } from '@/stores/ui-store'
+import { useToolEditorStore } from '@/stores/tool-editor-store'
 import type { ToolResource } from '@/types/resources'
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001'
+const BASE_URL = ''
 
 interface InputField { name: string; type: string; required: boolean; default: string | null; desc: string }
 
@@ -36,6 +38,7 @@ function parseInputs(md: string): InputField[] {
 
 export function ToolDetailView() {
   const selectedResource = useResourceStore((s) => s.selectedResource)
+  const setActiveView = useUIStore((s) => s.setActiveView)
   const tool = selectedResource as ToolResource | null
 
   const [specMd, setSpecMd] = useState('')
@@ -44,7 +47,10 @@ export function ToolDetailView() {
   const [showSpec, setShowSpec] = useState(false)
   const [showCode, setShowCode] = useState(false)
   const [showDemand, setShowDemand] = useState(false)
+  const [showReference, setShowReference] = useState(false)
   const [demandText, setDemandText] = useState('')
+  const [referenceCode, setReferenceCode] = useState('')
+  const [hasReference, setHasReference] = useState(false)
   const [formValues, setFormValues] = useState<Record<string, string>>({})
   const [output, setOutput] = useState<Record<string, unknown> | null>(null)
   const [isExecuting, setIsExecuting] = useState(false)
@@ -69,6 +75,10 @@ export function ToolDetailView() {
         setFormValues(init)
         if (data.has_demand && data.demand_md) {
           setDemandText(data.demand_md)
+        }
+        if (data.has_reference && data.reference_code) {
+          setReferenceCode(data.reference_code)
+          setHasReference(true)
         }
       })
       .catch(() => {})
@@ -96,13 +106,24 @@ export function ToolDetailView() {
     setError(null)
     setTestResults(null)
     try {
-      const res = await fetch(`${BASE_URL}/api/tool/test`, {
+      // 使用 /execute 路由，与对话界面环境一致
+      const params: Record<string, unknown> = {}
+      inputs.forEach(f => {
+        const val = formValues[f.name]
+        if (!val && f.required) return
+        if (f.type.includes('int')) params[f.name] = parseInt(val) || 0
+        else if (f.type.includes('float')) params[f.name] = parseFloat(val) || 0
+        else if (f.type.includes('list')) {
+          try { params[f.name] = JSON.parse(val) } catch { params[f.name] = val.split(',').map(s => s.trim()) }
+        } else params[f.name] = val
+      })
+      const res = await fetch(`${BASE_URL}/api/tool/${tool.id}/execute`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ specMd, toolId: tool.id, toolName: tool.name, code: editedCode }),
+        body: JSON.stringify({ params }),
       })
       if (!res.ok) throw new Error((await res.json()).detail || `HTTP ${res.status}`)
       const data = await res.json()
-      setTestResults(data.sandbox_results || {})
+      setTestResults({ passed: [JSON.stringify(data, null, 2)], failed: data.status === 'failed' ? [data.result?.message || '执行失败'] : [] })
     } catch (e) { setError(String(e)) }
     setIsTesting(false)
   }
@@ -112,9 +133,9 @@ export function ToolDetailView() {
     setIsUpdating(true)
     setError(null)
     try {
-      const res = await fetch(`${BASE_URL}/api/tool/${tool.id}/update-code`, {
+      const res = await fetch(`${BASE_URL}/api/tool/${tool.id}/save-code`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ specMd, code: editedCode, toolId: tool.id, toolName: tool.name }),
+        body: JSON.stringify({ code: editedCode }),
       })
       if (!res.ok) throw new Error((await res.json()).detail || `HTTP ${res.status}`)
       setCode(editedCode)
@@ -162,18 +183,34 @@ export function ToolDetailView() {
         </div>
         <div className="flex items-center gap-2">
           {demandText && (
-            <button onClick={() => { setShowDemand(!showDemand); if (showSpec) setShowSpec(false); if (showCode) setShowCode(false) }}
+            <button onClick={() => { setShowDemand(!showDemand); setShowSpec(false); setShowCode(false); setShowReference(false) }}
               className="flex items-center gap-1 text-[11px] text-maia-accent hover:underline">
               <FileText className="h-3 w-3" />{showDemand ? '收起需求' : '查看需求描述'}
             </button>
           )}
-          <button onClick={() => { setShowSpec(!showSpec); if (showCode) setShowCode(false); if (showDemand) setShowDemand(false) }}
+          {hasReference && (
+            <button onClick={() => { setShowReference(!showReference); setShowSpec(false); setShowCode(false); setShowDemand(false) }}
+              className="flex items-center gap-1 text-[11px] text-purple-500 hover:underline">
+              <Code className="h-3 w-3" />{showReference ? '收起参考' : '查看参考代码'}
+            </button>
+          )}
+          <button onClick={() => { setShowSpec(!showSpec); setShowCode(false); setShowDemand(false); setShowReference(false) }}
             className="flex items-center gap-1 text-[11px] text-maia-accent hover:underline">
             <FileText className="h-3 w-3" />{showSpec ? '收起 MD' : '查看 MD 文档'}
           </button>
-          <button onClick={() => { setShowCode(!showCode); if (showSpec) setShowSpec(false); if (showDemand) setShowDemand(false) }}
+          <button onClick={() => { setShowCode(!showCode); setShowSpec(false); setShowDemand(false); setShowReference(false) }}
             className="flex items-center gap-1 text-[11px] text-maia-accent hover:underline">
             <FileCode className="h-3 w-3" />{showCode ? '收起代码' : '查看代码'}
+          </button>
+          <button
+            onClick={() => {
+              const desc = demandText || tool.name
+              useToolEditorStore.getState().prefill(desc, referenceCode)
+              setActiveView('tool-editor')
+            }}
+            className="flex items-center gap-1 text-[11px] text-amber-500 hover:underline ml-2"
+          >
+            <Pencil className="h-3 w-3" />编辑
           </button>
         </div>
       </div>
@@ -203,6 +240,19 @@ export function ToolDetailView() {
                   <button onClick={() => setShowDemand(false)}><X className="h-3 w-3 text-maia-text-muted" /></button>
                 </div>
                 <pre className="text-[11px] font-mono leading-relaxed text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto bg-maia-bg rounded p-3">{demandText}</pre>
+              </CardBody>
+            </Card>
+          )}
+
+          {/* Reference code panel */}
+          {showReference && referenceCode && (
+            <Card className="border-purple-200 bg-purple-50/30">
+              <CardBody>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-medium text-purple-700 tracking-wide">参考代码</span>
+                  <button onClick={() => setShowReference(false)}><X className="h-3 w-3 text-maia-text-muted" /></button>
+                </div>
+                <pre className="text-[11px] font-mono leading-relaxed text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto bg-white rounded p-3 border border-purple-100">{referenceCode}</pre>
               </CardBody>
             </Card>
           )}

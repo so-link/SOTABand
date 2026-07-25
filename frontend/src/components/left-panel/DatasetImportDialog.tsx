@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import type { FileTreeNode } from '@/types/workspace'
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001'
+const BASE_URL = ''
 
 interface DatasetItem { id: string; name: string; data_path: string; file_count: number; formats: string[]; total_size: number }
 

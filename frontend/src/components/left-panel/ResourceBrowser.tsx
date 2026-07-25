@@ -46,15 +46,15 @@ export function ResourceBrowser() {
   } = useResourceStore()
   const { rightPanelOpen, toggleRightPanel, setActiveView } = useUIStore()
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
-    new Set(['data', 'tool', 'agent', 'data'])
+    new Set(['data', 'tool', 'agent'])
   )
 
-  // 启动时从 API 加载真实 Agent 列表
+  // 启动时确保从 API 加载（仅一次，MainLayout 的 fetchAllResources 已经调过）
   useEffect(() => {
     fetchAgentsFromApi()
     fetchToolsFromApi()
     fetchDatasetsFromApi()
-  }, [fetchAgentsFromApi, fetchToolsFromApi, fetchDatasetsFromApi])
+  }, []) // 空依赖，只执行一次
 
   const toggleSection = (type: string) => {
     setExpandedSections((prev) => {
@@ -79,7 +79,7 @@ export function ResourceBrowser() {
   const handleDelete = async (resource: Resource, e: React.MouseEvent) => {
     e.stopPropagation()
     if (!confirm(`确定删除 "${resource.name}"？此操作不可恢复。`)) return
-    const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001'
+    const BASE_URL = ''
     const typePath = resource.type === 'data' ? 'data' : resource.type === 'tool' ? 'tool' : 'agent'
     try {
       await fetch(`${BASE_URL}/api/${typePath}/${resource.id}`, { method: 'DELETE' })

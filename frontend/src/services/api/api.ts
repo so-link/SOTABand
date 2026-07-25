@@ -1,6 +1,6 @@
 /** API 列表服务 — 获取系统注册的 API（供 Agent/Tool 编辑器 @ 补全） */
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001'
+const BASE_URL = ''
 
 export const apiApi = {
   /** 列出所有已注册的系统 API */

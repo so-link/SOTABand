@@ -189,23 +189,6 @@
     "created_at": "2026-07-07T01:42:32Z"
   },
   {
-    "id": "ds_20260707161316987522",
-    "name": "generated_images",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/ds_20260707161316987522.md",
-    "data_path": "/hdd/sdc1/jmlv/LLM/data/downloads/20260707161316987522",
-    "file_count": 1,
-    "total_size": 1228927,
-    "formats": [
-      "jpg"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-07T08:13:19Z"
-  },
-  {
     "id": "ds_20260707171251441283",
     "name": "无人机着火",
     "version": "0.1.0",
@@ -295,5 +278,207 @@
     "tags": [],
     "quality_score": null,
     "created_at": "2026-07-07T10:28:39Z"
+  },
+  {
+    "id": "",
+    "name": "大海",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/.md",
+    "data_path": "",
+    "file_count": 0,
+    "total_size": 0,
+    "formats": [],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-25T11:02:24Z"
+  },
+  {
+    "id": "沙滩",
+    "name": "沙滩",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/沙滩.md",
+    "data_path": "/hdd/sdc3/zjs/tmp/image_gen_7ogxkghy",
+    "file_count": 2,
+    "total_size": 1183657,
+    "formats": [
+      "png"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-25T11:32:04Z"
+  },
+  {
+    "id": "沙滩推土机",
+    "name": "沙滩推土机",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/沙滩推土机.md",
+    "data_path": "/hdd/sdc3/zjs/tmp/data/downloads/1784982192",
+    "file_count": 2,
+    "total_size": 1072561,
+    "formats": [
+      "png"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-25T12:24:04Z"
+  },
+  {
+    "id": "航拍视角海岸线",
+    "name": "航拍视角海岸线",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/航拍视角海岸线.md",
+    "data_path": "/hdd/sdc1/jmlv/LLM/SOTABand/data/downloads/1784983044951",
+    "file_count": 3,
+    "total_size": 2045961,
+    "formats": [
+      "png"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-25T12:39:17Z"
+  },
+  {
+    "id": "海岸线",
+    "name": "海岸线",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/海岸线.md",
+    "data_path": "/hdd/sdc1/jmlv/LLM/SOTABand/data/downloads/1784983218102",
+    "file_count": 2,
+    "total_size": 1341938,
+    "formats": [
+      "png"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-25T12:41:54Z"
+  },
+  {
+    "id": "沙滩fish",
+    "name": "沙滩fish",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/沙滩fish.md",
+    "data_path": "/hdd/sdc1/jmlv/LLM/SOTABand/data/downloads/1784986175",
+    "file_count": 2,
+    "total_size": 1086370,
+    "formats": [
+      "png"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-25T13:30:30Z"
+  },
+  {
+    "id": "太阳系",
+    "name": "太阳系",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/太阳系.md",
+    "data_path": "/hdd/sdc1/jmlv/LLM/SOTABand/data/downloads/1784986326389",
+    "file_count": 2,
+    "total_size": 682952,
+    "formats": [
+      "png"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-25T13:33:06Z"
+  },
+  {
+    "id": "太阳系孩子",
+    "name": "太阳系孩子",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/太阳系孩子.md",
+    "data_path": "/hdd/sdc1/jmlv/LLM/SOTABand/data/downloads/1784986583",
+    "file_count": 2,
+    "total_size": 814222,
+    "formats": [
+      "png"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-25T13:37:30Z"
+  },
+  {
+    "id": "小猫咪",
+    "name": "小猫咪",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/小猫咪.md",
+    "data_path": "/hdd/sdc1/jmlv/LLM/SOTABand/data/downloads/20260725215424",
+    "file_count": 2,
+    "total_size": 156076,
+    "formats": [
+      "jpg"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-25T13:54:37Z"
+  },
+  {
+    "id": "航拍农田推土机",
+    "name": "航拍农田推土机",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/航拍农田推土机.md",
+    "data_path": "/hdd/sdc1/jmlv/LLM/SOTABand/data/downloads/20260725220245",
+    "file_count": 24,
+    "total_size": 9011473,
+    "formats": [
+      "jpg"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-25T14:04:29Z"
+  },
+  {
+    "id": "矿山",
+    "name": "矿山",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/矿山.md",
+    "data_path": "/hdd/sdc1/jmlv/LLM/SOTABand/data/downloads/1785002009096",
+    "file_count": 2,
+    "total_size": 2347001,
+    "formats": [
+      "png"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-25T17:54:06Z"
+  },
+  {
+    "id": "矿山着火",
+    "name": "矿山着火",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/矿山着火.md",
+    "data_path": "/hdd/sdc1/jmlv/LLM/SOTABand/data/downloads/1785002099",
+    "file_count": 2,
+    "total_size": 1871787,
+    "formats": [
+      "png"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-25T17:55:48Z"
   }
 ]

@@ -7,7 +7,7 @@ export class ApiChatService implements IChatService {
   private baseUrl: string
 
   constructor(baseUrl?: string) {
-    this.baseUrl = baseUrl || import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+    this.baseUrl = baseUrl || ''
   }
 
   async *sendMessage(input: CreateMessageInput): AsyncGenerator<Message> {

@@ -45,7 +45,7 @@ export const useDatasetEditorStore = create<DatasetEditorState>((set, get) => ({
   })),
 
   uploadFile: async (file: File) => {
-    const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001'
+    const BASE_URL = ''
     const formData = new FormData()
     formData.append('file', file)
     try {

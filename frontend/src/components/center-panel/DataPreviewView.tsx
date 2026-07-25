@@ -6,7 +6,7 @@ import { Card, CardBody } from '@/components/ui/card'
 import { useResourceStore } from '@/stores/resource-store'
 import type { DataResource } from '@/types/resources'
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001'
+const BASE_URL = ''
 
 export function DataPreviewView() {
   const selectedResource = useResourceStore((s) => s.selectedResource)

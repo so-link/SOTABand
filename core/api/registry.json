@@ -6,9 +6,9 @@
     "category": "resource",
     "status": "active",
     "spec_path": "definitions/api-data-register.md",
-    "impl_module": "core.resource.registry.data_registry",
-    "impl_class": "DataRegistry",
-    "impl_method": "register",
+    "impl_module": "core.api.implementations.api_data",
+    "impl_class": "ApiDataRegister",
+    "impl_method": "call",
     "is_async": true,
     "input_schema": {
       "id": "string",
@@ -22,7 +22,11 @@
     "output_schema": {
       "dataset_id": "string"
     },
-    "tags": ["数据", "注册", "管理"],
+    "tags": [
+      "数据",
+      "注册",
+      "管理"
+    ],
     "created_at": "2026-07-06T00:00:00Z"
   },
   {
@@ -32,15 +36,19 @@
     "category": "resource",
     "status": "active",
     "spec_path": "definitions/api-data-delete.md",
-    "impl_module": "core.resource.registry.data_registry",
-    "impl_class": "DataRegistry",
-    "impl_method": "unregister",
+    "impl_module": "core.api.implementations.api_data",
+    "impl_class": "ApiDataDelete",
+    "impl_method": "call",
     "is_async": true,
     "input_schema": {
       "resource_id": "string"
     },
     "output_schema": {},
-    "tags": ["数据", "删除", "管理"],
+    "tags": [
+      "数据",
+      "删除",
+      "管理"
+    ],
     "created_at": "2026-07-06T00:00:00Z"
   },
   {
@@ -50,15 +58,19 @@
     "category": "resource",
     "status": "active",
     "spec_path": "definitions/api-data-list.md",
-    "impl_module": "core.resource.registry.data_registry",
-    "impl_class": "DataRegistry",
-    "impl_method": "list_all",
+    "impl_module": "core.api.implementations.api_data",
+    "impl_class": "ApiDataList",
+    "impl_method": "call",
     "is_async": true,
     "input_schema": {},
     "output_schema": {
       "datasets": "list"
     },
-    "tags": ["数据", "列表", "检索"],
+    "tags": [
+      "数据",
+      "列表",
+      "检索"
+    ],
     "created_at": "2026-07-06T00:00:00Z"
   },
   {
@@ -68,9 +80,9 @@
     "category": "resource",
     "status": "active",
     "spec_path": "definitions/api-tool-register.md",
-    "impl_module": "core.resource.registry.tool_registry",
-    "impl_class": "ToolRegistry",
-    "impl_method": "register",
+    "impl_module": "core.api.implementations.api_tool",
+    "impl_class": "ApiToolRegister",
+    "impl_method": "call",
     "is_async": true,
     "input_schema": {
       "id": "string",
@@ -82,7 +94,11 @@
     "output_schema": {
       "tool_id": "string"
     },
-    "tags": ["工具", "注册", "管理"],
+    "tags": [
+      "工具",
+      "注册",
+      "管理"
+    ],
     "created_at": "2026-07-06T00:00:00Z"
   },
   {
@@ -92,15 +108,19 @@
     "category": "resource",
     "status": "active",
     "spec_path": "definitions/api-tool-list.md",
-    "impl_module": "core.resource.registry.tool_registry",
-    "impl_class": "ToolRegistry",
-    "impl_method": "list_all",
+    "impl_module": "core.api.implementations.api_tool",
+    "impl_class": "ApiToolList",
+    "impl_method": "call",
     "is_async": true,
     "input_schema": {},
     "output_schema": {
       "tools": "list"
     },
-    "tags": ["工具", "列表", "检索"],
+    "tags": [
+      "工具",
+      "列表",
+      "检索"
+    ],
     "created_at": "2026-07-06T00:00:00Z"
   },
   {
@@ -110,9 +130,9 @@
     "category": "llm",
     "status": "active",
     "spec_path": "definitions/api-llm-chat.md",
-    "impl_module": "core.llm.client",
-    "impl_class": "DeepSeekClient",
-    "impl_method": "chat",
+    "impl_module": "core.api.implementations.api_llm",
+    "impl_class": "ApiLlmChat",
+    "impl_method": "call",
     "is_async": true,
     "input_schema": {
       "messages": "list",
@@ -122,7 +142,11 @@
     "output_schema": {
       "content": "string"
     },
-    "tags": ["LLM", "对话", "AI"],
+    "tags": [
+      "LLM",
+      "对话",
+      "AI"
+    ],
     "created_at": "2026-07-06T00:00:00Z"
   },
   {
@@ -132,9 +156,9 @@
     "category": "llm",
     "status": "active",
     "spec_path": "definitions/api-llm-chat-stream.md",
-    "impl_module": "core.llm.client",
-    "impl_class": "DeepSeekClient",
-    "impl_method": "chat_stream",
+    "impl_module": "core.api.implementations.api_llm",
+    "impl_class": "ApiLlmChatStream",
+    "impl_method": "call",
     "is_async": true,
     "input_schema": {
       "messages": "list",
@@ -144,7 +168,11 @@
     "output_schema": {
       "stream": "AsyncGenerator"
     },
-    "tags": ["LLM", "流式", "AI"],
+    "tags": [
+      "LLM",
+      "流式",
+      "AI"
+    ],
     "created_at": "2026-07-06T00:00:00Z"
   },
   {
@@ -154,9 +182,9 @@
     "category": "resource",
     "status": "active",
     "spec_path": "definitions/api-agent-start.md",
-    "impl_module": "core.agent.factory",
-    "impl_class": "AgentFactory",
-    "impl_method": "start",
+    "impl_module": "core.api.implementations.api_agent",
+    "impl_class": "ApiAgentStart",
+    "impl_method": "call",
     "is_async": true,
     "input_schema": {
       "agent_id": "string",
@@ -166,7 +194,11 @@
       "agent_id": "string",
       "status": "string"
     },
-    "tags": ["Agent", "启动", "管理"],
+    "tags": [
+      "Agent",
+      "启动",
+      "管理"
+    ],
     "created_at": "2026-07-06T00:00:00Z"
   },
   {
@@ -176,9 +208,9 @@
     "category": "resource",
     "status": "active",
     "spec_path": "definitions/api-agent-stop.md",
-    "impl_module": "core.agent.factory",
-    "impl_class": "AgentFactory",
-    "impl_method": "stop",
+    "impl_module": "core.api.implementations.api_agent",
+    "impl_class": "ApiAgentStop",
+    "impl_method": "call",
     "is_async": true,
     "input_schema": {
       "agent_id": "string"
@@ -187,7 +219,11 @@
       "agent_id": "string",
       "status": "string"
     },
-    "tags": ["Agent", "停止", "管理"],
+    "tags": [
+      "Agent",
+      "停止",
+      "管理"
+    ],
     "created_at": "2026-07-06T00:00:00Z"
   },
   {
@@ -197,12 +233,12 @@
     "category": "llm",
     "status": "active",
     "spec_path": "definitions/api-llm-get-config.md",
-    "impl_module": "config.settings",
-    "impl_class": "",
-    "impl_method": "get_llm_api_config",
+    "impl_module": "core.api.implementations.api_llm",
+    "impl_class": "ApiLlmGetConfig",
+    "impl_method": "call",
     "is_async": false,
     "input_schema": {
-      "provider": "string (可选, 'deepseek' 或 'doubao', 默认 'deepseek')"
+      "provider": "string"
     },
     "output_schema": {
       "api_key": "string",
@@ -210,7 +246,59 @@
       "model": "string",
       "provider": "string"
     },
-    "tags": ["LLM", "配置", "密钥"],
+    "tags": [
+      "LLM",
+      "配置",
+      "密钥"
+    ],
     "created_at": "2026-07-06T00:00:00Z"
+  },
+  {
+    "id": "api-doubao-get-key",
+    "name": "获取豆包API KEY",
+    "version": "1.0.0",
+    "category": "llm",
+    "status": "active",
+    "spec_path": "definitions/api-doubao-get-key.md",
+    "impl_module": "core.api.implementations.api_llm",
+    "impl_class": "ApiDoubaoGetKey",
+    "impl_method": "call",
+    "is_async": false,
+    "input_schema": {},
+    "output_schema": {
+      "api_key": "string",
+      "base_url": "string",
+      "model": "string"
+    },
+    "tags": [
+      "LLM",
+      "豆包",
+      "密钥"
+    ],
+    "created_at": "2026-07-25T00:00:00Z"
+  },
+  {
+    "id": "api-data-get",
+    "name": "获取数据集信息",
+    "version": "1.0.0",
+    "category": "resource",
+    "status": "active",
+    "spec_path": "definitions/api-data-get.md",
+    "impl_module": "core.api.implementations.api_data",
+    "impl_class": "ApiDataGet",
+    "impl_method": "call",
+    "is_async": false,
+    "input_schema": {
+      "name": "string"
+    },
+    "output_schema": {
+      "dataset": "dict"
+    },
+    "tags": [
+      "数据",
+      "检索",
+      "查询"
+    ],
+    "created_at": "2026-07-25T00:00:00Z"
   }
 ]

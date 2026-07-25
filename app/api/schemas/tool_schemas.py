@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 class GenerateToolSpecRequest(BaseModel):
     """自然语言 → MD 工具描述文档"""
     description: str = ""
+    reference_code: str = ""  # 用户提供的参考代码
 
 
 class GenerateToolCodeRequest(BaseModel):
@@ -28,6 +29,7 @@ class RegisterToolRequest(BaseModel):
     tags: list[str] = Field(default_factory=list)
     test_data: dict = Field(default_factory=dict)
     demand_desc: str = Field(default="", alias="demandDesc")
+    reference_code: str = Field(default="", alias="referenceCode")
 
     model_config = {"populate_by_name": True}
 

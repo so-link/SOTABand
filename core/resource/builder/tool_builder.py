@@ -1,24 +1,90 @@
-"""Tool 代码生成器 — 从 MD 规范文档生成工具代码 + 测试数据"""
+"""Tool 代码生成器 v2 — LLM 生成完整文件 + 沙箱执行 + 自动调试"""
 
-import ast
 import json
 import re
+import subprocess
+import tempfile
+import os as _os
 from pathlib import Path
 
 from core.resource.builder.builder_base import BaseBuilder
 from core.llm.client import create_llm_client
 
 
+# ================================================================
+#   工具代码模板 — LLM 以此为基础生成完整文件
+# ================================================================
+
+TOOL_TEMPLATE = '''# === SOTABand 工具标准模板 ===
+import os, sys, json, time
+from pathlib import Path
+from typing import Any
+import requests
+
+# ── 项目根路径 ──
+_tool_dir = os.environ.get("TOOL_DIR", "")
+if _tool_dir:
+    _PROJECT_ROOT = Path(_tool_dir).resolve().parent.parent.parent.parent
+else:
+    _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+# ── 数据目录 ──
+_DATA_DIR = _PROJECT_ROOT / "data"
+_DOWNLOADS_DIR = _DATA_DIR / "downloads"
+
+# ── API 调用辅助 ──
+def _call_api(api_name: str, **params) -> dict:
+    """调用系统 API"""
+    from core.api import get_api
+    api = get_api(api_name)
+    return api.call(**params)
+
+# ── 工具调用辅助 ──
+def _call_tool(tool_name: str, **params) -> dict:
+    """调用已注册的工具"""
+    import subprocess as _sp
+    tool_dir = _PROJECT_ROOT / "resources" / "tools" / "implementations" / tool_name
+    tool_file = tool_dir / "tool.py"
+    if not tool_file.exists():
+        return {"status": "failed", "message": f"Tool '{tool_name}' not found"}
+    venv_py = tool_dir / ".venv" / "bin" / "python"
+    py_exe = str(venv_py) if venv_py.exists() else sys.executable
+    script = f"import json, sys; sys.path.insert(0, {str(_PROJECT_ROOT)!r}); exec(open({str(tool_file)!r}).read()); print(json.dumps(execute(**{params!r}), default=str, ensure_ascii=False))"
+    proc = _sp.run([py_exe, "-c", script], capture_output=True, text=True, timeout=30)
+    try:
+        return json.loads(proc.stdout.strip())
+    except:
+        return {"status": "failed", "message": proc.stderr[:500]}
+
+# ── 文件路径辅助 ──
+def _resolve_path(path: str) -> str:
+    """将相对/绝对路径转为绝对路径（基于 _PROJECT_ROOT）"""
+    p = Path(path)
+    if p.is_absolute():
+        return str(p)
+    return str(_PROJECT_ROOT / p)
+
+# === 头部结束，以下由 LLM 生成 ===
+'''
+
+
 class ToolCodeBuilder(BaseBuilder):
-    """从 Tool MD 规范文档生成可执行的 Python 工具代码"""
+    """v2: LLM 生成完整文件 + 仅沙箱执行 + 自动调试"""
 
     def __init__(self, llm_client=None):
         self.llm = llm_client or create_llm_client()
 
+    async def dry_run(self, code: str) -> dict:
+        """兼容 BaseBuilder 抽象方法"""
+        return await self.sandbox_execute(code, {})
+
+    # ── 参数解析 ──
+
     @staticmethod
     def _parse_spec_inputs(spec_md: str) -> list[dict]:
-        """从 MD spec 的输入规范表格解析参数（兜底方案，不依赖 LLM）"""
-        import re as _re
+        """从 MD 的输入规范表格解析参数"""
         inputs = []
         in_section = False
         for line in spec_md.split("\n"):
@@ -31,423 +97,362 @@ class ToolCodeBuilder(BaseBuilder):
                 parts = [p.strip() for p in line.split("|")[1:-1]]
                 if len(parts) >= 2 and parts[0]:
                     inputs.append({
-                        "name": parts[0],
-                        "type": parts[1] if len(parts) > 1 else "string",
+                        "name": parts[0], "type": parts[1] if len(parts) > 1 else "string",
                         "required": "是" in parts[2] if len(parts) > 2 else True,
                         "default": parts[3] if len(parts) > 3 and parts[3] not in ("-", "—", "") else None,
                         "desc": parts[4] if len(parts) > 4 else "",
-                        "hints": [],
                     })
         return inputs
 
     async def extract_param_metadata(self, spec_md: str) -> list[dict]:
-        """让 LLM 从 MD spec 中提取参数元数据，用于后续智能参数提取"""
+        """LLM 提取参数元数据"""
         prompt = f"""从以下工具 MD 规范文档中提取输入参数列表，返回 JSON 数组。
-
-每个参数包含: name(参数名), type(类型), required(是否必填 true/false), default(默认值或null), desc(一句话中文描述), hints(用户可能如何描述这个参数的示例, 数组)
+每个参数: name, type, required(true/false), default(null或值), desc, hints(示例输入数组)
 
 MD 文档:
 {spec_md[:3000]}
 
-返回格式(仅 JSON):
-[{{"name":"image_path","type":"string","required":true,"default":null,"desc":"待检测图片的文件路径","hints":["图片","照片","图像","这张图"]}}, ...]"""
-
-        response = await self.llm.chat(
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1, max_tokens=1000,
-        )
+仅返回 JSON 数组:"""
+        response = await self.llm.chat(messages=[{"role":"user","content":prompt}], temperature=0.1, max_tokens=1000)
         try:
             clean = response.strip()
-            if clean.startswith("```"):
-                clean = clean.split("\n", 1)[1].rsplit("\n", 1)[0]
+            if clean.startswith("```"): clean = clean.split("\n",1)[1].rsplit("\n",1)[0]
             return json.loads(clean)
-        except Exception:
+        except:
             return []
 
-    async def setup_venv(self, tool_id: str, dependencies: list[str] = None) -> str | None:
-        """检查兼容性。依赖与主环境兼容则返回 None（用主Python），否则创建 venv"""
-        import importlib, sys
-
-        if not dependencies:
-            return None
-
-        # 测试主环境是否能导入所有依赖
-        for dep in dependencies:
-            if not dep.strip():
-                continue
-            pkg = dep.strip().split(">=")[0].split("==")[0].split("<")[0].strip()
-            try:
-                importlib.import_module(pkg)
-            except ImportError:
-                break
-        else:
-            return None  # 全部可导入，主环境兼容
-
-        # 不兼容 → 创建 venv
-        import subprocess
-        from pathlib import Path as _Path
-
-        tools_dir = _Path(__file__).resolve().parent.parent.parent.parent / "resources" / "tools" / "implementations"
-        venv_dir = tools_dir / tool_id / ".venv"
-        venv_python = venv_dir / "bin" / "python"
-
-        if not venv_python.exists():
-            subprocess.run([sys.executable, "-m", "venv", str(venv_dir)],
-                         capture_output=True, timeout=60)
-            pip = str(venv_dir / "bin" / "pip")
-            subprocess.run([pip, "install", "requests", "numpy>=1.24,<2.0"],
-                         capture_output=True, timeout=120)
-            for dep in dependencies:
-                if dep.strip():
-                    subprocess.run([pip, "install", dep.strip()],
-                                 capture_output=True, timeout=120)
-
-        return str(venv_python)
     async def validate_spec(self, spec: dict) -> bool:
         md = spec.get("raw_md", "")
-        required = ["功能概述", "输入规范", "输出规范", "依赖环境", "运行机制"]
-        return all(s in md for s in required)
+        return all(s in md for s in ["功能概述","输入规范","输出规范","依赖环境","运行机制"])
+
+    # ── 代码生成 — LLM 生成完整文件 ──
 
     async def build(self, spec: dict) -> str:
-        """生成工具代码 — LLM 生成 + 自动注入标准头部"""
+        """LLM 根据模板 + MD 规范生成完整 Python 文件，不做任何后处理"""
         raw_md = spec.get("raw_md", "")
-        code = await self._llm_generate(raw_md)
-        return self._inject_header(code)
-
-    @staticmethod
-    def _inject_header(code: str) -> str:
-        """在每个生成的工具代码头部自动注入路径初始化（不依赖 LLM 编写）"""
-        header = '''# === SOTABand 工具标准头部（自动注入） ===
-import os, sys, json, time
-from pathlib import Path
-
-_tool_dir = os.environ.get("TOOL_DIR", "")
-if _tool_dir:
-    _PROJECT_ROOT = Path(_tool_dir).resolve().parent.parent.parent.parent
-else:
-    _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
-# === 头部结束 ===
-
-'''
-        # 如果代码已有头部，不重复注入
-        if '_PROJECT_ROOT' in code:
-            return code
-        return header + code
-
-    async def generate_test_data(self, spec: dict) -> dict:
-        """根据输入规范自动构造测试数据"""
-        parsed = self._parse_spec(spec)
-        inputs = parsed.get("inputs", [])
-
-        test_normal = {}
-        test_boundary = {}
-        test_error = {}
-
-        for param in inputs:
-            name = param.get("name", "unknown")
-            ptype = param.get("type", "string")
-            default = param.get("default")
-
-            normal, boundary, error = self._gen_test_values(name, ptype, default)
-            test_normal[name] = normal
-            if boundary is not None:
-                test_boundary[name] = boundary
-            test_error[name] = error
-
-        return {
-            "normal": {"input": test_normal, "description": "正常输入"},
-            "boundary": {"input": test_boundary, "description": "边界值"} if test_boundary else None,
-            "error": {"input": test_error, "description": "异常输入"},
-        }
-
-    async def dry_run(self, code: str, test_input: dict = None, tool_id: str = None) -> dict:
-        """沙箱测试 — 语法/接口/静态分析/功能测试"""
-        results = {"passed": [], "failed": [], "errors": []}
-
-        # 1. 语法检查
-        tree = None
-        try:
-            tree = ast.parse(code)
-            results["passed"].append("语法检查通过")
-        except SyntaxError as e:
-            results["failed"].append(f"语法错误: {e}")
-            return results
-
-        # 2. 接口检查 + 签名验证
-        if "def execute" not in code:
-            results["failed"].append("未找到 execute() 函数")
-            return results
-
-        # 检查 execute 签名：必须有 **kwargs 或参数
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) and node.name == "execute":
-                has_kwargs = any(
-                    isinstance(a, ast.arg) and a.arg == "kwargs" and hasattr(node.args, 'kwarg') and node.args.kwarg
-                    for a in ([node.args.kwarg] if node.args.kwarg else [])
-                )
-                has_params = bool(node.args.args)
-                if has_kwargs or (has_params and any(
-                    isinstance(a, ast.arg) for a in node.args.args
-                )):
-                    sig = "execute(**kwargs)" if node.args.kwarg else f"execute({', '.join(a.arg for a in node.args.args)})"
-                    results["passed"].append(f"函数签名: {sig}")
-                else:
-                    results["failed"].append("execute() 缺少参数定义（应为 execute(**kwargs)）")
-                break
-
-        # 3. 静态分析 — 检测未定义变量引用
-        defined_names = set()
-        # 收集所有函数参数和局部变量赋值
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef):
-                for a in node.args.args:
-                    defined_names.add(a.arg)
-                if node.args.kwarg:
-                    defined_names.add(node.args.kwarg.arg)
-            elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
-                defined_names.add(node.id)
-            elif isinstance(node, ast.Import):
-                for alias in node.names:
-                    defined_names.add(alias.asname or alias.name.split('.')[0])
-            elif isinstance(node, ast.ImportFrom):
-                for alias in node.names:
-                    defined_names.add(alias.asname or alias.name)
-
-        builtins = {"print", "len", "range", "int", "str", "float", "bool", "list", "dict",
-                     "set", "tuple", "type", "isinstance", "hasattr", "getattr", "setattr",
-                     "enumerate", "zip", "map", "filter", "sorted", "reversed", "min", "max",
-                     "sum", "abs", "round", "open", "Exception", "ValueError", "TypeError",
-                     "KeyError", "IndexError", "OSError", "RuntimeError", "json", "True", "False", "None"}
-        undefined = set()
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
-                if node.id not in defined_names and node.id not in builtins:
-                    undefined.add(node.id)
-        if undefined:
-            results["failed"].append(f"未定义的变量引用: {', '.join(sorted(undefined))}")
-        else:
-            results["passed"].append("静态分析通过（无未定义变量）")
-
-        # 4. 依赖检查
-        imports = re.findall(r'^(?:import\s+(\S+)|from\s+(\S+))', code, re.MULTILINE)
-        deps = [i[0] or i[1] for i in imports if i[0] or i[1]]
-        stdlib = {"sys", "os", "json", "pathlib", "typing", "re", "math", "datetime", "subprocess"}
-        external = [d for d in deps if d.split(".")[0] not in stdlib and not d.startswith("core.")]
-        if external:
-            results["passed"].append(f"外部依赖: {', '.join(external)}")
-        else:
-            results["passed"].append("无外部依赖")
-
-        # 5. 功能测试（用工具 venv 的 Python 执行）
-        try:
-            import subprocess as _sp
-            import json as _json
-            import sys as _sys
-            import tempfile as _tmp
-            import os as _os
-
-            # 确定 Python 执行器：优先工具 venv
-            python_exe = _sys.executable
-            if tool_id:
-                venv_py = Path(__file__).resolve().parent.parent.parent.parent / "resources" / "tools" / "implementations" / tool_id / ".venv" / "bin" / "python"
-                if venv_py.exists():
-                    python_exe = str(venv_py)
-
-            test_script = (
-                f"import json\n"
-                f"import sys\n"
-                f"sys.path.insert(0, {_json.dumps(str(Path(__file__).resolve().parent.parent.parent.parent))})\n"
-                f"code = {_json.dumps(code)}\n"
-                f"try:\n"
-                f"    exec(code)\n"
-                f"    result = execute(**{_json.dumps(test_input)})\n"
-                f"    print(json.dumps(result, default=str))\n"
-                f"except ModuleNotFoundError as e:\n"
-                f"    print(json.dumps({{'status':'failed','message':f'缺少依赖: {{e.name}}，请用 pip install {{e.name}} 安装','error':'ModuleNotFoundError'}}))\n"
-                f"except Exception as e:\n"
-                f"    print(json.dumps({{'status':'failed','message':str(e),'error':type(e).__name__}}))\n"
-            )
-            with _tmp.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-                f.write(test_script)
-                tmp_path = f.name
-
-            try:
-                proc = _sp.run(
-                    [python_exe, tmp_path],
-                    capture_output=True, text=True, timeout=10,
-                )
-                if proc.returncode == 0:
-                    output_data = proc.stdout.strip()
-                    try:
-                        output_data = _json.loads(output_data)
-                    except _json.JSONDecodeError:
-                        pass
-                    # 检查是否是 ModuleNotFoundError
-                    if isinstance(output_data, dict) and output_data.get("error") == "ModuleNotFoundError":
-                        results["failed"].append(output_data.get('message', '缺少依赖'))
-                    else:
-                        results["passed"].append("功能测试: execute() 执行成功")
-                    results["test_details"] = {
-                        "input": test_input,
-                        "output": output_data,
-                    }
-                else:
-                    # 解析 stderr 中的 ModuleNotFoundError
-                    err_msg = proc.stderr[:200]
-                    if "ModuleNotFoundError" in err_msg:
-                        import re as _re
-                        match = _re.search(r"No module named '(\S+)'", err_msg)
-                        if match:
-                            results["failed"].append(f"缺少依赖: {match.group(1)}，请 pip install {match.group(1)}")
-                        else:
-                            results["failed"].append(f"缺少依赖:\n{err_msg}")
-                    else:
-                        results["failed"].append(f"功能测试失败:\n{err_msg}")
-                    results["test_details"] = {
-                        "input": test_input,
-                        "output": None,
-                        "stderr": proc.stderr[:500],
-                    }
-            except _sp.TimeoutExpired:
-                results["failed"].append("功能测试超时 (10s)，代码可能存在死循环")
-                results["test_details"] = {"input": test_input, "output": None, "error": "timeout"}
-            finally:
-                _os.unlink(tmp_path)
-        except Exception as e:
-            results["failed"].append(f"功能测试异常: {str(e)[:200]}")
-
-        return results
-
-    # ── 内部方法 ──
-
-    def _parse_spec(self, spec: dict) -> dict:
-        """从 raw_md 解析结构化信息"""
-        md = spec.get("raw_md", "")
-        result = {
-            "id": spec.get("id", "custom-tool"),
-            "name": spec.get("name", "Custom Tool"),
-            "description": "",
-            "inputs": [],
-            "outputs": [],
-            "output_format": "text",  # 从 MD 解析
-        }
-
-        # 解析 output_format
-        out_match = re.search(r'output_format\s*\|\s*(\w+)', md)
-        if out_match:
-            result["output_format"] = out_match.group(1)
-
-        # 解析 frontmatter
-        fm_match = re.search(r'^---\n(.*?)\n---', md, re.DOTALL)
-        if fm_match:
-            for line in fm_match.group(1).split("\n"):
-                if ":" in line:
-                    k, v = line.split(":", 1)
-                    result[k.strip()] = v.strip()
-
-        # 解析输入规范表格
-        in_section = False
-        for line in md.split("\n"):
-            if "输入规范" in line:
-                in_section = True
-                continue
-            if in_section and line.startswith("##"):
-                break
-            if in_section and line.startswith("|") and "参数名" not in line and "---" not in line:
-                parts = [p.strip() for p in line.split("|")[1:-1]]
-                if len(parts) >= 4:
-                    result["inputs"].append({
-                        "name": parts[0],
-                        "type": parts[1],
-                        "required": parts[2] == "是",
-                        "default": parts[3] if parts[3] != "—" and parts[3] != "-" else None,
-                        "description": parts[4] if len(parts) > 4 else "",
-                    })
-
-        return result
-
-    def _gen_test_values(self, name: str, ptype: str, default: str = None):
-        """为单个参数生成测试值"""
-        ptype = ptype.lower()
-
-        if "string" in ptype:
-            if "path" in name.lower():
-                return ("/hdd/sdc1/jmlv/LLM/data/photo.png", "", "/hdd/sdc1/jmlv/LLM/data/photo.png")
-            return ("hello", "", None)
-
-        if "int" in ptype:
-            return (3, 0, -1)
-
-        if "float" in ptype:
-            return (1.0, 0.0, "not_a_number")
-
-        if "list" in ptype or "[" in ptype:
-            return ([0, 1, 2], [], "not_a_list")
-
-        if "bool" in ptype:
-            return (True, False, "not_bool")
-
-        if "dict" in ptype:
-            return ({"key": "value"}, {}, "not_dict")
-
-        return ("test", "", None)
+        return await self._llm_generate(raw_md)
 
     async def _llm_generate(self, spec_md: str) -> str:
-        """LLM 生成工具代码 — 基于完整 MD 规范文档，解析 API 调用标记"""
-        # 解析【xxx】API 调用标记
-        import re as _re
-        api_calls = _re.findall(r'【(.+?)】', spec_md)
+        """LLM 生成完整工具代码"""
+        # 解析标记
+        api_calls = re.findall(r'(?<!【)【(?!【)(.+?)(?<!】)】(?!】)', spec_md)
+        tool_calls = re.findall(r'【【(.+?)】】', spec_md)
+
         api_info = ""
+        tool_info = ""
+
+        api_lines = []
+
         if api_calls:
             from core.api.registry import ApiRegistry
             reg = ApiRegistry()
             all_apis = reg._read()
-            api_lines = []
+
+            # API MD 定义文件所在目录
+            api_def_dir = Path(__file__).resolve().parent.parent.parent / "core" / "api" / "definitions"
+
             for name in api_calls:
                 for api in all_apis:
                     if api.get("name") == name:
-                        api_lines.append(
-                            f"  {name} → from core.api import get_api; "
-                            f"api = get_api(\"{api['id']}\"); "
-                            f"result = api.call({', '.join(api.get('input_schema', {}).keys())})"
-                        )
-            if api_lines:
-                api_info = (
-                    "\n=== SYSTEM API CALLS ===\n"
-                    "The spec references these system APIs. You MUST call them in the generated code:\n"
-                    + "\n".join(api_lines) +
-                    "\n=== END API CALLS ===\n"
-                )
+                        api_id = api['id']
+                        input_schema = api.get("input_schema", {})
+                        output_schema = api.get("output_schema", {})
 
-        prompt = f"""You are a Python code generator. Generate a tool function that STRICTLY follows the specification below.
+                        # 1. 读取 API 的 MD 定义文件，提取输入/输出参数表
+                        spec_path = api.get("spec_path", f"definitions/{api_id}.md")
+                        md_file = api_def_dir / (spec_path.split("/")[-1] if "/" in spec_path else spec_path)
+                        param_descriptions = {}
+                        output_descriptions = {}
+                        if md_file.exists():
+                            md_content = md_file.read_text()
+                            # 解析输入参数
+                            in_input = False
+                            in_output = False
+                            for line in md_content.split("\n"):
+                                if "输入规范" in line:
+                                    in_input = True; in_output = False
+                                    continue
+                                if "输出规范" in line:
+                                    in_output = True; in_input = False
+                                    continue
+                                if (in_input or in_output) and line.startswith("##"):
+                                    in_input = False; in_output = False
+                                    continue
+                                if line.startswith("|") and "参数名" not in line and "字段" not in line and "---" not in line:
+                                    parts = [p.strip() for p in line.split("|")[1:-1]]
+                                    if len(parts) >= 2 and parts[0]:
+                                        name = parts[0]
+                                        typ = parts[1] if len(parts) > 1 else "string"
+                                        desc = parts[3] if len(parts) > 3 else (parts[2] if len(parts) > 2 else "")
+                                        if in_input:
+                                            required = parts[2] if len(parts) > 2 else ""
+                                            param_descriptions[name] = {"type": typ, "required": "是" in required, "description": desc}
+                                        elif in_output:
+                                            output_descriptions[name] = {"type": typ, "description": desc}
+
+                        # 2. 构造详细的输入参数信息
+                        api_lines.append(f"  API: {name} (ID: {api_id})")
+
+                        if input_schema:
+                            params_detail = []
+                            for k, v in input_schema.items():
+                                md_info = param_descriptions.get(k, {})
+                                desc = md_info.get("description", v)
+                                req = "必填" if md_info.get("required", True) else "可选"
+                                params_detail.append(f"      {k} ({v}, {req}): {desc}")
+                            params_example = ", ".join(f'{k}=<{k}>' for k in input_schema.keys())
+                            api_lines.append(f"    调用: _call_api(\"{api_id}\", {params_example})")
+                            api_lines.append(f"    输入参数:")
+                            api_lines.extend(params_detail)
+                        else:
+                            api_lines.append(f"    调用: _call_api(\"{api_id}\")")
+                            api_lines.append(f"    输入参数: 无")
+
+                        # 3. 构造输出格式说明
+                        if output_schema:
+                            output_detail = []
+                            for k, v in output_schema.items():
+                                md_info = output_descriptions.get(k, {})
+                                desc = md_info.get("description", v)
+                                output_detail.append(f"      {k} ({v}): {desc}")
+                            api_lines.append(f"    返回值 (dict):")
+                            api_lines.extend(output_detail)
+                        else:
+                            api_lines.append(f"    返回值: 无特定格式")
+
+                        api_lines.append(f"    使用方式: result = _call_api(\"{api_id}\", ...); # 然后从 result 中按字段名取值")
+
+            if api_lines:
+                api_info = "\n=== SYSTEM API CALLS ===\n\n" + "\n".join(api_lines) + "\n\n=== END API CALLS ===\n"
+
+        if tool_calls:
+            tool_lines = [f"  {name} → _call_tool(\"{name}\", ...)" for name in tool_calls]
+            tool_info = "\n=== TOOL CALLS ===\n" + "\n".join(tool_lines) + "\n=== END TOOL CALLS ===\n"
+
+        prompt = f"""You are a Python code generator for SOTABand tools. Generate a COMPLETE, RUNNABLE Python file.
+
+=== TEMPLATE (use as starting point) ===
+{TOOL_TEMPLATE}
+=== END TEMPLATE ===
 
 === TOOL SPECIFICATION ===
 {spec_md}
 === END SPECIFICATION ===
-{api_info}
-RULES:
-1. Function MUST be synchronous: def execute(**kwargs) -> dict[str, Any]
-2. Parameter names MUST match the spec's input table EXACTLY
-3. Validate ALL required parameters at the top of execute() using kwargs.get("param_name")
-4. ALWAYS access parameters via kwargs.get("name", default) — NEVER use kwargs["name"] or bare kwargs
-5. Return format: {{"status":"success"|"failed", "output_format":"...", "message":"...", "data":{{}}}}
-6. Use _PROJECT_ROOT / "data" / "downloads" / ... for file paths (DON'T hardcode /data/)
-7. For API calls: from core.api import get_api; api = get_api("xxx"); result = api.call(key=value)
-8. Handle ALL errors with try/except, return {{"status":"failed","message":str(e),...}}
-9. NEVER use async/await
-10. NEVER reference undefined variables — only use names that are imported, defined locally, or built-in
 
-Return ONLY the Python code, no markdown fences."""
+{api_info}
+{tool_info}
+
+CRITICAL RULES:
+1. Output the COMPLETE file including template header — all imports and helpers
+2. Function: def execute(**kwargs) -> dict[str, Any]
+3. Access params: kwargs.get("param_name", default) — NEVER kwargs["param_name"]
+4. Return: {{"status":"success"|"failed","output_format":"text"|"image"|"table"|"file","message":"...","data":{{}}}}
+5. All errors: try/except, return {{"status":"failed","message":str(e)}}
+6. File paths: _PROJECT_ROOT / "data" / ... or _resolve_path()
+7. API calls: use the EXACT api_id and param names from the SYSTEM API CALLS section above
+8. Map tool input parameters (from kwargs) to API parameters with the CORRECT names
+9. Tool calls: _call_tool("tool-name", param=value)
+10. NEVER async/await
+11. Output ONLY Python code, no markdown, no explanation"""
 
         response = await self.llm.chat(
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role":"user","content":prompt}],
             temperature=0.3, max_tokens=100000, timeout=30,
         )
         code = response
-        if "```python" in code:
-            code = code.split("```python")[1].split("```")[0]
-        elif "```" in code:
-            code = code.split("```")[1].split("```")[0]
+        if "```python" in code: code = code.split("```python")[1].split("```")[0]
+        elif "```" in code: code = code.split("```")[1].split("```")[0]
         return code.strip()
+
+    # ── 沙箱执行 — 统一走 ToolExecutor，与对话界面完全一致 ──
+
+    async def sandbox_execute(self, code: str, test_input: dict, tool_id: str = None) -> dict:
+        """沙箱执行：通过 ToolExecutor 统一执行，保证与对话界面环境一致。
+        返回格式兼容 auto_debug_stream 的旧调用方。
+        """
+        from core.executor.tool_executor import ToolExecutor
+
+        result = await ToolExecutor.execute(
+            tool_id=tool_id or "sandbox",
+            params=test_input,
+            code=code,
+            timeout=None,  # 自动调试无超时限制
+        )
+        return {
+            "exit_code": 0 if result.get("status") == "success" else 1,
+            "stdout": json.dumps(result, ensure_ascii=False),
+            "stderr": result.get("stderr", ""),
+            "success": result.get("status") == "success",
+        }
+
+    # ── 依赖安装 ──
+
+    async def install_deps(self, tool_id: str, dependencies: list[str]) -> dict:
+        """安装依赖到工具的本地 .venv"""
+        import sys as _sys
+
+        tools_dir = Path(__file__).resolve().parent.parent.parent.parent / "resources" / "tools" / "implementations"
+        tool_dir = tools_dir / tool_id
+        tool_dir.mkdir(parents=True, exist_ok=True)
+        venv_dir = tool_dir / ".venv"
+        venv_python = venv_dir / "bin" / "python"
+
+        if not venv_python.exists():
+            subprocess.run([_sys.executable, "-m", "venv", str(venv_dir)], capture_output=True, timeout=60)
+
+        pip = str(venv_dir / "bin" / "pip")
+        results = []
+        for dep in dependencies:
+            dep = dep.strip()
+            if not dep: continue
+            proc = subprocess.run([pip, "install", dep], capture_output=True, text=True, timeout=120)
+            results.append({"dep": dep, "success": proc.returncode == 0, "output": proc.stdout[-200:] if proc.stdout else proc.stderr[-200:]})
+
+        return {"venv_path": str(venv_dir), "python": str(venv_python), "results": results}
+
+    # ── 自动调试 ──
+
+    async def auto_debug_stream(self, spec_md: str, code: str, test_input: dict, tool_id: str, max_rounds: int = 50, stop_event=None):
+        """自动调试生成器：执行→LLM分析→改代码→再执行。
+        stop_event: asyncio.Event，设置时中断调试。
+        CancelledError: producer_task.cancel() 时抛出，立即退出。
+        """
+        import asyncio
+
+        current_code = code
+
+        for round_num in range(1, max_rounds + 1):
+            # 检查停止信号
+            if stop_event and stop_event.is_set():
+                yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试"}
+                return
+
+            # 1. 执行（无超时限制，直到用户停止）
+            exec_result = await self.sandbox_execute(current_code, test_input, tool_id)
+
+            # 检查停止信号
+            if stop_event and stop_event.is_set():
+                yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试"}
+                return
+
+            # 2. 解析输出判断成功/失败
+            success = False
+            output_data = None
+            stdout = exec_result.get("stdout", "")
+            if stdout:
+                lines = stdout.strip().split('\n')
+                for line in reversed(lines):
+                    line = line.strip()
+                    if line.startswith('{') and line.endswith('}'):
+                        try:
+                            output_data = json.loads(line)
+                            break
+                        except:
+                            continue
+                if output_data is None:
+                    try:
+                        output_data = json.loads(stdout)
+                    except:
+                        pass
+                if isinstance(output_data, dict) and output_data.get("status") == "success":
+                    success = True
+
+            yield {"event": "round_start", "round": round_num, "max": max_rounds}
+            yield {"event": "exec_result", "round": round_num, "stdout": exec_result["stdout"], "stderr": exec_result["stderr"], "success": success}
+
+            if success:
+                yield {"event": "done", "round": round_num, "success": True, "code": current_code, "message": f"调试成功 (第{round_num}轮)"}
+                return
+
+            # 3. 检查缺失依赖
+            if output_data and output_data.get("error") == "ModuleNotFoundError":
+                missing = output_data.get("missing_module", "")
+                yield {"event": "missing_dep", "round": round_num, "module": missing}
+                if missing:
+                    await self.install_deps(tool_id, [missing])
+                    yield {"event": "dep_installed", "round": round_num, "module": missing}
+                    continue
+
+            # 4. LLM 分析并修复
+            if round_num >= max_rounds:
+                break
+
+            # 检查停止信号
+            if stop_event and stop_event.is_set():
+                yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试"}
+                return
+
+            yield {"event": "thinking", "round": round_num, "message": "LLM 分析错误..."}
+
+            fix_prompt = f"""Debug this tool code. It failed execution.
+
+=== CURRENT CODE ===
+{current_code}
+=== END CODE ===
+
+=== TEST INPUT ===
+{json.dumps(test_input, ensure_ascii=False, indent=2)}
+=== END INPUT ===
+
+=== EXECUTION RESULT ===
+stdout: {exec_result['stdout'][:2000]}
+stderr: {exec_result['stderr'][:1000]}
+=== END RESULT ===
+
+Fix the code. Output the COMPLETE fixed Python file (including template header).
+INTERFACE RULES: execute(**kwargs)->dict, kwargs.get, {{status,output_format,message,data}}, try/except.
+Output ONLY Python code."""
+
+            full_response = ""
+            llm_task = None
+            try:
+                token_queue: list = []
+
+                async def _collect_tokens():
+                    async for token in self.llm.chat_stream(
+                        messages=[{"role":"user","content":fix_prompt}],
+                        temperature=0.2, max_tokens=100000,
+                    ):
+                        token_queue.append(token)
+
+                llm_task = asyncio.create_task(_collect_tokens())
+
+                while not llm_task.done():
+                    if stop_event and stop_event.is_set():
+                        llm_task.cancel()
+                        try: await llm_task
+                        except asyncio.CancelledError: pass
+                        yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试（LLM对话已中断）"}
+                        return
+                    while token_queue:
+                        token = token_queue.pop(0)
+                        full_response += token
+                        yield {"event": "thinking_stream", "round": round_num, "token": token}
+                    await asyncio.sleep(0.05)
+
+                # LLM 完成，消费剩余
+                while token_queue:
+                    token = token_queue.pop(0)
+                    full_response += token
+                    yield {"event": "thinking_stream", "round": round_num, "token": token}
+
+            except asyncio.CancelledError:
+                # producer_task.cancel() 传播的 CancelledError — 立即退出
+                if llm_task and not llm_task.done():
+                    llm_task.cancel()
+                    try: await llm_task
+                    except asyncio.CancelledError: pass
+                raise  # 继续向上传播
+            except Exception as e:
+                yield {"event": "llm_error", "round": round_num, "message": f"LLM调用异常: {str(e)[:200]}"}
+                continue
+
+            new_code = full_response.strip()
+            if "```python" in new_code: new_code = new_code.split("```python")[1].split("```")[0]
+            elif "```" in new_code: new_code = new_code.split("```")[1].split("```")[0]
+            else: new_code = new_code
+
+            current_code = new_code
+            yield {"event": "code_updated", "round": round_num, "code": current_code}
+
+        yield {"event": "done", "round": max_rounds, "success": False, "code": current_code, "message": f"达到最大轮数 {max_rounds}，调试未完成"}

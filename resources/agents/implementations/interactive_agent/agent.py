@@ -444,70 +444,21 @@ class InteractiveAgent(BaseAgent):
             return {"status": "failed", "message": f"Agent 执行异常: {str(e)[:300]}"}
 
     async def _execute_tool(self, tool_info: dict, user_query: str, dataset_paths: list[str] = None, pre_params: dict = None) -> dict | None:
-        """实际执行工具并返回结果（优先使用工具独立 venv）"""
+        """执行工具 — 通过 ToolExecutor 统一入口，与自动调试环境完全一致"""
         try:
-            import subprocess
-            import json as _json
-            import tempfile
-            import os
-            from pathlib import Path
+            from core.executor.tool_executor import ToolExecutor
 
             tool_id = tool_info["id"]
-            project_root = Path(__file__).resolve().parent.parent.parent.parent.parent
-            impl_path = project_root / "resources" / "tools" / "implementations" / tool_id / "tool.py"
             self._current_process = None  # 用于外部终止
-
-            if not impl_path.exists():
-                return {"status": "failed", "message": f"工具代码不存在: {impl_path}"}
 
             # 提取参数（优先用已提取的）
             params = pre_params if pre_params else await self._extract_params(user_query, tool_id, dataset_paths)
 
-            # 检查是否有独立 venv
-            venv_python = project_root / "resources" / "tools" / "implementations" / tool_id / ".venv" / "bin" / "python"
-            python_exe = str(venv_python) if venv_python.exists() else None
-
-            if python_exe:
-                # 使用工具独立 venv，子进程执行
-                code = impl_path.read_text()
-                test_script = (
-                    f"import json, sys\n"
-                    f"sys.path.insert(0, {_json.dumps(str(project_root))})\n"
-                    f"code = {_json.dumps(code)}\n"
-                    f"exec(code)\n"
-                    f"result = execute(**{_json.dumps(params)})\n"
-                    f"print(json.dumps(result, default=str))\n"
-                )
-                with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-                    f.write(test_script)
-                    tmp_path = f.name
-                try:
-                    # 传递环境和工具目录
-                    env = os.environ.copy()
-                    env["TOOL_DIR"] = str(impl_path.parent)
-                    env.setdefault("CUDA_VISIBLE_DEVICES", "0")
-                    proc = subprocess.run([python_exe, tmp_path],
-                                        capture_output=True, text=True,
-                                        env=env)
-                    if proc.returncode == 0:
-                        return _json.loads(proc.stdout.strip())
-                    else:
-                        return {"status": "failed", "message": proc.stderr[:300]}
-                finally:
-                    os.unlink(tmp_path)
-            else:
-                # 回退：同进程加载执行
-                import importlib.util
-                spec = importlib.util.spec_from_file_location(f"tool_{tool_id}", str(impl_path))
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
-                if hasattr(module, "execute"):
-                    result = module.execute(**params)
-                    # 兼容 async/sync
-                    if hasattr(result, '__await__'):
-                        return await result
-                    return result
-                return {"status": "failed", "message": "工具未实现 execute()"}
+            return await ToolExecutor.execute(
+                tool_id=tool_id,
+                params=params,
+                timeout=120.0,
+            )
         except Exception as e:
             return {"status": "failed", "message": f"工具执行异常: {str(e)[:300]}"}
 

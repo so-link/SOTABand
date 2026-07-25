@@ -98,7 +98,7 @@ function Step1Description() {
 
   // ═══ Fetch data on mount ═══
   useEffect(() => {
-    const BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001'
+    const BASE = ''
 
     fetch(`${BASE}/api/apis/list`)
       .then((r) => r.json())

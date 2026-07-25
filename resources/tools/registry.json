@@ -431,162 +431,284 @@
     "created_at": "2026-07-06T04:11:04Z"
   },
   {
-    "id": "image-synthesis-doubao",
-    "name": "图片合成工具（豆包大模型）",
+    "id": "calc-square",
+    "name": "整数平方计算器",
     "version": "0.1.0",
     "type": "function",
     "language": "python",
     "status": "active",
-    "spec_path": "definitions/image-synthesis-doubao.md",
-    "impl_path": "implementations/image-synthesis-doubao/",
+    "spec_path": "definitions/calc-square.md",
+    "impl_path": "implementations/calc-square/",
     "input_schema": {},
     "output_schema": {},
     "param_meta": [
       {
-        "name": "prompt",
-        "type": "string",
-        "required": true,
-        "default": null,
-        "desc": "图片生成的自然语言描述要求",
-        "hints": [
-          "图片描述",
-          "生成图片的提示词",
-          "描述",
-          "画面",
-          "prompt"
-        ]
-      },
-      {
-        "name": "num_images",
+        "name": "n",
         "type": "int",
         "required": true,
         "default": null,
-        "desc": "需要合成的图片数量（正整数）",
+        "desc": "待计算平方的整数",
         "hints": [
-          "图片数量",
-          "生成几张",
-          "数量",
-          "num_images"
-        ]
-      },
-      {
-        "name": "dataset_name",
-        "type": "string",
-        "required": true,
-        "default": null,
-        "desc": "数据集名称，用于注册图片集合",
-        "hints": [
-          "数据集名",
-          "名称",
-          "dataset_name",
-          "数据集"
+          "5"
         ]
       }
     ],
     "tags": [],
     "usage_count": 0,
-    "created_at": "2026-07-06T18:07:37Z"
+    "created_at": "2026-07-25T08:17:16Z"
   },
   {
-    "id": "greeting-tool",
-    "name": "问候工具",
+    "id": "synthesize-image",
+    "name": "合成图片",
     "version": "0.1.0",
     "type": "function",
     "language": "python",
     "status": "active",
-    "spec_path": "definitions/greeting-tool.md",
-    "impl_path": "implementations/greeting-tool/",
-    "input_schema": {},
-    "output_schema": {},
-    "param_meta": [],
-    "tags": [],
-    "usage_count": 0,
-    "created_at": "2026-07-07T00:54:25Z"
-  },
-  {
-    "id": "doubao-image-edit",
-    "name": "图片编辑（Doubao）",
-    "version": "0.1.0",
-    "type": "function",
-    "language": "python",
-    "status": "active",
-    "spec_path": "definitions/doubao-image-edit.md",
-    "impl_path": "implementations/doubao-image-edit/",
+    "spec_path": "definitions/synthesize-image.md",
+    "impl_path": "implementations/synthesize-image/",
     "input_schema": {},
     "output_schema": {},
     "param_meta": [
       {
-        "name": "image_path",
+        "name": "req",
         "type": "string",
         "required": true,
         "default": null,
-        "desc": "待编辑的图片文件路径，支持常见格式如 jpg/png",
-        "hints": [
-          "图片",
-          "照片",
-          "图像",
-          "图片路径",
-          "这个文件"
-        ]
+        "desc": "生成图片的提示词（prompt）",
+        "hints": []
       },
       {
-        "name": "prompt",
+        "name": "n",
+        "type": "int",
+        "required": true,
+        "default": null,
+        "desc": "需要生成的图片数量",
+        "hints": []
+      },
+      {
+        "name": "dataset",
         "type": "string",
         "required": true,
         "default": null,
-        "desc": "编辑要求描述，例如“高清优化，细节拉满，写实画质”",
-        "hints": [
-          "编辑描述",
-          "要求",
-          "提示词",
-          "想要的效果",
-          "改成什么样子"
-        ]
-      },
+        "desc": "合成图片数据集的名称",
+        "hints": []
+      }
+    ],
+    "tags": [],
+    "usage_count": 0,
+    "created_at": "2026-07-25T11:32:31Z"
+  },
+  {
+    "id": "edit-image",
+    "name": "编辑图片",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/edit-image.md",
+    "impl_path": "implementations/edit-image/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
       {
-        "name": "negative_prompt",
+        "name": "dataset",
         "type": "string",
-        "required": false,
-        "default": "模糊，水印，文字，畸形",
-        "desc": "不希望出现的负面内容，如模糊、水印",
+        "required": true,
+        "default": null,
+        "desc": "原始数据集名称",
         "hints": [
-          "负向提示词",
-          "避免的内容",
-          "不要出现",
-          "排除",
-          "反面描述"
+          "my_image_dataset"
         ]
       },
       {
-        "name": "strength",
-        "type": "float",
-        "required": false,
-        "default": 0.7,
-        "desc": "编辑强度，范围0到1，值越大修改幅度越大",
-        "hints": [
-          "编辑强度",
-          "变化程度",
-          "强度值",
-          "修改力度"
-        ]
-      },
-      {
-        "name": "size",
+        "name": "req",
         "type": "string",
-        "required": false,
-        "default": "2048x2048",
-        "desc": "输出图片尺寸，格式为“宽x高”，如“1024x1024”",
+        "required": true,
+        "default": null,
+        "desc": "图片编辑要求（prompt）",
         "hints": [
-          "尺寸",
-          "分辨率",
-          "宽高",
-          "输出大小",
-          "图片尺寸"
+          "将图片转为黑白风格"
+        ]
+      },
+      {
+        "name": "output_dataset",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "合成图片数据集名称",
+        "hints": [
+          "edited_output_dataset"
         ]
       }
     ],
     "tags": [],
     "usage_count": 0,
-    "created_at": "2026-07-07T01:06:13Z"
+    "created_at": "2026-07-25T12:25:49Z"
+  },
+  {
+    "id": "image-search-download",
+    "name": "图片搜索与下载工具",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/image-search-download.md",
+    "impl_path": "implementations/image-search-download/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "req",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "图片搜索关键词",
+        "hints": [
+          "猫",
+          "日落风景",
+          "beach sunset"
+        ]
+      },
+      {
+        "name": "n",
+        "type": "integer",
+        "required": true,
+        "default": null,
+        "desc": "需要下载的图片数量",
+        "hints": [
+          5,
+          10,
+          20
+        ]
+      },
+      {
+        "name": "dataset",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "数据集名称，用于注册到平台",
+        "hints": [
+          "猫咪数据集",
+          "风景图片集",
+          "product_images"
+        ]
+      }
+    ],
+    "tags": [],
+    "usage_count": 0,
+    "created_at": "2026-07-25T13:54:50Z"
+  },
+  {
+    "id": "plot-function-graph",
+    "name": "函数图像绘制器",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/plot-function-graph.md",
+    "impl_path": "implementations/plot-function-graph/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "equation",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "一元函数表达式，要求以 `y = f(x)` 的格式给出，支持四则运算、幂运算、常见初等函数（sin, cos, tan, exp, log, sqrt 等）"
+      },
+      {
+        "name": "x_range",
+        "type": "list",
+        "required": false,
+        "default": "[-10, 10]",
+        "desc": "自变量 x 的取值区间，格式为 `[min, max]`（闭区间）"
+      },
+      {
+        "name": "num_points",
+        "type": "int",
+        "required": false,
+        "default": "1000",
+        "desc": "在定义域内生成的采样点数量，决定曲线平滑度"
+      },
+      {
+        "name": "image_size",
+        "type": "list",
+        "required": false,
+        "default": "[800, 600]",
+        "desc": "输出图像的尺寸（宽度, 高度），单位像素"
+      },
+      {
+        "name": "title",
+        "type": "string",
+        "required": false,
+        "default": "\"函数图像\"",
+        "desc": "图表标题"
+      },
+      {
+        "name": "x_label",
+        "type": "string",
+        "required": false,
+        "default": "\"x\"",
+        "desc": "x 轴标签"
+      },
+      {
+        "name": "y_label",
+        "type": "string",
+        "required": false,
+        "default": "\"y\"",
+        "desc": "y 轴标签"
+      }
+    ],
+    "tags": [],
+    "usage_count": 0,
+    "created_at": "2026-07-25T14:45:06Z"
+  },
+  {
+    "id": "image-collector",
+    "name": "图片采集器",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/image-collector.md",
+    "impl_path": "implementations/image-collector/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "req",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "图片搜索关键词，如 \"city night\"",
+        "hints": [
+          "city night"
+        ]
+      },
+      {
+        "name": "n",
+        "type": "integer",
+        "required": true,
+        "default": null,
+        "desc": "需要下载的图片数量",
+        "hints": [
+          "5"
+        ]
+      },
+      {
+        "name": "dataset",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "注册到系统的数据集名称",
+        "hints": [
+          "city_images"
+        ]
+      }
+    ],
+    "tags": [],
+    "usage_count": 0,
+    "created_at": "2026-07-25T17:45:11Z"
   }
 ]

@@ -203,7 +203,38 @@ async def register_dataset(req: RegisterDatasetRequest):
     }
     registered_id = await registry.register(resource)
     entry = await registry.get(registered_id)
+
+    # 注册后异步匹配预览工具（存到 registry，预览时直接用缓存）
+    import asyncio
+    asyncio.create_task(_match_preview_tool(registered_id, req.spec_md))
+
     return {"dataset_id": registered_id, "entry": entry}
+
+
+async def _match_preview_tool(dataset_id: str, spec_md: str):
+    """后台匹配预览工具，结果更新到 registry"""
+    try:
+        tools = await tool_registry.list_all()
+        active_tools = [t for t in tools if t.get("status") == "active"]
+        if not active_tools:
+            return
+        tools_str = "\n".join(f"- {t['id']}: {t['name']}" for t in active_tools)
+        prompt = f"""数据集: {spec_md[:1500]}
+可用工具: {tools_str}
+请选择最适合预览该数据集的工具，回复 JSON:
+{{"tool_id": "xxx" 或 null, "reason": "..."}}
+只返回 JSON。"""
+
+        response = await llm.chat(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3, max_tokens=100000,
+        )
+        result = _json.loads(response.strip())
+        preview_tool = result.get("tool_id")
+        if preview_tool:
+            await registry.update(dataset_id, {"preview_tool": preview_tool})
+    except Exception:
+        pass  # 后台任务失败不影响注册
 
 
 @router.get("/list")
@@ -321,24 +352,8 @@ async def preview_dataset(dataset_id: str):
                         "size": f.stat().st_size, "description": "",
                     })
 
-    # 匹配预览工具
-    tools = await tool_registry.list_all()
-    active_tools = [t for t in tools if t.get("status") == "active"]
-    tools_str = "\n".join(f"- {t['id']}: {t['name']}" for t in active_tools)
-    prompt = f"""数据集: {spec_md[:1500]}
-可用工具: {tools_str}
-请选择最适合预览该数据集的工具，回复 JSON:
-{{"tool_id": "xxx" 或 null, "reason": "..."}}
-只返回 JSON。"""
-
-    response = await llm.chat(
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.3, max_tokens=100000,
-    )
-
-    preview_tool = None
-    try: result = _json.loads(response.strip()); preview_tool = result.get("tool_id")
-    except _json.JSONDecodeError: pass
+    # 预览工具：优先用缓存，没有缓存则跳过（避免每次点击都调 LLM）
+    preview_tool = entry.get("preview_tool")
 
     return {
         "dataset": entry, "spec_md": spec_md, "files": files,

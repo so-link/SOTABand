@@ -1,16 +1,20 @@
-"""工具管理路由 — 规格生成、代码生成、沙箱测试、注册、调用"""
+"""工具管理路由 v2 — 规格生成、代码生成、沙箱执行、自动调试、注册"""
 
-from fastapi import APIRouter, HTTPException
+import json as _json
+import os as _os
+import shutil
+from datetime import datetime
+from pathlib import Path as _Path
+
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from sse_starlette.sse import EventSourceResponse
 
 from app.api.schemas.tool_schemas import (
-    GenerateToolSpecRequest,
-    GenerateToolCodeRequest,
-    RegisterToolRequest,
-    ExecuteToolRequest,
-    ModifyCodeRequest,
+    GenerateToolSpecRequest, GenerateToolCodeRequest, RegisterToolRequest,
+    ExecuteToolRequest, ModifyCodeRequest,
 )
 from core.llm.client import create_llm_client
-from core.resource.builder.tool_builder import ToolCodeBuilder
+from core.resource.builder.tool_builder import ToolCodeBuilder, TOOL_TEMPLATE
 from core.resource.registry.tool_registry import ToolRegistry
 from core.resource.discoverer.tool_discoverer import ToolDiscoverer
 
@@ -50,16 +54,18 @@ created: {日期}
 ### 3.1 标准输出字段
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| status | string | 执行状态 (success/failed) |
+| status | string | success / failed |
 | message | string | 结果说明 |
-| output_format | string | **必须指定** — text / image / table / file |
-| data | dict | 输出数据，格式由 output_format 决定 |
+| output_format | string | text / image / table / file |
+| data | dict/list | 输出数据 |
 
-### 3.2 output_format 说明
-- `text`: data 含 `{"text": "..."}` — 纯文本展示
-- `image`: data 含 `{"image_path": "/path/to/result.png"}` — 界面直接绘制图片（仅支持路径方式，不支持 base64）
-- `table`: data 含 `{"columns":["c1","c2"], "rows":[[...],...]}` — 渲染为表格
-- `file`: data 含 `{"file_path": "/path/to/result.csv"}` — 文件下载链接
+### 3.2 可视化输出格式
+| output_format | data 格式 | 界面渲染方式 |
+|---------------|----------|-------------|
+| `text` | `{"text":"..."}` | 纯文本 |
+| `image` | `{"image_path":"/path/to/file.png"}` | 直接绘制图片 |
+| `table` | `{"columns":[...], "rows":[[...]]}` | 渲染表格 |
+| `file` | `{"file_path":"/path/to/result.csv"}` | 下载链接 |
 
 ## 4. 依赖环境
 
@@ -69,127 +75,250 @@ created: {日期}
 ## 5. 运行机制
 
 ### 5.1 执行流程
+1. 读取输入数据
+2. 校验参数
+3. 执行核心逻辑
+4. 返回结果
 
-1.
-2.
-3.
-
-### 5.2 性能指标
-
-- 预期执行时间: < 5s
-- 内存占用: < 500MB
-
-### 5.3 错误处理
-
+### 5.2 错误处理
+- 文件不存在 → 返回错误信息
 - 参数无效 → 返回验证错误
-- 执行异常 → 捕获并返回详细错误
+- 处理异常 → 捕获并返回详细错误
 
-## 6. 测试用例
-
-### 6.1 测试数据描述
-
-```json
-{{}}
-```
-
-### 6.2 边界条件
-
-## 7. 调用示例
-
-```python
-result = execute(...)
-```
-
-## 8. 版本历史
-
+## 6. 版本历史
 | 版本 | 日期 | 变更 |
 |------|------|------|
 | 0.1.0 | {日期} | 初始版本 |
 
 规则：
 1. tool-id 使用小写字母+连字符
-2. type 推断为 function/script/api-wrapper
-3. output_format 必须根据用户需求推断
-4. 合理填充所有字段
-5. 只输出 Markdown
-6. 【重要】用户描述中的【xxxx】标记表示系统API调用，在生成的MD文档中必须原封不动保留【】符号和其中的API名称
-1. tool-id 使用小写字母+连字符
-2. type 推断为 function/script/api-wrapper
-3. **output_format 必须根据用户需求推断：**
-   - 图片生成/绘制/可视化 → image
-   - 数据处理/统计/查询返回结构化数据 → table
-   - 文件转换/下载 → file
-   - 一般计算/文本回复 → text
-4. 合理填充所有字段
-5. 只输出 Markdown"""
+2. type 根据描述推断：function / script / api-wrapper
+3. 合理推断输入参数和输出格式
+4. 建议合适的依赖库和版本
+5. 用户描述中的【xxx】表示系统API，【【xxx】】表示工具调用，原样保留
+6. 除非用户明确写了标记，否则不添加系统API或工具引用"""
 
+UPLOAD_DIR = _Path("/tmp/sotaband-uploads")
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# ── 规格生成 & 代码生成 ──
 
 @router.post("/generate-spec")
 async def generate_spec(req: GenerateToolSpecRequest):
-    """NL → MD 工具描述文档"""
+    """NL → MD 规范文档。如有 reference_code，完整复制到执行流程部分。"""
     if not req.description.strip():
-        raise HTTPException(400, "description 不能为空")
+        raise HTTPException(400, "描述不能为空")
 
-    response = await llm.chat(
-        messages=[
-            {"role": "system", "content": SPEC_PROMPT},
-            {"role": "user", "content": req.description},
-        ],
-        temperature=0.5, max_tokens=100000,
-    )
-    return {"spec_md": response.strip()}
+    user_content = req.description
+    if req.reference_code.strip():
+        user_content += f"""
+
+---
+以下为用户提供的参考代码，请完整复制到生成的 MD 文档中「5. 运行机制」部分（用 ```python 代码块包裹）：
+
+```python
+{req.reference_code.strip()}
+```
+"""
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    # 动态注入当前日期，替换模板中的 {日期} 占位符
+    system_prompt = SPEC_PROMPT.replace("{日期}", today)
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content},
+    ]
+    spec_md = await llm.chat(messages=messages, temperature=0.3, max_tokens=4000)
+    return {"spec_md": spec_md}
 
 
 @router.post("/generate-code")
 async def generate_code(req: GenerateToolCodeRequest):
-    """MD → 工具代码 + 测试数据"""
-    if not req.spec_md.strip():
-        raise HTTPException(400, "specMd 不能为空")
-
+    """MD → 完整 Python 代码（LLM 生成，无后处理）"""
     spec = {"raw_md": req.spec_md, "id": req.tool_id, "name": req.tool_name}
-    valid = await builder.validate_spec(spec)
-    if not valid:
+    if not req.spec_md.strip():
+        raise HTTPException(400, "MD 规范文档不能为空")
+    if not await builder.validate_spec(spec):
         raise HTTPException(400, "MD 规范文档不完整，缺少必需段落")
-
     code = await builder.build(spec)
-    test_data = await builder.generate_test_data(spec)
+    # 提取参数 schema 供前端生成输入表单
+    params = builder._parse_spec_inputs(req.spec_md)
+    return {"code": code, "params": params}
 
-    return {"code": code, "test_data": test_data}
 
+# ── 沙箱测试 v2 — 用户输入测试数据 ──
 
 @router.post("/test")
-async def test_tool(req: GenerateToolCodeRequest):
-    """沙箱测试工具代码"""
-    spec = {"raw_md": req.spec_md, "id": req.tool_id, "name": req.tool_name}
+async def test_tool(
+    spec_md: str = Form(""),
+    tool_id: str = Form(""),
+    tool_name: str = Form(""),
+    code: str = Form(""),
+    test_input_json: str = Form("{}"),
+    files: list[UploadFile] = File([]),
+):
+    """沙箱测试：SSE 流式返回执行过程，支持客户端断开时强行终止子进程"""
+    import asyncio as _asyncio
 
-    # 如果前端传了已有代码，直接使用；否则调用 LLM 生成
-    if req.code.strip():
-        code = req.code
-    else:
+    # 处理上传文件
+    test_input = _json.loads(test_input_json)
+    for f in files:
+        if f.filename:
+            save_path = UPLOAD_DIR / f.filename
+            content = await f.read()
+            save_path.write_bytes(content)
+            for key in test_input:
+                if key == f.filename or test_input[key] == f.filename or not test_input.get(key):
+                    test_input[key] = str(save_path)
+
+    # 如果没有代码，先生成
+    if not code.strip():
+        spec = {"raw_md": spec_md, "id": tool_id, "name": tool_name}
         code = await builder.build(spec)
 
-    test_data = await builder.generate_test_data(spec)
-    normal_input = test_data.get("normal", {}).get("input", {})
+    from core.executor.tool_executor import ToolExecutor
 
-    results = await builder.dry_run(code, normal_input, req.tool_id)
-    return {"code": code, "sandbox_results": results, "test_data": test_data}
+    queue: _asyncio.Queue = _asyncio.Queue()
 
+    async def _run():
+        """在后台执行工具，结果放入队列"""
+        try:
+            result = await ToolExecutor.execute(
+                tool_id=tool_id or "test",
+                params=test_input,
+                code=code,
+                timeout=None,
+            )
+            await queue.put({
+                "exit_code": 0 if result.get("status") == "success" else 1,
+                "stdout": _json.dumps(result, ensure_ascii=False),
+                "stderr": result.get("stderr", ""),
+                "success": result.get("status") == "success",
+            })
+        except _asyncio.CancelledError:
+            pass  # 被取消，不推送结果
+        finally:
+            await queue.put(None)  # 哨兵
+
+    runner_task = _asyncio.create_task(_run())
+
+    async def event_stream():
+        try:
+            while True:
+                event = await queue.get()
+                if event is None:
+                    break
+                yield {"event": "result", "data": _json.dumps(event, ensure_ascii=False)}
+        except _asyncio.CancelledError:
+            # 客户端断开 → 取消执行任务
+            runner_task.cancel()
+            try:
+                await _asyncio.wait_for(runner_task, timeout=3.0)
+            except (_asyncio.TimeoutError, _asyncio.CancelledError):
+                pass
+
+    return EventSourceResponse(event_stream())
+
+
+# ── 文件上传 ──
+
+@router.post("/upload-test-file")
+async def upload_test_file(file: UploadFile = File(...)):
+    """上传测试文件，返回临时路径"""
+    save_path = UPLOAD_DIR / file.filename
+    content = await file.read()
+    save_path.write_bytes(content)
+    return {"file_path": str(save_path), "file_name": file.filename}
+
+
+# ── 依赖安装 ──
+
+@router.post("/{tool_id}/install-deps")
+async def install_deps(tool_id: str, req: dict):
+    """安装依赖到工具本地 .venv"""
+    deps = req.get("dependencies", [])
+    if not deps:
+        raise HTTPException(400, "dependencies 不能为空")
+    result = await builder.install_deps(tool_id, deps)
+    return result
+
+
+# ── 自动调试 v2 ──
+
+@router.post("/auto-debug")
+async def auto_debug(
+    spec_md: str = Form(""),
+    tool_id: str = Form(""),
+    tool_name: str = Form(""),
+    code: str = Form(""),
+    test_input_json: str = Form("{}"),
+    files: list[UploadFile] = File([]),
+):
+    """v2 自动调试：SSE 流式返回每轮执行结果和 LLM 分析。
+    用户关闭 SSE 连接（前端 AbortController.abort()）时自动停止。
+    """
+    import asyncio
+
+    test_input = _json.loads(test_input_json)
+    for f in files:
+        if f.filename:
+            save_path = UPLOAD_DIR / f.filename
+            content = await f.read()
+            save_path.write_bytes(content)
+            for key in list(test_input.keys()):
+                if not test_input.get(key) or test_input[key] == f.filename:
+                    test_input[key] = str(save_path)
+
+    if not code.strip():
+        spec = {"raw_md": spec_md, "id": tool_id, "name": tool_name}
+        code = await builder.build(spec)
+
+    import asyncio as _asyncio
+
+    stop_event = _asyncio.Event()
+    queue: _asyncio.Queue = _asyncio.Queue()
+
+    async def _producer():
+        try:
+            async for event in builder.auto_debug_stream(spec_md, code, test_input, tool_id, stop_event=stop_event):
+                await queue.put(event)
+        except _asyncio.CancelledError:
+            stop_event.set()
+        finally:
+            await queue.put(None)  # 哨兵
+
+    producer_task = _asyncio.create_task(_producer())
+
+    async def event_stream():
+        try:
+            while True:
+                event = await queue.get()
+                if event is None:
+                    break
+                yield {"event": event["event"], "data": _json.dumps(event, ensure_ascii=False)}
+        except _asyncio.CancelledError:
+            # 客户端断开 → 设置停止信号 + 取消 producer
+            stop_event.set()
+            producer_task.cancel()
+            # 等待 producer 结束
+            try:
+                await _asyncio.wait_for(producer_task, timeout=3.0)
+            except (_asyncio.TimeoutError, _asyncio.CancelledError):
+                pass
+
+    return EventSourceResponse(event_stream())
+
+
+# ── 注册 v2 — 不再强制沙箱测试 ──
 
 @router.post("/register")
 async def register_tool(req: RegisterToolRequest):
     """注册工具"""
     spec = {"raw_md": req.spec_md, "id": req.tool_id, "name": req.tool_name}
-
-    # 先做沙箱测试
     code = req.code or (await builder.build(spec))
-    test_data = req.test_data or await builder.generate_test_data(spec)
-    normal_input = test_data.get("normal", {}).get("input", {})
-    sandbox = await builder.dry_run(code, normal_input, req.tool_id)
 
-    if sandbox["failed"]:
-        raise HTTPException(400, f"沙箱测试未通过: {sandbox['failed']}")
-
-    # 提取参数元数据（LLM 不行则用 MD 表格解析兜底）
     param_meta = []
     try:
         param_meta = await builder.extract_param_metadata(req.spec_md)
@@ -201,208 +330,110 @@ async def register_tool(req: RegisterToolRequest):
     resource = {
         "id": req.tool_id, "name": req.tool_name, "version": req.version,
         "raw_md": req.spec_md, "code": code, "tags": req.tags,
-        "test_data": test_data, "param_meta": param_meta,
+        "param_meta": param_meta,
     }
     tool_id = await registry.register(resource)
 
-    # 保存用户需求描述
     if hasattr(req, 'demand_desc') and req.demand_desc:
         (registry._get_def_dir() / f"{tool_id}-demand.md").write_text(req.demand_desc)
 
+    # 保存参考代码为独立文件
+    if hasattr(req, 'reference_code') and req.reference_code:
+        (registry._get_def_dir() / f"{tool_id}-reference.md").write_text(req.reference_code)
+
     entry = await registry.get(tool_id)
+    return {"tool_id": tool_id, "entry": entry}
 
-    # 创建工具独立虚拟环境并安装依赖
-    deps = []
-    if req.spec_md:
-        import re as _re
-        dep_section = _re.search(r'## 4\.\s*依赖环境\n(.*?)(?=\n##|\Z)', req.spec_md, _re.DOTALL)
-        if dep_section:
-            for line in dep_section.group(1).strip().split("\n"):
-                if line.startswith("|") and "---" not in line and "依赖" not in line:
-                    parts = [p.strip() for p in line.split("|")[1:-1]]
-                    if parts and parts[0] and not parts[0].startswith("--"):
-                        deps.append(parts[0])
-    if deps:
-        try:
-            await builder.setup_venv(tool_id, deps)
-            entry["venv"] = True
-        except Exception:
-            pass
 
-    return {"tool_id": tool_id, "entry": entry, "sandbox_results": sandbox}
-
+# ── 列表 / 详情 / 调用 / 搜索 / 删除 ──
 
 @router.get("/list")
 async def list_tools():
-    """列出所有工具"""
     tools = await registry.list_all()
     return {"tools": tools}
 
 
 @router.get("/{tool_id}")
 async def get_tool(tool_id: str):
-    """工具详情（含 MD spec + 源代码）"""
     entry = await registry.get(tool_id)
-    if not entry:
-        raise HTTPException(404, f"Tool '{tool_id}' not found")
-
+    if not entry: raise HTTPException(404, f"Tool '{tool_id}' not found")
     spec_path = registry._get_def_dir() / f"{tool_id}.md"
     spec_md = spec_path.read_text() if spec_path.exists() else ""
-
     code_path = registry._get_impl_dir() / tool_id / "tool.py"
     code = code_path.read_text() if code_path.exists() else ""
-
     demand_path = registry._get_def_dir() / f"{tool_id}-demand.md"
     has_demand = demand_path.exists()
     demand_md = demand_path.read_text() if has_demand else ""
-
-    return {**entry, "spec_md": spec_md, "code": code, "has_demand": has_demand, "demand_md": demand_md}
-
-
-@router.post("/{tool_id}/update-code")
-async def update_tool_code(tool_id: str, req: RegisterToolRequest):
-    """更新工具代码（需重新沙箱测试通过）"""
-    entry = await registry.get(tool_id)
-    if not entry:
-        raise HTTPException(404, f"Tool '{tool_id}' not found")
-
-    code = req.code
-    if not code.strip():
-        raise HTTPException(400, "code 不能为空")
-
-    # 沙箱测试
-    spec = {"raw_md": req.spec_md or "", "id": tool_id, "name": entry["name"]}
-    test_data = req.test_data or await builder.generate_test_data(spec)
-    normal_input = test_data.get("normal", {}).get("input", {})
-    # 如果测试输入为空，至少传一个空 dict 验证代码能跑
-    sandbox = await builder.dry_run(code, normal_input or {}, tool_id)
-
-    if sandbox["failed"]:
-        raise HTTPException(400, f"沙箱测试未通过: {sandbox['failed']}")
-
-    # 更新代码文件
-    code_path = registry._get_impl_dir() / tool_id / "tool.py"
-    code_path.write_text(code)
-
-    if req.spec_md.strip():
-        spec_path = registry._get_def_dir() / f"{tool_id}.md"
-        spec_path.parent.mkdir(parents=True, exist_ok=True)
-        spec_path.write_text(req.spec_md)
-
-    return {"tool_id": tool_id, "status": "updated", "sandbox_results": sandbox}
+    reference_path = registry._get_def_dir() / f"{tool_id}-reference.md"
+    has_reference = reference_path.exists()
+    reference_code = reference_path.read_text() if has_reference else ""
+    return {**entry, "spec_md": spec_md, "code": code, "has_demand": has_demand, "demand_md": demand_md, "has_reference": has_reference, "reference_code": reference_code}
 
 
 @router.post("/{tool_id}/modify-code")
 async def modify_code(tool_id: str, req: "ModifyCodeRequest"):
-    """AI 辅助修改代码：保持接口不变，根据用户描述修改代码"""
     entry = await registry.get(tool_id)
-    if not entry:
-        raise HTTPException(404, f"Tool '{tool_id}' not found")
-
-    current_code = req.current_code
-    user_request = req.request
-    if not user_request.strip():
-        raise HTTPException(400, "修改描述不能为空")
-
+    if not entry: raise HTTPException(404, f"Tool '{tool_id}' not found")
+    current_code = req.current_code or ""
     if not current_code.strip():
         code_path = registry._get_impl_dir() / tool_id / "tool.py"
         current_code = code_path.read_text() if code_path.exists() else ""
+    if not req.request.strip():
+        raise HTTPException(400, "修改描述不能为空")
 
     prompt = f"""Modify the following Python tool code according to the user's request.
-
-IMPORTANT RULES:
-1. DO NOT change the function signature: def execute(**kwargs) -> dict[str, Any]:
-2. DO NOT change the return format: {{"status": "success"|"failed", "message": "...", ...}}
-3. Keep all existing imports unless they become unused
-4. Only change the logic as described by the user
-5. Return ONLY the complete modified code, no explanations
+IMPORTANT: Keep execute(**kwargs)->dict signature and return format. Return ONLY the complete modified code.
 
 Current code:
 ```python
 {current_code}
 ```
 
-User's modification request:
-{user_request}
+User's request:
+{req.request}
 
 Modified code:"""
 
-    response = await llm.chat(
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.3, max_tokens=100000,
-    )
-
+    response = await llm.chat(messages=[{"role":"user","content":prompt}], temperature=0.3, max_tokens=100000)
     modified_code = response
-    if "```python" in modified_code:
-        modified_code = modified_code.split("```python")[1].split("```")[0]
-    elif "```" in modified_code:
-        modified_code = modified_code.split("```")[1].split("```")[0]
-
+    for marker in ("```python", "```"):
+        if marker in modified_code:
+            parts = modified_code.split(marker)
+            if len(parts) > 1: modified_code = parts[1]
+            break
     return {"modified_code": modified_code.strip(), "original_code": current_code}
+
+
+@router.post("/{tool_id}/save-code")
+async def save_code(tool_id: str, req: dict):
+    """保存工具代码到文件系统"""
+    entry = await registry.get(tool_id)
+    if not entry: raise HTTPException(404, f"Tool '{tool_id}' not found")
+    code = req.get("code", "")
+    if not code.strip():
+        raise HTTPException(400, "代码不能为空")
+    impl_dir = registry._get_impl_dir() / tool_id
+    impl_dir.mkdir(parents=True, exist_ok=True)
+    (impl_dir / "tool.py").write_text(code)
+    return {"saved": tool_id}
 
 
 @router.post("/{tool_id}/execute")
 async def execute_tool(tool_id: str, req: ExecuteToolRequest):
-    """调用工具"""
     entry = await registry.get(tool_id)
-    if not entry:
-        raise HTTPException(404, f"Tool '{tool_id}' not found")
+    if not entry: raise HTTPException(404, f"Tool '{tool_id}' not found")
 
-    impl_dir = registry._get_impl_dir() / tool_id / "tool.py"
-    if not impl_dir.exists():
-        raise HTTPException(400, f"工具代码不存在: {impl_dir}")
-
-    # 检查是否有独立 venv，有则用子进程执行（与对话界面一致）
-    from pathlib import Path as _Path
-    import subprocess, tempfile, os, json, sys as _sys
-
-    venv_python = registry._get_impl_dir() / tool_id / ".venv" / "bin" / "python"
-    python_exe = str(venv_python) if venv_python.exists() else None
-
-    if python_exe:
-        code = impl_dir.read_text()
-        params_json = json.dumps(req.params)
-        test_script = (
-            f"import json, sys, os\n"
-            f"sys.path.insert(0, {json.dumps(str(_Path(__file__).resolve().parent.parent.parent.parent))})\n"
-            f"os.environ['TOOL_DIR'] = {json.dumps(str(impl_dir.parent))}\n"
-            f"code = {json.dumps(code)}\n"
-            f"exec(code)\n"
-            f"result = execute(**{params_json})\n"
-            f"print(json.dumps(result, default=str))\n"
-        )
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-            f.write(test_script)
-            tmp_path = f.name
-        try:
-            proc = subprocess.run([python_exe, tmp_path], capture_output=True, text=True)
-            if proc.returncode == 0:
-                result = json.loads(proc.stdout.strip())
-                return {"status": "success", "result": result}
-            else:
-                return {"status": "failed", "error": proc.stderr[:500]}
-        finally:
-            os.unlink(tmp_path)
-    else:
-        # 无 venv，同进程加载执行
-        import importlib.util
-        spec = importlib.util.spec_from_file_location(f"tool_{tool_id}", str(impl_dir))
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-
-        if not hasattr(module, "execute"):
-            raise HTTPException(500, "工具代码未实现 execute() 函数")
-
-        try:
-            result = module.execute(**req.params)
-            return {"status": "success", "result": result}
-        except Exception as e:
-            return {"status": "failed", "error": str(e)}
+    from core.executor.tool_executor import ToolExecutor
+    result = await ToolExecutor.execute(
+        tool_id=tool_id,
+        params=req.params,
+        timeout=120.0,
+    )
+    return {"status": "success", "result": result}
 
 
 @router.get("/search/find")
 async def search_tools(q: str = "", tags: str = ""):
-    """搜索工具"""
     tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
     results = await discoverer.search(query=q, tags=tag_list)
     return {"tools": results}
@@ -410,16 +441,11 @@ async def search_tools(q: str = "", tags: str = ""):
 
 @router.delete("/{tool_id}")
 async def delete_tool(tool_id: str):
-    """删除工具（registry + code + venv）"""
     entry = await registry.get(tool_id)
-    if not entry:
-        raise HTTPException(404, f"Tool '{tool_id}' not found")
-    import shutil
+    if not entry: raise HTTPException(404, f"Tool '{tool_id}' not found")
     impl_dir = registry._get_impl_dir() / tool_id
-    if impl_dir.exists():
-        shutil.rmtree(impl_dir, ignore_errors=True)
+    if impl_dir.exists(): shutil.rmtree(impl_dir, ignore_errors=True)
     spec_path = registry._get_def_dir() / f"{tool_id}.md"
-    if spec_path.exists():
-        spec_path.unlink()
+    if spec_path.exists(): spec_path.unlink()
     await registry.unregister(tool_id)
     return {"deleted": tool_id}

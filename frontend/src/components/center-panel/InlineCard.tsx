@@ -273,7 +273,7 @@ function ImageOutput({ data }: { data: Record<string, unknown> }) {
   const [error, setError] = useState(false)
   if (!imagePath) return <p className="text-xs text-gray-400">图片路径不可用</p>
 
-  const src = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001'}/api/file/image?path=${encodeURIComponent(imagePath)}`
+  const src = `${''}/api/file/image?path=${encodeURIComponent(imagePath)}`
 
   return (
     <div className="mt-2 rounded-lg overflow-hidden border border-gray-200">
