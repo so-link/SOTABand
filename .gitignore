@@ -35,6 +35,11 @@ htmlcov/
 .env.local
 .env.*.local
 
+# Data & Output directories
+data/
+output/
+downloads/
+
 # OS
 .DS_Store
 Thumbs.db
