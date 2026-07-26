@@ -354,33 +354,53 @@ CRITICAL RULES:
                 result = event["data"]
         return result
 
+    def _get_exec_python(self, tool_id: str) -> str:
+        """获取工具执行时实际使用的 Python（与 ToolExecutor._get_python_exe 一致）"""
+        from core.executor.tool_executor import ToolExecutor
+        return ToolExecutor._get_python_exe(tool_id)
+
+    def _get_exec_pip(self, tool_id: str) -> str:
+        """获取工具执行时实际使用的 pip 路径"""
+        python_exe = self._get_exec_python(tool_id)
+        py_dir = Path(python_exe).parent
+        # pip 和 python 在同目录
+        pip = str(py_dir / "pip")
+        if Path(pip).exists():
+            return pip
+        # 可能有 pip3
+        pip3 = str(py_dir / "pip3")
+        if Path(pip3).exists():
+            return pip3
+        # 用 python -m pip 作为回退
+        return f"{python_exe} -m pip"
+
     async def install_deps_stream(self, tool_id: str, dependencies: list[str]):
-        """流式安装依赖：用 asyncio 子进程，不阻塞事件循环。
+        """流式安装依赖：安装到工具执行时实际使用的 Python 环境。
         
-        策略：
-        1. 先尝试安装到全局 venv（当前 Python 环境）
-        2. 如果全局失败（版本冲突等），后续依赖全部装到工具本地 .venv
+        关键：使用与 ToolExecutor._get_python_exe 相同的 Python，
+        确保安装的包和执行时用的是同一个环境，避免环境不一致。
         
         事件类型：
-        - deps_start: 开始安装，{deps: [...], env: "global"}
+        - deps_start: 开始安装，{deps: [...], env: "global"|"local"}
         - dep_installing: 正在安装，{dep: str, env: str}
         - dep_installed: 安装成功，{dep: str, env: str}
         - dep_failed: 安装失败，{dep: str, env: str, reason: str}
-        - env_switch: 切换环境
         - deps_done: 完成
         """
-        import sys as _sys, asyncio
+        import asyncio
 
-        global_pip = str(Path(_sys.executable).parent / "pip")
-        results = []
-        use_local = False
+        exec_python = self._get_exec_python(tool_id)
+        exec_pip = self._get_exec_pip(tool_id)
+        is_local = ".venv" in exec_python
+        env_label = "local" if is_local else "global"
 
-        yield {"event": "deps_start", "deps": list(dependencies), "env": "global"}
+        yield {"event": "deps_start", "deps": list(dependencies), "env": env_label}
 
-        async def _run_pip(pip_path: str, dep: str) -> tuple[bool, str]:
+        async def _run_pip(pip_cmd: str, dep: str) -> tuple[bool, str]:
             """异步执行 pip install"""
+            parts = pip_cmd.split()
             proc = await asyncio.create_subprocess_exec(
-                pip_path, "install", dep,
+                *parts, "install", dep,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -391,47 +411,20 @@ CRITICAL RULES:
             err = (stderr or b"").decode("utf-8", errors="replace")
             return proc.returncode == 0, (out + err)[-300:]
 
+        results = []
         for dep in dependencies:
             dep = dep.strip()
             if not dep: continue
-
-            if not use_local:
-                yield {"event": "dep_installing", "dep": dep, "env": "global"}
-                ok, output = await _run_pip(global_pip, dep)
-                if ok:
-                    results.append({"dep": dep, "success": True, "env": "global"})
-                    yield {"event": "dep_installed", "dep": dep, "env": "global"}
-                    continue
-                use_local = True
-                yield {"event": "env_switch", "dep": dep, "reason": output[-200:]}
-
-            # 回退到工具本地 .venv
-            tools_dir = Path(__file__).resolve().parent.parent.parent.parent / "resources" / "tools" / "implementations"
-            tool_dir = tools_dir / tool_id
-            tool_dir.mkdir(parents=True, exist_ok=True)
-            venv_dir = tool_dir / ".venv"
-            venv_python = venv_dir / "bin" / "python"
-
-            if not venv_python.exists():
-                # 异步创建 venv
-                create_proc = await asyncio.create_subprocess_exec(
-                    _sys.executable, "-m", "venv", str(venv_dir),
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                await asyncio.wait_for(create_proc.communicate(), timeout=60)
-
-            local_pip = str(venv_dir / "bin" / "pip")
-            yield {"event": "dep_installing", "dep": dep, "env": "local"}
-            ok, output = await _run_pip(local_pip, dep)
+            yield {"event": "dep_installing", "dep": dep, "env": env_label}
+            ok, output = await _run_pip(exec_pip, dep)
             if ok:
-                results.append({"dep": dep, "success": True, "env": "local"})
-                yield {"event": "dep_installed", "dep": dep, "env": "local"}
+                results.append({"dep": dep, "success": True, "env": env_label})
+                yield {"event": "dep_installed", "dep": dep, "env": env_label}
             else:
-                results.append({"dep": dep, "success": False, "env": "local", "reason": output[-200:]})
-                yield {"event": "dep_failed", "dep": dep, "env": "local", "reason": output[-200:]}
+                results.append({"dep": dep, "success": False, "env": env_label, "reason": output[-200:]})
+                yield {"event": "dep_failed", "dep": dep, "env": env_label, "reason": output[-200:]}
 
-        data = {"venv_path": str(Path(_sys.executable).parent.parent), "python": _sys.executable, "results": results}
+        data = {"python": exec_python, "results": results}
         yield {"event": "deps_done", "data": data}
 
     # ── 自动调试 ──
@@ -534,13 +527,17 @@ CRITICAL RULES:
                 yield {"event": "done", "round": round_num, "success": True, "code": current_code, "message": f"调试成功 (第{round_num}轮)"}
                 return
 
-            # 3. 检查缺失依赖
+            # 3. 检查缺失依赖（执行时发现 ModuleNotFoundError）
             if output_data and output_data.get("error") == "ModuleNotFoundError":
                 missing = output_data.get("missing_module", "")
-                yield {"event": "missing_dep", "round": round_num, "module": missing}
                 if missing:
-                    await self.install_deps(tool_id, [missing])
-                    yield {"event": "dep_installed", "round": round_num, "module": missing}
+                    # 用流式安装，前端可看到进度
+                    async for dep_event in self.install_deps_stream(tool_id, [missing]):
+                        if stop_event and stop_event.is_set():
+                            yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试"}
+                            return
+                        yield dep_event
+                    # 安装完后重试当前轮（不跳到下一轮）
                     continue
 
             # 4. LLM 分析并修复
