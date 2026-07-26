@@ -1,12 +1,13 @@
-# SOTABand Engine (优智联邦）
+ <p align="center">
+  <img src="frontend/public/image.png" alt="SOTABand Logo" width="120" />
+</p>
+
+# SOTABand （优智联邦）
 
 > 多智能体驱动的多模态智能处理引擎
 >
 > 探索即扩展，描述即执行，协同即智能。
 
-<p align="center">
-  <img src="frontend/public/image.png" alt="SOTABand Logo" width="120" />
-</p>
 
 ## 核心理念
 
