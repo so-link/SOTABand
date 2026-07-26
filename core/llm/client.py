@@ -46,11 +46,18 @@ class DeepSeekClient(LLMClient):
             max_tokens=kwargs.get("max_tokens", self.config.max_tokens),
             temperature=kwargs.get("temperature", self.config.temperature),
             timeout=self.config.timeout,
+            stream_options={"include_usage": True},
         )
+        finish_reason = None
         async for chunk in stream:
             delta = chunk.choices[0].delta
             if delta.content:
                 yield delta.content
+            if chunk.choices[0].finish_reason:
+                finish_reason = chunk.choices[0].finish_reason
+        # 如果因为 token 限制被截断，yield 警告标记
+        if finish_reason == "length":
+            yield "\n\n# [WARNING] Response truncated due to max_tokens limit"
 
     async def chat(self, messages: list[dict], **kwargs) -> str:
         """非流式调用 DeepSeek v4"""
@@ -62,7 +69,10 @@ class DeepSeekClient(LLMClient):
             temperature=kwargs.get("temperature", self.config.temperature),
             timeout=self.config.timeout,
         )
-        return response.choices[0].message.content or ""
+        content = response.choices[0].message.content or ""
+        if response.choices[0].finish_reason == "length":
+            content += "\n\n# [WARNING] Response truncated due to max_tokens limit"
+        return content
 
 
 def create_llm_client(config: LLMConfig = None) -> LLMClient:

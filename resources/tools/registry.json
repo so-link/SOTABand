@@ -723,7 +723,7 @@
   },
   {
     "id": "arxiv-paper-downloader",
-    "name": "ArXiv论文批量下载工具",
+    "name": "ArXiv论文批量下载器",
     "version": "0.1.0",
     "type": "function",
     "language": "python",
@@ -738,29 +738,35 @@
         "type": "string",
         "required": true,
         "default": null,
-        "desc": "检索关键词，如 \"machine learning\"",
+        "desc": "论文检索关键词或需求描述",
         "hints": [
-          "machine learning"
+          "machine learning",
+          "large language models",
+          "graph neural networks"
         ]
       },
       {
         "name": "n",
-        "type": "int",
+        "type": "integer",
         "required": true,
         "default": null,
-        "desc": "需要下载的论文数量",
+        "desc": "需要下载的论文数量（按相关度排序）",
         "hints": [
+          10,
+          20,
           5
         ]
       },
       {
         "name": "year",
-        "type": "int",
+        "type": "integer",
         "required": true,
         "default": null,
-        "desc": "起始发表年份（包含当年）",
+        "desc": "发表年份限制，检索该年及以后发表的论文",
         "hints": [
-          2020
+          2023,
+          2024,
+          2022
         ]
       },
       {
@@ -768,15 +774,17 @@
         "type": "string",
         "required": true,
         "default": null,
-        "desc": "注册数据集时使用的名称",
+        "desc": "目标数据集名称，用于【数据集注册API】注册",
         "hints": [
-          "my_dataset"
+          "my-arxiv-papers",
+          "dl-survey-dataset",
+          "latest-ml-papers"
         ]
       }
     ],
     "tags": [],
     "usage_count": 0,
-    "created_at": "2026-07-26T03:18:35Z"
+    "created_at": "2026-07-26T08:56:45Z"
   },
   {
     "id": "city-weather-reporter",
@@ -816,5 +824,107 @@
     "tags": [],
     "usage_count": 0,
     "created_at": "2026-07-26T04:27:52Z"
+  },
+  {
+    "id": "text-to-speech",
+    "name": "文字转语音",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/text-to-speech.md",
+    "impl_path": "implementations/text-to-speech/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "req",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "需要转换为语音的文字内容",
+        "hints": [
+          "你好，世界"
+        ]
+      }
+    ],
+    "tags": [],
+    "usage_count": 0,
+    "created_at": "2026-07-26T08:52:23Z"
+  },
+  {
+    "id": "paper-summary",
+    "name": "论文摘要",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/paper-summary.md",
+    "impl_path": "implementations/paper-summary/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "dataset",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "数据集名称",
+        "hints": [
+          "my_dataset"
+        ]
+      },
+      {
+        "name": "n",
+        "type": "integer",
+        "required": true,
+        "default": null,
+        "desc": "单篇论文摘要的字数上限",
+        "hints": [
+          300
+        ]
+      }
+    ],
+    "tags": [],
+    "usage_count": 0,
+    "created_at": "2026-07-26T09:27:19Z"
+  },
+  {
+    "id": "yolo-dataset-from-doubao-detection",
+    "name": "基于豆包大模型的目标检测标注与YOLO数据集构建",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/yolo-dataset-from-doubao-detection.md",
+    "impl_path": "implementations/yolo-dataset-from-doubao-detection/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "dataset",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "数据集名称，用于通过系统API获取数据集信息",
+        "hints": [
+          "my_coco_dataset"
+        ]
+      },
+      {
+        "name": "req",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "目标检测描述，传递给大模型的检测需求，如“猫”、“狗、车”等",
+        "hints": [
+          "猫",
+          "狗,车"
+        ]
+      }
+    ],
+    "tags": [],
+    "usage_count": 0,
+    "created_at": "2026-07-26T11:44:37Z"
   }
 ]

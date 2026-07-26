@@ -36,7 +36,8 @@ class ToolExecutor:
 
         优先级：
         1. 工具独立 .venv/bin/python（如果存在）
-        2. 当前进程的 sys.executable
+        2. 项目 venv/bin/python（避免污染系统全局 Python）
+        3. 当前进程的 sys.executable
         """
         venv_py = (
             cls._project_root()
@@ -45,6 +46,11 @@ class ToolExecutor:
         )
         if venv_py.exists():
             return str(venv_py)
+
+        project_venv_py = cls._project_root() / "venv" / "bin" / "python"
+        if project_venv_py.exists():
+            return str(project_venv_py)
+
         return sys.executable
 
     @classmethod

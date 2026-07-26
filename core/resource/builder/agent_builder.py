@@ -436,6 +436,7 @@ yield {{"event": "content", "data": {{"text": response}}}}
 - 工具返回 status=="failed" 时返回友好错误
 - 【重要】工具和 API 辅助方法是同步的，直接调用即可: `result = self._call_tool_xxx(...)`，不要加 await
 - 不要使用 ctx.session、ctx.metadata_id
+- 【禁止】绝对不要使用 pip install、subprocess.run 安装依赖包 — 依赖由系统自动管理
 - 直接返回 Python 代码，不要 markdown 代码块"""
 
         response = await self.llm.chat(

@@ -254,16 +254,30 @@ CRITICAL RULES:
 8. Map tool input parameters (from kwargs) to API parameters with the CORRECT names
 9. Tool calls: _call_tool("tool-name", param=value)
 10. NEVER async/await
-11. Output ONLY Python code, no markdown, no explanation"""
+11. NEVER use pip install, subprocess.run for package installation, or any runtime dependency installation — dependencies are managed by the system automatically
+12. Output ONLY Python code, no markdown, no explanation"""
 
         response = await self.llm.chat(
             messages=[{"role":"user","content":prompt}],
             temperature=0.3, max_tokens=100000, timeout=300,
         )
-        code = response
-        if "```python" in code: code = code.split("```python")[1].split("```")[0]
-        elif "```" in code: code = code.split("```")[1].split("```")[0]
-        return code.strip()
+        code = response.strip()
+        # 清理开头的 markdown 代码块标记
+        if code.startswith("```python"):
+            code = code[len("```python"):]
+        elif code.startswith("```"):
+            code = code[3:]
+        # 清理末尾的 markdown 代码块标记
+        if code.endswith("```"):
+            code = code[:-3]
+        # 移除首尾空白行
+        code = code.strip()
+        # 如果清理后以 ``` 开头或结尾（说明中间也有），再尝试整体提取
+        # 但只在确认是纯代码块包裹时才做 split
+        if code.startswith("```") and code.count("```") == 2:
+            parts = code.split("```")
+            code = parts[1].strip() if len(parts) >= 2 else code
+        return code
 
     # ── 沙箱执行 — 统一走 ToolExecutor，与对话界面完全一致 ──
 
@@ -323,20 +337,29 @@ CRITICAL RULES:
             return {"installed": [], "failed": [], "message": "无第三方依赖"}
         return await self.install_deps(tool_id, deps)
 
-    async def sandbox_execute(self, code: str, test_input: dict, tool_id: str = None) -> dict:
+    async def sandbox_execute(self, code: str, test_input: dict, tool_id: str = None, exec_timeout: float = 60.0) -> dict:
         """沙箱执行：通过 ToolExecutor 统一执行。
         注意：依赖安装由 _auto_debug_loop 统一管理（带日志），此处不再重复安装。
         """
+        import asyncio
+
         tid = tool_id or "sandbox"
         
         from core.executor.tool_executor import ToolExecutor
 
-        result = await ToolExecutor.execute(
-            tool_id=tid,
-            params=test_input,
-            code=code,
-            timeout=None,  # 自动调试无超时限制
-        )
+        try:
+            result = await asyncio.wait_for(
+                ToolExecutor.execute(
+                    tool_id=tid,
+                    params=test_input,
+                    code=code,
+                    timeout=exec_timeout,
+                ),
+                timeout=exec_timeout + 10,
+            )
+        except asyncio.TimeoutError:
+            result = {"status": "failed", "message": f"工具执行超时 ({exec_timeout}秒)", "error": "TimeoutError"}
+
         return {
             "exit_code": 0 if result.get("status") == "success" else 1,
             "stdout": json.dumps(result, ensure_ascii=False),
@@ -360,19 +383,40 @@ CRITICAL RULES:
         return ToolExecutor._get_python_exe(tool_id)
 
     def _get_exec_pip(self, tool_id: str) -> str:
-        """获取工具执行时实际使用的 pip 路径"""
+        """获取 pip 安装命令。
+        
+        工具独立 .venv → 用 .venv/bin/pip（如果可用）
+        项目 venv → 用 python -m pip（避免 shebang 空格路径问题）
+        """
         python_exe = self._get_exec_python(tool_id)
         py_dir = Path(python_exe).parent
-        # pip 和 python 在同目录
-        pip = str(py_dir / "pip")
-        if Path(pip).exists():
-            return pip
-        # 可能有 pip3
-        pip3 = str(py_dir / "pip3")
-        if Path(pip3).exists():
-            return pip3
-        # 用 python -m pip 作为回退
+        is_tool_venv = "resources/tools/implementations" in str(py_dir)
+
+        if is_tool_venv:
+            pip = str(py_dir / "pip")
+            if Path(pip).exists():
+                return pip
+            pip3 = str(py_dir / "pip3")
+            if Path(pip3).exists():
+                return pip3
+
+        # 项目 venv 或回退：统一用 python -m pip（安全可靠）
         return f"{python_exe} -m pip"
+
+    def _get_install_target(self) -> str:
+        """获取 pip install --target 的目标目录：项目 venv 的 site-packages"""
+        project_root = Path(__file__).resolve().parent.parent.parent.parent
+        site_packages = project_root / "venv" / "lib" / "python3.12" / "site-packages"
+        if site_packages.exists():
+            return str(site_packages)
+        # 尝试其他 Python 版本
+        venv_lib = project_root / "venv" / "lib"
+        if venv_lib.exists():
+            for d in sorted(venv_lib.iterdir(), reverse=True):
+                sp = d / "site-packages"
+                if sp.exists():
+                    return str(sp)
+        return ""
 
     async def install_deps_stream(self, tool_id: str, dependencies: list[str]):
         """流式安装依赖：实时输出 pip 日志，失败时用 LLM 分析原因并调整命令重试。
@@ -381,13 +425,20 @@ CRITICAL RULES:
         - 安装在线程中执行，不阻塞事件循环
         - pip 输出逐行通过 queue 推回异步世界
         - 失败时自动调用 LLM 分析并重试
+        
+        安装目标：
+        - 工具独立 .venv → 安装到工具自己的 .venv
+        - 否则 → 安装到项目 venv 的 site-packages
         """
         import asyncio, threading
 
         exec_python = self._get_exec_python(tool_id)
         exec_pip = self._get_exec_pip(tool_id)
         is_local = ".venv" in exec_python
-        env_label = "local" if is_local else "global"
+        env_label = "local" if is_local else "project_venv"
+
+        # 如果不是工具独立 venv，安装到项目 venv 的 site-packages
+        install_target = "" if is_local else self._get_install_target()
 
         yield {"event": "deps_start", "deps": list(dependencies), "env": env_label}
 
@@ -398,9 +449,11 @@ CRITICAL RULES:
             )
             return proc.returncode == 0
 
-        def _pip_worker(pip_cmd: str, dep: str, output_queue: asyncio.Queue):
+        def _pip_worker(pip_cmd: str, dep: str, target: str, output_queue: asyncio.Queue):
             """在线程中执行 pip install，逐行推入 queue"""
             parts = pip_cmd.split() + ["install", dep]
+            if target:
+                parts += ["--target", target]
             try:
                 proc = subprocess.Popen(
                     parts,
@@ -437,7 +490,7 @@ CRITICAL RULES:
             for attempt in range(max_retries + 1):
                 q = asyncio.Queue()
                 all_output = ""
-                thread = threading.Thread(target=_pip_worker, args=(exec_pip, current_dep, q), daemon=True)
+                thread = threading.Thread(target=_pip_worker, args=(exec_pip, current_dep, install_target, q), daemon=True)
                 thread.start()
 
                 # 从 queue 读取输出，超时 120 秒
@@ -542,15 +595,25 @@ CRITICAL RULES:
             # 不 raise，让 _producer 正常结束
 
     async def _auto_debug_loop(self, spec_md: str, code: str, test_input: dict, tool_id: str, max_rounds: int, stop_event):
-        """自动调试主循环"""
+        """自动调试主循环
+        
+        流程: 执行 → 系统自动处理依赖安装 → LLM 根据结果修复代码
+        
+        依赖处理由系统自动完成，LLM 不需要关心安装指令：
+        - 循环开始前: AST 提取 import → 安装
+        - 执行报 ModuleNotFoundError: 自动安装缺失模块
+        - LLM 只负责: 根据执行结果 + 安装反馈 → 决定修复代码还是换方案
+        """
         import asyncio
 
         current_code = code
+        # 记录安装失败的依赖（用于告诉 LLM 哪些依赖不可用）
+        failed_deps: set = set()
 
         # 调试开始：立即通知前端
         yield {"event": "debug_start", "message": "自动调试启动", "max_rounds": max_rounds}
 
-        # 检测并安装依赖
+        # 初始依赖安装（系统自动，LLM 不参与）
         deps = self._extract_imports(current_code)
         if deps:
             async for dep_event in self.install_deps_stream(tool_id, deps):
@@ -560,15 +623,13 @@ CRITICAL RULES:
                 yield dep_event
 
         for round_num in range(1, max_rounds + 1):
-            # 检查停止信号
             if stop_event and stop_event.is_set():
                 yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试"}
                 return
 
-            # 0. 先通知前端：开始本轮执行
             yield {"event": "round_start", "round": round_num, "max": max_rounds}
 
-            # 1. 执行（带取消支持：stop_event 设置时立即终止子进程）
+            # ── ① 执行 ──
             exec_task = asyncio.create_task(
                 self.sandbox_execute(current_code, test_input, tool_id)
             )
@@ -589,12 +650,11 @@ CRITICAL RULES:
                 except asyncio.TimeoutError:
                     continue
 
-            # 检查停止信号
             if stop_event and stop_event.is_set():
                 yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试"}
                 return
 
-            # 2. 解析输出判断成功/失败
+            # ── ② 解析输出 ──
             success = False
             output_data = None
             stdout = exec_result.get("stdout", "")
@@ -622,24 +682,38 @@ CRITICAL RULES:
                 yield {"event": "done", "round": round_num, "success": True, "code": current_code, "message": f"调试成功 (第{round_num}轮)"}
                 return
 
-            # 3. 检查缺失依赖（执行时发现 ModuleNotFoundError）
+            # ── ③ 系统自动处理依赖（LLM 不参与）──
+            dep_feedback = ""
             if output_data and output_data.get("error") == "ModuleNotFoundError":
                 missing = output_data.get("missing_module", "")
                 if missing:
-                    # 用流式安装，前端可看到进度
+                    install_ok = False
+                    install_reason = ""
                     async for dep_event in self.install_deps_stream(tool_id, [missing]):
                         if stop_event and stop_event.is_set():
                             yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试"}
                             return
                         yield dep_event
-                    # 安装完后重试当前轮（不跳到下一轮）
-                    continue
+                        if dep_event.get("event") == "dep_installed":
+                            install_ok = True
+                        elif dep_event.get("event") == "dep_failed":
+                            install_ok = False
+                            install_reason = dep_event.get("reason", "")
+                        elif dep_event.get("event") == "pip_analysis":
+                            a = dep_event.get("analysis", {})
+                            if a:
+                                install_reason += f" [分析: {a.get('reason', '')}]"
 
-            # 4. LLM 分析并修复
+                    if install_ok:
+                        dep_feedback = f"\n[系统已自动安装 {missing}，请保留现有 import，修复其他代码问题]"
+                    else:
+                        failed_deps.add(missing)
+                        dep_feedback = f"\n[依赖 {missing} 安装失败: {install_reason}。该依赖不可用，请换替代方案]"
+
+            # ── ④ LLM 分析并修复代码 ──
             if round_num >= max_rounds:
                 break
 
-            # 检查停止信号
             if stop_event and stop_event.is_set():
                 yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试"}
                 return
@@ -660,13 +734,20 @@ CRITICAL RULES:
 stdout: {exec_result['stdout'][:2000]}
 stderr: {exec_result['stderr'][:1000]}
 === END RESULT ===
+{dep_feedback}
 
-Fix the code. Output the COMPLETE fixed Python file (including template header).
+Fix the code based on the error and the dependency feedback above.
+- If a dependency was installed successfully: keep the import, fix other code logic issues.
+- If a dependency failed to install: replace it with an alternative library or stdlib approach.
+- If the error is a code logic bug (not dependency-related): fix the bug.
+
+Output the COMPLETE fixed Python file (including template header).
 INTERFACE RULES: execute(**kwargs)->dict, kwargs.get, {{status,output_format,message,data}}, try/except.
-Output ONLY Python code."""
+Output ONLY Python code. NO pip install, NO subprocess, NO install directives, NO markdown."""
 
             full_response = ""
             llm_task = None
+            LLM_TIMEOUT = 120  # LLM 调用总超时（秒）
             try:
                 token_queue: list = []
 
@@ -679,6 +760,7 @@ Output ONLY Python code."""
 
                 llm_task = asyncio.create_task(_collect_tokens())
 
+                start_time = asyncio.get_event_loop().time()
                 while not llm_task.done():
                     if stop_event and stop_event.is_set():
                         llm_task.cancel()
@@ -686,11 +768,21 @@ Output ONLY Python code."""
                         except asyncio.CancelledError: pass
                         yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试（LLM对话已中断）"}
                         return
+                    # 整体超时检查
+                    if asyncio.get_event_loop().time() - start_time > LLM_TIMEOUT:
+                        llm_task.cancel()
+                        try: await llm_task
+                        except asyncio.CancelledError: pass
+                        yield {"event": "llm_error", "round": round_num, "message": f"LLM调用超时（{LLM_TIMEOUT}秒），跳过本轮"}
+                        break
                     while token_queue:
                         token = token_queue.pop(0)
                         full_response += token
                         yield {"event": "thinking_stream", "round": round_num, "token": token}
                     await asyncio.sleep(0.05)
+
+                if llm_task.cancelled():
+                    continue
 
                 # LLM 完成，消费剩余
                 while token_queue:
@@ -709,15 +801,30 @@ Output ONLY Python code."""
                 yield {"event": "llm_error", "round": round_num, "message": f"LLM调用异常: {str(e)[:200]}"}
                 continue
 
+            # ── ⑤ 解析 LLM 响应：只接受代码 ──
             new_code = full_response.strip()
-            if "```python" in new_code: new_code = new_code.split("```python")[1].split("```")[0]
-            elif "```" in new_code: new_code = new_code.split("```")[1].split("```")[0]
-            else: new_code = new_code
+            # 清理 markdown 代码块标记（只处理开头和结尾，避免注释中的 ``` 截断代码）
+            if new_code.startswith("```python"):
+                new_code = new_code[len("```python"):]
+            elif new_code.startswith("```"):
+                new_code = new_code[3:]
+            if new_code.endswith("```"):
+                new_code = new_code[:-3]
+            new_code = new_code.strip()
+            # 仅当整个响应被一对 ``` 包裹时才做 split 提取
+            if new_code.startswith("```") and new_code.count("```") == 2:
+                parts = new_code.split("```")
+                new_code = parts[1].strip() if len(parts) >= 2 else new_code
+
+            # 如果 LLM 返回的不是代码（太短、只有安装指令等），跳过本轮
+            if len(new_code) < 100:
+                yield {"event": "thinking", "round": round_num, "message": "LLM 返回内容过短，跳过本轮"}
+                continue
 
             current_code = new_code
             yield {"event": "code_updated", "round": round_num, "code": current_code}
 
-            # 4. LLM 修改代码后，自动检测新增依赖并流式安装
+            # ── ⑥ 系统自动安装新代码的依赖 ──
             new_deps = self._extract_imports(current_code)
             if new_deps:
                 async for dep_event in self.install_deps_stream(tool_id, new_deps):

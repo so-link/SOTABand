@@ -1,285 +1,5 @@
 [
   {
-    "id": "etth1",
-    "name": "ETTh1",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/etth1.md",
-    "data_path": "/hdd/sdc1/jmlv/LLM/resources/data/datasets/etth1",
-    "file_count": 1,
-    "total_size": 2589657,
-    "formats": [
-      "csv"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-02T07:22:56Z"
-  },
-  {
-    "id": "face-small-dataset",
-    "name": "人脸小数据",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/face-small-dataset.md",
-    "data_path": "/hdd/sdc1/jmlv/LLM/resources/data/datasets/face-small-dataset",
-    "file_count": 1,
-    "total_size": 769694,
-    "formats": [
-      "png"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-02T08:24:42Z"
-  },
-  {
-    "id": "meal-replacement-shake-rd-data",
-    "name": "代餐奶昔研发数据",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/meal-replacement-shake-rd-data.md",
-    "data_path": "/hdd/sdc1/jmlv/LLM/resources/data/datasets/meal-replacement-shake-rd-data",
-    "file_count": 2,
-    "total_size": 7739,
-    "formats": [
-      "csv"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-03T07:22:08Z"
-  },
-  {
-    "id": "ds_20260707021907092588",
-    "name": "飞机",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/ds_20260707021907092588.md",
-    "data_path": "/hdd/sdc1/jmlv/LLM/data/downloads/20260707021907092588",
-    "file_count": 1,
-    "total_size": 244665,
-    "formats": [
-      "jpg"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-06T18:19:07Z"
-  },
-  {
-    "id": "ds_20260707022059792261",
-    "name": "森林着火",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/ds_20260707022059792261.md",
-    "data_path": "/hdd/sdc1/jmlv/LLM/data/downloads/20260707022059792261",
-    "file_count": 1,
-    "total_size": 897513,
-    "formats": [
-      "jpg"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-06T18:21:00Z"
-  },
-  {
-    "id": "ds_20260707065838279082",
-    "name": "校园",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/ds_20260707065838279082.md",
-    "data_path": "/hdd/sdc1/jmlv/LLM/data/downloads/20260707065838279082",
-    "file_count": 1,
-    "total_size": 1250524,
-    "formats": [
-      "jpg"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-06T22:58:39Z"
-  },
-  {
-    "id": "ds_20260707070553868871",
-    "name": "飞机大炮",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/ds_20260707070553868871.md",
-    "data_path": "/hdd/sdc1/jmlv/LLM/data/downloads/20260707070553868871",
-    "file_count": 1,
-    "total_size": 641265,
-    "formats": [
-      "jpg"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-06T23:06:54Z"
-  },
-  {
-    "id": "ds_20260707070951567095",
-    "name": "西红柿",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/ds_20260707070951567095.md",
-    "data_path": "/hdd/sdc1/jmlv/LLM/data/downloads/20260707070951567095",
-    "file_count": 1,
-    "total_size": 200786,
-    "formats": [
-      "jpg"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-06T23:09:52Z"
-  },
-  {
-    "id": "ds_20260707072213232916",
-    "name": "建筑",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/ds_20260707072213232916.md",
-    "data_path": "/hdd/sdc1/jmlv/LLM/data/downloads/20260707072213232916",
-    "file_count": 2,
-    "total_size": 1852629,
-    "formats": [
-      "jpg",
-      "jpg"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-06T23:22:14Z"
-  },
-  {
-    "id": "ds_20260707073640041603",
-    "name": "大炮",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/ds_20260707073640041603.md",
-    "data_path": "/hdd/sdc1/jmlv/LLM/data/downloads/20260707073640041603",
-    "file_count": 1,
-    "total_size": 591889,
-    "formats": [
-      "jpg"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-06T23:37:41Z"
-  },
-  {
-    "id": "ds_20260707094230739406",
-    "name": "农田",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/ds_20260707094230739406.md",
-    "data_path": "/hdd/sdc1/jmlv/LLM/data/downloads/20260707094230739406",
-    "file_count": 2,
-    "total_size": 1776630,
-    "formats": [
-      "jpg",
-      "jpg"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-07T01:42:32Z"
-  },
-  {
-    "id": "ds_20260707171251441283",
-    "name": "无人机着火",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/ds_20260707171251441283.md",
-    "data_path": "/hdd/sdc1/jmlv/LLM/data/downloads/20260707171251441283",
-    "file_count": 2,
-    "total_size": 443768,
-    "formats": [
-      "jpg",
-      "jpg"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-07T09:12:52Z"
-  },
-  {
-    "id": "ds_20260707174552010229",
-    "name": "办公室",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/ds_20260707174552010229.md",
-    "data_path": "/hdd/sdc1/jmlv/LLM/data/downloads/20260707174552010229",
-    "file_count": 3,
-    "total_size": 1713172,
-    "formats": [
-      "jpg",
-      "jpg",
-      "jpg"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-07T09:46:01Z"
-  },
-  {
-    "id": "ds_20260707174623856782",
-    "name": "办公室",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/ds_20260707174623856782.md",
-    "data_path": "/hdd/sdc1/jmlv/LLM/data/downloads/20260707174623856782",
-    "file_count": 3,
-    "total_size": 1535614,
-    "formats": [
-      "jpg",
-      "jpg",
-      "jpg"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-07T09:46:25Z"
-  },
-  {
-    "id": "ds_20260707180201427615",
-    "name": "宇宙飞船",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/ds_20260707180201427615.md",
-    "data_path": "/hdd/sdc1/jmlv/LLM/data/downloads/20260707180201427615",
-    "file_count": 2,
-    "total_size": 1370335,
-    "formats": [
-      "jpg",
-      "jpg"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-07T10:02:04Z"
-  },
-  {
-    "id": "ds_20260707182838402690",
-    "name": "大飞机",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/ds_20260707182838402690.md",
-    "data_path": "/hdd/sdc1/jmlv/LLM/data/downloads/20260707182838402690",
-    "file_count": 1,
-    "total_size": 236394,
-    "formats": [
-      "jpg"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-07T10:28:39Z"
-  },
-  {
     "id": "",
     "name": "大海",
     "version": "0.1.0",
@@ -293,23 +13,6 @@
     "tags": [],
     "quality_score": null,
     "created_at": "2026-07-25T11:02:24Z"
-  },
-  {
-    "id": "沙滩",
-    "name": "沙滩",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/沙滩.md",
-    "data_path": "/hdd/sdc3/zjs/tmp/image_gen_7ogxkghy",
-    "file_count": 2,
-    "total_size": 1183657,
-    "formats": [
-      "png"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-25T11:32:04Z"
   },
   {
     "id": "沙滩推土机",
@@ -361,176 +64,6 @@
     "tags": [],
     "quality_score": null,
     "created_at": "2026-07-25T12:41:54Z"
-  },
-  {
-    "id": "沙滩fish",
-    "name": "沙滩fish",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/沙滩fish.md",
-    "data_path": "/hdd/sdc1/jmlv/LLM/SOTABand/data/downloads/1784986175",
-    "file_count": 2,
-    "total_size": 1086370,
-    "formats": [
-      "png"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-25T13:30:30Z"
-  },
-  {
-    "id": "太阳系",
-    "name": "太阳系",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/太阳系.md",
-    "data_path": "/hdd/sdc1/jmlv/LLM/SOTABand/data/downloads/1784986326389",
-    "file_count": 2,
-    "total_size": 682952,
-    "formats": [
-      "png"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-25T13:33:06Z"
-  },
-  {
-    "id": "太阳系孩子",
-    "name": "太阳系孩子",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/太阳系孩子.md",
-    "data_path": "/hdd/sdc1/jmlv/LLM/SOTABand/data/downloads/1784986583",
-    "file_count": 2,
-    "total_size": 814222,
-    "formats": [
-      "png"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-25T13:37:30Z"
-  },
-  {
-    "id": "小猫咪",
-    "name": "小猫咪",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/小猫咪.md",
-    "data_path": "/hdd/sdc1/jmlv/LLM/SOTABand/data/downloads/20260725215424",
-    "file_count": 2,
-    "total_size": 156076,
-    "formats": [
-      "jpg"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-25T13:54:37Z"
-  },
-  {
-    "id": "航拍农田推土机",
-    "name": "航拍农田推土机",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/航拍农田推土机.md",
-    "data_path": "/hdd/sdc1/jmlv/LLM/SOTABand/data/downloads/20260725220245",
-    "file_count": 24,
-    "total_size": 9011473,
-    "formats": [
-      "jpg"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-25T14:04:29Z"
-  },
-  {
-    "id": "矿山",
-    "name": "矿山",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/矿山.md",
-    "data_path": "/hdd/sdc1/jmlv/LLM/SOTABand/data/downloads/1785002009096",
-    "file_count": 2,
-    "total_size": 2347001,
-    "formats": [
-      "png"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-25T17:54:06Z"
-  },
-  {
-    "id": "矿山着火",
-    "name": "矿山着火",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/矿山着火.md",
-    "data_path": "/hdd/sdc1/jmlv/LLM/SOTABand/data/downloads/1785002099",
-    "file_count": 2,
-    "total_size": 1871787,
-    "formats": [
-      "png"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-25T17:55:48Z"
-  },
-  {
-    "id": "暴雨天",
-    "name": "暴雨天",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/暴雨天.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026 SOTABand/SOTABand/data/downloads/1785030104412",
-    "file_count": 1,
-    "total_size": 937776,
-    "formats": [
-      "png"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-26T01:42:03Z"
-  },
-  {
-    "id": "跑步",
-    "name": "跑步",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/跑步.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026 SOTABand/SOTABand/data/downloads/20260726094525",
-    "file_count": 2,
-    "total_size": 1216108,
-    "formats": [
-      "jpg"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-26T01:45:29Z"
-  },
-  {
-    "id": "人脸",
-    "name": "人脸",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/人脸.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026 SOTABand/SOTABand/data/downloads/20260726094638",
-    "file_count": 2,
-    "total_size": 214902,
-    "formats": [
-      "webp"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-26T01:47:09Z"
   },
   {
     "id": "孩子",
@@ -672,5 +205,127 @@
     "tags": [],
     "quality_score": null,
     "created_at": "2026-07-26T03:55:50Z"
+  },
+  {
+    "id": "Farmland",
+    "name": "Farmland",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/Farmland.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/20260726151707",
+    "file_count": 2,
+    "total_size": 1177533,
+    "formats": [
+      "jpg"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-26T07:17:09Z"
+  },
+  {
+    "id": "jimmy",
+    "name": "jimmy",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/jimmy.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/download/20260726_165542",
+    "file_count": 2,
+    "total_size": 4452479,
+    "formats": [
+      "csv",
+      "pdf"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-26T08:55:50Z"
+  },
+  {
+    "id": "jjj",
+    "name": "jjj",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/jjj.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/download/20260726_165822",
+    "file_count": 2,
+    "total_size": 4452479,
+    "formats": [
+      "pdf",
+      "csv"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-26T08:58:30Z"
+  },
+  {
+    "id": "memmem",
+    "name": "memmem",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/memmem.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/download/20260726_170036",
+    "file_count": 4,
+    "total_size": 4449989,
+    "formats": [
+      "pdf",
+      "csv"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-26T09:00:50Z"
+  },
+  {
+    "id": "ship",
+    "name": "ship",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/ship.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/1785058281862",
+    "file_count": 1,
+    "total_size": 1329893,
+    "formats": [
+      "png"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-26T09:31:39Z"
+  },
+  {
+    "id": "挖土机农田",
+    "name": "挖土机农田",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/挖土机农田.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/1785062782",
+    "file_count": 2,
+    "total_size": 1340328,
+    "formats": [
+      "png"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-26T10:46:57Z"
+  },
+  {
+    "id": "ocean",
+    "name": "ocean",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/ocean.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/1785068769371",
+    "file_count": 2,
+    "total_size": 1345576,
+    "formats": [
+      "png"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-26T12:26:42Z"
   }
 ]

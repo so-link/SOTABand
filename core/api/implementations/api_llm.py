@@ -43,3 +43,11 @@ class ApiDoubaoGetKey:
     @staticmethod
     def call(**kwargs) -> dict:
         return get_llm_api_config("doubao")
+
+
+class ApiDeepseekGetKey:
+    """api-deepseek-get-key: 获取 DeepSeek API Key 和模型名称（从 .env 读取）"""
+
+    @staticmethod
+    def call(**kwargs) -> dict:
+        return get_llm_api_config("deepseek")
