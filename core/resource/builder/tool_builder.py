@@ -1,5 +1,6 @@
 """Tool 代码生成器 v2 — LLM 生成完整文件 + 沙箱执行 + 自动调试"""
 
+import ast as _ast
 import json
 import re
 import subprocess
@@ -266,14 +267,75 @@ CRITICAL RULES:
 
     # ── 沙箱执行 — 统一走 ToolExecutor，与对话界面完全一致 ──
 
+    @staticmethod
+    def _extract_imports(code: str) -> list[str]:
+        """从代码中提取第三方依赖包名"""
+        try:
+            tree = _ast.parse(code)
+        except SyntaxError:
+            return []
+        deps = set()
+        # 已知标准库前缀
+        stdlib_prefixes = {
+            'abc', 'argparse', 'array', 'ast', 'asyncio', 'base64', 'bisect',
+            'builtins', 'bz2', 'calendar', 'cgi', 'cmath', 'codecs', 'collections',
+            'concurrent', 'configparser', 'contextlib', 'copy', 'csv', 'ctypes',
+            'curses', 'dataclasses', 'datetime', 'dbm', 'decimal', 'difflib',
+            'dis', 'distutils', 'email', 'encodings', 'enum', 'errno', 'faulthandler',
+            'fnmatch', 'fractions', 'ftplib', 'functools', 'gc', 'getopt', 'gettext',
+            'glob', 'graphlib', 'grp', 'gzip', 'hashlib', 'heapq', 'hmac', 'html',
+            'http', 'idlelib', 'imaplib', 'importlib', 'inspect', 'io', 'ipaddress',
+            'itertools', 'json', 'keyword', 'linecache', 'locale', 'logging', 'lzma',
+            'mailbox', 'marshal', 'math', 'mimetypes', 'mmap', 'multiprocessing',
+            'netrc', 'numbers', 'operator', 'optparse', 'os', 'pathlib', 'pdb',
+            'pickle', 'pipes', 'pkgutil', 'platform', 'plistlib', 'pprint', 'profile',
+            'pstats', 'pty', 'pwd', 'py_compile', 'pydoc', 'queue', 'quopri',
+            'random', 're', 'readline', 'reprlib', 'resource', 'rlcompleter',
+            'runpy', 'sched', 'secrets', 'select', 'selectors', 'shelve', 'shlex',
+            'shutil', 'signal', 'site', 'socket', 'socketserver', 'sqlite3', 'ssl',
+            'stat', 'statistics', 'string', 'struct', 'subprocess', 'sunau', 'sys',
+            'sysconfig', 'tabnanny', 'tarfile', 'telnetlib', 'tempfile', 'termios',
+            'textwrap', 'threading', 'time', 'timeit', 'tkinter', 'token', 'tokenize',
+            'tomllib', 'trace', 'traceback', 'tracemalloc', 'tty', 'turtle',
+            'types', 'typing', 'unicodedata', 'unittest', 'urllib', 'uu', 'uuid',
+            'venv', 'warnings', 'wave', 'weakref', 'webbrowser', 'xml', 'xmlrpc',
+            'zipapp', 'zipfile', 'zipimport', 'zlib', '_thread', '_io',
+            '__future__',
+        }
+        project_prefixes = {'app', 'core', 'resources', 'storage', 'config'}
+        for node in _ast.walk(tree):
+            if isinstance(node, _ast.Import):
+                for alias in node.names:
+                    top = alias.name.split('.')[0]
+                    if top not in stdlib_prefixes and top not in project_prefixes:
+                        deps.add(top)
+            elif isinstance(node, _ast.ImportFrom):
+                if node.module:
+                    top = node.module.split('.')[0]
+                    if top not in stdlib_prefixes and top not in project_prefixes:
+                        deps.add(top)
+        return sorted(deps)
+
+    async def _ensure_deps(self, code: str, tool_id: str) -> dict:
+        """自动检测并安装代码中的第三方依赖"""
+        deps = self._extract_imports(code)
+        if not deps:
+            return {"installed": [], "failed": [], "message": "无第三方依赖"}
+        return await self.install_deps(tool_id, deps)
+
     async def sandbox_execute(self, code: str, test_input: dict, tool_id: str = None) -> dict:
-        """沙箱执行：通过 ToolExecutor 统一执行，保证与对话界面环境一致。
+        """沙箱执行：自动检测依赖 → 安装 → 通过 ToolExecutor 统一执行。
         返回格式兼容 auto_debug_stream 的旧调用方。
         """
+        tid = tool_id or "sandbox"
+        
+        # 执行前自动检测并安装缺失依赖
+        await self._ensure_deps(code, tid)
+        
         from core.executor.tool_executor import ToolExecutor
 
         result = await ToolExecutor.execute(
-            tool_id=tool_id or "sandbox",
+            tool_id=tid,
             params=test_input,
             code=code,
             timeout=None,  # 自动调试无超时限制
@@ -512,5 +574,12 @@ Output ONLY Python code."""
 
             current_code = new_code
             yield {"event": "code_updated", "round": round_num, "code": current_code}
+
+            # 4. LLM 修改代码后，自动检测新增依赖并安装
+            new_deps = self._extract_imports(current_code)
+            if new_deps:
+                yield {"event": "checking_deps", "round": round_num, "deps": new_deps}
+                await self.install_deps(tool_id, new_deps)
+                yield {"event": "deps_ready", "round": round_num}
 
         yield {"event": "done", "round": max_rounds, "success": False, "code": current_code, "message": f"达到最大轮数 {max_rounds}，调试未完成"}
