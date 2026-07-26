@@ -350,11 +350,27 @@ CRITICAL RULES:
     # ── 依赖安装 ──
 
     async def install_deps(self, tool_id: str, dependencies: list[str]) -> dict:
-        """安装依赖：优先全局 venv，冲突时回退到工具本地 .venv。
+        """安装依赖（非流式，供 sandbox_execute 等调用）"""
+        result = {"venv_path": "", "python": "", "results": []}
+        async for event in self.install_deps_stream(tool_id, dependencies):
+            if event["event"] == "deps_done":
+                result = event["data"]
+        return result
+
+    async def install_deps_stream(self, tool_id: str, dependencies: list[str]):
+        """流式安装依赖：实时 yield 安装进度事件。
         
         策略：
         1. 先尝试安装到全局 venv（当前 Python 环境）
         2. 如果全局失败（版本冲突等），后续依赖全部装到工具本地 .venv
+        
+        事件类型：
+        - deps_start: 开始安装，{deps: [...], env: "global"|"local"}
+        - dep_installing: 正在安装某个包，{dep: str, env: str}
+        - dep_installed: 安装成功，{dep: str, env: str}
+        - dep_failed: 安装失败，{dep: str, env: str, reason: str}
+        - env_switch: 从全局切换到本地 venv
+        - deps_done: 全部完成，{data: {...}}
         """
         import sys as _sys
 
@@ -362,19 +378,25 @@ CRITICAL RULES:
         results = []
         use_local = False
 
+        yield {"event": "deps_start", "deps": list(dependencies), "env": "global"}
+
         for dep in dependencies:
             dep = dep.strip()
             if not dep: continue
 
             if not use_local:
+                yield {"event": "dep_installing", "dep": dep, "env": "global"}
                 proc = subprocess.run(
                     [global_pip, "install", dep],
-                    capture_output=True, text=True, timeout=120,
+                    capture_output=True, text=True, timeout=300,
                 )
                 if proc.returncode == 0:
-                    results.append({"dep": dep, "success": True, "output": proc.stdout[-200:] if proc.stdout else ""})
+                    results.append({"dep": dep, "success": True, "env": "global"})
+                    yield {"event": "dep_installed", "dep": dep, "env": "global"}
                     continue
+                # 全局安装失败
                 use_local = True
+                yield {"event": "env_switch", "dep": dep, "reason": proc.stderr[-200:]}
 
             # 回退到工具本地 .venv
             tools_dir = Path(__file__).resolve().parent.parent.parent.parent / "resources" / "tools" / "implementations"
@@ -387,13 +409,20 @@ CRITICAL RULES:
                 subprocess.run([_sys.executable, "-m", "venv", str(venv_dir)], capture_output=True, timeout=60)
 
             local_pip = str(venv_dir / "bin" / "pip")
+            yield {"event": "dep_installing", "dep": dep, "env": "local"}
             proc = subprocess.run(
                 [local_pip, "install", dep],
-                capture_output=True, text=True, timeout=120,
+                capture_output=True, text=True, timeout=300,
             )
-            results.append({"dep": dep, "success": proc.returncode == 0, "output": proc.stdout[-200:] if proc.stdout else proc.stderr[-200:]})
+            if proc.returncode == 0:
+                results.append({"dep": dep, "success": True, "env": "local"})
+                yield {"event": "dep_installed", "dep": dep, "env": "local"}
+            else:
+                results.append({"dep": dep, "success": False, "env": "local", "reason": proc.stderr[-200:]})
+                yield {"event": "dep_failed", "dep": dep, "env": "local", "reason": proc.stderr[-200:]}
 
-        return {"venv_path": str(Path(_sys.executable).parent.parent), "python": _sys.executable, "results": results}
+        data = {"venv_path": str(Path(_sys.executable).parent.parent), "python": _sys.executable, "results": results}
+        yield {"event": "deps_done", "data": data}
 
     # ── 自动调试 ──
 
@@ -422,6 +451,15 @@ CRITICAL RULES:
         import asyncio
 
         current_code = code
+
+        # 调试开始：先检测并安装依赖
+        deps = self._extract_imports(current_code)
+        if deps:
+            async for dep_event in self.install_deps_stream(tool_id, deps):
+                if stop_event and stop_event.is_set():
+                    yield {"event": "stopped", "round": 0, "message": "用户手动停止调试"}
+                    return
+                yield dep_event
 
         for round_num in range(1, max_rounds + 1):
             # 检查停止信号
@@ -575,11 +613,13 @@ Output ONLY Python code."""
             current_code = new_code
             yield {"event": "code_updated", "round": round_num, "code": current_code}
 
-            # 4. LLM 修改代码后，自动检测新增依赖并安装
+            # 4. LLM 修改代码后，自动检测新增依赖并流式安装
             new_deps = self._extract_imports(current_code)
             if new_deps:
-                yield {"event": "checking_deps", "round": round_num, "deps": new_deps}
-                await self.install_deps(tool_id, new_deps)
-                yield {"event": "deps_ready", "round": round_num}
+                async for dep_event in self.install_deps_stream(tool_id, new_deps):
+                    if stop_event and stop_event.is_set():
+                        yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试"}
+                        return
+                    yield dep_event
 
         yield {"event": "done", "round": max_rounds, "success": False, "code": current_code, "message": f"达到最大轮数 {max_rounds}，调试未完成"}

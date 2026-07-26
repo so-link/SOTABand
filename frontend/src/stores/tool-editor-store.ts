@@ -160,18 +160,48 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
               return { debugRounds: rounds, debugStream: s.debugStream + (data.token || '') }
             })
             break
+          case 'deps_start':
+            set((s) => ({
+              debugStream: s.debugStream + `\n📦 检测到依赖: ${(data.deps as string[]).join(', ')} (${data.env})\n`,
+            }))
+            break
+          case 'dep_installing':
+            set((s) => ({
+              debugStream: s.debugStream + `⏳ 安装 ${data.dep} (${data.env})...\n`,
+            }))
+            break
+          case 'dep_installed':
+            set((s) => ({
+              debugStream: s.debugStream + `✅ ${data.dep} 安装完成 (${data.env})\n`,
+            }))
+            break
+          case 'dep_failed':
+            set((s) => ({
+              debugStream: s.debugStream + `❌ ${data.dep} 安装失败: ${data.reason || ''}\n`,
+            }))
+            break
+          case 'env_switch':
+            set((s) => ({
+              debugStream: s.debugStream + `⚠️ 全局安装 ${data.dep} 失败，切换到本地环境\n`,
+            }))
+            break
+          case 'deps_done':
+            set((s) => ({
+              debugStream: s.debugStream + `✅ 依赖安装完成\n`,
+            }))
+            break
           case 'missing_dep':
             set((s) => {
               const rounds = [...s.debugRounds]; const last = rounds[rounds.length - 1]
               if (last) last.analysis = `安装依赖: ${data.module}`
-              return { debugRounds: rounds }
+              return { debugRounds: rounds, debugStream: s.debugStream + `📦 安装缺失依赖: ${data.module}\n` }
             })
             break
           case 'dep_installed':
             set((s) => {
               const rounds = [...s.debugRounds]; const last = rounds[rounds.length - 1]
               if (last) last.analysis = `依赖已安装: ${data.module}`
-              return { debugRounds: rounds }
+              return { debugRounds: rounds, debugStream: s.debugStream + `✅ 依赖已安装: ${data.module}\n` }
             })
             break
           case 'code_updated':

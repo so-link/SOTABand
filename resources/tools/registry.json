@@ -31,37 +31,6 @@
     ]
   },
   {
-    "id": "get-weather",
-    "name": "获取当前天气",
-    "version": "0.1.0",
-    "type": "function",
-    "language": "python",
-    "status": "active",
-    "spec_path": "definitions/get-weather.md",
-    "impl_path": "implementations/get-weather/",
-    "input_schema": {},
-    "output_schema": {},
-    "tags": [],
-    "usage_count": 0,
-    "created_at": "2026-06-29T16:10:08Z",
-    "param_meta": [
-      {
-        "name": "city",
-        "type": "string",
-        "required": true,
-        "default": null,
-        "desc": "需要查询天气的城市名称，支持中文或英文",
-        "hints": [
-          "北京",
-          "上海",
-          "London",
-          "城市名",
-          "查询的城市"
-        ]
-      }
-    ]
-  },
-  {
     "id": "mnist-digit-recognizer",
     "name": "MNIST数字识别器",
     "version": "0.1.0",
@@ -808,5 +777,44 @@
     "tags": [],
     "usage_count": 0,
     "created_at": "2026-07-26T03:18:35Z"
+  },
+  {
+    "id": "city-weather-reporter",
+    "name": "城市天气预报",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/city-weather-reporter.md",
+    "impl_path": "implementations/city-weather-reporter/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "city",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "城市名称，如“北京”、“上海”",
+        "hints": [
+          "北京",
+          "上海"
+        ]
+      },
+      {
+        "name": "lang",
+        "type": "string",
+        "required": false,
+        "default": "zh",
+        "desc": "返回信息的语言，支持 ISO 639-1 代码（如 \"en\"）",
+        "hints": [
+          "zh",
+          "en"
+        ]
+      }
+    ],
+    "tags": [],
+    "usage_count": 0,
+    "created_at": "2026-07-26T04:27:52Z"
   }
 ]

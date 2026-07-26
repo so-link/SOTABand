@@ -57,7 +57,7 @@ export function ChatInput() {
         )}
 
         {/* Text input area */}
-        <div className="flex items-end gap-2 bg-maia-sidebar rounded-xl border border-maia-border/50 p-2 transition-all duration-200 focus-within:border-maia-accent/30 focus-within:shadow-[0_0_15px_rgba(124,92,252,0.1)]">
+        <div className="flex items-end gap-2 bg-maia-sidebar rounded-xl border border-maia-border/50 p-2">
           <textarea
             ref={textareaRef}
             value={inputText}
