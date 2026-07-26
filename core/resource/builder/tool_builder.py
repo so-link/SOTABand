@@ -257,7 +257,7 @@ CRITICAL RULES:
 
         response = await self.llm.chat(
             messages=[{"role":"user","content":prompt}],
-            temperature=0.3, max_tokens=100000, timeout=30,
+            temperature=0.3, max_tokens=100000, timeout=300,
         )
         code = response
         if "```python" in code: code = code.split("```python")[1].split("```")[0]

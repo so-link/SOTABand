@@ -46,7 +46,7 @@ class LLMConfig:
     max_tokens: int = 100000
     temperature: float = 0.7
     streaming: bool = True
-    timeout: int = 60
+    timeout: int = 300
 
 
 @dataclass
