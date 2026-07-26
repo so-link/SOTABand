@@ -183,7 +183,7 @@ function Step2() {
 
 function Step3() {
   const { generatedCode, params, testInputs, testOutput, registerTool, runTest, stopTest, autoDebug, stopAutoDebug,
-          setStep, isGenerating, isTesting, isAutoDebugging, error, debugRounds, setTestInput } = useToolEditorStore()
+          setStep, isGenerating, isTesting, isAutoDebugging, error, debugRounds, debugStream, setTestInput } = useToolEditorStore()
   const logEndRef = useRef<HTMLDivElement>(null)
   const fileInputRefs = useRef<Map<string, HTMLInputElement>>(new Map())
   const [uploadedFiles, setUploadedFiles] = useState<Map<string, File>>(new Map())
@@ -301,17 +301,21 @@ function Step3() {
         </div>
       </div>
 
-      {/* 自动调试日志 */}
-      {debugRounds.length > 0 && (
+      {/* 自动调试日志 — 只要调试开始或已有记录就显示 */}
+      {(isAutoDebugging || debugRounds.length > 0) && (
         <div className="mt-3 rounded-lg border border-maia-border bg-maia-bg/50 max-h-[250px] overflow-auto">
           <div className="px-3 py-2 text-[11px] font-semibold text-maia-text-secondary tracking-wider border-b border-maia-border sticky top-0 bg-maia-bg/90 z-10">
             🧠 自动调试日志 {isAutoDebugging && <Loader2 className="h-3 w-3 animate-spin inline ml-1" />}
           </div>
-          <div className="p-2 space-y-1.5">
+          <div className="p-2 space-y-1.5 font-mono text-[10px] text-maia-text-secondary">
+            {/* 实时流式日志（依赖安装等阶段） */}
+            {debugStream && (
+              <pre className="whitespace-pre-wrap break-all leading-relaxed text-[10px]">{debugStream}</pre>
+            )}
             {debugRounds.map((round, i) => (
               <div key={i}>
                 <div className="flex items-center gap-2 text-[11px]">
-                  <span className="text-maia-text-muted font-mono shrink-0">[第{round.round}轮]</span>
+                  <span className="text-maia-text-muted shrink-0">[第{round.round}轮]</span>
                   <span className={round.success ? 'text-maia-success' : 'text-maia-danger'}>
                     {round.success ? '✅ 通过' : '❌ 失败'}
                   </span>
