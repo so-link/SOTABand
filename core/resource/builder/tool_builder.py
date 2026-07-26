@@ -397,14 +397,19 @@ CRITICAL RULES:
         yield {"event": "deps_start", "deps": list(dependencies), "env": env_label}
 
         def _run_pip_sync(pip_cmd: str, dep: str) -> tuple[bool, str]:
-            """同步执行 pip install（在 asyncio.to_thread 中运行）"""
+            """同步执行 pip install（在 asyncio.to_thread 中运行）。
+            超时 60 秒，避免某些包（如 pyaudio）在 macOS 上卡死。
+            """
             parts = pip_cmd.split()
-            proc = subprocess.run(
-                parts + ["install", dep],
-                capture_output=True, text=True, timeout=300,
-            )
-            out = (proc.stdout or "") + (proc.stderr or "")
-            return proc.returncode == 0, out[-300:]
+            try:
+                proc = subprocess.run(
+                    parts + ["install", dep],
+                    capture_output=True, text=True, timeout=60,
+                )
+                out = (proc.stdout or "") + (proc.stderr or "")
+                return proc.returncode == 0, out[-300:]
+            except subprocess.TimeoutExpired:
+                return False, "安装超时（60秒），该包可能不兼容当前系统"
 
         def _is_installed(python_exe: str, module_name: str) -> bool:
             """检查模块是否已安装（用目标 Python 环境检查）"""
