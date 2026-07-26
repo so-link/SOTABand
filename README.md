@@ -102,4 +102,4 @@ python scripts/check_tool_env.py --auto
 
 ## 开发状态
 
-🚧 早期架构搭建阶段
+🚧 初具规模
