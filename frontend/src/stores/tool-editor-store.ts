@@ -135,6 +135,9 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
     try {
       await toolApi.autoDebug(generatedMd, generatedCode, testInputs, files, (eventType, data) => {
         switch (eventType) {
+          case 'debug_start':
+            set({ debugStream: `🚀 自动调试启动 (最多 ${data.max_rounds} 轮)\n` })
+            break
           case 'round_start':
             set((s) => ({ debugRounds: [...s.debugRounds, { round: Number(data.round), stdout: '', stderr: '', success: false, analysis: '' }] }))
             break

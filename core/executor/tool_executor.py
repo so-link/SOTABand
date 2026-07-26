@@ -58,6 +58,8 @@ class ToolExecutor:
             f"import json, sys, os\n"
             f"os.environ['TOOL_DIR'] = {json.dumps(tool_dir)}\n"
             f"sys.path.insert(0, {json.dumps(project_root)})\n"
+            f"# 屏蔽 sys.argv 防止代码中误用 argparse 等 CLI 参数\n"
+            f"sys.argv = [sys.argv[0]]\n"
             f"code = {json.dumps(code)}\n"
             f"try:\n"
             f"    exec(code)\n"

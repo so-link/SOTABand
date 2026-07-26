@@ -377,8 +377,8 @@ CRITICAL RULES:
     async def install_deps_stream(self, tool_id: str, dependencies: list[str]):
         """流式安装依赖：安装到工具执行时实际使用的 Python 环境。
         
-        关键：使用与 ToolExecutor._get_python_exe 相同的 Python，
-        确保安装的包和执行时用的是同一个环境，避免环境不一致。
+        用 asyncio.to_thread 在后台线程中执行 subprocess.run，
+        避免 uvloop 与 create_subprocess_exec 的兼容问题。
         
         事件类型：
         - deps_start: 开始安装，{deps: [...], env: "global"|"local"}
@@ -396,27 +396,22 @@ CRITICAL RULES:
 
         yield {"event": "deps_start", "deps": list(dependencies), "env": env_label}
 
-        async def _run_pip(pip_cmd: str, dep: str) -> tuple[bool, str]:
-            """异步执行 pip install"""
+        def _run_pip_sync(pip_cmd: str, dep: str) -> tuple[bool, str]:
+            """同步执行 pip install（在 asyncio.to_thread 中运行）"""
             parts = pip_cmd.split()
-            proc = await asyncio.create_subprocess_exec(
-                *parts, "install", dep,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            proc = subprocess.run(
+                parts + ["install", dep],
+                capture_output=True, text=True, timeout=300,
             )
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), timeout=300,
-            )
-            out = (stdout or b"").decode("utf-8", errors="replace")
-            err = (stderr or b"").decode("utf-8", errors="replace")
-            return proc.returncode == 0, (out + err)[-300:]
+            out = (proc.stdout or "") + (proc.stderr or "")
+            return proc.returncode == 0, out[-300:]
 
         results = []
         for dep in dependencies:
             dep = dep.strip()
             if not dep: continue
             yield {"event": "dep_installing", "dep": dep, "env": env_label}
-            ok, output = await _run_pip(exec_pip, dep)
+            ok, output = await asyncio.to_thread(_run_pip_sync, exec_pip, dep)
             if ok:
                 results.append({"dep": dep, "success": True, "env": env_label})
                 yield {"event": "dep_installed", "dep": dep, "env": env_label}
@@ -455,7 +450,10 @@ CRITICAL RULES:
 
         current_code = code
 
-        # 调试开始：先检测并安装依赖
+        # 调试开始：立即通知前端
+        yield {"event": "debug_start", "message": "自动调试启动", "max_rounds": max_rounds}
+
+        # 检测并安装依赖
         deps = self._extract_imports(current_code)
         if deps:
             async for dep_event in self.install_deps_stream(tool_id, deps):
