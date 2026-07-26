@@ -27,7 +27,7 @@ const TAB_CONFIG: Record<ActiveView, { label: string; icon: typeof MessageSquare
 export function CenterPanel() {
   const { activeView } = useUIStore()
   return (
-    <div className="flex flex-col h-full bg-maia-surface">
+    <div className="flex flex-col h-full bg-maia-bg">
       <ViewTabBar />
       <div className="flex-1 min-h-0"><ViewRouter view={activeView} /></div>
     </div>
@@ -38,7 +38,7 @@ function ViewTabBar() {
   const { activeView, openViews, setActiveView, closeView } = useUIStore()
 
   return (
-    <div className="flex border-b border-maia-border bg-maia-bg/80 px-2 gap-1 shrink-0 select-none overflow-x-auto">
+    <div className="flex border-b border-maia-border/30 bg-maia-bg/60 backdrop-blur-sm px-2 gap-1 shrink-0 select-none overflow-x-auto">
       {openViews.map((viewId) => {
         const cfg = TAB_CONFIG[viewId]
         if (!cfg) return null

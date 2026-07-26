@@ -6,24 +6,24 @@
    ============================================================ */
 
 @theme {
-  /* ── 深色默认 ── */
-  --color-maia-bg: #0a0e14;
-  --color-maia-surface: #11161d;
-  --color-maia-sidebar: #0d1117;
-  --color-maia-sidebar-hover: #161b24;
-  --color-maia-sidebar-active: #1a2030;
-  --color-maia-border: #1e2733;
-  --color-maia-border-light: #24303f;
-  --color-maia-border-glow: #1a3347;
-  --color-maia-text: #c8d2e0;
-  --color-maia-text-secondary: #8b9bb5;
-  --color-maia-text-muted: #536078;
-  --color-maia-text-heading: #e4ecf8;
-  --color-maia-accent: #00d0ff;
-  --color-maia-accent-light: #0a1a28;
-  --color-maia-accent-hover: #33dbff;
-  --color-maia-accent-border: #0a3a50;
-  --color-maia-accent-glow: rgba(0, 208, 255, 0.15);
+  /* ── 深色默认（WorkBuddy 风格：炭黑底 + 蓝紫强调）── */
+  --color-maia-bg: #0f0f11;
+  --color-maia-surface: #1a1a1e;
+  --color-maia-sidebar: #121214;
+  --color-maia-sidebar-hover: #1c1c20;
+  --color-maia-sidebar-active: #24242a;
+  --color-maia-border: #27272a;
+  --color-maia-border-light: #323238;
+  --color-maia-border-glow: #2a2a40;
+  --color-maia-text: #d4d4d8;
+  --color-maia-text-secondary: #90909b;
+  --color-maia-text-muted: #5c5c66;
+  --color-maia-text-heading: #ececf0;
+  --color-maia-accent: #7c5cfc;
+  --color-maia-accent-light: #1a1525;
+  --color-maia-accent-hover: #9567ff;
+  --color-maia-accent-border: #2e2466;
+  --color-maia-accent-glow: rgba(124, 92, 252, 0.18);
   --color-maia-success: #00e676;
   --color-maia-success-bg: #0a1e14;
   --color-maia-warning: #ffb300;

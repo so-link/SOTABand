@@ -7,7 +7,8 @@ export function LeftPanel() {
   const { leftPanelTab, setLeftPanelTab } = useUIStore()
 
   return (
-    <div className="flex flex-col h-full bg-maia-sidebar border-r border-maia-border select-none">
+    <div className="flex flex-col h-full bg-maia-sidebar border-r border-maia-border select-none relative">
+      <div className="absolute top-0 right-0 w-[1px] h-full bg-gradient-to-b from-maia-accent/30 via-transparent to-transparent" />
       <div className="flex border-b border-maia-border bg-maia-sidebar px-1 pt-1 gap-0.5">
         <button
           onClick={() => setLeftPanelTab('files')}

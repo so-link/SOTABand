@@ -2,7 +2,7 @@ import { CheckCircle2, Wrench, Box, Terminal } from 'lucide-react'
 
 export function StatusBar() {
   return (
-    <footer className="flex h-6 items-center justify-between border-t border-maia-border bg-maia-surface px-3 text-[11px] tracking-wide shrink-0 select-none">
+    <footer className="flex h-6 items-center justify-between px-3 text-[11px] tracking-wide shrink-0 select-none glass border-t border-white/[0.03]">
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-1.5">
           <CheckCircle2 className="h-3 w-3 text-maia-success" />

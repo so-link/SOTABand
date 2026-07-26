@@ -9,7 +9,8 @@ export function TopBar() {
   const { leftPanelOpen, rightPanelOpen, toggleLeftPanel, toggleRightPanel, theme, toggleTheme } = useUIStore()
 
   return (
-    <header className="flex h-9 items-center justify-between border-b border-maia-border bg-maia-surface px-3 shrink-0 select-none">
+    <header className="flex h-9 items-center justify-between px-3 shrink-0 select-none glass border-b border-white/[0.04] relative">
+      <div className="absolute bottom-0 left-0 right-0 gradient-line" />
       <div className="flex items-center gap-2">
         <Tooltip content={leftPanelOpen ? '隐藏侧边栏' : '显示侧边栏'}>
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={toggleLeftPanel}>
