@@ -406,10 +406,28 @@ CRITICAL RULES:
             out = (proc.stdout or "") + (proc.stderr or "")
             return proc.returncode == 0, out[-300:]
 
+        def _is_installed(python_exe: str, module_name: str) -> bool:
+            """检查模块是否已安装（用目标 Python 环境检查）"""
+            proc = subprocess.run(
+                [python_exe, "-c", f"import {module_name.split('==')[0].split('>=')[0].split('<=')[0].strip()}"],
+                capture_output=True, text=True, timeout=10,
+            )
+            return proc.returncode == 0
+
         results = []
         for dep in dependencies:
             dep = dep.strip()
             if not dep: continue
+            
+            # 提取纯模块名（去掉版本号）
+            module_name = dep.split("==")[0].split(">=")[0].split("<=")[0].strip()
+            
+            # 已安装则跳过
+            if _is_installed(exec_python, module_name):
+                yield {"event": "dep_already", "dep": dep, "env": env_label}
+                results.append({"dep": dep, "success": True, "env": env_label, "already": True})
+                continue
+            
             yield {"event": "dep_installing", "dep": dep, "env": env_label}
             ok, output = await asyncio.to_thread(_run_pip_sync, exec_pip, dep)
             if ok:

@@ -173,6 +173,11 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
               debugStream: s.debugStream + `⏳ 安装 ${data.dep} (${data.env})...\n`,
             }))
             break
+          case 'dep_already':
+            set((s) => ({
+              debugStream: s.debugStream + `✅ ${data.dep} 已安装，跳过 (${data.env})\n`,
+            }))
+            break
           case 'dep_installed':
             set((s) => ({
               debugStream: s.debugStream + `✅ ${data.dep} 安装完成 (${data.env})\n`,
