@@ -288,27 +288,50 @@ CRITICAL RULES:
     # ── 依赖安装 ──
 
     async def install_deps(self, tool_id: str, dependencies: list[str]) -> dict:
-        """安装依赖到工具的本地 .venv"""
+        """安装依赖：优先全局 venv，冲突时回退到工具本地 .venv。
+        
+        策略：
+        1. 先尝试安装到全局 venv（当前 Python 环境）
+        2. 如果全局失败（版本冲突等），后续依赖全部装到工具本地 .venv
+        """
         import sys as _sys
 
-        tools_dir = Path(__file__).resolve().parent.parent.parent.parent / "resources" / "tools" / "implementations"
-        tool_dir = tools_dir / tool_id
-        tool_dir.mkdir(parents=True, exist_ok=True)
-        venv_dir = tool_dir / ".venv"
-        venv_python = venv_dir / "bin" / "python"
-
-        if not venv_python.exists():
-            subprocess.run([_sys.executable, "-m", "venv", str(venv_dir)], capture_output=True, timeout=60)
-
-        pip = str(venv_dir / "bin" / "pip")
+        global_pip = str(Path(_sys.executable).parent / "pip")
         results = []
+        use_local = False
+
         for dep in dependencies:
             dep = dep.strip()
             if not dep: continue
-            proc = subprocess.run([pip, "install", dep], capture_output=True, text=True, timeout=120)
+
+            if not use_local:
+                proc = subprocess.run(
+                    [global_pip, "install", dep],
+                    capture_output=True, text=True, timeout=120,
+                )
+                if proc.returncode == 0:
+                    results.append({"dep": dep, "success": True, "output": proc.stdout[-200:] if proc.stdout else ""})
+                    continue
+                use_local = True
+
+            # 回退到工具本地 .venv
+            tools_dir = Path(__file__).resolve().parent.parent.parent.parent / "resources" / "tools" / "implementations"
+            tool_dir = tools_dir / tool_id
+            tool_dir.mkdir(parents=True, exist_ok=True)
+            venv_dir = tool_dir / ".venv"
+            venv_python = venv_dir / "bin" / "python"
+
+            if not venv_python.exists():
+                subprocess.run([_sys.executable, "-m", "venv", str(venv_dir)], capture_output=True, timeout=60)
+
+            local_pip = str(venv_dir / "bin" / "pip")
+            proc = subprocess.run(
+                [local_pip, "install", dep],
+                capture_output=True, text=True, timeout=120,
+            )
             results.append({"dep": dep, "success": proc.returncode == 0, "output": proc.stdout[-200:] if proc.stdout else proc.stderr[-200:]})
 
-        return {"venv_path": str(venv_dir), "python": str(venv_python), "results": results}
+        return {"venv_path": str(Path(_sys.executable).parent.parent), "python": _sys.executable, "results": results}
 
     # ── 自动调试 ──
 
