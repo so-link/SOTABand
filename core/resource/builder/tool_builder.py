@@ -358,21 +358,21 @@ CRITICAL RULES:
         return result
 
     async def install_deps_stream(self, tool_id: str, dependencies: list[str]):
-        """流式安装依赖：实时 yield 安装进度事件。
+        """流式安装依赖：用 asyncio 子进程，不阻塞事件循环。
         
         策略：
         1. 先尝试安装到全局 venv（当前 Python 环境）
         2. 如果全局失败（版本冲突等），后续依赖全部装到工具本地 .venv
         
         事件类型：
-        - deps_start: 开始安装，{deps: [...], env: "global"|"local"}
-        - dep_installing: 正在安装某个包，{dep: str, env: str}
+        - deps_start: 开始安装，{deps: [...], env: "global"}
+        - dep_installing: 正在安装，{dep: str, env: str}
         - dep_installed: 安装成功，{dep: str, env: str}
         - dep_failed: 安装失败，{dep: str, env: str, reason: str}
-        - env_switch: 从全局切换到本地 venv
-        - deps_done: 全部完成，{data: {...}}
+        - env_switch: 切换环境
+        - deps_done: 完成
         """
-        import sys as _sys
+        import sys as _sys, asyncio
 
         global_pip = str(Path(_sys.executable).parent / "pip")
         results = []
@@ -380,23 +380,33 @@ CRITICAL RULES:
 
         yield {"event": "deps_start", "deps": list(dependencies), "env": "global"}
 
+        async def _run_pip(pip_path: str, dep: str) -> tuple[bool, str]:
+            """异步执行 pip install"""
+            proc = await asyncio.create_subprocess_exec(
+                pip_path, "install", dep,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(), timeout=300,
+            )
+            out = (stdout or b"").decode("utf-8", errors="replace")
+            err = (stderr or b"").decode("utf-8", errors="replace")
+            return proc.returncode == 0, (out + err)[-300:]
+
         for dep in dependencies:
             dep = dep.strip()
             if not dep: continue
 
             if not use_local:
                 yield {"event": "dep_installing", "dep": dep, "env": "global"}
-                proc = subprocess.run(
-                    [global_pip, "install", dep],
-                    capture_output=True, text=True, timeout=300,
-                )
-                if proc.returncode == 0:
+                ok, output = await _run_pip(global_pip, dep)
+                if ok:
                     results.append({"dep": dep, "success": True, "env": "global"})
                     yield {"event": "dep_installed", "dep": dep, "env": "global"}
                     continue
-                # 全局安装失败
                 use_local = True
-                yield {"event": "env_switch", "dep": dep, "reason": proc.stderr[-200:]}
+                yield {"event": "env_switch", "dep": dep, "reason": output[-200:]}
 
             # 回退到工具本地 .venv
             tools_dir = Path(__file__).resolve().parent.parent.parent.parent / "resources" / "tools" / "implementations"
@@ -406,20 +416,23 @@ CRITICAL RULES:
             venv_python = venv_dir / "bin" / "python"
 
             if not venv_python.exists():
-                subprocess.run([_sys.executable, "-m", "venv", str(venv_dir)], capture_output=True, timeout=60)
+                # 异步创建 venv
+                create_proc = await asyncio.create_subprocess_exec(
+                    _sys.executable, "-m", "venv", str(venv_dir),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await asyncio.wait_for(create_proc.communicate(), timeout=60)
 
             local_pip = str(venv_dir / "bin" / "pip")
             yield {"event": "dep_installing", "dep": dep, "env": "local"}
-            proc = subprocess.run(
-                [local_pip, "install", dep],
-                capture_output=True, text=True, timeout=300,
-            )
-            if proc.returncode == 0:
+            ok, output = await _run_pip(local_pip, dep)
+            if ok:
                 results.append({"dep": dep, "success": True, "env": "local"})
                 yield {"event": "dep_installed", "dep": dep, "env": "local"}
             else:
-                results.append({"dep": dep, "success": False, "env": "local", "reason": proc.stderr[-200:]})
-                yield {"event": "dep_failed", "dep": dep, "env": "local", "reason": proc.stderr[-200:]}
+                results.append({"dep": dep, "success": False, "env": "local", "reason": output[-200:]})
+                yield {"event": "dep_failed", "dep": dep, "env": "local", "reason": output[-200:]}
 
         data = {"venv_path": str(Path(_sys.executable).parent.parent), "python": _sys.executable, "results": results}
         yield {"event": "deps_done", "data": data}
