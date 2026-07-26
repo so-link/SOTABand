@@ -377,15 +377,12 @@ CRITICAL RULES:
     async def install_deps_stream(self, tool_id: str, dependencies: list[str]):
         """流式安装依赖：实时输出 pip 日志，失败时用 LLM 分析原因并调整命令重试。
         
-        事件类型：
-        - deps_start: 开始安装
-        - dep_installing: 正在安装
-        - pip_output: pip 实时输出行
-        - dep_installed: 安装成功
-        - dep_failed: 安装失败（含 LLM 分析）
-        - deps_done: 完成
+        使用 asyncio.to_thread + subprocess.Popen + Queue 实现：
+        - 安装在线程中执行，不阻塞事件循环
+        - pip 输出逐行通过 queue 推回异步世界
+        - 失败时自动调用 LLM 分析并重试
         """
-        import asyncio
+        import asyncio, threading
 
         exec_python = self._get_exec_python(tool_id)
         exec_pip = self._get_exec_pip(tool_id)
@@ -401,55 +398,24 @@ CRITICAL RULES:
             )
             return proc.returncode == 0
 
-        async def _run_pip_with_output(pip_cmd: str, dep: str, max_retries: int = 2) -> tuple[bool, str]:
-            """执行 pip install，实时 yield pip_output 事件，失败时用 LLM 分析并重试"""
-            parts = pip_cmd.split()
-            current_dep = dep
-
-            for attempt in range(max_retries + 1):
-                all_output = ""
-                proc = await asyncio.create_subprocess_exec(
-                    *parts, "install", current_dep,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.STDOUT,
+        def _pip_worker(pip_cmd: str, dep: str, output_queue: asyncio.Queue):
+            """在线程中执行 pip install，逐行推入 queue"""
+            parts = pip_cmd.split() + ["install", dep]
+            try:
+                proc = subprocess.Popen(
+                    parts,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True, bufsize=1,
                 )
-                # 实时读取输出
-                try:
-                    while True:
-                        line = await asyncio.wait_for(proc.stdout.readline(), timeout=120)
-                        if not line:
-                            break
-                        text = line.decode("utf-8", errors="replace").rstrip()
-                        all_output += text + "\n"
-                        if text.strip():
-                            yield {"event": "pip_output", "dep": current_dep, "line": text}
-                except asyncio.TimeoutError:
-                    all_output += "\n[超时] 安装超过 120 秒，已终止\n"
-                    proc.kill()
-
-                await proc.wait()
-                if proc.returncode == 0:
-                    yield {"event": "pip_result", "ok": True, "output": all_output[-1000:]}
-                    return
-
-                if attempt >= max_retries:
-                    yield {"event": "pip_result", "ok": False, "output": all_output[-1000:]}
-                    return
-
-                # 安装失败，用 LLM 分析错误原因并调整命令
-                yield {"event": "pip_analyzing", "dep": current_dep, "attempt": attempt + 1}
-                analysis = await self._llm_analyze_pip_error(current_dep, all_output[-2000:])
-                yield {"event": "pip_analysis", "dep": current_dep, "analysis": analysis}
-
-                if analysis.get("adjusted_command"):
-                    current_dep = analysis["adjusted_command"]
-                elif analysis.get("suggestion"):
-                    current_dep = dep
-                else:
-                    yield {"event": "pip_result", "ok": False, "output": all_output[-1000:]}
-                    return
-
-            yield {"event": "pip_result", "ok": False, "output": "重试耗尽"}
+                for line in proc.stdout:
+                    line = line.rstrip()
+                    if line:
+                        output_queue.put_nowait(("line", line))
+                proc.wait()
+                output_queue.put_nowait(("done", proc.returncode))
+            except Exception as e:
+                output_queue.put_nowait(("error", str(e)))
 
         results = []
         for dep in dependencies:
@@ -464,23 +430,62 @@ CRITICAL RULES:
                 continue
 
             yield {"event": "dep_installing", "dep": dep, "env": env_label}
-            ok = False
-            output = ""
-            async for event in _run_pip_with_output(exec_pip, dep):
-                if event["event"] == "pip_result":
-                    ok = event["ok"]
-                    output = event.get("output", "")
-                    break
-                # 其他事件直接透传给前端（pip_output, pip_analyzing, pip_analysis）
-                yield event
 
-            # 汇总 _run_pip_with_output 的结果
-            if ok:
+            # 启动安装线程
+            current_dep = dep
+            max_retries = 2
+            for attempt in range(max_retries + 1):
+                q = asyncio.Queue()
+                all_output = ""
+                thread = threading.Thread(target=_pip_worker, args=(exec_pip, current_dep, q), daemon=True)
+                thread.start()
+
+                # 从 queue 读取输出，超时 120 秒
+                retcode = None
+                while True:
+                    try:
+                        kind, data = await asyncio.wait_for(q.get(), timeout=120)
+                        if kind == "line":
+                            all_output += data + "\n"
+                            yield {"event": "pip_output", "dep": current_dep, "line": data}
+                        elif kind == "done":
+                            retcode = data
+                            break
+                        elif kind == "error":
+                            all_output += f"\n[错误] {data}\n"
+                            retcode = -1
+                            break
+                    except asyncio.TimeoutError:
+                        all_output += "\n[超时] 安装超过 120 秒\n"
+                        retcode = -1
+                        break
+
+                thread.join(timeout=5)
+                if retcode == 0:
+                    yield {"event": "pip_result", "ok": True, "output": all_output[-1000:]}
+                    break
+
+                if attempt >= max_retries:
+                    yield {"event": "pip_result", "ok": False, "output": all_output[-1000:]}
+                    break
+
+                # 安装失败，LLM 分析
+                yield {"event": "pip_analyzing", "dep": current_dep, "attempt": attempt + 1}
+                analysis = await self._llm_analyze_pip_error(current_dep, all_output[-2000:])
+                yield {"event": "pip_analysis", "dep": current_dep, "analysis": analysis}
+                if analysis.get("adjusted_command"):
+                    current_dep = analysis["adjusted_command"]
+                else:
+                    yield {"event": "pip_result", "ok": False, "output": all_output[-1000:]}
+                    break
+
+            # 汇总结果
+            if retcode == 0:
                 results.append({"dep": dep, "success": True, "env": env_label})
                 yield {"event": "dep_installed", "dep": dep, "env": env_label}
             else:
-                results.append({"dep": dep, "success": False, "env": env_label, "reason": output[-300:]})
-                yield {"event": "dep_failed", "dep": dep, "env": env_label, "reason": output[-300:]}
+                results.append({"dep": dep, "success": False, "env": env_label, "reason": all_output[-300:]})
+                yield {"event": "dep_failed", "dep": dep, "env": env_label, "reason": all_output[-300:]}
 
         data = {"python": exec_python, "results": results}
         yield {"event": "deps_done", "data": data}
