@@ -654,5 +654,23 @@
     "tags": [],
     "quality_score": null,
     "created_at": "2026-07-26T03:37:16Z"
+  },
+  {
+    "id": "arxiv-20260726115528",
+    "name": "jianm",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/arxiv-20260726115528.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026 SOTABand/SOTABand/data/download/20260726115528",
+    "file_count": 1,
+    "total_size": 4452449,
+    "formats": [
+      "pdf",
+      "csv"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-26T03:55:50Z"
   }
 ]

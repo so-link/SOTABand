@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Resource, ResourceType, AgentResource, ToolResource, DataResource } from '@/types/resources'
+import type { Resource, ResourceType, AgentResource, ToolResource } from '@/types/resources'
 import { MockResourceService } from '@/services/mock/resources'
 import { agentApi } from '@/services/api/agent'
 import { toolApi } from '@/services/api/tool'

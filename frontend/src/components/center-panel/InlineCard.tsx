@@ -47,7 +47,7 @@ export function InlineCard({ card }: InlineCardProps) {
 
 function DataPreviewCard({ title, summary, data }: { title: string; summary: string; data: Record<string, unknown> }) {
   return (
-    <Card className="border-blue-200 bg-blue-50/50">
+    <Card className="border-maia-card-blue bg-maia-card-blue">
       <CardHeader>
         <div className="flex items-center gap-2">
           <Database className="h-4 w-4 text-blue-500" />
@@ -55,7 +55,7 @@ function DataPreviewCard({ title, summary, data }: { title: string; summary: str
         </div>
       </CardHeader>
       <CardBody>
-        <p className="text-xs text-gray-500 mb-2">{summary}</p>
+        <p className="text-xs text-maia-text-secondary mb-2">{summary}</p>
         <div className="grid grid-cols-3 gap-2">
           {Object.entries(data).map(([key, value]) => (
             <div key={key} className="text-center">
@@ -80,7 +80,7 @@ function ToolMatchCard({
   const tools = (data.tools as Array<{ name: string; version: string; match: number; isLocal: boolean; status: string }>) || []
 
   return (
-    <Card className="border-emerald-200 bg-emerald-50/50">
+    <Card className="border-maia-card-green bg-maia-card-green">
       <CardHeader>
         <div className="flex items-center gap-2">
           <Wrench className="h-4 w-4 text-emerald-500" />
@@ -91,7 +91,7 @@ function ToolMatchCard({
       <CardBody>
         <div className="space-y-2">
           {tools.map((tool, i) => (
-            <div key={i} className="flex items-center gap-2 p-2 rounded bg-white border border-gray-100">
+            <div key={i} className="flex items-center gap-2 p-2 rounded bg-maia-surface border border-maia-border-light">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
@@ -105,7 +105,7 @@ function ToolMatchCard({
           ))}
         </div>
         {data.suggestion ? (
-          <p className="text-xs text-gray-500 mt-2 italic">💡 {String(data.suggestion)}</p>
+          <p className="text-xs text-maia-text-secondary mt-2 italic">💡 {String(data.suggestion)}</p>
         ) : null}
         <div className="flex gap-2 mt-3">
           <Button size="sm" className="text-xs">直接执行</Button>
@@ -123,7 +123,7 @@ function OrchestrationPreviewCard({
   setActiveView,
 }: { title: string; summary: string; data: Record<string, unknown>; setActiveView: (v: ActiveView) => void }) {
   return (
-    <Card className="border-purple-200 bg-purple-50/50">
+    <Card className="border-maia-card-purple bg-maia-card-purple">
       <CardHeader>
         <div className="flex items-center gap-2">
           <GitBranch className="h-4 w-4 text-purple-500" />
@@ -145,7 +145,7 @@ function OrchestrationPreviewCard({
             <div className="text-[10px] text-gray-400">预计耗时</div>
           </div>
         </div>
-        <p className="text-xs text-gray-500 mb-2">{summary}</p>
+        <p className="text-xs text-maia-text-secondary mb-2">{summary}</p>
         <Button
           size="sm"
           className="text-xs"
@@ -165,7 +165,7 @@ function CodeReviewCard({
   setActiveView,
 }: { title: string; summary: string; data?: Record<string, unknown>; setActiveView: (v: ActiveView) => void }) {
   return (
-    <Card className="border-amber-200 bg-amber-50/50">
+    <Card className="border-maia-card-amber bg-maia-card-amber">
       <CardHeader>
         <div className="flex items-center gap-2">
           <FileCode className="h-4 w-4 text-amber-500" />
@@ -173,7 +173,7 @@ function CodeReviewCard({
         </div>
       </CardHeader>
       <CardBody>
-        <p className="text-xs text-gray-500 mb-2">{summary}</p>
+        <p className="text-xs text-maia-text-secondary mb-2">{summary}</p>
         <div className="flex gap-2">
           <Button
             size="sm"
@@ -195,7 +195,7 @@ function CodeReviewCard({
 
 function ExecutionProgressCard({ title, summary }: { title: string; summary: string; data?: Record<string, unknown> }) {
   return (
-    <Card className="border-gray-200">
+    <Card className="border-maia-border">
       <CardHeader>
         <div className="flex items-center gap-2">
           <Activity className="h-4 w-4 text-blue-500 animate-pulse" />
@@ -220,7 +220,7 @@ function ResultSummaryCard({ title, summary, data }: { title: string; summary: s
   const outputData = (result.data as Record<string, unknown>) || {}
 
   return (
-    <Card className="border-emerald-200 bg-emerald-50/50">
+    <Card className="border-maia-card-green bg-maia-card-green">
       <CardHeader>
         <div className="flex items-center gap-2">
           <CheckCircle2 className="h-4 w-4 text-emerald-500" />
@@ -229,7 +229,7 @@ function ResultSummaryCard({ title, summary, data }: { title: string; summary: s
         </div>
       </CardHeader>
       <CardBody>
-        <p className="text-xs text-gray-500 mb-2">{summary}</p>
+        <p className="text-xs text-maia-text-secondary mb-2">{summary}</p>
 
         {/* Full result data (non-image fields) */}
         <FullResult result={result} />
@@ -259,7 +259,7 @@ function FullResult({ result }: { result: Record<string, unknown> }) {
   return (
     <details className="mt-2">
       <summary className="text-[11px] text-maia-text-muted cursor-pointer hover:text-maia-text">完整返回数据</summary>
-      <pre className="mt-1 p-2 rounded bg-white border border-maia-border text-[10px] font-mono leading-relaxed max-h-[200px] overflow-auto whitespace-pre-wrap">
+      <pre className="mt-1 p-2 rounded bg-maia-surface border border-maia-border text-[10px] font-mono leading-relaxed max-h-[200px] overflow-auto whitespace-pre-wrap">
         {JSON.stringify(result, null, 2)}
       </pre>
     </details>
@@ -276,16 +276,16 @@ function ImageOutput({ data }: { data: Record<string, unknown> }) {
   const src = `${''}/api/file/image?path=${encodeURIComponent(imagePath)}`
 
   return (
-    <div className="mt-2 rounded-lg overflow-hidden border border-gray-200">
+    <div className="mt-2 rounded-lg overflow-hidden border border-maia-border">
       {error ? (
-        <div className="p-3 text-xs text-red-500 bg-red-50">
+        <div className="p-3 text-xs text-maia-danger bg-red-50">
           图片加载失败: {imagePath}
         </div>
       ) : (
         <img
           src={src}
           alt="工具输出图片"
-          className="w-full max-h-[400px] object-contain bg-gray-50"
+          className="w-full max-h-[400px] object-contain bg-maia-bg"
           onError={() => setError(true)}
         />
       )}
@@ -300,12 +300,12 @@ function TableOutput({ data }: { data: Record<string, unknown> }) {
   if (columns.length === 0) return <p className="text-xs text-gray-400">表格数据不可用</p>
 
   return (
-    <div className="mt-2 rounded-lg border border-gray-200 overflow-auto max-h-[300px]">
+    <div className="mt-2 rounded-lg border border-maia-border overflow-auto max-h-[300px]">
       <table className="w-full text-xs">
-        <thead className="bg-gray-50">
+        <thead className="bg-maia-bg">
           <tr>
             {columns.map((col, i) => (
-              <th key={i} className="px-3 py-2 text-left font-medium text-gray-600 border-b border-gray-200 whitespace-nowrap">
+              <th key={i} className="px-3 py-2 text-left font-medium text-maia-text-secondary border-b border-maia-border whitespace-nowrap">
                 {col}
               </th>
             ))}
@@ -313,9 +313,9 @@ function TableOutput({ data }: { data: Record<string, unknown> }) {
         </thead>
         <tbody>
           {rows.map((row, i) => (
-            <tr key={i} className="hover:bg-gray-50">
+            <tr key={i} className="hover:bg-maia-bg">
               {(row as unknown[]).map((cell, j) => (
-                <td key={j} className="px-3 py-1.5 text-gray-700 border-b border-gray-100 whitespace-nowrap">
+                <td key={j} className="px-3 py-1.5 text-maia-text border-b border-maia-border-light whitespace-nowrap">
                   {String(cell ?? '')}
                 </td>
               ))}
@@ -339,7 +339,7 @@ function CreateToolCard({ title, summary, data }: { title: string; summary: stri
   }
 
   return (
-    <Card className="border-purple-200 bg-purple-50/50">
+    <Card className="border-maia-card-purple bg-maia-card-purple">
       <CardHeader>
         <div className="flex items-center gap-2">
           <Wrench className="h-4 w-4 text-purple-500" />
@@ -348,7 +348,7 @@ function CreateToolCard({ title, summary, data }: { title: string; summary: stri
         </div>
       </CardHeader>
       <CardBody>
-        <p className="text-xs text-gray-500 mb-3">{summary}</p>
+        <p className="text-xs text-maia-text-secondary mb-3">{summary}</p>
         <Button size="sm" className="text-xs" onClick={handleCreate}>
           创建新工具 <ArrowRight className="h-3 w-3" />
         </Button>

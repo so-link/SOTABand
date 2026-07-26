@@ -25,18 +25,18 @@ export function TaskStatus({ task }: TaskStatusProps) {
 
   return (
     <div className="flex flex-col h-full overflow-auto">
-      <div className="px-3 py-2 border-b border-gray-200 bg-gray-50">
-        <h3 className="text-xs font-semibold text-gray-700">任务状态</h3>
+      <div className="px-3 py-2 border-b border-maia-border bg-maia-bg">
+        <h3 className="text-xs font-semibold text-maia-text">任务状态</h3>
       </div>
 
       <div className="p-3 space-y-3 text-sm">
         <div>
-          <span className="text-[10px] text-gray-400 uppercase">任务</span>
+          <span className="text-[10px] text-maia-text-muted uppercase">任务</span>
           <p className="text-sm font-medium">{task.name}</p>
         </div>
 
         <div>
-          <span className="text-[10px] text-gray-400 uppercase">状态</span>
+          <span className="text-[10px] text-maia-text-muted uppercase">状态</span>
           <div className="flex items-center gap-1.5 mt-0.5">
             <Badge variant={stateColors[task.state]}>{stateLabels[task.state] || task.state}</Badge>
             {task.state === 'running' && <Activity className="h-3 w-3 text-amber-500 animate-pulse" />}
@@ -45,7 +45,7 @@ export function TaskStatus({ task }: TaskStatusProps) {
 
         {/* Progress bar */}
         <div>
-          <span className="text-[10px] text-gray-400 uppercase">
+          <span className="text-[10px] text-maia-text-muted uppercase">
             进度 {task.progress}%
           </span>
           <div className="mt-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
@@ -58,7 +58,7 @@ export function TaskStatus({ task }: TaskStatusProps) {
               style={{ width: `${task.progress}%` }}
             />
           </div>
-          <p className="text-xs text-gray-400 mt-0.5">
+          <p className="text-xs text-maia-text-muted mt-0.5">
             步骤 {task.currentStep}/{task.totalSteps}
           </p>
         </div>
@@ -67,8 +67,8 @@ export function TaskStatus({ task }: TaskStatusProps) {
 
         {task.startedAt && (
           <div className="flex items-center gap-1.5">
-            <Clock className="h-3 w-3 text-gray-400" />
-            <span className="text-xs text-gray-500">
+            <Clock className="h-3 w-3 text-maia-text-muted" />
+            <span className="text-xs text-maia-text-secondary">
               开始: {new Date(task.startedAt).toLocaleTimeString('zh-CN')}
             </span>
           </div>
@@ -76,8 +76,8 @@ export function TaskStatus({ task }: TaskStatusProps) {
 
         {task.finishedAt && (
           <div className="flex items-center gap-1.5">
-            <Clock className="h-3 w-3 text-gray-400" />
-            <span className="text-xs text-gray-500">
+            <Clock className="h-3 w-3 text-maia-text-muted" />
+            <span className="text-xs text-maia-text-secondary">
               完成: {new Date(task.finishedAt).toLocaleTimeString('zh-CN')}
             </span>
           </div>
@@ -86,8 +86,8 @@ export function TaskStatus({ task }: TaskStatusProps) {
         <Separator />
 
         <div>
-          <span className="text-[10px] text-gray-400 uppercase">关联资源</span>
-          <p className="text-xs text-gray-500">{task.relatedResourceIds.length} 个资源</p>
+          <span className="text-[10px] text-maia-text-muted uppercase">关联资源</span>
+          <p className="text-xs text-maia-text-secondary">{task.relatedResourceIds.length} 个资源</p>
         </div>
 
         {/* Execution log */}
@@ -95,10 +95,10 @@ export function TaskStatus({ task }: TaskStatusProps) {
           <>
             <Separator />
             <div>
-              <span className="text-[10px] text-gray-400 uppercase block mb-1">执行日志</span>
-              <div className="bg-gray-900 rounded-md p-2 max-h-40 overflow-auto">
+              <span className="text-[10px] text-maia-text-muted uppercase block mb-1">执行日志</span>
+              <div className="bg-maia-bg rounded-md p-2 max-h-40 overflow-auto">
                 {task.executionLog.map((line, i) => (
-                  <p key={i} className="text-[10px] text-emerald-400 font-mono leading-relaxed">
+                  <p key={i} className="text-[10px] text-maia-success font-mono leading-relaxed">
                     {line}
                   </p>
                 ))}

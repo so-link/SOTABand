@@ -88,7 +88,8 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
     set({ isGenerating: true, error: null })
     try {
       const result = await toolApi.generateCode(generatedMd)
-      const params = result.params || []
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const params: any[] = result.params || []
       // 初始化测试输入
       const inputs: Record<string, string> = {}
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -135,14 +136,14 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
       await toolApi.autoDebug(generatedMd, generatedCode, testInputs, files, (eventType, data) => {
         switch (eventType) {
           case 'round_start':
-            set((s) => ({ debugRounds: [...s.debugRounds, { round: data.round, stdout: '', stderr: '', success: false, analysis: '' }] }))
+            set((s) => ({ debugRounds: [...s.debugRounds, { round: Number(data.round), stdout: '', stderr: '', success: false, analysis: '' }] }))
             break
           case 'exec_result':
             set((s) => {
               const rounds = [...s.debugRounds]
               const last = rounds[rounds.length - 1]
-              if (last) { last.stdout = data.stdout || ''; last.stderr = data.stderr || ''; last.success = data.success }
-              return { debugRounds: rounds, testOutput: { stdout: data.stdout, stderr: data.stderr, exit_code: 0, success: data.success } }
+              if (last) { last.stdout = String(data.stdout || ''); last.stderr = String(data.stderr || ''); last.success = Boolean(data.success) }
+              return { debugRounds: rounds, testOutput: { stdout: String(data.stdout || ''), stderr: String(data.stderr || ''), exit_code: 0, success: Boolean(data.success) } }
             })
             break
           case 'thinking':
@@ -174,12 +175,12 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
             })
             break
           case 'code_updated':
-            set({ generatedCode: data.code || '' })
-            set((s) => { const rounds = [...s.debugRounds]; const last = rounds[rounds.length - 1]; if (last) last.code = data.code; return { debugRounds: rounds } })
+            set({ generatedCode: String(data.code || '') })
+            set((s) => { const rounds = [...s.debugRounds]; const last = rounds[rounds.length - 1]; if (last) last.code = String(data.code || ''); return { debugRounds: rounds } })
             break
           case 'done':
           case 'stopped':
-            if (data.code) set({ generatedCode: data.code })
+            if (data.code) set({ generatedCode: String(data.code) })
             set({ isAutoDebugging: false, abortController: null })
             break
         }

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Wrench, ArrowRight, ArrowLeft, CheckCircle2, XCircle,
-  Loader2, FileCode, Play, CheckCheck, Rocket,
+  Loader2, FileCode, Play, Rocket,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -26,7 +26,7 @@ export function ToolEditorView() {
       </div>
 
       {/* Step indicators */}
-      <div className="flex items-center gap-0 px-4 py-2 border-b border-maia-border bg-white shrink-0">
+      <div className="flex items-center gap-0 px-4 py-2 border-b border-maia-border bg-maia-surface shrink-0">
         {[1, 2, 3, 4].map((s, i) => (
           <div key={s} className="flex items-center gap-0">
             <div className={`flex items-center gap-1.5 text-[11px] font-medium tracking-wide px-2 py-1 rounded-full transition-colors ${
@@ -131,7 +131,7 @@ function Step1() {
       </p>
       <textarea ref={textareaRef} value={description} onChange={handleChange} onKeyDown={handleKeyDown}
         placeholder='例如: "我需要一个EEG带通滤波器，支持delta/theta/alpha/beta/gamma频段，Butterworth滤波器，输入EDF文件，输出滤波后的EDF文件"'
-        rows={15} className="w-full rounded-lg border border-maia-border bg-white px-4 py-3 text-[13px] tracking-wide outline-none resize-none focus:border-maia-accent/40 placeholder:text-maia-text-muted" />
+        rows={15} className="w-full rounded-lg border border-maia-border bg-maia-surface px-4 py-3 text-[13px] tracking-wide outline-none resize-none focus:border-maia-accent/40 placeholder:text-maia-text-muted" />
       
       {/* 参考代码输入 */}
       <div className="mt-3">
@@ -142,7 +142,7 @@ function Step1() {
       </div>
 
       {show && (isLoading || filtered.length > 0) && createPortal(
-        <div className="fixed z-[9999] w-72 max-h-48 overflow-y-auto rounded-lg border border-maia-border bg-white shadow-lg py-1" style={{ top: ddPos.top, left: ddPos.left }}>
+        <div className="fixed z-[9999] w-72 max-h-48 overflow-y-auto rounded-lg border border-maia-border bg-maia-surface shadow-lg py-1" style={{ top: ddPos.top, left: ddPos.left }}>
           {isLoading ? <div className="px-3 py-2 text-[12px] text-maia-text-muted">加载中...</div> :
             filtered.map((item, i) => (
               <button key={item.id} className={`w-full text-left px-3 py-1.5 flex flex-col gap-0 transition-colors ${i === selIdx ? 'bg-maia-accent/10 text-maia-accent' : 'hover:bg-maia-bg text-maia-text'}`}
@@ -362,6 +362,7 @@ function Step4() {
 
 // ─ 测试输入/输出详情 ─
 
+// @ts-expect-error - reserved for future use
 function TestDetail({ detail }: { detail?: Record<string, unknown> }) {
   if (!detail) return null
   const input = detail.input as Record<string, unknown> | undefined

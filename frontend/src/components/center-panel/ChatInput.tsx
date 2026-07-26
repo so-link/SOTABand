@@ -33,7 +33,7 @@ export function ChatInput() {
   }
 
   return (
-    <div className="border-t border-gray-200 bg-white px-4 py-3">
+    <div className="border-t border-maia-border bg-maia-surface px-4 py-3">
       <div className="max-w-3xl mx-auto">
         {/* Attachment bar */}
         {attachedFiles.length > 0 && (

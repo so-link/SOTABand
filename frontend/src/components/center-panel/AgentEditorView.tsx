@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, type KeyboardEvent } from 'react'
+import { useState, useRef, useEffect, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Bot, ArrowRight, ArrowLeft, CheckCircle2, XCircle,
@@ -36,7 +36,7 @@ export function AgentEditorView() {
       </div>
 
       {/* Step indicators */}
-      <div className="flex items-center gap-0 px-4 py-2 border-b border-maia-border bg-white shrink-0">
+      <div className="flex items-center gap-0 px-4 py-2 border-b border-maia-border bg-maia-surface shrink-0">
         {[1, 2, 3, 4].map((s, i) => (
           <div key={s} className="flex items-center gap-0">
             <div
@@ -242,7 +242,7 @@ function Step1Description() {
         onKeyDown={handleKeyDown}
         placeholder={'例如: "我需要一个能分析EEG数据、检测异常信号、自动生成可视化报告的Agent"'}
         rows={6}
-        className="w-full rounded-lg border border-maia-border bg-white px-4 py-3 text-[13px] tracking-wide outline-none resize-none focus:border-maia-accent/40 placeholder:text-maia-text-muted"
+        className="w-full rounded-lg border border-maia-border bg-maia-surface px-4 py-3 text-[13px] tracking-wide outline-none resize-none focus:border-maia-accent/40 placeholder:text-maia-text-muted"
       />
 
       {/* Dropdown via Portal to avoid parent clipping */}
@@ -250,7 +250,7 @@ function Step1Description() {
         (isLoading || filtered.length > 0) &&
         createPortal(
           <div
-            className="fixed z-[9999] w-72 max-h-48 overflow-y-auto rounded-lg border border-maia-border bg-white shadow-lg py-1"
+            className="fixed z-[9999] w-72 max-h-48 overflow-y-auto rounded-lg border border-maia-border bg-maia-surface shadow-lg py-1"
             style={{ top: ddPos.top, left: ddPos.left }}
           >
             {isLoading ? (

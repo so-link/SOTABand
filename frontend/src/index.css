@@ -106,4 +106,39 @@ code, pre, .font-mono, .mono {
 
 .panel-transition { transition: width 200ms cubic-bezier(0.16, 1, 0.3, 1); }
 
-[data-theme="dark"] .glow-subtle { box-shadow: 0 0 8px var(--color-maia-accent-glow); }
+/* ── WorkBuddy 风格毛玻璃效果 ── */
+.glass {
+  background: rgba(17, 22, 29, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.glass-light {
+  background: rgba(17, 22, 29, 0.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+[data-theme="light"] .glass {
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+[data-theme="light"] .glass-light {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+/* ── 发光效果 ── */
+.glow-subtle { box-shadow: 0 0 8px var(--color-maia-accent-glow); }
+.glow-accent { box-shadow: 0 0 20px var(--color-maia-accent-glow), 0 0 4px var(--color-maia-accent-glow); }
+
+/* ── 顶部渐变线 ── */
+.gradient-line {
+  background: linear-gradient(90deg, var(--color-maia-accent), #7c3aed, var(--color-maia-accent));
+  height: 1px;
+  opacity: 0.4;
+}
+
+/* ── 输入框发光焦点 ── */
+.glow-input:focus {
+  box-shadow: 0 0 0 1px var(--color-maia-accent), 0 0 12px var(--color-maia-accent-glow);
+  border-color: var(--color-maia-accent);
+}

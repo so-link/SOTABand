@@ -19,10 +19,10 @@ const ROLE_STYLES: Record<Message['role'], {
   iconBg: string
 }> = {
   system: {
-    container: 'bg-maia-warning-bg border border-amber-200/50 rounded-lg',
+    container: 'bg-maia-warning-bg border border-maia-card-amber rounded-lg',
     icon: Info,
     label: '系统',
-    iconBg: 'bg-amber-100 text-amber-600',
+    iconBg: 'bg-maia-card-amber text-amber-600',
   },
   user: {
     container: '',
@@ -34,7 +34,7 @@ const ROLE_STYLES: Record<Message['role'], {
     container: '',
     icon: Bot,
     label: 'SOTABand Agent',
-    iconBg: 'bg-purple-100 text-purple-600',
+    iconBg: 'bg-maia-card-purple text-purple-600',
   },
 }
 
@@ -122,7 +122,7 @@ function renderMarkdown(text: string): string {
     // Italic
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     // Inline code
-    .replace(/`([^`]+)`/g, '<code class="bg-gray-100 text-purple-700 px-1 py-0.5 rounded text-xs font-mono">$1</code>')
+    .replace(/`([^`]+)`/g, '<code class="bg-maia-sidebar-hover text-maia-accent px-1 py-0.5 rounded text-xs font-mono">$1</code>')
     // Line breaks → paragraphs
     .replace(/\n\n/g, '</p><p>')
     .replace(/\n/g, '<br/>')

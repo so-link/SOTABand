@@ -68,7 +68,7 @@ export function DatasetImportDialog({ onImport, onClose }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-xl w-[440px] max-h-[500px] flex flex-col" onClick={e => e.stopPropagation()}>
+      <div className="bg-maia-surface rounded-xl shadow-xl w-[440px] max-h-[500px] flex flex-col" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-maia-border">
           <div className="flex items-center gap-2">
@@ -109,11 +109,11 @@ export function DatasetImportDialog({ onImport, onClose }: Props) {
                   onClick={() => setSelected(ds.id)}
                   onDoubleClick={handleImport}
                   className={`w-full text-left px-4 py-2.5 flex items-center gap-3 hover:bg-maia-bg transition-colors ${
-                    selected === ds.id ? 'bg-blue-50 border-l-2 border-l-blue-500' : 'border-l-2 border-l-transparent'
+                    selected === ds.id ? 'bg-maia-card-blue border-l-2 border-l-maia-accent' : 'border-l-2 border-l-transparent'
                   }`}
                 >
                   <div className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 ${
-                    selected === ds.id ? 'bg-blue-100 text-blue-600' : 'bg-maia-bg text-maia-text-muted'
+                    selected === ds.id ? 'bg-maia-accent-light text-blue-600' : 'bg-maia-bg text-maia-text-muted'
                   }`}>
                     <Database className="h-4 w-4" />
                   </div>

@@ -20,7 +20,7 @@ export function DatasetEditorView() {
         <button onClick={() => { store.reset(); setActiveView('chat') }} className="text-maia-text-muted hover:text-maia-text text-sm">× 关闭</button>
       </div>
 
-      <div className="flex items-center gap-0 px-4 py-2 border-b border-maia-border bg-white shrink-0">
+      <div className="flex items-center gap-0 px-4 py-2 border-b border-maia-border bg-maia-surface shrink-0">
         {[1, 2, 3].map((s, i) => (
           <div key={s} className="flex items-center gap-0">
             <div className={`flex items-center gap-1.5 text-[11px] font-medium tracking-wide px-2 py-1 rounded-full ${
@@ -109,7 +109,7 @@ function Step1() {
           onChange={(e) => setDescription(e.target.value)}
           placeholder="描述这个数据集的整体情况、用途和背景（如: '64通道EEG脑电数据，采样率256Hz，包含静息态和视觉刺激态两段记录，适用于脑电信号分析研究'）"
           rows={3}
-          className="w-full rounded-lg border border-maia-border bg-white px-3 py-2 text-[13px] outline-none resize-none"
+          className="w-full rounded-lg border border-maia-border bg-maia-surface px-3 py-2 text-[13px] outline-none resize-none"
         />
       </div>
 

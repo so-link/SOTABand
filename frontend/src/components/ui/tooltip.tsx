@@ -27,7 +27,7 @@ export function Tooltip({ content, children, side = 'bottom' }: TooltipProps) {
       {open && (
         <div
           className={cn(
-            'absolute z-50 rounded-md bg-gray-900 px-2 py-1 text-xs text-white whitespace-nowrap',
+            'absolute z-50 rounded-md bg-maia-text-heading px-2 py-1 text-xs text-maia-bg whitespace-nowrap',
             'pointer-events-none',
             sideStyles[side]
           )}

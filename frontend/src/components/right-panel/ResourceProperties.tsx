@@ -10,8 +10,8 @@ interface ResourcePropertiesProps {
 export function ResourceProperties({ resource }: ResourcePropertiesProps) {
   return (
     <div className="flex flex-col h-full overflow-auto">
-      <div className="px-3 py-2 border-b border-gray-200 bg-gray-50">
-        <h3 className="text-xs font-semibold text-gray-700">资源详情</h3>
+      <div className="px-3 py-2 border-b border-maia-border bg-maia-bg">
+        <h3 className="text-xs font-semibold text-maia-text">资源详情</h3>
       </div>
 
       <div className="p-3 space-y-3 text-sm">
@@ -36,7 +36,7 @@ export function ResourceProperties({ resource }: ResourcePropertiesProps) {
           <>
             <Separator />
             <div>
-              <span className="text-[10px] text-gray-400 uppercase block mb-1">标签</span>
+              <span className="text-[10px] text-maia-text-muted uppercase block mb-1">标签</span>
               <div className="flex flex-wrap gap-1">
                 {resource.tags.map((tag) => (
                   <Badge key={tag} variant="default" className="text-[10px]">{tag}</Badge>
@@ -60,9 +60,9 @@ export function ResourceProperties({ resource }: ResourcePropertiesProps) {
 function Property({ label, value, mono, children }: { label: string; value?: string; mono?: boolean; children?: React.ReactNode }) {
   return (
     <div>
-      <span className="text-[10px] text-gray-400 uppercase">{label}</span>
+      <span className="text-[10px] text-maia-text-muted uppercase">{label}</span>
       {children || (
-        <p className={`text-sm ${mono ? 'font-mono text-xs text-gray-500' : 'text-gray-800'}`}>
+        <p className={`text-sm ${mono ? 'font-mono text-xs text-maia-text-secondary' : 'text-maia-text-heading'}`}>
           {value || '—'}
         </p>
       )}
@@ -144,7 +144,7 @@ function AgentFields({ resource }: { resource: AgentResource }) {
       <Property label="健康状态">
         <div className="flex items-center gap-1">
           <Activity className="h-3 w-3 text-emerald-500" />
-          <span className="text-sm text-gray-800">{resource.healthStatus}</span>
+          <span className="text-sm text-maia-text-heading">{resource.healthStatus}</span>
         </div>
       </Property>
       {resource.requiredTools.length > 0 && (
