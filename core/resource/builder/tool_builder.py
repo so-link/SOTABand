@@ -321,14 +321,49 @@ CRITICAL RULES:
 
         current_code = code
 
+        try:
+            async for event in self._auto_debug_loop(
+                spec_md, current_code, test_input, tool_id, max_rounds, stop_event
+            ):
+                yield event
+        except asyncio.CancelledError:
+            if stop_event:
+                stop_event.set()
+            yield {"event": "stopped", "round": 0, "message": "调试已停止"}
+            # 不 raise，让 _producer 正常结束
+
+    async def _auto_debug_loop(self, spec_md: str, code: str, test_input: dict, tool_id: str, max_rounds: int, stop_event):
+        """自动调试主循环"""
+        import asyncio
+
+        current_code = code
+
         for round_num in range(1, max_rounds + 1):
             # 检查停止信号
             if stop_event and stop_event.is_set():
                 yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试"}
                 return
 
-            # 1. 执行（无超时限制，直到用户停止）
-            exec_result = await self.sandbox_execute(current_code, test_input, tool_id)
+            # 1. 执行（带取消支持：stop_event 设置时立即终止子进程）
+            exec_task = asyncio.create_task(
+                self.sandbox_execute(current_code, test_input, tool_id)
+            )
+            exec_done = False
+            exec_result = None
+            while not exec_done:
+                if stop_event and stop_event.is_set():
+                    exec_task.cancel()
+                    try:
+                        await asyncio.wait_for(exec_task, timeout=2.0)
+                    except (asyncio.TimeoutError, asyncio.CancelledError):
+                        pass
+                    yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试（执行已中断）"}
+                    return
+                try:
+                    exec_result = await asyncio.wait_for(asyncio.shield(exec_task), timeout=0.1)
+                    exec_done = True
+                except asyncio.TimeoutError:
+                    continue
 
             # 检查停止信号
             if stop_event and stop_event.is_set():

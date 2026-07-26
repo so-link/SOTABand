@@ -582,5 +582,77 @@
     "tags": [],
     "quality_score": null,
     "created_at": "2026-07-26T01:56:33Z"
+  },
+  {
+    "id": "LLM",
+    "name": "LLM",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/LLM.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026 SOTABand/SOTABand/data/downloads/20260726_110958",
+    "file_count": 2,
+    "total_size": 6757282,
+    "formats": [
+      "pdf",
+      "csv"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-26T03:16:25Z"
+  },
+  {
+    "id": "memflow",
+    "name": "memflow",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/memflow.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026 SOTABand/SOTABand/data/downloads/20260726_111932",
+    "file_count": 4,
+    "total_size": 54492396,
+    "formats": [
+      "pdf",
+      "csv"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-26T03:21:01Z"
+  },
+  {
+    "id": "c'li'p",
+    "name": "c'li'p",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/c'li'p.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026 SOTABand/SOTABand/data/downloads/20260726_113247",
+    "file_count": 2,
+    "total_size": 6757282,
+    "formats": [
+      "csv",
+      "pdf"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-26T03:33:00Z"
+  },
+  {
+    "id": "m'm'm",
+    "name": "m'm'm",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/m'm'm.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026 SOTABand/SOTABand/data/downloads/20260726_113546",
+    "file_count": 4,
+    "total_size": 54492396,
+    "formats": [
+      "csv",
+      "pdf"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-26T03:37:16Z"
   }
 ]
