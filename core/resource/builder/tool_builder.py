@@ -324,13 +324,10 @@ CRITICAL RULES:
         return await self.install_deps(tool_id, deps)
 
     async def sandbox_execute(self, code: str, test_input: dict, tool_id: str = None) -> dict:
-        """沙箱执行：自动检测依赖 → 安装 → 通过 ToolExecutor 统一执行。
-        返回格式兼容 auto_debug_stream 的旧调用方。
+        """沙箱执行：通过 ToolExecutor 统一执行。
+        注意：依赖安装由 _auto_debug_loop 统一管理（带日志），此处不再重复安装。
         """
         tid = tool_id or "sandbox"
-        
-        # 执行前自动检测并安装缺失依赖
-        await self._ensure_deps(code, tid)
         
         from core.executor.tool_executor import ToolExecutor
 
@@ -480,6 +477,9 @@ CRITICAL RULES:
                 yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试"}
                 return
 
+            # 0. 先通知前端：开始本轮执行
+            yield {"event": "round_start", "round": round_num, "max": max_rounds}
+
             # 1. 执行（带取消支持：stop_event 设置时立即终止子进程）
             exec_task = asyncio.create_task(
                 self.sandbox_execute(current_code, test_input, tool_id)
@@ -528,7 +528,6 @@ CRITICAL RULES:
                 if isinstance(output_data, dict) and output_data.get("status") == "success":
                     success = True
 
-            yield {"event": "round_start", "round": round_num, "max": max_rounds}
             yield {"event": "exec_result", "round": round_num, "stdout": exec_result["stdout"], "stderr": exec_result["stderr"], "success": success}
 
             if success:
