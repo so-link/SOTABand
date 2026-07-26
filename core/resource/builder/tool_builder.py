@@ -375,16 +375,14 @@ CRITICAL RULES:
         return f"{python_exe} -m pip"
 
     async def install_deps_stream(self, tool_id: str, dependencies: list[str]):
-        """流式安装依赖：安装到工具执行时实际使用的 Python 环境。
-        
-        用 asyncio.to_thread 在后台线程中执行 subprocess.run，
-        避免 uvloop 与 create_subprocess_exec 的兼容问题。
+        """流式安装依赖：实时输出 pip 日志，失败时用 LLM 分析原因并调整命令重试。
         
         事件类型：
-        - deps_start: 开始安装，{deps: [...], env: "global"|"local"}
-        - dep_installing: 正在安装，{dep: str, env: str}
-        - dep_installed: 安装成功，{dep: str, env: str}
-        - dep_failed: 安装失败，{dep: str, env: str, reason: str}
+        - deps_start: 开始安装
+        - dep_installing: 正在安装
+        - pip_output: pip 实时输出行
+        - dep_installed: 安装成功
+        - dep_failed: 安装失败（含 LLM 分析）
         - deps_done: 完成
         """
         import asyncio
@@ -396,54 +394,125 @@ CRITICAL RULES:
 
         yield {"event": "deps_start", "deps": list(dependencies), "env": env_label}
 
-        def _run_pip_sync(pip_cmd: str, dep: str) -> tuple[bool, str]:
-            """同步执行 pip install（在 asyncio.to_thread 中运行）。
-            超时 60 秒，避免某些包（如 pyaudio）在 macOS 上卡死。
-            """
-            parts = pip_cmd.split()
-            try:
-                proc = subprocess.run(
-                    parts + ["install", dep],
-                    capture_output=True, text=True, timeout=60,
-                )
-                out = (proc.stdout or "") + (proc.stderr or "")
-                return proc.returncode == 0, out[-300:]
-            except subprocess.TimeoutExpired:
-                return False, "安装超时（60秒），该包可能不兼容当前系统"
-
         def _is_installed(python_exe: str, module_name: str) -> bool:
-            """检查模块是否已安装（用目标 Python 环境检查）"""
             proc = subprocess.run(
-                [python_exe, "-c", f"import {module_name.split('==')[0].split('>=')[0].split('<=')[0].strip()}"],
+                [python_exe, "-c", f"import {module_name}"],
                 capture_output=True, text=True, timeout=10,
             )
             return proc.returncode == 0
+
+        async def _run_pip_with_output(pip_cmd: str, dep: str, max_retries: int = 2) -> tuple[bool, str]:
+            """执行 pip install，实时 yield pip_output 事件，失败时用 LLM 分析并重试"""
+            parts = pip_cmd.split()
+            current_dep = dep
+
+            for attempt in range(max_retries + 1):
+                all_output = ""
+                proc = await asyncio.create_subprocess_exec(
+                    *parts, "install", current_dep,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                )
+                # 实时读取输出
+                try:
+                    while True:
+                        line = await asyncio.wait_for(proc.stdout.readline(), timeout=120)
+                        if not line:
+                            break
+                        text = line.decode("utf-8", errors="replace").rstrip()
+                        all_output += text + "\n"
+                        if text.strip():
+                            yield {"event": "pip_output", "dep": current_dep, "line": text}
+                except asyncio.TimeoutError:
+                    all_output += "\n[超时] 安装超过 120 秒，已终止\n"
+                    proc.kill()
+
+                await proc.wait()
+                if proc.returncode == 0:
+                    yield {"event": "pip_result", "ok": True, "output": all_output[-1000:]}
+                    return
+
+                if attempt >= max_retries:
+                    yield {"event": "pip_result", "ok": False, "output": all_output[-1000:]}
+                    return
+
+                # 安装失败，用 LLM 分析错误原因并调整命令
+                yield {"event": "pip_analyzing", "dep": current_dep, "attempt": attempt + 1}
+                analysis = await self._llm_analyze_pip_error(current_dep, all_output[-2000:])
+                yield {"event": "pip_analysis", "dep": current_dep, "analysis": analysis}
+
+                if analysis.get("adjusted_command"):
+                    current_dep = analysis["adjusted_command"]
+                elif analysis.get("suggestion"):
+                    current_dep = dep
+                else:
+                    yield {"event": "pip_result", "ok": False, "output": all_output[-1000:]}
+                    return
+
+            yield {"event": "pip_result", "ok": False, "output": "重试耗尽"}
 
         results = []
         for dep in dependencies:
             dep = dep.strip()
             if not dep: continue
-            
-            # 提取纯模块名（去掉版本号）
+
             module_name = dep.split("==")[0].split(">=")[0].split("<=")[0].strip()
-            
-            # 已安装则跳过
+
             if _is_installed(exec_python, module_name):
                 yield {"event": "dep_already", "dep": dep, "env": env_label}
                 results.append({"dep": dep, "success": True, "env": env_label, "already": True})
                 continue
-            
+
             yield {"event": "dep_installing", "dep": dep, "env": env_label}
-            ok, output = await asyncio.to_thread(_run_pip_sync, exec_pip, dep)
+            ok = False
+            output = ""
+            async for event in _run_pip_with_output(exec_pip, dep):
+                if event["event"] == "pip_result":
+                    ok = event["ok"]
+                    output = event.get("output", "")
+                    break
+                # 其他事件直接透传给前端（pip_output, pip_analyzing, pip_analysis）
+                yield event
+
+            # 汇总 _run_pip_with_output 的结果
             if ok:
                 results.append({"dep": dep, "success": True, "env": env_label})
                 yield {"event": "dep_installed", "dep": dep, "env": env_label}
             else:
-                results.append({"dep": dep, "success": False, "env": env_label, "reason": output[-200:]})
-                yield {"event": "dep_failed", "dep": dep, "env": env_label, "reason": output[-200:]}
+                results.append({"dep": dep, "success": False, "env": env_label, "reason": output[-300:]})
+                yield {"event": "dep_failed", "dep": dep, "env": env_label, "reason": output[-300:]}
 
         data = {"python": exec_python, "results": results}
         yield {"event": "deps_done", "data": data}
+
+    async def _llm_analyze_pip_error(self, dep: str, output: str) -> dict:
+        """用 LLM 分析 pip 安装失败原因，返回调整建议"""
+        prompt = f"""pip install {dep} 安装失败，以下是完整输出：
+
+{output}
+
+请分析失败原因，给出修复方案。返回 JSON 格式：
+{{
+  "reason": "失败原因（简短）",
+  "suggestion": "修复建议",
+  "adjusted_command": "调整后的安装命令（如 pip install xxx --no-deps 或其他参数），如果无需调整则为空字符串"
+}}
+
+只返回 JSON，不要其他内容。"""
+        try:
+            response = await self.llm.chat(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3, max_tokens=500, timeout=30,
+            )
+            # 提取 JSON
+            text = response if isinstance(response, str) else response.get("content", "")
+            import re as _re
+            match = _re.search(r'\{[^{}]*\}', text, _re.DOTALL)
+            if match:
+                return json.loads(match.group())
+        except Exception:
+            pass
+        return {"reason": "未知错误", "suggestion": "", "adjusted_command": ""}
 
     # ── 自动调试 ──
 

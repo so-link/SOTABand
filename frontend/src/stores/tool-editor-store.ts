@@ -170,7 +170,22 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
             break
           case 'dep_installing':
             set((s) => ({
-              debugStream: s.debugStream + `⏳ 安装 ${data.dep} (${data.env})...\n`,
+              debugStream: s.debugStream + `\n⏳ 安装 ${data.dep} (${data.env})...\n`,
+            }))
+            break
+          case 'pip_output':
+            set((s) => ({
+              debugStream: s.debugStream + `  ${data.line}\n`,
+            }))
+            break
+          case 'pip_analyzing':
+            set((s) => ({
+              debugStream: s.debugStream + `🤔 安装失败，LLM 分析原因中... (第${data.attempt}次重试)\n`,
+            }))
+            break
+          case 'pip_analysis':
+            set((s) => ({
+              debugStream: s.debugStream + `💡 ${(data.analysis as Record<string,string>)?.reason || '未知'}: ${(data.analysis as Record<string,string>)?.suggestion || ''}\n`,
             }))
             break
           case 'dep_already':
