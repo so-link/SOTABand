@@ -17,6 +17,7 @@ interface ChatState {
   addAttachment: (file: FileAttachment) => void
   removeAttachment: (id: string) => void
   sendMessage: () => Promise<void>
+  stopMessage: () => void
   addMessage: (msg: Message) => void
   clearMessages: () => void
 }
@@ -63,6 +64,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
       ],
     }),
 
+  stopMessage: () => {
+    chatService.stopChat().catch(() => {})
+    set({ isSending: false })
+  },
+
   sendMessage: async () => {
     const { inputText, attachedFiles } = get()
     if (!inputText.trim() && attachedFiles.length === 0) return
@@ -106,14 +112,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }))
       }
     } catch (e) {
-      const errMsg = e instanceof Error ? e.message : String(e)
-      set((s) => ({
-        messages: s.messages.map((m) =>
-          m.id === agentMsgId
-            ? { ...m, content: `⚠️ ${errMsg || '响应失败，请重试。'}` }
-            : m
-        ),
-      }))
+      if ((e as Error).name === 'AbortError') {
+        // 用户主动停止，不显示错误
+      } else {
+        const errMsg = e instanceof Error ? e.message : String(e)
+        set((s) => ({
+          messages: s.messages.map((m) =>
+            m.id === agentMsgId
+              ? { ...m, content: `⚠️ ${errMsg || '响应失败，请重试。'}` }
+              : m
+          ),
+        }))
+      }
     } finally {
       set({ isSending: false })
     }

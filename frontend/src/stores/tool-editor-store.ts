@@ -239,17 +239,26 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
         }
       })
     } catch (e) {
+      // 异常退出时也调用 stop 端点，确保后台停止
       if ((e as Error).name === 'AbortError') {
         set({ isAutoDebugging: false, abortController: null })
       } else {
         set({ error: String(e), isAutoDebugging: false, abortController: null })
       }
+      // 调用后端 stop 端点确保后台也停止
+      if (generatedMd) {
+        toolApi.stopAutoDebug(generatedMd).catch(() => {})
+      }
     }
   },
 
   stopAutoDebug: () => {
-    const { abortController } = get()
+    const { abortController, generatedMd } = get()
     if (abortController) abortController.abort()
+    // 同时调用后端 stop 端点（即使 SSE 连接已断开也能可靠停止）
+    if (generatedMd) {
+      toolApi.stopAutoDebug(generatedMd).catch(() => {})
+    }
     set({ isAutoDebugging: false, abortController: null })
   },
 

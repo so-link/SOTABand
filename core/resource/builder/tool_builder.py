@@ -6,9 +6,37 @@ import re
 import subprocess
 import tempfile
 import os as _os
+import threading
 from pathlib import Path
+from datetime import datetime
 
 from core.resource.builder.builder_base import BaseBuilder
+
+# ── 全局调试状态：线程安全的停止标志 ──
+# key=tool_id, value=True 表示正在运行
+_debug_states: dict[str, bool] = {}
+_debug_lock = threading.Lock()
+
+def set_debug_running(tool_id: str):
+    """设置指定工具的调试为运行状态"""
+    with _debug_lock:
+        _debug_states[tool_id] = True
+
+def set_debug_stopped(tool_id: str):
+    """设置指定工具的调试为停止状态"""
+    with _debug_lock:
+        _debug_states.pop(tool_id, None)
+
+def is_debug_running(tool_id: str) -> bool:
+    """检查指定工具的调试是否在运行"""
+    with _debug_lock:
+        return _debug_states.get(tool_id, False)
+
+def stop_debug(tool_id: str):
+    """请求停止指定工具的调试"""
+    with _debug_lock:
+        if tool_id in _debug_states:
+            _debug_states[tool_id] = False
 from core.llm.client import create_llm_client
 
 
@@ -337,7 +365,7 @@ CRITICAL RULES:
             return {"installed": [], "failed": [], "message": "无第三方依赖"}
         return await self.install_deps(tool_id, deps)
 
-    async def sandbox_execute(self, code: str, test_input: dict, tool_id: str = None, exec_timeout: float = 60.0) -> dict:
+    async def sandbox_execute(self, code: str, test_input: dict, tool_id: str = None, exec_timeout: float = 180.0) -> dict:
         """沙箱执行：通过 ToolExecutor 统一执行。
         注意：依赖安装由 _auto_debug_loop 统一管理（带日志），此处不再重复安装。
         """
@@ -418,13 +446,14 @@ CRITICAL RULES:
                     return str(sp)
         return ""
 
-    async def install_deps_stream(self, tool_id: str, dependencies: list[str]):
+    async def install_deps_stream(self, tool_id: str, dependencies: list[str], stop_event=None):
         """流式安装依赖：实时输出 pip 日志，失败时用 LLM 分析原因并调整命令重试。
         
         使用 asyncio.to_thread + subprocess.Popen + Queue 实现：
         - 安装在线程中执行，不阻塞事件循环
         - pip 输出逐行通过 queue 推回异步世界
         - 失败时自动调用 LLM 分析并重试
+        - 支持 stop_event 和全局调试标志双重停止
         
         安装目标：
         - 工具独立 .venv → 安装到工具自己的 .venv
@@ -493,11 +522,28 @@ CRITICAL RULES:
                 thread = threading.Thread(target=_pip_worker, args=(exec_pip, current_dep, install_target, q), daemon=True)
                 thread.start()
 
-                # 从 queue 读取输出，超时 120 秒
+                # 从 queue 读取输出，短超时轮询 + 停止检查
                 retcode = None
+                pip_start = asyncio.get_event_loop().time()
+                PIP_TOTAL_TIMEOUT = 300  # pip 总超时 5 分钟
                 while True:
+                    # 检查停止信号
+                    if not is_debug_running(tool_id):
+                        all_output += "\n[已停止] 调试已停止\n"
+                        retcode = -1
+                        break
+                    if stop_event and stop_event.is_set():
+                        all_output += "\n[已停止] 用户手动停止\n"
+                        retcode = -1
+                        break
+                    # 总超时
+                    if asyncio.get_event_loop().time() - pip_start > PIP_TOTAL_TIMEOUT:
+                        all_output += f"\n[超时] 安装超过 {PIP_TOTAL_TIMEOUT} 秒\n"
+                        retcode = -1
+                        break
+
                     try:
-                        kind, data = await asyncio.wait_for(q.get(), timeout=120)
+                        kind, data = await asyncio.wait_for(q.get(), timeout=0.5)
                         if kind == "line":
                             all_output += data + "\n"
                             yield {"event": "pip_output", "dep": current_dep, "line": data}
@@ -509,9 +555,8 @@ CRITICAL RULES:
                             retcode = -1
                             break
                     except asyncio.TimeoutError:
-                        all_output += "\n[超时] 安装超过 120 秒\n"
-                        retcode = -1
-                        break
+                        # 0.5 秒超时是正常的，继续循环检查停止信号
+                        continue
 
                 thread.join(timeout=5)
                 if retcode == 0:
@@ -572,6 +617,48 @@ CRITICAL RULES:
             pass
         return {"reason": "未知错误", "suggestion": "", "adjusted_command": ""}
 
+    # ── 调试日志写入 ──
+
+    async def _write_debug_log(self, tool_id: str, timestamp: str, entries: list[dict], success: bool, final_round: int):
+        """将调试日志写入 logs/ 目录下的时间戳文件"""
+        import asyncio
+
+        def _write():
+            try:
+                project_root = Path(__file__).resolve().parent.parent.parent.parent
+                log_dir = project_root / "logs"
+                log_dir.mkdir(parents=True, exist_ok=True)
+                log_file = log_dir / f"{tool_id}_{timestamp}.md"
+
+                lines = []
+                lines.append(f"# 自动调试日志\n")
+                lines.append(f"- **工具**: {tool_id}")
+                lines.append(f"- **时间**: {timestamp}")
+                lines.append(f"- **结果**: {'成功' if success else '失败'}（共 {final_round} 轮）")
+                lines.append(f"- **日志条目**: {len(entries)} 轮\n")
+                lines.append("---\n")
+
+                for i, entry in enumerate(entries):
+                    r = entry["round"]
+                    lines.append(f"## 第 {r} 轮\n")
+                    lines.append(f"### 执行结果\n")
+                    lines.append(f"```\n{entry['exec_result']}\n```\n")
+                    if entry.get("dep_feedback"):
+                        lines.append(f"### 依赖反馈\n")
+                        lines.append(f"{entry['dep_feedback']}\n")
+                    lines.append(f"### 发送给 LLM 的 Prompt\n")
+                    lines.append(f"```\n{entry['prompt']}\n```\n")
+                    lines.append(f"### LLM 返回\n")
+                    lines.append(f"```\n{entry['response']}\n```\n")
+                    if i < len(entries) - 1:
+                        lines.append("======================\n")
+
+                log_file.write_text("\n".join(lines), encoding="utf-8")
+            except Exception:
+                pass  # 日志写入失败不阻塞调试流程
+
+        await asyncio.to_thread(_write)
+
     # ── 自动调试 ──
 
     async def auto_debug_stream(self, spec_md: str, code: str, test_input: dict, tool_id: str, max_rounds: int = 50, stop_event=None):
@@ -582,17 +669,20 @@ CRITICAL RULES:
         import asyncio
 
         current_code = code
+        set_debug_running(tool_id)
 
         try:
-            async for event in self._auto_debug_loop(
-                spec_md, current_code, test_input, tool_id, max_rounds, stop_event
-            ):
-                yield event
-        except asyncio.CancelledError:
-            if stop_event:
-                stop_event.set()
-            yield {"event": "stopped", "round": 0, "message": "调试已停止"}
-            # 不 raise，让 _producer 正常结束
+            try:
+                async for event in self._auto_debug_loop(
+                    spec_md, current_code, test_input, tool_id, max_rounds, stop_event
+                ):
+                    yield event
+            except asyncio.CancelledError:
+                if stop_event:
+                    stop_event.set()
+                yield {"event": "stopped", "round": 0, "message": "调试已停止"}
+        finally:
+            set_debug_stopped(tool_id)
 
     async def _auto_debug_loop(self, spec_md: str, code: str, test_input: dict, tool_id: str, max_rounds: int, stop_event):
         """自动调试主循环
@@ -609,6 +699,9 @@ CRITICAL RULES:
         current_code = code
         # 记录安装失败的依赖（用于告诉 LLM 哪些依赖不可用）
         failed_deps: set = set()
+        # 调试日志记录
+        debug_log_entries: list[dict] = []
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         # 调试开始：立即通知前端
         yield {"event": "debug_start", "message": "自动调试启动", "max_rounds": max_rounds}
@@ -616,13 +709,17 @@ CRITICAL RULES:
         # 初始依赖安装（系统自动，LLM 不参与）
         deps = self._extract_imports(current_code)
         if deps:
-            async for dep_event in self.install_deps_stream(tool_id, deps):
+            async for dep_event in self.install_deps_stream(tool_id, deps, stop_event=stop_event):
                 if stop_event and stop_event.is_set():
                     yield {"event": "stopped", "round": 0, "message": "用户手动停止调试"}
                     return
                 yield dep_event
 
         for round_num in range(1, max_rounds + 1):
+            # ── 每轮开始前检查停止标志（全局标志 + stop_event 双重保障）──
+            if not is_debug_running(tool_id):
+                yield {"event": "stopped", "round": round_num, "message": "调试已停止"}
+                return
             if stop_event and stop_event.is_set():
                 yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试"}
                 return
@@ -680,6 +777,7 @@ CRITICAL RULES:
 
             if success:
                 yield {"event": "done", "round": round_num, "success": True, "code": current_code, "message": f"调试成功 (第{round_num}轮)"}
+                await self._write_debug_log(tool_id, timestamp, debug_log_entries, success=True, final_round=round_num)
                 return
 
             # ── ③ 系统自动处理依赖（LLM 不参与）──
@@ -689,7 +787,7 @@ CRITICAL RULES:
                 if missing:
                     install_ok = False
                     install_reason = ""
-                    async for dep_event in self.install_deps_stream(tool_id, [missing]):
+                    async for dep_event in self.install_deps_stream(tool_id, [missing], stop_event=stop_event):
                         if stop_event and stop_event.is_set():
                             yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试"}
                             return
@@ -714,11 +812,17 @@ CRITICAL RULES:
             if round_num >= max_rounds:
                 break
 
+            if not is_debug_running(tool_id):
+                yield {"event": "stopped", "round": round_num, "message": "调试已停止"}
+                return
             if stop_event and stop_event.is_set():
                 yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试"}
                 return
 
             yield {"event": "thinking", "round": round_num, "message": "LLM 分析错误..."}
+
+            # ── 构建本轮执行摘要（用于日志）──
+            exec_summary = f"stdout:\n{exec_result['stdout'][:3000]}\n\nstderr:\n{exec_result['stderr'][:2000]}"
 
             fix_prompt = f"""Debug this tool code. It failed execution.
 
@@ -744,6 +848,15 @@ Fix the code based on the error and the dependency feedback above.
 Output the COMPLETE fixed Python file (including template header).
 INTERFACE RULES: execute(**kwargs)->dict, kwargs.get, {{status,output_format,message,data}}, try/except.
 Output ONLY Python code. NO pip install, NO subprocess, NO install directives, NO markdown."""
+
+            # 记录本轮日志条目
+            log_entry = {
+                "round": round_num,
+                "exec_result": exec_summary,
+                "dep_feedback": dep_feedback,
+                "prompt": fix_prompt,
+                "response": "",
+            }
 
             full_response = ""
             llm_task = None
@@ -779,6 +892,14 @@ Output ONLY Python code. NO pip install, NO subprocess, NO install directives, N
                         token = token_queue.pop(0)
                         full_response += token
                         yield {"event": "thinking_stream", "round": round_num, "token": token}
+                        # 每消费 50 个 token 检查一次停止信号
+                        if len(full_response) % 50 == 0:
+                            if not is_debug_running(tool_id):
+                                llm_task.cancel()
+                                try: await llm_task
+                                except asyncio.CancelledError: pass
+                                yield {"event": "stopped", "round": round_num, "message": "调试已停止"}
+                                return
                     await asyncio.sleep(0.05)
 
                 if llm_task.cancelled():
@@ -802,6 +923,9 @@ Output ONLY Python code. NO pip install, NO subprocess, NO install directives, N
                 continue
 
             # ── ⑤ 解析 LLM 响应：只接受代码 ──
+            log_entry["response"] = full_response
+            debug_log_entries.append(log_entry)
+
             new_code = full_response.strip()
             # 清理 markdown 代码块标记（只处理开头和结尾，避免注释中的 ``` 截断代码）
             if new_code.startswith("```python"):
@@ -827,10 +951,11 @@ Output ONLY Python code. NO pip install, NO subprocess, NO install directives, N
             # ── ⑥ 系统自动安装新代码的依赖 ──
             new_deps = self._extract_imports(current_code)
             if new_deps:
-                async for dep_event in self.install_deps_stream(tool_id, new_deps):
+                async for dep_event in self.install_deps_stream(tool_id, new_deps, stop_event=stop_event):
                     if stop_event and stop_event.is_set():
                         yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试"}
                         return
                     yield dep_event
 
+        await self._write_debug_log(tool_id, timestamp, debug_log_entries, success=False, final_round=max_rounds)
         yield {"event": "done", "round": max_rounds, "success": False, "code": current_code, "message": f"达到最大轮数 {max_rounds}，调试未完成"}

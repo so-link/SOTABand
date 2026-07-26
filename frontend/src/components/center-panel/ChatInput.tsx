@@ -1,17 +1,20 @@
 import { useRef, type KeyboardEvent } from 'react'
-import { Send, X, Paperclip } from 'lucide-react'
+import { Send, X, Paperclip, Square } from 'lucide-react'
 import { useChatStore } from '@/stores/chat-store'
 import { Button } from '@/components/ui/button'
 
 export function ChatInput() {
-  const { inputText, setInputText, attachedFiles, removeAttachment, sendMessage, isSending } =
+  const { inputText, setInputText, attachedFiles, removeAttachment, sendMessage, stopMessage, isSending } =
     useChatStore()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const handleSend = () => {
+    if (isSending) {
+      stopMessage()
+      return
+    }
     if (!inputText.trim() && attachedFiles.length === 0) return
     sendMessage()
-    // Reset textarea height
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
     }
@@ -25,7 +28,6 @@ export function ChatInput() {
   }
 
   const handleInput = () => {
-    // Auto-resize textarea
     const el = textareaRef.current
     if (!el) return
     el.style.height = 'auto'
@@ -66,19 +68,29 @@ export function ChatInput() {
               handleInput()
             }}
             onKeyDown={handleKeyDown}
-            placeholder="输入你的需求... (Enter 发送，Shift+Enter 换行)"
+            placeholder={isSending ? '工具执行中...' : '输入你的需求... (Enter 发送，Shift+Enter 换行)'}
             rows={1}
             className="flex-1 bg-transparent text-[13px] tracking-wide outline-none focus-visible:outline-none resize-none max-h-[150px] placeholder:text-maia-text-muted"
             disabled={isSending}
           />
-          <Button
-            size="icon"
-            onClick={handleSend}
-            disabled={isSending || (!inputText.trim() && attachedFiles.length === 0)}
-            className="shrink-0 h-8 w-8 rounded-lg"
-          >
-            <Send className="h-4 w-4" />
-          </Button>
+          {isSending ? (
+            <Button
+              size="icon"
+              onClick={handleSend}
+              className="shrink-0 h-8 w-8 rounded-lg bg-red-500 hover:bg-red-600 text-white"
+            >
+              <Square className="h-3.5 w-3.5 fill-current" />
+            </Button>
+          ) : (
+            <Button
+              size="icon"
+              onClick={handleSend}
+              disabled={!inputText.trim() && attachedFiles.length === 0}
+              className="shrink-0 h-8 w-8 rounded-lg"
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          )}
         </div>
 
         <div className="flex items-center gap-3 mt-1.5 text-[10px] tracking-wide text-maia-text-muted">

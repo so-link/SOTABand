@@ -113,7 +113,7 @@ export function WorkspaceFileTree() {
             placeholder="搜索文件..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-7 h-7 text-[12px] tracking-wide bg-maia-bg/70 border-maia-border focus:bg-white"
+            className="pl-7 h-7 text-[12px] text-maia-text tracking-wide bg-maia-bg/70 border-maia-border focus:bg-maia-surface"
           />
         </div>
       </div>

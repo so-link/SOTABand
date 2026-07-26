@@ -10,6 +10,8 @@ import type { Resource, ResourceType } from '@/types/resources'
 export interface IChatService {
   /** 发送消息，返回异步生成器模拟流式响应 */
   sendMessage(input: CreateMessageInput): AsyncGenerator<Message>
+  /** 停止正在进行的对话 */
+  stopChat(sessionId?: string): Promise<void>
 }
 
 /** 文件服务接口 */

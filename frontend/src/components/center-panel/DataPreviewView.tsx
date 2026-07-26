@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Database, File, Loader2, Eye } from 'lucide-react'
+import { Database, File, Image, Loader2, Eye, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardBody } from '@/components/ui/card'
@@ -7,15 +7,26 @@ import { useResourceStore } from '@/stores/resource-store'
 import type { DataResource } from '@/types/resources'
 
 const BASE_URL = ''
+const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'tiff', 'tif', 'ico'])
+const PAGE_SIZE_OPTIONS = [8, 16, 24, 32, 48]
+
+function isImageFile(file: Record<string, unknown>): boolean {
+  const fmt = ((file.format as string) || '').toLowerCase()
+  const name = ((file.name as string) || '').toLowerCase()
+  return IMAGE_EXTENSIONS.has(fmt) || IMAGE_EXTENSIONS.has(name.split('.').pop() || '')
+}
 
 export function DataPreviewView() {
   const selectedResource = useResourceStore((s) => s.selectedResource)
   const dataset = selectedResource?.type === 'data' ? (selectedResource as DataResource) : null
   const [loading, setLoading] = useState(false)
   const [detail, setDetail] = useState<Record<string, unknown> | null>(null)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(16)
 
   useEffect(() => {
     if (!dataset) return
+    setPage(1)
     setLoading(true)
     fetch(`${BASE_URL}/api/data/${dataset.id}/preview`)
       .then(r => r.json())
@@ -44,6 +55,15 @@ export function DataPreviewView() {
   const specMd = (detail?.spec_md as string) || ''
   const previewTool = detail?.preview_tool as string | null
   const hasPreviewTool = (detail?.has_preview_tool as boolean) || false
+  const datasetPath = ((detail?.dataset as Record<string, unknown>)?.data_path as string) || ''
+
+  const imageFiles = files.filter(isImageFile)
+  const nonImageFiles = files.filter(f => !isImageFile(f))
+
+  // 分页
+  const totalPages = Math.max(1, Math.ceil(imageFiles.length / pageSize))
+  const safePage = Math.min(page, totalPages)
+  const pageImages = imageFiles.slice((safePage - 1) * pageSize, safePage * pageSize)
 
   return (
     <div className="flex flex-col h-full bg-maia-surface overflow-auto">
@@ -57,6 +77,7 @@ export function DataPreviewView() {
         </div>
         <div className="flex items-center gap-2 text-[11px] text-maia-text-muted">
           {files.length > 0 && <span>{files.length} 个文件</span>}
+          {imageFiles.length > 0 && <span>· {imageFiles.length} 张图片</span>}
           {dataset.fileSize > 0 && (
             <span>
               {dataset.fileSize > 1048576 ? `${(dataset.fileSize / 1048576).toFixed(1)} MB` : `${(dataset.fileSize / 1024).toFixed(1)} KB`}
@@ -65,7 +86,7 @@ export function DataPreviewView() {
         </div>
       </div>
 
-      <div className="flex-1 p-4 max-w-3xl mx-auto space-y-4 w-full">
+      <div className="flex-1 p-4 max-w-5xl mx-auto space-y-4 w-full">
         {/* Preview tool match */}
         {hasPreviewTool && previewTool && (
           <Card className="border-blue-200 bg-blue-50/50">
@@ -84,20 +105,100 @@ export function DataPreviewView() {
           </Card>
         )}
 
-        {/* No preview tool */}
-        {!hasPreviewTool && (
-          <Card className="border-amber-200 bg-amber-50/50">
+        {/* Image gallery */}
+        {imageFiles.length > 0 && (
+          <Card className="border-maia-border">
             <CardBody>
-              <div className="flex items-center gap-1.5 text-xs text-amber-600">
-                <Eye className="h-3.5 w-3.5" />
-                暂无专用的数据预览工具，以下展示数据集的描述信息
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-1.5">
+                  <Image className="h-3.5 w-3.5 text-amber-400" />
+                  <span className="text-xs font-medium text-maia-text-secondary tracking-wide">
+                    图片预览（共 {imageFiles.length} 张）
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-maia-text-muted">每页</span>
+                  <select
+                    value={pageSize}
+                    onChange={e => { setPageSize(Number(e.target.value)); setPage(1) }}
+                    className="h-6 rounded border border-maia-border bg-maia-bg text-[11px] text-maia-text px-1 outline-none focus:border-maia-accent/40"
+                  >
+                    {PAGE_SIZE_OPTIONS.map(n => (
+                      <option key={n} value={n}>{n} 张</option>
+                    ))}
+                  </select>
+                  <div className="flex items-center gap-1 ml-2">
+                    <Button
+                      size="sm" variant="outline"
+                      className="h-6 w-6 p-0"
+                      disabled={safePage <= 1}
+                      onClick={() => setPage(p => Math.max(1, p - 1))}
+                    >
+                      <ChevronLeft className="h-3 w-3" />
+                    </Button>
+                    <span className="text-[11px] text-maia-text-muted min-w-[40px] text-center">
+                      {safePage}/{totalPages}
+                    </span>
+                    <Button
+                      size="sm" variant="outline"
+                      className="h-6 w-6 p-0"
+                      disabled={safePage >= totalPages}
+                      onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                    >
+                      <ChevronRight className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-4 gap-2">
+                {pageImages.map((img, i) => {
+                  const imgPath = datasetPath ? `${datasetPath}/${img.name}` : ''
+                  const imgUrl = imgPath ? `${BASE_URL}/api/file/image?path=${encodeURIComponent(imgPath)}` : ''
+                  return (
+                    <div
+                      key={i}
+                      className="aspect-square rounded border border-maia-border bg-maia-bg overflow-hidden group cursor-pointer hover:border-maia-accent/40 transition-colors"
+                      onClick={() => {
+                        if (imgUrl) window.open(imgUrl, '_blank')
+                      }}
+                    >
+                      {imgUrl ? (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <img
+                            src={imgUrl}
+                            alt={img.name as string}
+                            className="max-w-full max-h-full object-contain"
+                            loading="lazy"
+                            onError={(e) => {
+                              const el = e.currentTarget
+                              el.style.display = 'none'
+                              const parent = el.parentElement
+                              if (parent) {
+                                parent.innerHTML = `<div class="flex flex-col items-center justify-center gap-1 text-maia-text-muted"><svg class="h-6 w-6 opacity-30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg><span class="text-[10px]">加载失败</span></div>`
+                              }
+                            }}
+                          />
+                        </div>
+                      ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-maia-text-muted">
+                          <Image className="h-6 w-6 opacity-30" />
+                          <span className="text-[10px]">{img.name as string}</span>
+                        </div>
+                      )}
+                      <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-1.5 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <span className="text-[9px] text-white truncate block">{img.name as string}</span>
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             </CardBody>
           </Card>
         )}
 
         {/* File list */}
-        {files.length > 0 && (
+        {nonImageFiles.length > 0 && (
           <Card className="border-maia-border">
             <CardBody>
               <div className="flex items-center gap-1.5 mb-2">
@@ -105,7 +206,7 @@ export function DataPreviewView() {
                 <span className="text-xs font-medium text-maia-text-secondary tracking-wide">文件列表</span>
               </div>
               <div className="space-y-1">
-                {files.map((f, i) => (
+                {nonImageFiles.map((f, i) => (
                   <div key={i} className="flex items-center justify-between py-1 px-2 rounded hover:bg-maia-bg text-[11px]">
                     <div className="flex items-center gap-1.5">
                       <File className="h-3 w-3 text-maia-text-muted" />

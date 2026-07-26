@@ -4,6 +4,7 @@ import {
   Wrench, ArrowRight, ArrowLeft, CheckCircle2, XCircle,
   Loader2, FileCode, Play, Rocket,
 } from 'lucide-react'
+import { Highlight, themes } from 'prism-react-renderer'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardBody } from '@/components/ui/card'
@@ -219,7 +220,22 @@ function Step3() {
         {/* 左：代码 */}
         <div className="col-span-3">
           <div className="flex items-center gap-1.5 mb-2"><FileCode className="h-3.5 w-3.5 text-amber-400" /><span className="text-xs font-medium text-maia-text-secondary tracking-wide">生成代码</span></div>
-          <pre className="rounded-lg border border-maia-border bg-maia-bg/50 px-3 py-2 text-[11px] font-mono leading-relaxed overflow-auto max-h-[350px] whitespace-pre-wrap">{generatedCode}</pre>
+          <div className="rounded-lg border border-maia-border bg-[#1e1e1e] overflow-auto max-h-[350px]">
+            <Highlight theme={themes.vsDark} code={generatedCode || '# 等待生成代码...'} language="python">
+              {({ style, tokens, getLineProps, getTokenProps }) => (
+                <pre style={style} className="px-3 py-2 text-[11px] font-mono leading-relaxed m-0">
+                  {tokens.map((line, i) => (
+                    <div key={i} {...getLineProps({ line })}>
+                      <span className="inline-block w-8 text-right mr-3 text-white/20 select-none text-[10px]">{i + 1}</span>
+                      {line.map((token, key) => (
+                        <span key={key} {...getTokenProps({ token })} />
+                      ))}
+                    </div>
+                  ))}
+                </pre>
+              )}
+            </Highlight>
+          </div>
         </div>
 
         {/* 右：测试 */}

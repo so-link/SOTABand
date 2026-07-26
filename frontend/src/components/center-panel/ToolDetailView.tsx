@@ -252,7 +252,7 @@ export function ToolDetailView() {
                   <span className="text-xs font-medium text-purple-700 tracking-wide">参考代码</span>
                   <button onClick={() => setShowReference(false)}><X className="h-3 w-3 text-maia-text-muted" /></button>
                 </div>
-                <pre className="text-[11px] font-mono leading-relaxed text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto bg-white rounded p-3 border border-purple-100">{referenceCode}</pre>
+                <pre className="text-[11px] font-mono leading-relaxed text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto bg-maia-bg rounded p-3 border border-maia-border">{referenceCode}</pre>
               </CardBody>
             </Card>
           )}
@@ -293,7 +293,7 @@ export function ToolDetailView() {
                           btn?.click()
                         }
                       }}
-                      className="flex-1 h-7 rounded border border-purple-200 bg-white px-2 text-[11px] tracking-wide outline-none focus:border-purple-400"
+                      className="flex-1 h-7 rounded border border-maia-border bg-maia-surface px-2 text-[11px] text-maia-text tracking-wide outline-none focus:border-maia-accent/40"
                       id={`ai-modify-input-${tool.id}`}
                     />
                     <Button
@@ -363,7 +363,7 @@ export function ToolDetailView() {
                     <input type="text" value={formValues[f.name] || ''}
                       onChange={(e) => setFormValues(p => ({ ...p, [f.name]: e.target.value }))}
                       placeholder={f.required ? '必填' : f.default || '可选'}
-                      className="w-full h-8 rounded border border-maia-border bg-white px-3 text-[12px] tracking-wide outline-none focus:border-maia-accent/40" />
+                      className="w-full h-8 rounded border border-maia-border bg-maia-surface px-3 text-[12px] text-maia-text tracking-wide outline-none focus:border-maia-accent/40" />
                   </div>
                 ))}
               </div>
@@ -388,7 +388,7 @@ export function ToolDetailView() {
                     {output.status === 'success' ? '执行成功' : '执行失败'}
                   </span>
                 </div>
-                <pre className="text-[11px] font-mono leading-relaxed text-maia-text whitespace-pre-wrap max-h-[300px] overflow-auto bg-white rounded p-3 border border-maia-border">
+                <pre className="text-[11px] font-mono leading-relaxed text-maia-text whitespace-pre-wrap max-h-[300px] overflow-auto bg-maia-bg rounded p-3 border border-maia-border">
                   {JSON.stringify(output, null, 2)}
                 </pre>
               </CardBody>

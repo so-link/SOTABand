@@ -152,6 +152,8 @@ function getDefaultResponse(text: string): { response: string; cards?: InlineCar
 }
 
 export class MockChatService implements IChatService {
+  async stopChat(_sessionId?: string): Promise<void> {}
+
   async *sendMessage(input: CreateMessageInput): AsyncGenerator<Message> {
     const userText = input.content
     const { response, cards } = getDefaultResponse(userText)

@@ -116,6 +116,16 @@ export const toolApi = {
     }
   },
 
+  async stopAutoDebug(specMd: string) {
+    const { toolId } = extractIdName(specMd)
+    const res = await fetch(`${BASE_URL}/api/tool/auto-debug/stop`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tool_id: toolId }),
+    })
+    if (!res.ok) { const err = await res.json().catch(() => ({ detail: res.statusText })); throw new Error(err.detail) }
+    return res.json()
+  },
+
   async register(specMd: string, code: string, testInputs: Record<string, string>, demandDesc: string = '', referenceCode: string = '') {
     const { toolId, toolName } = extractIdName(specMd)
     const res = await fetch(`${BASE_URL}/api/tool/register`, {

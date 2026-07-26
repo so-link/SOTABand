@@ -15,74 +15,6 @@
     "created_at": "2026-07-25T11:02:24Z"
   },
   {
-    "id": "沙滩推土机",
-    "name": "沙滩推土机",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/沙滩推土机.md",
-    "data_path": "/hdd/sdc3/zjs/tmp/data/downloads/1784982192",
-    "file_count": 2,
-    "total_size": 1072561,
-    "formats": [
-      "png"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-25T12:24:04Z"
-  },
-  {
-    "id": "航拍视角海岸线",
-    "name": "航拍视角海岸线",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/航拍视角海岸线.md",
-    "data_path": "/hdd/sdc1/jmlv/LLM/SOTABand/data/downloads/1784983044951",
-    "file_count": 3,
-    "total_size": 2045961,
-    "formats": [
-      "png"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-25T12:39:17Z"
-  },
-  {
-    "id": "海岸线",
-    "name": "海岸线",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/海岸线.md",
-    "data_path": "/hdd/sdc1/jmlv/LLM/SOTABand/data/downloads/1784983218102",
-    "file_count": 2,
-    "total_size": 1341938,
-    "formats": [
-      "png"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-25T12:41:54Z"
-  },
-  {
-    "id": "孩子",
-    "name": "孩子",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/孩子.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026 SOTABand/SOTABand/data/downloads/20260726094736",
-    "file_count": 1,
-    "total_size": 48862,
-    "formats": [
-      "jpg"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-26T01:47:38Z"
-  },
-  {
     "id": "kid_20260726_094756_798469",
     "name": "kid",
     "version": "0.1.0",
@@ -98,23 +30,6 @@
     "tags": [],
     "quality_score": null,
     "created_at": "2026-07-26T01:48:00Z"
-  },
-  {
-    "id": "food_20260726_095633",
-    "name": "food",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/food_20260726_095633.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026 SOTABand/SOTABand/data/downloads/20260726_095633",
-    "file_count": 1,
-    "total_size": 331,
-    "formats": [
-      "csv"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-26T01:56:33Z"
   },
   {
     "id": "LLM",
@@ -133,78 +48,6 @@
     "tags": [],
     "quality_score": null,
     "created_at": "2026-07-26T03:16:25Z"
-  },
-  {
-    "id": "memflow",
-    "name": "memflow",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/memflow.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026 SOTABand/SOTABand/data/downloads/20260726_111932",
-    "file_count": 4,
-    "total_size": 54492396,
-    "formats": [
-      "pdf",
-      "csv"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-26T03:21:01Z"
-  },
-  {
-    "id": "c'li'p",
-    "name": "c'li'p",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/c'li'p.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026 SOTABand/SOTABand/data/downloads/20260726_113247",
-    "file_count": 2,
-    "total_size": 6757282,
-    "formats": [
-      "csv",
-      "pdf"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-26T03:33:00Z"
-  },
-  {
-    "id": "m'm'm",
-    "name": "m'm'm",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/m'm'm.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026 SOTABand/SOTABand/data/downloads/20260726_113546",
-    "file_count": 4,
-    "total_size": 54492396,
-    "formats": [
-      "csv",
-      "pdf"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-26T03:37:16Z"
-  },
-  {
-    "id": "arxiv-20260726115528",
-    "name": "jianm",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/arxiv-20260726115528.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026 SOTABand/SOTABand/data/download/20260726115528",
-    "file_count": 1,
-    "total_size": 4452449,
-    "formats": [
-      "pdf",
-      "csv"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-26T03:55:50Z"
   },
   {
     "id": "Farmland",
@@ -242,24 +85,6 @@
     "created_at": "2026-07-26T08:55:50Z"
   },
   {
-    "id": "jjj",
-    "name": "jjj",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/jjj.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/download/20260726_165822",
-    "file_count": 2,
-    "total_size": 4452479,
-    "formats": [
-      "pdf",
-      "csv"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-26T08:58:30Z"
-  },
-  {
     "id": "memmem",
     "name": "memmem",
     "version": "0.1.0",
@@ -278,54 +103,71 @@
     "created_at": "2026-07-26T09:00:50Z"
   },
   {
-    "id": "ship",
-    "name": "ship",
+    "id": "船舶",
+    "name": "船舶",
     "version": "0.1.0",
     "type": "generic",
     "status": "active",
-    "spec_path": "definitions/ship.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/1785058281862",
+    "spec_path": "definitions/船舶.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/1785080959084",
+    "file_count": 20,
+    "total_size": 17274831,
+    "formats": [
+      "png"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-26T15:54:57Z"
+  },
+  {
+    "id": "ships",
+    "name": "ships",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/ships.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/1785081382760",
+    "file_count": 2,
+    "total_size": 1936101,
+    "formats": [
+      "png"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-26T15:56:58Z"
+  },
+  {
+    "id": "nfar",
+    "name": "nfar",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/nfar.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/1785082050669",
     "file_count": 1,
-    "total_size": 1329893,
+    "total_size": 551462,
     "formats": [
       "png"
     ],
     "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-26T09:31:39Z"
+    "created_at": "2026-07-26T16:07:52Z"
   },
   {
-    "id": "挖土机农田",
-    "name": "挖土机农田",
+    "id": "船只图像",
+    "name": "船只图像",
     "version": "0.1.0",
     "type": "generic",
     "status": "active",
-    "spec_path": "definitions/挖土机农田.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/1785062782",
-    "file_count": 2,
-    "total_size": 1340328,
+    "spec_path": "definitions/船只图像.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/1785082119235",
+    "file_count": 20,
+    "total_size": 12233524,
     "formats": [
       "png"
     ],
     "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-26T10:46:57Z"
-  },
-  {
-    "id": "ocean",
-    "name": "ocean",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/ocean.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/1785068769371",
-    "file_count": 2,
-    "total_size": 1345576,
-    "formats": [
-      "png"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-26T12:26:42Z"
+    "created_at": "2026-07-26T16:15:12Z"
   }
 ]

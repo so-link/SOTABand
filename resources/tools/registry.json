@@ -926,5 +926,71 @@
     "tags": [],
     "usage_count": 0,
     "created_at": "2026-07-26T11:44:37Z"
+  },
+  {
+    "id": "display-image",
+    "name": "图片查看器",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/display-image.md",
+    "impl_path": "implementations/display-image/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "path",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "图片文件的本地路径（绝对路径或相对于执行目录的相对路径）",
+        "hints": [
+          "/home/user/photo.png",
+          "./image.jpg"
+        ]
+      }
+    ],
+    "tags": [],
+    "usage_count": 0,
+    "created_at": "2026-07-26T14:22:47Z"
+  },
+  {
+    "id": "large-model-bounding-box-tool",
+    "name": "大模型标框工具",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/large-model-bounding-box-tool.md",
+    "impl_path": "implementations/large-model-bounding-box-tool/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "file_path",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "待检测图片的本地文件路径",
+        "hints": [
+          "/home/user/images/cat.jpg"
+        ]
+      },
+      {
+        "name": "req",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "需要检测的目标描述",
+        "hints": [
+          "person",
+          "car, dog"
+        ]
+      }
+    ],
+    "tags": [],
+    "usage_count": 0,
+    "created_at": "2026-07-26T17:07:24Z"
   }
 ]

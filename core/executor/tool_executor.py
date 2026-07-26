@@ -105,7 +105,7 @@ class ToolExecutor:
         cls,
         tool_id: str,
         params: dict,
-        timeout: float = 120.0,
+        timeout: float = None,
         code: str = None,
     ) -> dict:
         """异步执行工具。
@@ -113,7 +113,7 @@ class ToolExecutor:
         Args:
             tool_id: 工具ID
             params: 执行参数字典
-            timeout: 超时秒数，默认 120 秒，None 表示无超时
+            timeout: 超时秒数，None 表示无超时，传入数字则限时
             code: 可选，直接传入代码字符串（用于自动调试，避免重复读文件）
 
         Returns:
@@ -180,7 +180,7 @@ class ToolExecutor:
         cls,
         tool_id: str,
         params: dict,
-        timeout: float = 120.0,
+        timeout: float = None,
         code: str = None,
     ) -> dict:
         """同步执行工具。内部实现与 execute() 完全一致，仅使用同步 subprocess。

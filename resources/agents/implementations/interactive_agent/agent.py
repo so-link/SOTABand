@@ -457,7 +457,7 @@ class InteractiveAgent(BaseAgent):
             return await ToolExecutor.execute(
                 tool_id=tool_id,
                 params=params,
-                timeout=120.0,
+                timeout=None,  # 无超时限制，直到用户手动停止
             )
         except Exception as e:
             return {"status": "failed", "message": f"工具执行异常: {str(e)[:300]}"}

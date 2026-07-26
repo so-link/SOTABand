@@ -42,7 +42,8 @@ class ApiDoubaoGetKey:
 
     @staticmethod
     def call(**kwargs) -> dict:
-        return get_llm_api_config("doubao")
+        config = get_llm_api_config("doubao")
+        return {"api_key": config.get("api_key", "")}
 
 
 class ApiDeepseekGetKey:

@@ -14,7 +14,7 @@ from app.api.schemas.tool_schemas import (
     ExecuteToolRequest, ModifyCodeRequest,
 )
 from core.llm.client import create_llm_client
-from core.resource.builder.tool_builder import ToolCodeBuilder, TOOL_TEMPLATE
+from core.resource.builder.tool_builder import ToolCodeBuilder, TOOL_TEMPLATE, stop_debug
 from core.resource.registry.tool_registry import ToolRegistry
 from core.resource.discoverer.tool_discoverer import ToolDiscoverer
 
@@ -311,6 +311,21 @@ async def auto_debug(
     return EventSourceResponse(event_stream())
 
 
+# ── 停止自动调试 ──
+
+@router.post("/auto-debug/stop")
+async def stop_auto_debug(req: dict):
+    """停止指定工具的自动调试。
+    前端点击停止按钮、页面关闭、网络断开时都应调用此端点。
+    即使 SSE 连接已断开，此端点也能通过全局标志可靠地停止后台调试。
+    """
+    tool_id = req.get("tool_id", "")
+    if not tool_id:
+        raise HTTPException(status_code=400, detail="缺少 tool_id")
+    stop_debug(tool_id)
+    return {"status": "ok", "message": f"已请求停止工具 {tool_id} 的调试"}
+
+
 # ── 注册 v2 — 不再强制沙箱测试 ──
 
 @router.post("/register")
@@ -427,7 +442,7 @@ async def execute_tool(tool_id: str, req: ExecuteToolRequest):
     result = await ToolExecutor.execute(
         tool_id=tool_id,
         params=req.params,
-        timeout=120.0,
+        timeout=None,
     )
     return {"status": "success", "result": result}
 

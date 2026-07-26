@@ -59,7 +59,7 @@ export function AutocompleteDropdown({
   return (
     <div
       ref={listRef}
-      className="fixed z-50 w-72 max-h-48 overflow-y-auto rounded-lg border border-maia-border bg-white shadow-lg py-1"
+      className="fixed z-50 w-72 max-h-48 overflow-y-auto rounded-lg border border-maia-border bg-maia-surface shadow-lg py-1"
       style={{ top: position.top, left: position.left }}
     >
       {loading && items.length === 0 ? (

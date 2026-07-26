@@ -266,9 +266,7 @@
     "is_async": false,
     "input_schema": {},
     "output_schema": {
-      "api_key": "string",
-      "base_url": "string",
-      "model": "string"
+      "api_key": "string"
     },
     "tags": [
       "LLM",
