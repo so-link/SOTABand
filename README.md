@@ -62,12 +62,43 @@ sotaband-engine/
 ## 快速开始
 
 ```bash
-# 安装依赖
+# 1. 创建 .env 并填入 API Key
+cp .env.example .env
+# 编辑 .env，填写 DEEPSEEK_API_KEY
+
+# 2. 创建虚拟环境并安装 Python 依赖
+python3 -m venv venv
+source venv/bin/activate
 pip install -e ".[dev]"
 
-# 运行测试
-pytest
+# 3. 检查并修复工具运行环境（自动安装所有工具所需的依赖）
+python scripts/check_tool_env.py --auto
+
+# 4. 启动后端（端口 8001）
+uvicorn app.main:app --host 0.0.0.0 --port 8001
+
+# 5. 新终端，安装前端依赖并启动
+cd frontend && npm install && npm run dev
 ```
+
+### 工具环境检查脚本
+
+`scripts/check_tool_env.py` 用于自动检查所有工具的运行环境，确保依赖库完整。
+
+```bash
+# 仅检查，不安装
+python scripts/check_tool_env.py --dry-run
+
+# 交互模式，确认后安装缺失的包
+python scripts/check_tool_env.py
+
+# 自动安装所有缺失包，无需确认
+python scripts/check_tool_env.py --auto
+```
+
+脚本会扫描 `resources/tools/implementations/` 下所有工具的 `tool.py`，提取外部依赖，检查安装状态，并自动安装缺失的 Python 包。
+
+
 
 ## 开发状态
 

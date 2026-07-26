@@ -710,5 +710,46 @@
     "tags": [],
     "usage_count": 0,
     "created_at": "2026-07-25T17:45:11Z"
+  },
+  {
+    "id": "food-recipe-experiment-data-generator",
+    "name": "食品配方实验数据生成器",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/food-recipe-experiment-data-generator.md",
+    "impl_path": "implementations/food-recipe-experiment-data-generator/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "n",
+        "type": "integer",
+        "required": true,
+        "default": null,
+        "desc": "生成的数据条目数（行数）",
+        "hints": [
+          10,
+          50,
+          100
+        ]
+      },
+      {
+        "name": "output_dataset",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "数据集注册名称",
+        "hints": [
+          "experiment_2026",
+          "batch_1",
+          "test_data"
+        ]
+      }
+    ],
+    "tags": [],
+    "usage_count": 0,
+    "created_at": "2026-07-26T01:56:55Z"
   }
 ]

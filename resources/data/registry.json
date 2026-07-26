@@ -480,5 +480,107 @@
     "tags": [],
     "quality_score": null,
     "created_at": "2026-07-25T17:55:48Z"
+  },
+  {
+    "id": "暴雨天",
+    "name": "暴雨天",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/暴雨天.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026 SOTABand/SOTABand/data/downloads/1785030104412",
+    "file_count": 1,
+    "total_size": 937776,
+    "formats": [
+      "png"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-26T01:42:03Z"
+  },
+  {
+    "id": "跑步",
+    "name": "跑步",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/跑步.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026 SOTABand/SOTABand/data/downloads/20260726094525",
+    "file_count": 2,
+    "total_size": 1216108,
+    "formats": [
+      "jpg"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-26T01:45:29Z"
+  },
+  {
+    "id": "人脸",
+    "name": "人脸",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/人脸.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026 SOTABand/SOTABand/data/downloads/20260726094638",
+    "file_count": 2,
+    "total_size": 214902,
+    "formats": [
+      "webp"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-26T01:47:09Z"
+  },
+  {
+    "id": "孩子",
+    "name": "孩子",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/孩子.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026 SOTABand/SOTABand/data/downloads/20260726094736",
+    "file_count": 1,
+    "total_size": 48862,
+    "formats": [
+      "jpg"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-26T01:47:38Z"
+  },
+  {
+    "id": "kid_20260726_094756_798469",
+    "name": "kid",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/kid_20260726_094756_798469.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026 SOTABand/SOTABand/data/download/20260726_094756_798469",
+    "file_count": 1,
+    "total_size": 41163,
+    "formats": [
+      "jpg"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-26T01:48:00Z"
+  },
+  {
+    "id": "food_20260726_095633",
+    "name": "food",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/food_20260726_095633.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026 SOTABand/SOTABand/data/downloads/20260726_095633",
+    "file_count": 1,
+    "total_size": 331,
+    "formats": [
+      "csv"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-26T01:56:33Z"
   }
 ]
