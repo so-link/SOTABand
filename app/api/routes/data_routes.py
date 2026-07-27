@@ -348,7 +348,7 @@ async def preview_dataset(dataset_id: str):
             for f in data_path.rglob("*"):
                 if f.is_file():
                     files.append({
-                        "name": f.name, "format": f.suffix.lstrip("."),
+                        "name": str(f.relative_to(data_path)), "format": f.suffix.lstrip("."),
                         "size": f.stat().st_size, "description": "",
                     })
 

@@ -1,6 +1,15 @@
 const BASE_URL = ''
 
 export const dataApi = {
+  async generateSpec(description: string, files: Array<Record<string, unknown>>) {
+    const res = await fetch(`${BASE_URL}/api/data/generate-spec`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ description, files }),
+    })
+    if (!res.ok) throw new Error((await res.json().catch(() => ({ detail: res.statusText }))).detail)
+    return res.json() as Promise<{ spec_md: string }>
+  },
+
   async scanDirectory(path: string) {
     const res = await fetch(`${BASE_URL}/api/data/scan-directory`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -22,12 +31,23 @@ export const dataApi = {
     return res.json()
   },
 
-  async register(name: string, path: string, description: string = '') {
+  async register(specMd: string, datasetName: string, dataPath: string, fileCount: number, totalSize: number, formats: string[], sourceFiles: string[]) {
     const res = await fetch(`${BASE_URL}/api/data/register`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, path, description }),
+      body: JSON.stringify({
+        specMd,
+        datasetName,
+        dataPath,
+        fileCount,
+        totalSize,
+        formats,
+        sourceFiles,
+      }),
     })
-    if (!res.ok) throw new Error((await res.json().catch(() => ({ detail: res.statusText }))).detail)
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }))
+      throw new Error(err.detail || err.message || '注册失败')
+    }
     return res.json() as Promise<{ dataset_id: string; entry: Record<string, unknown> }>
   },
 

@@ -63,6 +63,24 @@ async def serve_image(path: str):
     return FileResponse(img_path, media_type=mime_type or "image/png")
 
 
+@router.get("/download")
+async def download_file(path: str):
+    """下载/预览任意文件"""
+    from pathlib import Path as _Path
+    from fastapi.responses import Response
+    import mimetypes
+    file_path = _Path(path)
+    if not file_path.exists():
+        raise HTTPException(404, "文件不存在")
+    mime_type, _ = mimetypes.guess_type(str(file_path))
+    content = file_path.read_bytes()
+    return Response(
+        content=content,
+        media_type=mime_type or "application/octet-stream",
+        headers={"Content-Disposition": f"inline; filename=\"{file_path.name}\""},
+    )
+
+
 @router.get("/list")
 async def list_files():
     """列出所有已上传文件"""

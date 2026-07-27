@@ -86,7 +86,7 @@ export const useDatasetEditorStore = create<DatasetEditorState>((set, get) => ({
       }))
       const result = await dataApi.generateSpec(description, fileDescs as unknown as Record<string, unknown>[])
       set({ generatedMd: result.spec_md, step: 2, isGenerating: false })
-    } catch (e) { set({ error: String(e), isGenerating: false }) }
+    } catch (e) { set({ error: e instanceof Error ? e.message : String(e), isGenerating: false }) }
   },
 
   register: async () => {
@@ -106,6 +106,6 @@ export const useDatasetEditorStore = create<DatasetEditorState>((set, get) => ({
       // 刷新数据空间列表
       const { useResourceStore } = await import('@/stores/resource-store')
       useResourceStore.getState().fetchDatasetsFromApi()
-    } catch (e) { set({ error: String(e), isGenerating: false }) }
+    } catch (e) { set({ error: e instanceof Error ? e.message : String(e), isGenerating: false }) }
   },
 }))

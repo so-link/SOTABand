@@ -890,72 +890,6 @@
     "created_at": "2026-07-26T09:27:19Z"
   },
   {
-    "id": "yolo-dataset-from-doubao-detection",
-    "name": "基于豆包大模型的目标检测标注与YOLO数据集构建",
-    "version": "0.1.0",
-    "type": "function",
-    "language": "python",
-    "status": "active",
-    "spec_path": "definitions/yolo-dataset-from-doubao-detection.md",
-    "impl_path": "implementations/yolo-dataset-from-doubao-detection/",
-    "input_schema": {},
-    "output_schema": {},
-    "param_meta": [
-      {
-        "name": "dataset",
-        "type": "string",
-        "required": true,
-        "default": null,
-        "desc": "数据集名称，用于通过系统API获取数据集信息",
-        "hints": [
-          "my_coco_dataset"
-        ]
-      },
-      {
-        "name": "req",
-        "type": "string",
-        "required": true,
-        "default": null,
-        "desc": "目标检测描述，传递给大模型的检测需求，如“猫”、“狗、车”等",
-        "hints": [
-          "猫",
-          "狗,车"
-        ]
-      }
-    ],
-    "tags": [],
-    "usage_count": 0,
-    "created_at": "2026-07-26T11:44:37Z"
-  },
-  {
-    "id": "display-image",
-    "name": "图片查看器",
-    "version": "0.1.0",
-    "type": "function",
-    "language": "python",
-    "status": "active",
-    "spec_path": "definitions/display-image.md",
-    "impl_path": "implementations/display-image/",
-    "input_schema": {},
-    "output_schema": {},
-    "param_meta": [
-      {
-        "name": "path",
-        "type": "string",
-        "required": true,
-        "default": null,
-        "desc": "图片文件的本地路径（绝对路径或相对于执行目录的相对路径）",
-        "hints": [
-          "/home/user/photo.png",
-          "./image.jpg"
-        ]
-      }
-    ],
-    "tags": [],
-    "usage_count": 0,
-    "created_at": "2026-07-26T14:22:47Z"
-  },
-  {
     "id": "large-model-bounding-box-tool",
     "name": "大模型标框工具",
     "version": "0.1.0",
@@ -992,5 +926,133 @@
     "tags": [],
     "usage_count": 0,
     "created_at": "2026-07-26T17:07:24Z"
+  },
+  {
+    "id": "batch-ai-bbox-labeling",
+    "name": "大模型批量标框",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/batch-ai-bbox-labeling.md",
+    "impl_path": "implementations/batch-ai-bbox-labeling/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "dataset",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "原始图片数据集名称，系统通过【获取数据集信息】获取其实际路径",
+        "hints": [
+          "my_dataset"
+        ]
+      },
+      {
+        "name": "req",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "检测目标描述，例如 \"person, car\"，将作为提示词传给豆包大模型",
+        "hints": [
+          "person, car"
+        ]
+      },
+      {
+        "name": "output_dataset",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "标注完成后生成的新数据集名称，系统将通过【数据集注册API】进行注册",
+        "hints": [
+          "labeled_output"
+        ]
+      }
+    ],
+    "tags": [],
+    "usage_count": 0,
+    "created_at": "2026-07-27T07:17:29Z"
+  },
+  {
+    "id": "paper-abstract-tool",
+    "name": "论文摘要工具",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/paper-abstract-tool.md",
+    "impl_path": "implementations/paper-abstract-tool/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "dataset",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "数据集名称，用于定位论文目录",
+        "hints": [
+          "my_papers",
+          "arxiv-dataset"
+        ]
+      },
+      {
+        "name": "n",
+        "type": "integer",
+        "required": true,
+        "default": null,
+        "desc": "每篇论文摘要的最大字数",
+        "hints": [
+          "200",
+          "300",
+          "500"
+        ]
+      }
+    ],
+    "tags": [],
+    "usage_count": 0,
+    "created_at": "2026-07-27T08:57:38Z"
+  },
+  {
+    "id": "paper-summary-tool",
+    "name": "论文摘要",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/paper-summary-tool.md",
+    "impl_path": "implementations/paper-summary-tool/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "dataset",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "数据集名称，用于定位论文PDF目录",
+        "hints": [
+          "my_papers",
+          "research_2024",
+          "conference_pdfs"
+        ]
+      },
+      {
+        "name": "n",
+        "type": "integer",
+        "required": false,
+        "default": 300,
+        "desc": "每篇论文摘要的最大字数",
+        "hints": [
+          200,
+          500,
+          1000
+        ]
+      }
+    ],
+    "tags": [],
+    "usage_count": 0,
+    "created_at": "2026-07-27T09:32:57Z"
   }
 ]
