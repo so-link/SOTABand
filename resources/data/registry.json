@@ -205,39 +205,21 @@
     "created_at": "2026-07-27T04:53:05Z"
   },
   {
-    "id": "custom-dataset",
-    "name": "船只测试数据",
+    "id": "LLM-Memory",
+    "name": "LLM-Memory",
     "version": "0.1.0",
     "type": "generic",
     "status": "active",
-    "spec_path": "definitions/custom-dataset.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/resources/data/datasets/custom-dataset",
-    "file_count": 3,
-    "total_size": 2244847,
+    "spec_path": "definitions/LLM-Memory.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/download/20260727_194150",
+    "file_count": 6,
+    "total_size": 3726042,
     "formats": [
-      "png"
+      "csv",
+      "pdf"
     ],
     "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-27T05:53:28Z",
-    "preview_tool": "display-image"
-  },
-  {
-    "id": "船标_20260727151519",
-    "name": "船标",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/船标_20260727151519.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/20260727151519",
-    "file_count": 3,
-    "total_size": 15246752,
-    "formats": [
-      "txt",
-      "png"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-27T07:15:57Z"
+    "created_at": "2026-07-27T11:41:58Z"
   }
 ]

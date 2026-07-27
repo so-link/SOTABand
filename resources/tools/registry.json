@@ -975,14 +975,14 @@
     "created_at": "2026-07-27T07:17:29Z"
   },
   {
-    "id": "paper-abstract-tool",
+    "id": "paper-summarizer",
     "name": "论文摘要工具",
     "version": "0.1.0",
     "type": "function",
     "language": "python",
     "status": "active",
-    "spec_path": "definitions/paper-abstract-tool.md",
-    "impl_path": "implementations/paper-abstract-tool/",
+    "spec_path": "definitions/paper-summarizer.md",
+    "impl_path": "implementations/paper-summarizer/",
     "input_schema": {},
     "output_schema": {},
     "param_meta": [
@@ -991,10 +991,10 @@
         "type": "string",
         "required": true,
         "default": null,
-        "desc": "数据集名称，用于定位论文目录",
+        "desc": "数据集名称，用于通过【获取数据集信息】定位目录",
         "hints": [
-          "my_papers",
-          "arxiv-dataset"
+          "my_dataset",
+          "paper_collection"
         ]
       },
       {
@@ -1002,57 +1002,16 @@
         "type": "integer",
         "required": true,
         "default": null,
-        "desc": "每篇论文摘要的最大字数",
+        "desc": "每篇论文分析报告的最大字数（汉字）",
         "hints": [
-          "200",
-          "300",
-          "500"
-        ]
-      }
-    ],
-    "tags": [],
-    "usage_count": 0,
-    "created_at": "2026-07-27T08:57:38Z"
-  },
-  {
-    "id": "paper-summary-tool",
-    "name": "论文摘要",
-    "version": "0.1.0",
-    "type": "function",
-    "language": "python",
-    "status": "active",
-    "spec_path": "definitions/paper-summary-tool.md",
-    "impl_path": "implementations/paper-summary-tool/",
-    "input_schema": {},
-    "output_schema": {},
-    "param_meta": [
-      {
-        "name": "dataset",
-        "type": "string",
-        "required": true,
-        "default": null,
-        "desc": "数据集名称，用于定位论文PDF目录",
-        "hints": [
-          "my_papers",
-          "research_2024",
-          "conference_pdfs"
-        ]
-      },
-      {
-        "name": "n",
-        "type": "integer",
-        "required": false,
-        "default": 300,
-        "desc": "每篇论文摘要的最大字数",
-        "hints": [
-          200,
           500,
-          1000
+          1000,
+          2000
         ]
       }
     ],
     "tags": [],
     "usage_count": 0,
-    "created_at": "2026-07-27T09:32:57Z"
+    "created_at": "2026-07-27T11:39:04Z"
   }
 ]

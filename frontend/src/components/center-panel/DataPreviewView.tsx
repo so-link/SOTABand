@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Database, File, Image, Loader2, Eye, ChevronLeft, ChevronRight, Table2 } from 'lucide-react'
+import { Database, File, Image, Loader2, ChevronLeft, ChevronRight, Table2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardBody } from '@/components/ui/card'
@@ -56,8 +56,6 @@ export function DataPreviewView() {
 
   const files = (detail?.files as Array<Record<string, unknown>>) || []
   const specMd = (detail?.spec_md as string) || ''
-  const previewTool = detail?.preview_tool as string | null
-  const hasPreviewTool = (detail?.has_preview_tool as boolean) || false
   const datasetPath = ((detail?.dataset as Record<string, unknown>)?.data_path as string) || ''
 
   const imageFiles = files.filter(isImageFile)
@@ -102,24 +100,6 @@ export function DataPreviewView() {
       </div>
 
       <div className="flex-1 p-4 max-w-5xl mx-auto space-y-4 w-full">
-        {/* Preview tool match */}
-        {hasPreviewTool && previewTool && (
-          <Card className="border-blue-200 bg-blue-50/50">
-            <CardBody>
-              <div className="flex items-center gap-2 mb-1">
-                <Eye className="h-4 w-4 text-blue-500" />
-                <span className="text-xs font-medium text-blue-700">推荐预览工具</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-mono text-blue-800">{previewTool}</span>
-                <Button size="sm" variant="outline" className="text-[11px] h-6">
-                  执行预览
-                </Button>
-              </div>
-            </CardBody>
-          </Card>
-        )}
-
         {/* Image gallery */}
         {imageFiles.length > 0 && (
           <Card className="border-maia-border">

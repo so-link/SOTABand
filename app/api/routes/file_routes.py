@@ -5,7 +5,7 @@ import shutil
 import time
 from pathlib import Path
 
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 
 router = APIRouter()
 
@@ -15,16 +15,20 @@ UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
 
 
 @router.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
-    """上传文件，保存到 data/uploads/ 目录"""
+async def upload_file(file: UploadFile = File(...), subdir: str = Form("")):
+    """上传文件，保存到 data/uploads/ 目录。
+
+    Args:
+        subdir: 可选子目录（如时间戳）。不传则按日期分目录。
+    """
     if not file.filename:
         raise HTTPException(400, "文件名不能为空")
 
     # 安全文件名
     safe_name = Path(file.filename).name
-    # 按日期分目录避免单目录文件过多
-    date_dir = time.strftime("%Y-%m-%d")
-    dest_dir = UPLOAD_ROOT / date_dir
+    # 子目录：优先用传入的 subdir，否则按日期
+    dir_name = subdir if subdir else time.strftime("%Y-%m-%d")
+    dest_dir = UPLOAD_ROOT / dir_name
     dest_dir.mkdir(parents=True, exist_ok=True)
 
     # 处理重名
@@ -48,6 +52,25 @@ async def upload_file(file: UploadFile = File(...)):
         "format": fmt,
         "uploadedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
+
+
+@router.post("/delete")
+async def delete_file(req: dict):
+    """删除指定路径的文件"""
+    path = req.get("path", "")
+    if not path:
+        raise HTTPException(400, "缺少文件路径")
+    file_path = Path(path)
+    if not file_path.exists():
+        raise HTTPException(404, "文件不存在")
+    # 安全检查：只允许删除 data/uploads/ 下的文件
+    if not str(file_path.resolve()).startswith(str(UPLOAD_ROOT.resolve())):
+        raise HTTPException(403, "不允许删除该目录外的文件")
+    try:
+        file_path.unlink()
+        return {"status": "ok", "message": "文件已删除"}
+    except Exception as e:
+        raise HTTPException(500, f"删除失败: {str(e)}")
 
 
 @router.get("/image")

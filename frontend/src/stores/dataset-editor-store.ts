@@ -2,6 +2,8 @@
 import { create } from 'zustand'
 import { dataApi } from '@/services/api/data'
 
+const BASE_URL = ''
+
 export type EditorStep = 1 | 2 | 3
 
 interface UploadedFile {
@@ -21,6 +23,7 @@ interface DatasetEditorState {
   registeredId: string | null
   isGenerating: boolean
   error: string | null
+  uploadSubdir: string  // 上传时间戳目录，同一数据集的多次上传共用
 
   setDescription: (text: string) => void
   setGeneratedMd: (md: string) => void
@@ -35,7 +38,7 @@ interface DatasetEditorState {
 
 export const useDatasetEditorStore = create<DatasetEditorState>((set, get) => ({
   step: 1, files: [], description: '', generatedMd: '', registeredId: null,
-  isGenerating: false, error: null,
+  isGenerating: false, error: null, uploadSubdir: '',
 
   setDescription: (text) => set({ description: text }),
   setGeneratedMd: (md) => set({ generatedMd: md }),
@@ -49,6 +52,15 @@ export const useDatasetEditorStore = create<DatasetEditorState>((set, get) => ({
     const BASE_URL = ''
     const formData = new FormData()
     formData.append('file', file)
+
+    // 首次上传生成时间戳目录，后续上传复用
+    let { uploadSubdir } = get()
+    if (!uploadSubdir) {
+      uploadSubdir = `dataset_${Date.now()}`
+      set({ uploadSubdir })
+    }
+    formData.append('subdir', uploadSubdir)
+
     try {
       const res = await fetch(`${BASE_URL}/api/file/upload`, {
         method: 'POST', body: formData,
@@ -64,13 +76,22 @@ export const useDatasetEditorStore = create<DatasetEditorState>((set, get) => ({
     } catch { /* ignore */ }
   },
 
-  removeFile: (fileId) => set((state) => ({
-    files: state.files.filter(f => f.id !== fileId),
-  })),
+  removeFile: (fileId) => {
+    const file = get().files.find(f => f.id === fileId)
+    if (file?.filePath) {
+      fetch(`${BASE_URL}/api/file/delete`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: file.filePath }),
+      }).catch(() => {})
+    }
+    set((state) => ({
+      files: state.files.filter(f => f.id !== fileId),
+    }))
+  },
 
   reset: () => set({
     step: 1, files: [], description: '', generatedMd: '', registeredId: null,
-    isGenerating: false, error: null,
+    isGenerating: false, error: null, uploadSubdir: '',
   }),
 
   generateSpec: async () => {

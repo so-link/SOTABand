@@ -1,6 +1,7 @@
 """数据管理路由 — 扫描、规格生成、注册、预览、处理"""
 
 import os
+import time
 import json as _json
 from pathlib import Path
 
@@ -159,48 +160,50 @@ async def generate_spec(req: GenerateDataSpecRequest):
 
 @router.post("/register")
 async def register_dataset(req: RegisterDatasetRequest):
-    """注册数据集 — 文件集中存储到 resources/data/datasets/{id}/"""
+    """注册数据集 — 文件保持在原位置，不复制"""
     if not req.spec_md.strip():
         raise HTTPException(400, "specMd 不能为空")
 
-    ds_id = req.dataset_id or "custom-dataset"
+    ds_id = req.dataset_id or f"{req.dataset_name}_{int(time.time())}" if req.dataset_name else f"dataset_{int(time.time())}"
 
-    # 创建数据集专用目录
-    datasets_root = registry._get_data_dir()
-    ds_dir = datasets_root / ds_id
-    ds_dir.mkdir(parents=True, exist_ok=True)
+    # 数据集文件保持在原位置，从上传的文件路径推断 data_path
+    data_path = ""
+    file_count = req.file_count
+    total_size = req.total_size
+    formats = set(req.formats)
 
-    # 从上传的零散文件中复制到数据集目录
-    import shutil
-    file_count = 0
-    total_size = 0
-    formats = set()
-    for fp in (req.source_files or []):
-        src = Path(fp)
-        if src.exists() and src.is_file():
-            dest = ds_dir / src.name
-            if not dest.exists():
-                shutil.copy2(src, dest)
-            file_count += 1
-            total_size += dest.stat().st_size
-            formats.add(dest.suffix.lstrip(".").lower())
-
-    # 如未传入文件信息，使用请求中的值
-    if file_count == 0:
-        file_count = req.file_count
-        total_size = req.total_size
-        formats = set(req.formats)
+    if req.source_files:
+        # 用第一个文件的父目录作为数据集根路径
+        first = Path(req.source_files[0])
+        if first.exists():
+            data_path = str(first.parent)
+        # 统计实际文件信息
+        file_count = 0
+        total_size = 0
+        formats = set()
+        for fp in req.source_files:
+            src = Path(fp)
+            if src.exists() and src.is_file():
+                file_count += 1
+                total_size += src.stat().st_size
+                formats.add(src.suffix.lstrip(".").lower())
 
     resource = {
         "id": ds_id,
         "name": req.dataset_name or ds_id,
         "raw_md": req.spec_md,
-        "data_path": str(ds_dir),
+        "data_path": data_path,
         "file_count": file_count,
         "total_size": total_size,
         "formats": sorted(formats),
         "tags": req.tags,
     }
+
+    # 在 spec_md 末尾追加数据集目录信息
+    if data_path:
+        path_info = f"\n\n---\n## 数据集目录\n- **路径**: `{data_path}`\n- **文件数**: {file_count}\n- **总大小**: {total_size} bytes\n- **格式**: {', '.join(sorted(formats))}\n"
+        resource["raw_md"] = req.spec_md + path_info
+
     registered_id = await registry.register(resource)
     entry = await registry.get(registered_id)
 
