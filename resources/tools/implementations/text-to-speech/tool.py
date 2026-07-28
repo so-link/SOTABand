@@ -52,6 +52,8 @@ def _resolve_path(path: str) -> str:
 # === 头部结束，以下由 LLM 生成 ===
 
 import pyttsx3
+import tempfile
+import wave
 
 
 def execute(**kwargs) -> dict[str, Any]:
@@ -67,20 +69,42 @@ def execute(**kwargs) -> dict[str, Any]:
                 "data": {}
             }
 
-        # 2. 准备输出文件路径
+        # 2. 用 pyttsx3 生成临时 AIFF 文件
         _DATA_DIR.mkdir(parents=True, exist_ok=True)
         file_name = f"tts_{int(time.time())}.wav"
         output_path = _DATA_DIR / file_name
 
-        # 3. 初始化 pyttsx3 引擎（离线，不使用 Google）
-        engine = pyttsx3.init()
-        # 可选设置语速和音量（保持默认）
-        # engine.setProperty('rate', 150)
-        # engine.setProperty('volume', 0.9)
+        # 先用临时文件保存 pyttsx3 的输出（macOS 上是 AIFF-C 格式）
+        with tempfile.NamedTemporaryFile(suffix=".aiff", delete=False) as tmp:
+            tmp_path = tmp.name
 
-        # 4. 合成语音并保存
-        engine.save_to_file(req.strip(), str(output_path))
+        engine = pyttsx3.init()
+        engine.save_to_file(req.strip(), tmp_path)
         engine.runAndWait()
+
+        # 3. 将 AIFF 转换为 WAV（macOS 用 afconvert，Linux 用 ffmpeg）
+        try:
+            import subprocess as _sp
+            if sys.platform == "darwin":
+                # macOS: 用系统自带的 afconvert
+                _sp.run(
+                    ["afconvert", "-f", "WAVE", "-d", "LEI16@22050", tmp_path, str(output_path)],
+                    capture_output=True, text=True, timeout=30, check=True
+                )
+            else:
+                # Linux: 尝试 ffmpeg
+                _sp.run(
+                    ["ffmpeg", "-y", "-i", tmp_path, "-acodec", "pcm_s16le",
+                     "-ar", "22050", "-ac", "1", str(output_path)],
+                    capture_output=True, text=True, timeout=30, check=True
+                )
+        except Exception:
+            # 转换失败，保留 aiff 格式
+            import shutil
+            output_path = _DATA_DIR / f"tts_{int(time.time())}.aiff"
+            shutil.copy(tmp_path, str(output_path))
+        finally:
+            Path(tmp_path).unlink(missing_ok=True)
 
         # 5. 构造成功响应
         return {

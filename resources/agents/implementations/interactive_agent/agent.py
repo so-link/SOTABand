@@ -183,8 +183,8 @@ class InteractiveAgent(BaseAgent):
                         },
                     },
                 }
-                # 图片/表格/失败 → 直接结束，不调 LLM
-                if tool_result.get("output_format") in ("image", "table") or tool_result.get("status") == "failed":
+                # 图片/表格/文件/失败 → 直接结束，不调 LLM（文件由前端渲染，如音频播放器、下载链接等）
+                if tool_result.get("output_format") in ("image", "table", "file") or tool_result.get("status") == "failed":
                     return
             else:
                 tool_failed = True

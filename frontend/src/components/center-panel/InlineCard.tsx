@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { InlineCard as InlineCardType } from '@/types/chat'
 import { Card, CardHeader, CardBody } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -13,6 +13,8 @@ import {
   FileCode,
   GitBranch,
   Activity,
+  Volume2,
+  Download,
 } from 'lucide-react'
 
 interface InlineCardProps {
@@ -248,6 +250,11 @@ function ResultSummaryCard({ title, summary, data }: { title: string; summary: s
         {outputFormat === 'table' && !(outputData.columns as unknown[])?.length && (
           <TableOutput data={outputData} />
         )}
+
+        {/* File — 音频播放器 / 下载链接 */}
+        {outputFormat === 'file' && (
+          <FileOutput data={outputData} />
+        )}
       </CardBody>
     </Card>
   )
@@ -323,6 +330,88 @@ function TableOutput({ data }: { data: Record<string, unknown> }) {
           ))}
         </tbody>
       </table>
+    </div>
+  )
+}
+
+// ── File Output (audio player / download link) ──
+
+const AUDIO_EXTENSIONS = ['.wav', '.mp3', '.ogg', '.flac', '.aac', '.m4a', '.wma', '.webm', '.aiff', '.aifc', '.aif']
+
+function FileOutput({ data }: { data: Record<string, unknown> }) {
+  const filePath = (data.file_path || data.path || data.output_path) as string | undefined
+  const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  const fileName = filePath ? (filePath.split('/').pop() || filePath) : ''
+  const ext = fileName.slice(fileName.lastIndexOf('.')).toLowerCase()
+  const isAudio = AUDIO_EXTENSIONS.includes(ext)
+
+  if (!filePath) return <p className="text-xs text-gray-400">文件路径不可用</p>
+
+  const downloadUrl = `/api/file/download?path=${encodeURIComponent(filePath)}`
+
+  // 音频文件通过 fetch → Blob → ObjectURL 加载，避免跨域和 Range 请求问题
+  useEffect(() => {
+    if (!isAudio) return
+    let cancelled = false
+    setLoading(true)
+    fetch(`/api/file/download?path=${encodeURIComponent(filePath)}`)
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.blob()
+      })
+      .then(blob => {
+        if (!cancelled) {
+          setAudioUrl(URL.createObjectURL(blob))
+          setLoading(false)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [filePath])
+
+  return (
+    <div className="mt-2 rounded-lg border border-maia-border overflow-hidden">
+      {isAudio ? (
+        <div className="p-3 bg-maia-bg">
+          <div className="flex items-center gap-2 mb-2">
+            <Volume2 className="h-4 w-4 text-emerald-500" />
+            <span className="text-xs font-medium text-maia-text">{fileName}</span>
+          </div>
+          {loading ? (
+            <div className="flex items-center gap-2 text-xs text-maia-text-muted py-2">
+              <div className="h-3 w-3 rounded-full border-2 border-maia-border border-t-maia-accent animate-spin" />
+              加载音频...
+            </div>
+          ) : audioUrl ? (
+            <audio controls className="w-full" preload="auto" src={audioUrl}>
+              <p className="text-xs text-maia-text-muted">
+                您的浏览器不支持直接播放此音频格式，
+                <a href={downloadUrl} target="_blank" className="text-maia-accent underline ml-1">点击下载</a>
+              </p>
+            </audio>
+          ) : (
+            <div className="text-xs text-maia-text-muted">
+              音频加载失败，
+              <a href={downloadUrl} target="_blank" className="text-maia-accent underline ml-1">点击下载文件</a>
+            </div>
+          )}
+        </div>
+      ) : (
+        <a
+          href={downloadUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2 p-3 text-xs text-maia-accent hover:bg-maia-bg transition-colors"
+        >
+          <Download className="h-4 w-4" />
+          <span className="truncate flex-1">{fileName}</span>
+          <span className="text-maia-text-muted shrink-0">下载</span>
+        </a>
+      )}
     </div>
   )
 }

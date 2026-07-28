@@ -90,17 +90,48 @@ async def serve_image(path: str):
 async def download_file(path: str):
     """下载/预览任意文件"""
     from pathlib import Path as _Path
-    from fastapi.responses import Response
+    from fastapi.responses import FileResponse as _FileResponse
     import mimetypes
     file_path = _Path(path)
     if not file_path.exists():
         raise HTTPException(404, "文件不存在")
     mime_type, _ = mimetypes.guess_type(str(file_path))
-    content = file_path.read_bytes()
-    return Response(
-        content=content,
+
+    # 检测实际文件格式（某些工具生成 AIFF-C 但用 .wav 扩展名）
+    if mime_type == "audio/wav":
+        try:
+            with open(file_path, "rb") as _f:
+                header = _f.read(12)
+                if header[8:12] == b"AIFC" or header[8:12] == b"AIFF":
+                    mime_type = "audio/aiff"
+        except Exception:
+            pass
+
+    return _FileResponse(
+        file_path,
         media_type=mime_type or "application/octet-stream",
         headers={"Content-Disposition": f"inline; filename=\"{file_path.name}\""},
+    )
+
+
+@router.get("/audio")
+async def serve_audio(path: str):
+    """提供音频文件（专门用于 <audio> 标签播放，支持 Range 请求）"""
+    from pathlib import Path as _Path
+    from fastapi.responses import FileResponse as _FileResponse
+    import mimetypes
+    file_path = _Path(path)
+    if not file_path.exists():
+        raise HTTPException(404, "音频文件不存在")
+    mime_type, _ = mimetypes.guess_type(str(file_path))
+    return _FileResponse(
+        file_path,
+        media_type=mime_type or "audio/wav",
+        headers={
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "no-cache",
+            "Access-Control-Allow-Origin": "*",
+        },
     )
 
 
