@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   Wrench, FileCode, FileText, X, Play, Loader2,
-  CheckCheck, Save, Bot, Code, Pencil,
+  CheckCheck, Save, Bot, Code, Pencil, Tag, Plus,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -39,14 +39,14 @@ function parseInputs(md: string): InputField[] {
 export function ToolDetailView() {
   const selectedResource = useResourceStore((s) => s.selectedResource)
   const setActiveView = useUIStore((s) => s.setActiveView)
-  const tool = selectedResource as ToolResource | null
+  const tool = selectedResource?.type === 'tool' ? (selectedResource as ToolResource) : null
 
   const [specMd, setSpecMd] = useState('')
   const [code, setCode] = useState('')
   const [editedCode, setEditedCode] = useState('')
   const [showSpec, setShowSpec] = useState(false)
   const [showCode, setShowCode] = useState(false)
-  const [showDemand, setShowDemand] = useState(false)
+  const [showDemand, setShowDemand] = useState(true)
   const [showReference, setShowReference] = useState(false)
   const [demandText, setDemandText] = useState('')
   const [referenceCode, setReferenceCode] = useState('')
@@ -180,6 +180,7 @@ export function ToolDetailView() {
           <Wrench className="h-4 w-4 text-amber-500" />
           <span className="text-sm font-semibold text-maia-text-heading tracking-wide">{tool.name}</span>
           <Badge variant="success">v{tool.version}</Badge>
+          <ToolTagsEditor toolId={tool.id} tags={tool.tags || []} />
         </div>
         <div className="flex items-center gap-2">
           {demandText && (
@@ -396,6 +397,70 @@ export function ToolDetailView() {
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+/** 工具标签编辑器（内联组件） */
+function ToolTagsEditor({ toolId, tags: initialTags }: { toolId: string; tags: string[] }) {
+  const [tags, setTags] = useState<string[]>(initialTags || [])
+  const [editing, setEditing] = useState(false)
+  const [newTag, setNewTag] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const saveTags = async (updated: string[]) => {
+    setSaving(true)
+    try {
+      await fetch(`/api/tool/${toolId}/tags`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tags: updated }),
+      })
+      setTags(updated)
+    } catch { /* ignore */ }
+    setSaving(false)
+  }
+
+  return (
+    <div className="flex items-center gap-1">
+      {tags.map(tag => (
+        <span key={tag} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] bg-maia-bg text-maia-text-secondary border border-maia-border">
+          {tag}
+          {editing && (
+            <button onClick={() => saveTags(tags.filter(t => t !== tag))} className="hover:text-red-400">
+              <X className="h-2.5 w-2.5" />
+            </button>
+          )}
+        </span>
+      ))}
+      {editing && (
+        <form onSubmit={e => { e.preventDefault(); if (newTag.trim()) { const updated = [...tags, newTag.trim()]; saveTags(updated); setNewTag(''); } }}>
+          <input
+            value={newTag}
+            onChange={e => setNewTag(e.target.value)}
+            placeholder="+标签"
+            className="w-16 h-5 px-1 rounded border border-maia-accent/40 bg-maia-bg text-[10px] text-maia-text outline-none"
+            autoFocus
+            onBlur={() => { if (!newTag.trim()) setEditing(false) }}
+          />
+        </form>
+      )}
+      {!editing && (
+        <button
+          onClick={() => setEditing(true)}
+          className="inline-flex items-center justify-center h-5 w-5 rounded hover:bg-maia-bg text-maia-text-muted hover:text-maia-accent"
+          title="编辑标签"
+        >
+          <Plus className="h-3 w-3" />
+        </button>
+      )}
+      {editing && (
+        <button
+          onClick={() => setEditing(false)}
+          className="text-[10px] text-maia-text-muted hover:text-maia-text ml-1"
+        >
+          完成
+        </button>
+      )}
     </div>
   )
 }
