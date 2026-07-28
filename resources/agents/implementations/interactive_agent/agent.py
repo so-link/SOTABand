@@ -210,15 +210,21 @@ class InteractiveAgent(BaseAgent):
             # 把 data 中的详细内容也合并进去
             data = tool_result.get("data", {})
             if isinstance(data, dict):
+                # 先提取 text/output 文本字段
                 data_text = data.get("text", "") or data.get("output", "")
                 if data_text:
                     if summary:
                         summary = f"{summary}\n\n{data_text}"
                     else:
                         summary = data_text
-                elif not summary:
-                    # 没有 text 字段，用整个 data 的 JSON
-                    summary = json.dumps(data, ensure_ascii=False, default=str)
+                # 把其他结构化字段（area, volume 等）也追加到 summary
+                other_fields = {k: v for k, v in data.items() if k not in ("text", "output")}
+                if other_fields:
+                    fields_str = json.dumps(other_fields, ensure_ascii=False)
+                    if summary:
+                        summary = f"{summary}\n\n详细数据: {fields_str}"
+                    else:
+                        summary = fields_str
             if not summary:
                 # 兜底：提取不含 image_path/data 的关键信息
                 info = {k: v for k, v in tool_result.items() if k not in ("data", "image_path", "output_format")}

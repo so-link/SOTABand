@@ -23,7 +23,7 @@ const TAB_CONFIG: Record<ActiveView, { label: string; icon: typeof MessageSquare
   'tool-editor':   { label: '工具',    icon: Bot },
   'tool-detail':   { label: '工具',    icon: Bot },
   'dataset-editor':{ label: '数据集',  icon: BarChart3 },
-  'repository':    { label: '仓库',    icon: Package },
+  'repository':    { label: '工具仓库',    icon: Package },
 }
 
 export function CenterPanel() {
