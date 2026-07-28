@@ -16,7 +16,7 @@ export const toolApi = {
       body: JSON.stringify({ description, reference_code: referenceCode }),
     })
     if (!res.ok) { const err = await res.json().catch(() => ({ detail: res.statusText })); throw new Error(err.detail) }
-    return res.json() as Promise<{ spec_md: string }>
+    return res.json() as Promise<{ spec_md: string; tags: string[] }>
   },
 
   async generateCode(specMd: string) {
@@ -126,11 +126,11 @@ export const toolApi = {
     return res.json()
   },
 
-  async register(specMd: string, code: string, testInputs: Record<string, string>, demandDesc: string = '', referenceCode: string = '') {
+  async register(specMd: string, code: string, testInputs: Record<string, string>, demandDesc: string = '', referenceCode: string = '', tags: string[] = []) {
     const { toolId, toolName } = extractIdName(specMd)
     const res = await fetch(`${BASE_URL}/api/tool/register`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ specMd, code, toolId, toolName, testData: testInputs, demandDesc, referenceCode }),
+      body: JSON.stringify({ specMd, code, toolId, toolName, testData: testInputs, demandDesc, referenceCode, tags }),
     })
     if (!res.ok) { const err = await res.json().catch(() => ({ detail: res.statusText })); throw new Error(err.detail) }
     return res.json() as Promise<{ tool_id: string; entry: Record<string, unknown> }>

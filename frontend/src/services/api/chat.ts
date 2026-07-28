@@ -25,6 +25,7 @@ export class ApiChatService implements IChatService {
       body: JSON.stringify({
         content: input.content,
         attachments: input.attachments || [],
+        workspaceToolIds: input.workspaceToolIds || [],
         sessionId: this.currentSessionId,
         userId: 'default',
       }),

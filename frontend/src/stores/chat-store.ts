@@ -96,9 +96,28 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((s) => ({ messages: [...s.messages, agentMsg] }))
 
     try {
-      const stream = chatService.sendMessage({ content: inputText, attachments: attachedFiles })
+      // 获取当前工具空间的工具 ID 列表
+      let workspaceToolIds: string[] = []
+      try {
+        const { useWorkspaceToolStore } = await import('@/stores/workspace-tool-store')
+        workspaceToolIds = useWorkspaceToolStore.getState().tools.map(t => t.id)
+      } catch { /* ignore */ }
+      const stream = chatService.sendMessage({ content: inputText, attachments: attachedFiles, workspaceToolIds })
 
       for await (const chunk of stream) {
+        // 检查是否有新数据集注册，自动刷新数据空间列表
+        if (chunk.cards) {
+          for (const card of chunk.cards) {
+            const cardData = (card as Record<string, unknown>).data as Record<string, unknown> | undefined
+            if (cardData?.registered_dataset_id) {
+              try {
+                const { useResourceStore } = await import('@/stores/resource-store')
+                useResourceStore.getState().fetchDatasetsFromApi()
+              } catch { /* ignore */ }
+              break
+            }
+          }
+        }
         set((s) => ({
           messages: s.messages.map((m) =>
             m.id === agentMsgId

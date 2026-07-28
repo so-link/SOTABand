@@ -423,7 +423,7 @@ function ToolTagsEditor({ toolId, tags: initialTags }: { toolId: string; tags: s
   return (
     <div className="flex items-center gap-1">
       {tags.map(tag => (
-        <span key={tag} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] bg-maia-bg text-maia-text-secondary border border-maia-border">
+        <span key={tag} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] bg-amber-100 text-amber-700 border border-amber-300 font-medium">
           {tag}
           {editing && (
             <button onClick={() => saveTags(tags.filter(t => t !== tag))} className="hover:text-red-400">

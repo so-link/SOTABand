@@ -21,6 +21,7 @@ class ChatRequest(BaseModel):
 
     content: str = ""
     attachments: list[FileAttachment] = Field(default_factory=list)
+    workspace_tool_ids: list[str] = Field(default_factory=list, alias="workspaceToolIds")
     session_id: str = Field(default="default", alias="sessionId")
     user_id: str = Field(default="default", alias="userId")
 

@@ -10,7 +10,12 @@
     "impl_path": "implementations/calculate-circle-area/",
     "input_schema": {},
     "output_schema": {},
-    "tags": [],
+    "tags": [
+      "圆形面积",
+      "几何计算",
+      "数学工具",
+      "面积公式"
+    ],
     "usage_count": 0,
     "created_at": "2026-06-29T16:08:03Z",
     "param_meta": [
@@ -41,7 +46,13 @@
     "impl_path": "implementations/mnist-digit-recognizer/",
     "input_schema": {},
     "output_schema": {},
-    "tags": [],
+    "tags": [
+      "手写识别",
+      "数字识别",
+      "图像分类",
+      "深度学习",
+      "MNIST"
+    ],
     "usage_count": 0,
     "created_at": "2026-06-30T02:48:17Z",
     "param_meta": [
@@ -103,7 +114,12 @@
         ]
       }
     ],
-    "tags": [],
+    "tags": [
+      "人脸检测",
+      "图像分析",
+      "人脸定位",
+      "边界框回归"
+    ],
     "usage_count": 0,
     "created_at": "2026-07-02T08:58:19Z"
   },
@@ -118,7 +134,12 @@
     "impl_path": "implementations/human-pose-estimation/",
     "input_schema": {},
     "output_schema": {},
-    "tags": [],
+    "tags": [
+      "姿态估计",
+      "关键点检测",
+      "人体骨架",
+      "关节提取"
+    ],
     "usage_count": 0,
     "created_at": "2026-07-02T03:57:13Z",
     "param_meta": [
@@ -148,7 +169,13 @@
     "impl_path": "implementations/pose-extraction/",
     "input_schema": {},
     "output_schema": {},
-    "tags": [],
+    "tags": [
+      "姿态估计",
+      "关键点检测",
+      "人体骨架",
+      "图像标注",
+      "骨骼绘制"
+    ],
     "usage_count": 0,
     "created_at": "2026-07-02T04:28:38Z",
     "param_meta": [
@@ -222,7 +249,12 @@
         ]
       }
     ],
-    "tags": [],
+    "tags": [
+      "文件预览",
+      "表格展示",
+      "图片显示",
+      "自动识别"
+    ],
     "usage_count": 0,
     "created_at": "2026-07-03T07:57:20Z"
   },
@@ -305,7 +337,12 @@
         ]
       }
     ],
-    "tags": [],
+    "tags": [
+      "机器学习",
+      "形状预测",
+      "模型训练",
+      "奶昔配方"
+    ],
     "usage_count": 0,
     "created_at": "2026-07-03T08:32:18Z"
   },
@@ -365,7 +402,12 @@
         ]
       }
     ],
-    "tags": [],
+    "tags": [
+      "机器学习",
+      "奶昔配方",
+      "品质预测",
+      "数据分析"
+    ],
     "usage_count": 0,
     "created_at": "2026-07-03T09:10:28Z"
   },
@@ -395,7 +437,12 @@
         ]
       }
     ],
-    "tags": [],
+    "tags": [
+      "数据清洗",
+      "字段提取",
+      "文本解析",
+      "日志处理"
+    ],
     "usage_count": 0,
     "created_at": "2026-07-06T04:11:04Z"
   },
@@ -422,7 +469,12 @@
         ]
       }
     ],
-    "tags": [],
+    "tags": [
+      "数学计算",
+      "平方运算",
+      "整数处理",
+      "数值工具"
+    ],
     "usage_count": 0,
     "created_at": "2026-07-25T08:17:16Z"
   },
@@ -463,7 +515,12 @@
         "hints": []
       }
     ],
-    "tags": [],
+    "tags": [
+      "图片生成",
+      "AI绘图",
+      "数据集构建",
+      "图像合成"
+    ],
     "usage_count": 0,
     "created_at": "2026-07-25T11:32:31Z"
   },
@@ -510,7 +567,12 @@
         ]
       }
     ],
-    "tags": [],
+    "tags": [
+      "图片编辑",
+      "批量处理",
+      "AI修图",
+      "数据集"
+    ],
     "usage_count": 0,
     "created_at": "2026-07-25T12:25:49Z"
   },
@@ -563,7 +625,13 @@
         ]
       }
     ],
-    "tags": [],
+    "tags": [
+      "图片搜索",
+      "图片下载",
+      "数据集注册",
+      "Bing图片",
+      "图片采集"
+    ],
     "usage_count": 0,
     "created_at": "2026-07-25T13:54:50Z"
   },
@@ -629,7 +697,12 @@
         "desc": "y 轴标签"
       }
     ],
-    "tags": [],
+    "tags": [
+      "函数绘图",
+      "数学可视化",
+      "曲线生成",
+      "图像绘制"
+    ],
     "usage_count": 0,
     "created_at": "2026-07-25T14:45:06Z"
   },
@@ -676,7 +749,12 @@
         ]
       }
     ],
-    "tags": [],
+    "tags": [
+      "图片采集",
+      "数据集注册",
+      "Unsplash",
+      "图片下载"
+    ],
     "usage_count": 0,
     "created_at": "2026-07-25T17:45:11Z"
   },
@@ -717,7 +795,13 @@
         ]
       }
     ],
-    "tags": [],
+    "tags": [
+      "食品配方",
+      "数据生成",
+      "实验模拟",
+      "CSV输出",
+      "数据集注册"
+    ],
     "usage_count": 0,
     "created_at": "2026-07-26T01:56:55Z"
   },
@@ -782,7 +866,13 @@
         ]
       }
     ],
-    "tags": [],
+    "tags": [
+      "论文下载",
+      "学术检索",
+      "批量处理",
+      "文献整理",
+      "数据集注册"
+    ],
     "usage_count": 0,
     "created_at": "2026-07-26T08:56:45Z"
   },
@@ -821,7 +911,12 @@
         ]
       }
     ],
-    "tags": [],
+    "tags": [
+      "天气查询",
+      "气象预报",
+      "城市服务",
+      "实时数据"
+    ],
     "usage_count": 0,
     "created_at": "2026-07-26T04:27:52Z"
   },
@@ -848,7 +943,13 @@
         ]
       }
     ],
-    "tags": [],
+    "tags": [
+      "文字转语音",
+      "语音合成",
+      "TTS",
+      "离线语音",
+      "文本朗读"
+    ],
     "usage_count": 0,
     "created_at": "2026-07-26T08:52:23Z"
   },
@@ -886,7 +987,12 @@
         ]
       }
     ],
-    "tags": [],
+    "tags": [
+      "目标检测",
+      "豆包模型",
+      "图像标注",
+      "边界框绘制"
+    ],
     "usage_count": 0,
     "created_at": "2026-07-26T17:07:24Z"
   },
@@ -933,48 +1039,46 @@
         ]
       }
     ],
-    "tags": [],
+    "tags": [
+      "目标检测",
+      "批量处理",
+      "图像标注",
+      "豆包模型"
+    ],
     "usage_count": 0,
     "created_at": "2026-07-27T07:17:29Z"
   },
   {
-    "id": "paper-summarizer",
-    "name": "论文摘要工具",
+    "id": "test-greeting",
+    "name": "问候测试",
     "version": "0.1.0",
     "type": "function",
     "language": "python",
     "status": "active",
-    "spec_path": "definitions/paper-summarizer.md",
-    "impl_path": "implementations/paper-summarizer/",
+    "spec_path": "definitions/test-greeting.md",
+    "impl_path": "implementations/test-greeting/",
     "input_schema": {},
     "output_schema": {},
     "param_meta": [
       {
-        "name": "dataset",
+        "name": "command",
         "type": "string",
         "required": true,
         "default": null,
-        "desc": "数据集名称，用于通过【获取数据集信息】定位目录",
+        "desc": "用户的问候指令",
         "hints": [
-          "my_dataset",
-          "paper_collection"
-        ]
-      },
-      {
-        "name": "n",
-        "type": "integer",
-        "required": true,
-        "default": null,
-        "desc": "每篇论文分析报告的最大字数（汉字）",
-        "hints": [
-          500,
-          1000,
-          2000
+          "你好",
+          "hi",
+          "good morning"
         ]
       }
     ],
-    "tags": [],
+    "tags": [
+      "问候",
+      "测试工具",
+      "示例"
+    ],
     "usage_count": 0,
-    "created_at": "2026-07-27T11:39:04Z"
+    "created_at": "2026-07-28T05:47:44Z"
   }
 ]

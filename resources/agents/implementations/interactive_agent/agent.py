@@ -81,13 +81,14 @@ class InteractiveAgent(BaseAgent):
         """处理用户输入，调用 DeepSeek v4，流式返回"""
         content = kwargs.get("content", "")
         attachments = kwargs.get("attachments", [])
+        workspace_tool_ids = kwargs.get("workspace_tool_ids", [])
 
         if not content.strip():
             yield {"event": "done", "data": {"messageId": ctx.session_id}}
             return
 
         try:
-            async for event in self._execute_impl(ctx, content, attachments):
+            async for event in self._execute_impl(ctx, content, attachments, workspace_tool_ids):
                 yield event
         except Exception as e:
             yield {
@@ -101,7 +102,7 @@ class InteractiveAgent(BaseAgent):
             }
 
     async def _execute_impl(
-        self, ctx: AgentContext, content: str, attachments: list
+        self, ctx: AgentContext, content: str, attachments: list, workspace_tool_ids: list[str] = None
     ) -> AsyncGenerator[dict, None]:
 
         # 解析附件中的数据集路径
@@ -129,32 +130,16 @@ class InteractiveAgent(BaseAgent):
             skip_param_extract = pending["params"]
 
         if not in_param_collection:
-            matched_tool = self._pre_match_tool(content)
+            matched_tool = self._pre_match_tool(content, workspace_tool_ids or [])
 
         history = self._sessions.get(session_key, [])
         if not history:
-            system_content = self._build_system_with_context()
+            system_content = self._build_system_with_context(workspace_tool_ids or [])
             history = [{"role": "system", "content": system_content}]
 
         # 如果预匹配到工具 → 先执行工具，用真实结果驱动 LLM 回复
         tool_result = None
         tool_failed = False
-        # 检查是否匹配到任务 Agent
-        matched_agent = self._pre_match_agent(content) if not matched_tool else None
-        if matched_agent:
-            result = await self._execute_agent(matched_agent, content, dataset_paths)
-            if result:
-                yield {
-                    "event": "card",
-                    "data": {
-                        "type": "result-summary",
-                        "title": f"Agent 执行: {matched_agent['name']}",
-                        "summary": result.get("message", "")[:500],
-                        "data": {"agent_id": matched_agent["id"], "result": result},
-                    },
-                }
-                if result.get("output_format") in ("image", "table") or result.get("status") == "failed":
-                    return
 
         if matched_tool:
             # 参数（pending 已收集或重新提取）
@@ -176,13 +161,26 @@ class InteractiveAgent(BaseAgent):
                 return
             tool_result = await self._execute_tool(matched_tool, content, dataset_paths, params)
             if tool_result:
+                # 提取工具执行过程中注册的数据集 ID
+                registered_dataset_id = None
+                tool_data = tool_result.get("data", {})
+                if isinstance(tool_data, dict):
+                    registered_dataset_id = tool_data.get("dataset_id") or tool_data.get("registered_dataset_id")
+                # 也在顶层查找
+                if not registered_dataset_id:
+                    registered_dataset_id = tool_result.get("dataset_id") or tool_result.get("registered_dataset_id")
+
                 yield {
                     "event": "card",
                     "data": {
                         "type": "result-summary",
                         "title": f"工具执行: {matched_tool['name']}",
                         "summary": tool_result.get("message", json.dumps(tool_result, ensure_ascii=False, default=str)[:200]),
-                        "data": {"tool_id": matched_tool["id"], "result": tool_result},
+                        "data": {
+                            "tool_id": matched_tool["id"],
+                            "result": tool_result,
+                            "registered_dataset_id": registered_dataset_id,
+                        },
                     },
                 }
                 # 图片/表格/失败 → 直接结束，不调 LLM
@@ -205,11 +203,24 @@ class InteractiveAgent(BaseAgent):
             return
 
         user_msg = self._build_user_message(content, attachments, dataset_paths)
-        # 工具结果作为上下文注入（仅文字摘要，不含图片路径）
+        # 工具结果作为上下文注入（包含 data 中的详细内容）
         if tool_result:
+            # 提取 summary：优先 message → data.text → 其他关键字段
             summary = tool_result.get("message", "") or tool_result.get("summary", "")
+            # 把 data 中的详细内容也合并进去
+            data = tool_result.get("data", {})
+            if isinstance(data, dict):
+                data_text = data.get("text", "") or data.get("output", "")
+                if data_text:
+                    if summary:
+                        summary = f"{summary}\n\n{data_text}"
+                    else:
+                        summary = data_text
+                elif not summary:
+                    # 没有 text 字段，用整个 data 的 JSON
+                    summary = json.dumps(data, ensure_ascii=False, default=str)
             if not summary:
-                # 提取不含 image_path/data 的关键信息
+                # 兜底：提取不含 image_path/data 的关键信息
                 info = {k: v for k, v in tool_result.items() if k not in ("data", "image_path", "output_format")}
                 summary = json.dumps(info, ensure_ascii=False, default=str)[:300]
             user_msg += (
@@ -228,7 +239,7 @@ class InteractiveAgent(BaseAgent):
             full_response = ""
             async for token in self.llm.chat_stream(
                 messages=history,
-                temperature=self.config.get("temperature", 0.7),
+                temperature=0.1,
                 max_tokens=self.config.get("max_tokens", 4096),
             ):
                 full_response += token
@@ -257,49 +268,17 @@ class InteractiveAgent(BaseAgent):
                 "data": {"code": "llm_error", "message": str(e)},
             }
 
-    def _pre_match_agent(self, query: str) -> dict | None:
-        """预匹配：检查用户查询是否命中已注册的任务 Agent"""
-        try:
-            from core.resource.registry.agent_registry import AgentRegistry
-            reg = AgentRegistry()
-            agents = reg._read()
-            active = [a for a in agents if a.get("status") == "active" and a.get("id") != "interactive-agent"]
-            query_lower = query.lower()
-            scored = []
-            for a in active:
-                score = 0
-                aname = a.get("name", "").lower()
-                aid = a.get("id", "").lower()
-                tags = " ".join(a.get("tags", [])).lower()
-                # 名称/ID 匹配
-                if aname in query_lower or aid in query_lower:
-                    score += 10
-                # 中文匹配
-                chinese = [c for c in aname + tags if '一' <= c <= '鿿']
-                if chinese:
-                    matched = sum(1 for c in set(chinese) if c in query_lower)
-                    if matched >= 2:
-                        score += min(matched, 5)
-                # 标签匹配
-                for tag in a.get("tags", []):
-                    if tag.lower() in query_lower:
-                        score += 3
-                if score > 0:
-                    scored.append((score, a))
-            scored.sort(key=lambda x: x[0], reverse=True)
-            if scored and scored[0][0] >= 3:
-                return scored[0][1]
-        except Exception:
-            pass
-        return None
-
-    def _pre_match_tool(self, query: str) -> dict | None:
-        """预匹配：关键词命中工具名/标签时直接返回匹配工具"""
+    def _pre_match_tool(self, query: str, workspace_tool_ids: list[str] = None) -> dict | None:
+        """预匹配：只在工具空间中的工具里做关键词匹配"""
         try:
             from core.resource.registry.tool_registry import ToolRegistry
             reg = ToolRegistry()
             tools = reg._read()
             active = [t for t in tools if t.get("status") == "active"]
+            # 如果指定了工具空间范围，只匹配工具空间中的工具
+            if workspace_tool_ids:
+                ws_set = set(workspace_tool_ids)
+                active = [t for t in active if t.get("id") in ws_set]
             query_lower = query.lower()
 
             # 按匹配度打分
@@ -348,100 +327,31 @@ class InteractiveAgent(BaseAgent):
             pass
         return None
 
-    def _build_system_with_context(self) -> str:
-        """构建 system prompt，动态注入可用工具和数据信息"""
+    def _build_system_with_context(self, workspace_tool_ids: list[str] = None) -> str:
+        """构建 system prompt，只注入工具空间中的工具"""
         base = SYSTEM_PROMPT
 
-        # 加载可用工具列表
+        # 加载工具空间中的工具列表
         try:
             from core.resource.registry.tool_registry import ToolRegistry
             reg = ToolRegistry()
             tools = reg._read()
             active_tools = [t for t in tools if t.get("status") == "active"]
+            if workspace_tool_ids:
+                ws_set = set(workspace_tool_ids)
+                active_tools = [t for t in active_tools if t.get("id") in ws_set]
             if active_tools:
                 tool_lines = "\n".join(
                     f"- {t['id']}: {t['name']} (type: {t.get('type', 'function')})"
                     for t in active_tools
                 )
                 base += f"\n\n## 当前可用工具 ({len(active_tools)} 个)\n{tool_lines}"
+            else:
+                base += "\n\n## 当前可用工具\n（工具空间为空，请先在工具仓库中添加工具）"
         except Exception:
             pass
 
         return base
-
-    async def _execute_agent(self, agent_info: dict, user_query: str, dataset_paths: list[str] = None) -> dict | None:
-        """启动任务 Agent 子进程并发送任务，流式读取结果"""
-        try:
-            import subprocess, json as _json, os
-            from pathlib import Path as _Path
-
-            agent_id = agent_info["id"]
-            project_root = _Path(__file__).resolve().parent.parent.parent.parent.parent
-            impl_path = project_root / "resources" / "agents" / "implementations" / agent_id / "agent.py"
-
-            if not impl_path.exists():
-                return {"status": "failed", "message": f"Agent 代码不存在: {impl_path}"}
-
-            entrypoint = project_root / "core" / "agent" / "entrypoint.py"
-            python_exe = str(project_root / "resources" / "agents" / "implementations" / agent_id / ".venv" / "bin" / "python")
-            if not _Path(python_exe).exists():
-                python_exe = os.environ.get("PYTHON", "python")
-
-            # 启动子进程
-            proc = subprocess.Popen(
-                [python_exe, str(entrypoint), "--agent-id", agent_id,
-                 "--impl-path", str(impl_path.parent)],
-                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                text=True, cwd=str(project_root),
-            )
-
-            # 发送任务
-            task = _json.dumps({
-                "action": "execute",
-                "context": {"session_id": "default", "user_id": "default", "agent_id": agent_id},
-                "params": {"content": user_query},
-            }) + "\n"
-            proc.stdin.write(task)
-            proc.stdin.flush()
-
-            # 读取结果（带超时）
-            import select
-            output = ""
-            deadline = time.time() + 60
-            while time.time() < deadline:
-                if select.select([proc.stdout], [], [], 1)[0]:
-                    line = proc.stdout.readline()
-                    if not line:
-                        break
-                    try:
-                        event = _json.loads(line.strip())
-                        if event.get("event") == "content":
-                            output += event.get("data", {}).get("text", "")
-                        elif event.get("event") == "done":
-                            break
-                    except _json.JSONDecodeError:
-                        pass
-
-            # 发送 stop
-            try:
-                proc.stdin.write(_json.dumps({"action": "stop"}) + "\n")
-                proc.stdin.flush()
-            except Exception:
-                pass
-            proc.terminate()
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-
-            return {
-                "status": "success",
-                "output_format": "text",
-                "message": output[:2000] or f"Agent {agent_id} 执行完成",
-                "data": {"output": output[:2000]},
-            }
-        except Exception as e:
-            return {"status": "failed", "message": f"Agent 执行异常: {str(e)[:300]}"}
 
     async def _execute_tool(self, tool_info: dict, user_query: str, dataset_paths: list[str] = None, pre_params: dict = None) -> dict | None:
         """执行工具 — 通过 ToolExecutor 统一入口，与自动调试环境完全一致"""
@@ -497,55 +407,20 @@ class InteractiveAgent(BaseAgent):
             return []
 
     async def _extract_params(self, query: str, tool_id: str, dataset_paths: list[str] = None) -> dict:
-        """基于 registry 预提取的 param_meta + LLM 智能提取参数"""
+        """只自动填充文件路径参数，其他参数不自动提取，交由后续引导流程让用户输入"""
         from pathlib import Path as _Path
 
         params = {}
 
+        # 只自动填充文件/路径类参数（来自附件）
         path_param_names = self._get_path_params(tool_id)
-        all_valid_names = set(path_param_names)
         if dataset_paths and path_param_names:
             for i, param_name in enumerate(path_param_names):
                 if i < len(dataset_paths):
                     params[param_name] = dataset_paths[i]
 
-        try:
-            from core.resource.registry.tool_registry import ToolRegistry
-            reg = ToolRegistry()
-            entry = await reg.get(tool_id)
-            if not entry:
-                return params
-            param_meta = entry.get("param_meta", [])
-            if not param_meta:
-                return params
-
-            prompt = (
-                f"Extract tool parameters from user query.\n\n"
-                f"Parameter definitions:\n{json.dumps(param_meta, ensure_ascii=False, indent=2)}\n\n"
-                f"User query: \"{query}\"\n\n"
-            )
-            if params:
-                prompt += f"Already injected: {json.dumps(params, ensure_ascii=False)}\n"
-            prompt += "\nReturn JSON with extracted parameters. Parameter names MUST match definitions. Only include parameters clearly inferable from the query."
-
-            response = await self.llm.chat(
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.0, max_tokens=300,
-            )
-            clean = response.strip()
-            if clean.startswith("```"):
-                clean = clean.split("\n", 1)[1].rsplit("\n", 1)[0]
-            extra = json.loads(clean)
-            # 只保留 MD spec 中定义的参数名
-            valid_names = {p.get("name") for p in param_meta if p.get("name")}
-            extra = {k: v for k, v in extra.items() if k in valid_names}
-            params.update(extra)
-            # 最终过滤：确保不返回任何未定义的参数
-            all_valid_names.update(valid_names)
-            params = {k: v for k, v in params.items() if k in all_valid_names}
-        except Exception:
-            pass
-
+        # 不再调用 LLM 自动提取其他参数
+        # 未填写的参数会触发 _check_missing_params → 引导用户逐一输入
         return params
 
     def _get_path_params(self, tool_id: str) -> list[str]:

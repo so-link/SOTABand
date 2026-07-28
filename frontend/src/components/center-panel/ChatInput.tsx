@@ -1,4 +1,4 @@
-import { useRef, type KeyboardEvent } from 'react'
+import { useRef, useEffect, type KeyboardEvent } from 'react'
 import { Send, X, Paperclip, Square } from 'lucide-react'
 import { useChatStore } from '@/stores/chat-store'
 import { Button } from '@/components/ui/button'
@@ -7,6 +7,18 @@ export function ChatInput() {
   const { inputText, setInputText, attachedFiles, removeAttachment, sendMessage, stopMessage, isSending } =
     useChatStore()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // 回复完成后自动聚焦输入框，方便多轮对话
+  const prevSendingRef = useRef(isSending)
+  useEffect(() => {
+    if (prevSendingRef.current && !isSending) {
+      // isSending 从 true → false，回复刚完成
+      setTimeout(() => {
+        textareaRef.current?.focus()
+      }, 50)
+    }
+    prevSendingRef.current = isSending
+  }, [isSending])
 
   const handleSend = () => {
     if (isSending) {

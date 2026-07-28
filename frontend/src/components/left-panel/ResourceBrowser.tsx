@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { useResourceStore } from '@/stores/resource-store'
 import { useUIStore } from '@/stores/ui-store'
+import { useWorkspaceToolStore } from '@/stores/workspace-tool-store'
 import { cn } from '@/lib/utils'
 import type { Resource, ResourceType, ToolResource } from '@/types/resources'
 
@@ -66,10 +67,38 @@ export function ResourceBrowser() {
     })
   }
 
+  // 工具空间：从 workspace store 读取已加载的工具
+  const workspaceTools = useWorkspaceToolStore((s) => s.tools)
+  const workspaceRemoveTool = useWorkspaceToolStore((s) => s.removeTool)
+
   const getResources = (type: ResourceType): Resource[] => {
     switch (type) {
       case 'data': return dataResources
-      case 'tool': return toolResources
+      case 'tool':
+        // 工具空间只显示已加载的工具（从 workspace store）
+        return workspaceTools.map(t => ({
+          id: t.id,
+          name: t.name,
+          type: 'tool' as ResourceType,
+          version: '0.1.0',
+          status: 'active' as const,
+          tags: t.tags,
+          description: '',
+          createdAt: '',
+          updatedAt: '',
+          format: '',
+          filePath: '',
+          fileSize: 0,
+          source: 'upload' as const,
+          lineage: [],
+          isUserGenerated: true,
+          category: 'local' as const,
+          inputSpec: { formats: [] },
+          outputSpec: { formats: [] },
+          dependencies: [],
+          runtimeEnv: 'python' as const,
+          usageCount: 0,
+        }))
       case 'model': return modelResources
       case 'agent': return agentResources
       case 'task': return taskResources
@@ -79,14 +108,18 @@ export function ResourceBrowser() {
 
   const handleDelete = async (resource: Resource, e: React.MouseEvent) => {
     e.stopPropagation()
+    // 工具：从工作空间移除（不删除仓库中的工具）
+    if (resource.type === 'tool') {
+      workspaceRemoveTool(resource.id)
+      return
+    }
+    // 数据和 Agent：确认后彻底删除
     if (!confirm(`确定删除 "${resource.name}"？此操作不可恢复。`)) return
     const BASE_URL = ''
-    const typePath = resource.type === 'data' ? 'data' : resource.type === 'tool' ? 'tool' : 'agent'
+    const typePath = resource.type === 'data' ? 'data' : 'agent'
     try {
       await fetch(`${BASE_URL}/api/${typePath}/${resource.id}`, { method: 'DELETE' })
-      // 刷新列表
       if (resource.type === 'data') fetchDatasetsFromApi()
-      else if (resource.type === 'tool') fetchToolsFromApi()
       else if (resource.type === 'agent') fetchAgentsFromApi()
     } catch { /* ignore */ }
   }
@@ -211,11 +244,11 @@ export function ResourceBrowser() {
                         v{resource.version}
                       </span>
                     )}
-                    {/* Delete button */}
+                    {/* Remove button — tool: 从空间移除, data/agent: 删除 */}
                     <button
                       onClick={(e) => handleDelete(resource, e)}
                       className="opacity-0 group-hover:opacity-100 hover:!opacity-100 flex items-center justify-center h-4 w-4 rounded hover:bg-red-100 text-maia-text-muted hover:text-red-500 transition-all shrink-0"
-                      title="删除"
+                      title={section.type === 'tool' ? '从空间移除' : '删除'}
                     >
                       <Minus className="h-3 w-3" />
                     </button>

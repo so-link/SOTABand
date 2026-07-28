@@ -18,6 +18,7 @@ interface ToolEditorState {
   referenceCode: string
   generatedMd: string
   generatedCode: string
+  tags: string[]
   params: Array<{name: string; type: string; required: boolean; default?: string | null; desc: string}>
   testInputs: Record<string, string>
   testOutput: { stdout: string; stderr: string; exit_code: number; success: boolean } | null
@@ -34,6 +35,9 @@ interface ToolEditorState {
   setDescription: (text: string) => void
   setReferenceCode: (code: string) => void
   setGeneratedMd: (md: string) => void
+  setTags: (tags: string[]) => void
+  addTag: (tag: string) => void
+  removeTag: (tag: string) => void
   setTestInput: (key: string, value: string) => void
   generateSpec: () => Promise<void>
   generateCode: () => Promise<void>
@@ -48,7 +52,7 @@ interface ToolEditorState {
 }
 
 export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
-  step: 1, description: '', referenceCode: '', generatedMd: '', generatedCode: '',
+  step: 1, description: '', referenceCode: '', generatedMd: '', generatedCode: '', tags: [],
   params: [], testInputs: {}, testOutput: null, registeredId: null,
   isGenerating: false, isTesting: false, isAutoDebugging: false, abortController: null, testAbortController: null, error: null,
   debugRounds: [], debugStream: '',
@@ -56,17 +60,20 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
   setDescription: (text) => set({ description: text }),
   setReferenceCode: (code) => set({ referenceCode: code }),
   setGeneratedMd: (md) => set({ generatedMd: md }),
+  setTags: (tags) => set({ tags }),
+  addTag: (tag) => set((s) => ({ tags: s.tags.includes(tag) ? s.tags : [...s.tags, tag] })),
+  removeTag: (tag) => set((s) => ({ tags: s.tags.filter(t => t !== tag) })),
   setStep: (step) => set({ step }),
   setTestInput: (key, value) => set((s) => ({ testInputs: { ...s.testInputs, [key]: value } })),
 
   prefill: (text: string, refCode?: string) => set({
-    step: 1, description: text, referenceCode: refCode || '', generatedMd: '', generatedCode: '',
+    step: 1, description: text, referenceCode: refCode || '', generatedMd: '', generatedCode: '', tags: [],
     testInputs: {}, testOutput: null, registeredId: null, error: null,
     debugRounds: [], debugStream: '', params: [],
   }),
 
   reset: () => set({
-    step: 1, description: '', referenceCode: '', generatedMd: '', generatedCode: '',
+    step: 1, description: '', referenceCode: '', generatedMd: '', generatedCode: '', tags: [],
     testInputs: {}, testOutput: null, registeredId: null,
     isGenerating: false, isTesting: false, isAutoDebugging: false,
     error: null, debugRounds: [], debugStream: '', params: [],
@@ -78,7 +85,7 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
     set({ isGenerating: true, error: null })
     try {
       const result = await toolApi.generateSpec(description, referenceCode)
-      set({ generatedMd: result.spec_md, step: 2, isGenerating: false })
+      set({ generatedMd: result.spec_md, tags: result.tags || [], step: 2, isGenerating: false })
     } catch (e) { set({ error: String(e), isGenerating: false }) }
   },
 
@@ -263,14 +270,24 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
   },
 
   registerTool: async () => {
-    const { generatedMd, generatedCode, testInputs, referenceCode } = get()
+    const { generatedMd, generatedCode, testInputs, referenceCode, tags } = get()
     if (!generatedMd.trim()) return
     set({ isGenerating: true, error: null })
     try {
-      const result = await toolApi.register(generatedMd, generatedCode, testInputs, get().description, referenceCode)
+      const result = await toolApi.register(generatedMd, generatedCode, testInputs, get().description, referenceCode, tags)
       set({ registeredId: result.tool_id, step: 4, isGenerating: false })
+      // 刷新资源列表
       const { useResourceStore } = await import('@/stores/resource-store')
       useResourceStore.getState().fetchToolsFromApi()
+      // 自动加入工具空间
+      const { useWorkspaceToolStore } = await import('@/stores/workspace-tool-store')
+      const toolName = generatedMd.match(/^#\s*(.+)$/m)?.[1] || result.tool_id
+      useWorkspaceToolStore.getState().addTool({
+        id: result.tool_id,
+        name: toolName,
+        tags: tags,
+        loadedAt: new Date().toISOString(),
+      })
     } catch (e) { set({ error: String(e), isGenerating: false }) }
   },
 }))

@@ -36,7 +36,7 @@ export const useRepositoryStore = create<RepositoryState>((set, get) => ({
   searchQuery: '',
   sortBy: 'latest',
   page: 1,
-  pageSize: 16,
+  pageSize: 12,
   loading: false,
 
   fetchTools: async () => {

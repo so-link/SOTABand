@@ -7,9 +7,11 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardBody } from '@/components/ui/card'
 import { useUIStore } from '@/stores/ui-store'
+import { useResourceStore } from '@/stores/resource-store'
 import { useRepositoryStore, getFilteredTools, type RepositoryTool } from '@/stores/repository-store'
+import { useWorkspaceToolStore } from '@/stores/workspace-tool-store'
 
-const PAGE_SIZE_OPTIONS = [8, 16, 24, 32, 48]
+const PAGE_SIZE_OPTIONS = [8, 12, 16, 24, 32]
 const BASE_URL = ''
 
 /** 工具图标映射 */
@@ -28,9 +30,10 @@ function getToolIcon(id: string): string {
 
 export function RepositoryView() {
   const { setActiveView } = useUIStore()
+  const { selectResource } = useResourceStore()
   const store = useRepositoryStore()
   const { tools, tagStats, selectedTags, searchQuery, sortBy, page, pageSize, loading, fetchTools, toggleTag, setSearch, setSort, setPage, setPageSize } = store
-  const [loadedIds, setLoadedIds] = useState<Set<string>>(new Set())
+  const { isLoaded, addTool } = useWorkspaceToolStore()
 
   useEffect(() => { fetchTools() }, [])
 
@@ -47,14 +50,18 @@ export function RepositoryView() {
   const handleDelete = async (tool: RepositoryTool) => {
     if (!confirm(`确定删除工具 "${tool.id}"？\n此操作不可撤销，将永久删除代码文件和注册记录。`)) return
     try {
-      await fetch(`${BASE_URL}/api/tool/${tool.id}`, { method: 'DELETE' })
-      fetchTools()
+      const res = await fetch(`${BASE_URL}/api/tool/${tool.id}`, { method: 'DELETE' })
+      if (res.ok) {
+        // 同步从工具空间中移除
+        const { useWorkspaceToolStore } = await import('@/stores/workspace-tool-store')
+        useWorkspaceToolStore.getState().removeTool(tool.id)
+        fetchTools()
+      }
     } catch { /* ignore */ }
   }
 
   const handleImport = (tool: RepositoryTool) => {
-    setLoadedIds(prev => new Set(prev).add(tool.id))
-    // TODO Phase 3: 实际导入到工作空间 store
+    addTool({ id: tool.id, name: tool.name, tags: tool.tags, loadedAt: new Date().toISOString() })
   }
 
   return (
@@ -136,12 +143,37 @@ export function RepositoryView() {
           <>
             <div className="grid grid-cols-4 gap-2">
               {pageTools.map(tool => {
-                const isLoaded = loadedIds.has(tool.id)
+                const loaded = isLoaded(tool.id)
                 return (
-                  <Card key={tool.id} className="border-maia-border hover:border-maia-accent/30 transition-colors cursor-pointer"
-                    onClick={() => setActiveView('tool-detail')}>
-                    <CardBody className="p-3">
-                      <div className="flex items-start justify-between mb-1.5">
+                  <Card key={tool.id} className="border-maia-border/60 hover:border-cyan-500/30 hover:shadow-lg hover:shadow-cyan-500/5 transition-all duration-200 cursor-pointer bg-gradient-to-b from-maia-surface to-maia-bg/40 dark:from-maia-surface dark:to-maia-bg/60 h-full flex flex-col"
+                    onClick={() => {
+                      selectResource({
+                        id: tool.id,
+                        name: tool.name,
+                        type: 'tool' as const,
+                        version: tool.version,
+                        status: 'active' as const,
+                        tags: tool.tags,
+                        description: '',
+                        createdAt: tool.created_at,
+                        updatedAt: '',
+                        format: '',
+                        filePath: '',
+                        fileSize: 0,
+                        source: 'upload' as const,
+                        lineage: [],
+                        isUserGenerated: true,
+                        category: 'local' as const,
+                        inputSpec: { formats: [] },
+                        outputSpec: { formats: [] },
+                        dependencies: [],
+                        runtimeEnv: 'python' as const,
+                        usageCount: tool.usage_count,
+                      })
+                      setActiveView('tool-detail')
+                    }}>
+                    <CardBody className="p-3 flex flex-col flex-1 min-h-0">
+                      <div className="flex items-start justify-between mb-1.5 shrink-0">
                         <div className="flex items-center gap-1.5 min-w-0">
                           <span className="text-base shrink-0">{getToolIcon(tool.id)}</span>
                           <div className="min-w-0">
@@ -150,29 +182,35 @@ export function RepositoryView() {
                           </div>
                         </div>
                       </div>
-                      {tool.tags.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mb-1.5">
-                          {tool.tags.map(tag => (
-                            <Badge key={tag} variant="default" className="text-[9px] px-1 py-0 cursor-pointer"
-                              onClick={(e) => { e.stopPropagation(); toggleTag(tag) }}>
-                              {tag}
-                            </Badge>
-                          ))}
-                        </div>
-                      )}
-                      <div className="flex items-center justify-between text-[10px] text-maia-text-muted mb-2">
+                      <div className="flex-1 min-h-0 overflow-y-auto mb-1.5">
+                        {tool.tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {tool.tags.map(tag => (
+                              <span key={tag}
+                                className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium cursor-pointer
+                                  bg-cyan-500/10 text-cyan-700 border border-cyan-500/25
+                                  dark:bg-cyan-500/15 dark:text-cyan-300 dark:border-cyan-500/25
+                                  hover:bg-cyan-500/20 dark:hover:bg-cyan-500/25 transition-colors"
+                                onClick={(e) => { e.stopPropagation(); toggleTag(tag) }}>
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between text-[10px] text-maia-text-muted mb-1.5 shrink-0">
                         <span>v{tool.version}</span>
                         <span>已用 {tool.usage_count} 次</span>
                       </div>
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center justify-center gap-3 shrink-0 border-t border-maia-border/30 pt-1.5">
                         <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-red-400 hover:text-red-300 hover:bg-red-500/10"
                           onClick={(e) => { e.stopPropagation(); handleDelete(tool) }}>
                           <Trash2 className="h-3 w-3 mr-0.5" />删除
                         </Button>
-                        {isLoaded ? (
-                          <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-maia-text-muted" disabled>
+                        {loaded ? (
+                          <span className="inline-flex items-center h-6 px-2 text-[10px] text-maia-text-muted">
                             <Check className="h-3 w-3 mr-0.5" />已加载
-                          </Button>
+                          </span>
                         ) : (
                           <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-maia-accent hover:text-maia-accent"
                             onClick={(e) => { e.stopPropagation(); handleImport(tool) }}>

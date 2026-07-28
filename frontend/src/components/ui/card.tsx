@@ -1,14 +1,14 @@
 import { cn } from '@/lib/utils'
-import { type ReactNode } from 'react'
+import { type ReactNode, type HTMLAttributes } from 'react'
 
-interface CardProps {
+interface CardProps extends HTMLAttributes<HTMLDivElement> {
   children: ReactNode
   className?: string
 }
 
-export function Card({ children, className }: CardProps) {
+export function Card({ children, className, ...props }: CardProps) {
   return (
-    <div className={cn('rounded-lg border border-maia-border bg-maia-surface shadow-sm', className)}>
+    <div className={cn('rounded-lg border border-maia-border bg-maia-surface shadow-sm', className)} {...props}>
       {children}
     </div>
   )

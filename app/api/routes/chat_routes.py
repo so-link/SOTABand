@@ -82,6 +82,7 @@ async def chat_send(request: ChatRequest):
                 ctx,
                 content=request.content,
                 attachments=attachments,
+                workspace_tool_ids=request.workspace_tool_ids,
             ):
                 # 每 yield 一次检查是否被停止
                 if not is_chat_running(session_id):

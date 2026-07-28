@@ -221,5 +221,92 @@
     "tags": [],
     "quality_score": null,
     "created_at": "2026-07-27T11:41:58Z"
+  },
+  {
+    "id": "园区航拍",
+    "name": "园区航拍",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/园区航拍.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/20260728141330",
+    "file_count": 2,
+    "total_size": 1150230,
+    "formats": [
+      "jpg",
+      "png"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-28T06:13:33Z"
+  },
+  {
+    "id": "食品配方_20260728_143922",
+    "name": "食品配方",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/食品配方_20260728_143922.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/20260728_143922",
+    "file_count": 1,
+    "total_size": 331,
+    "formats": [
+      "csv"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-28T06:39:22Z"
+  },
+  {
+    "id": "食品_20260728_144622",
+    "name": "食品",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/食品_20260728_144622.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/20260728_144622",
+    "file_count": 1,
+    "total_size": 1371,
+    "formats": [
+      "csv"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-28T06:46:22Z"
+  },
+  {
+    "id": "teacher",
+    "name": "teacher",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/teacher.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/20260728144753",
+    "file_count": 1,
+    "total_size": 56758,
+    "formats": [
+      "jpg"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-28T06:47:58Z"
+  },
+  {
+    "id": "papers",
+    "name": "papers",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/papers.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/download/20260728_144913",
+    "file_count": 4,
+    "total_size": 7431780,
+    "formats": [
+      "csv",
+      "pdf"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-28T06:49:23Z"
   }
 ]

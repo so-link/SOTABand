@@ -131,7 +131,32 @@ async def generate_spec(req: GenerateToolSpecRequest):
         {"role": "user", "content": user_content},
     ]
     spec_md = await llm.chat(messages=messages, temperature=0.3, max_tokens=4000)
-    return {"spec_md": spec_md}
+
+    # 同时生成标签
+    tags: list[str] = []
+    try:
+        tag_prompt = f"""根据以下工具信息，生成3-5个简短的中文标签（每个2-4字），用于工具分类和检索。返回 JSON 数组，不要其他内容。
+
+工具描述: {req.description[:500]}
+生成的 MD 规范: {spec_md[:300]}
+
+返回格式: ["标签1", "标签2", "标签3"]"""
+        tag_response = await llm.chat(
+            messages=[{"role": "user", "content": tag_prompt}],
+            temperature=0.3, max_tokens=100,
+        )
+        import re
+        match = re.search(r'\[.*?\]', tag_response, re.DOTALL)
+        if match:
+            parsed = _json.loads(match.group())
+            if isinstance(parsed, list) and all(isinstance(t, str) for t in parsed):
+                tags = parsed
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"[generate-spec] 标签生成失败: {e}")
+
+    return {"spec_md": spec_md, "tags": tags}
 
 
 @router.post("/generate-code")
@@ -357,7 +382,42 @@ async def register_tool(req: RegisterToolRequest):
         (registry._get_def_dir() / f"{tool_id}-reference.md").write_text(req.reference_code)
 
     entry = await registry.get(tool_id)
+
+    # 异步 LLM 自动生成标签（不阻塞注册响应）
+    if not req.tags:
+        import asyncio
+        asyncio.create_task(_auto_generate_tags(tool_id, req.tool_name, req.spec_md))
+
     return {"tool_id": tool_id, "entry": entry}
+
+
+async def _auto_generate_tags(tool_id: str, name: str, spec_md: str):
+    """LLM 自动生成工具标签，更新到 registry"""
+    try:
+        from core.llm.client import get_llm_client
+        llm = get_llm_client()
+        prompt = f"""根据以下工具信息，生成3-5个简短的中文标签（每个2-4字），用于工具分类和检索。返回 JSON 数组，不要其他内容。
+
+工具名称: {name}
+工具描述: {spec_md[:500]}
+
+返回格式: ["标签1", "标签2", "标签3"]"""
+        response = await llm.chat(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3, max_tokens=100, timeout=30,
+        )
+        # 解析 JSON 数组
+        import re
+        match = re.search(r'\[.*?\]', response, re.DOTALL)
+        if match:
+            tags = _json.loads(match.group())
+            if isinstance(tags, list) and all(isinstance(t, str) for t in tags):
+                entry = await registry.get(tool_id)
+                if entry:
+                    entry["tags"] = tags
+                    await registry._save()
+    except Exception:
+        pass  # 标签生成失败不影响工具注册
 
 
 # ── 列表 / 详情 / 调用 / 搜索 / 删除 ──
@@ -380,6 +440,20 @@ async def repository():
     # 按数量降序排列
     sorted_tags = dict(sorted(tag_stats.items(), key=lambda x: -x[1]))
     return {"tools": tools, "tag_stats": sorted_tags, "total": len(tools)}
+
+
+@router.post("/{tool_id}/tags")
+async def update_tool_tags(tool_id: str, req: dict):
+    """更新工具标签"""
+    entry = await registry.get(tool_id)
+    if not entry:
+        raise HTTPException(404, f"Tool '{tool_id}' not found")
+    tags = req.get("tags", [])
+    if not isinstance(tags, list):
+        raise HTTPException(400, "tags 必须是数组")
+    entry["tags"] = [str(t).strip() for t in tags if str(t).strip()]
+    await registry._save()
+    return {"status": "ok", "tags": entry["tags"]}
 
 
 @router.get("/{tool_id}")
@@ -472,9 +546,19 @@ async def search_tools(q: str = "", tags: str = ""):
 async def delete_tool(tool_id: str):
     entry = await registry.get(tool_id)
     if not entry: raise HTTPException(404, f"Tool '{tool_id}' not found")
+    def_dir = registry._get_def_dir()
     impl_dir = registry._get_impl_dir() / tool_id
-    if impl_dir.exists(): shutil.rmtree(impl_dir, ignore_errors=True)
-    spec_path = registry._get_def_dir() / f"{tool_id}.md"
-    if spec_path.exists(): spec_path.unlink()
+
+    # 删除实现目录
+    if impl_dir.exists():
+        shutil.rmtree(impl_dir, ignore_errors=True)
+
+    # 删除所有关联文件：spec.md, demand.md, reference.md 等
+    for suffix in [".md", "-demand.md", "-reference.md"]:
+        p = def_dir / f"{tool_id}{suffix}"
+        if p.exists():
+            p.unlink()
+
+    # 从 registry 中移除
     await registry.unregister(tool_id)
     return {"deleted": tool_id}
