@@ -10,6 +10,7 @@ import {
   Star,
   Plus,
   Minus,
+  Package,
 } from 'lucide-react'
 import { useResourceStore } from '@/stores/resource-store'
 import { useUIStore } from '@/stores/ui-store'
@@ -142,16 +143,28 @@ export function ResourceBrowser() {
                 </button>
               )}
               {section.type === 'tool' && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    useUIStore.getState().setActiveView('tool-editor')
-                  }}
-                  className="flex items-center justify-center h-4 w-4 rounded hover:bg-amber-500/10 text-maia-text-muted hover:text-amber-500 transition-colors"
-                  title="创建新工具"
-                >
-                  <Plus className="h-3 w-3" />
-                </button>
+                <>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      useUIStore.getState().setActiveView('repository')
+                    }}
+                    className="flex items-center justify-center h-4 w-4 rounded hover:bg-amber-500/10 text-maia-text-muted hover:text-amber-500 transition-colors"
+                    title="工具仓库"
+                  >
+                    <Package className="h-3 w-3" />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      useUIStore.getState().setActiveView('tool-editor')
+                    }}
+                    className="flex items-center justify-center h-4 w-4 rounded hover:bg-amber-500/10 text-maia-text-muted hover:text-amber-500 transition-colors"
+                    title="创建新工具"
+                  >
+                    <Plus className="h-3 w-3" />
+                  </button>
+                </>
               )}
               {section.type === 'data' && (
                 <button

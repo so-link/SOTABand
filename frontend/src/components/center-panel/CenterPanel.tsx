@@ -9,7 +9,8 @@ import { AgentDetailView } from './AgentDetailView'
 import { ToolEditorView } from './ToolEditorView'
 import { ToolDetailView } from './ToolDetailView'
 import { DatasetEditorView } from './DatasetEditorView'
-import { MessageSquare, BarChart3, Search, GitBranch, Radio, Bot, X } from 'lucide-react'
+import { RepositoryView } from './RepositoryView'
+import { MessageSquare, BarChart3, Search, GitBranch, Radio, Bot, X, Package } from 'lucide-react'
 
 const TAB_CONFIG: Record<ActiveView, { label: string; icon: typeof MessageSquare }> = {
   chat:            { label: '对话',    icon: MessageSquare },
@@ -22,6 +23,7 @@ const TAB_CONFIG: Record<ActiveView, { label: string; icon: typeof MessageSquare
   'tool-editor':   { label: '工具',    icon: Bot },
   'tool-detail':   { label: '工具',    icon: Bot },
   'dataset-editor':{ label: '数据集',  icon: BarChart3 },
+  'repository':    { label: '仓库',    icon: Package },
 }
 
 export function CenterPanel() {
@@ -83,5 +85,6 @@ function ViewRouter({ view }: { view: ActiveView }) {
     case 'tool-editor': return <ToolEditorView />
     case 'tool-detail': return <ToolDetailView />
     case 'dataset-editor': return <DatasetEditorView />
+    case 'repository': return <RepositoryView />
   }
 }

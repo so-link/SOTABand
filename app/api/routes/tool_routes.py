@@ -368,6 +368,20 @@ async def list_tools():
     return {"tools": tools}
 
 
+@router.get("/repository")
+async def repository():
+    """工具仓库 — 返回所有工具及其标签统计"""
+    tools = await registry.list_all()
+    # 聚合标签统计
+    tag_stats: dict[str, int] = {}
+    for t in tools:
+        for tag in (t.get("tags") or []):
+            tag_stats[tag] = tag_stats.get(tag, 0) + 1
+    # 按数量降序排列
+    sorted_tags = dict(sorted(tag_stats.items(), key=lambda x: -x[1]))
+    return {"tools": tools, "tag_stats": sorted_tags, "total": len(tools)}
+
+
 @router.get("/{tool_id}")
 async def get_tool(tool_id: str):
     entry = await registry.get(tool_id)

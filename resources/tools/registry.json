@@ -853,43 +853,6 @@
     "created_at": "2026-07-26T08:52:23Z"
   },
   {
-    "id": "paper-summary",
-    "name": "论文摘要",
-    "version": "0.1.0",
-    "type": "function",
-    "language": "python",
-    "status": "active",
-    "spec_path": "definitions/paper-summary.md",
-    "impl_path": "implementations/paper-summary/",
-    "input_schema": {},
-    "output_schema": {},
-    "param_meta": [
-      {
-        "name": "dataset",
-        "type": "string",
-        "required": true,
-        "default": null,
-        "desc": "数据集名称",
-        "hints": [
-          "my_dataset"
-        ]
-      },
-      {
-        "name": "n",
-        "type": "integer",
-        "required": true,
-        "default": null,
-        "desc": "单篇论文摘要的字数上限",
-        "hints": [
-          300
-        ]
-      }
-    ],
-    "tags": [],
-    "usage_count": 0,
-    "created_at": "2026-07-26T09:27:19Z"
-  },
-  {
     "id": "large-model-bounding-box-tool",
     "name": "大模型标框工具",
     "version": "0.1.0",
