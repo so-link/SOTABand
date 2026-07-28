@@ -177,8 +177,8 @@ export function RepositoryView() {
                         <div className="flex items-center gap-1.5 min-w-0">
                           <span className="text-base shrink-0">{getToolIcon(tool.id)}</span>
                           <div className="min-w-0">
-                            <div className="text-[12px] font-mono font-medium text-maia-text truncate">{tool.id}</div>
-                            <div className="text-[11px] text-maia-text-secondary truncate">{tool.name}</div>
+                            <div className="text-[12px] font-semibold text-maia-text-heading truncate">{tool.name}</div>
+                            <div className="text-[10px] font-mono text-maia-text-muted truncate">{tool.id}</div>
                           </div>
                         </div>
                       </div>
