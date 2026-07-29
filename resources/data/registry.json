@@ -344,5 +344,193 @@
     "tags": [],
     "quality_score": null,
     "created_at": "2026-07-28T07:38:23Z"
+  },
+  {
+    "id": "合成声音_1785255352",
+    "name": "合成声音",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/合成声音_1785255352.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/uploads/dataset_1785255311772",
+    "file_count": 3,
+    "total_size": 529332,
+    "formats": [
+      "wav"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-28T16:15:52Z",
+    "preview_tool": "mel-spectrogram-generator"
+  },
+  {
+    "id": "配方_20260729_002100",
+    "name": "配方",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/配方_20260729_002100.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/20260729_002100",
+    "file_count": 1,
+    "total_size": 332,
+    "formats": [
+      "csv"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-28T16:21:00Z"
+  },
+  {
+    "id": "AAAI",
+    "name": "AAAI",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/AAAI.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/papers/MambaFusionANet_AAAI 728_20260729145311",
+    "file_count": 1,
+    "total_size": 10460,
+    "formats": [
+      "md"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-29T06:53:11Z"
+  },
+  {
+    "id": "AAAI1",
+    "name": "AAAI1",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/AAAI1.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/papers/MambaFusionANet_AAAI 728_1785308566",
+    "file_count": 1,
+    "total_size": 14837,
+    "formats": [
+      ".md"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-29T07:02:46Z"
+  },
+  {
+    "id": "papers-MambaFusionANet_AAAI 728_20260729_154753",
+    "name": "/tmp/sotaband-uploads/MambaFusionANet_AAAI 728.pdf",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/papers-MambaFusionANet_AAAI 728_20260729_154753.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/papers/MambaFusionANet_AAAI 728_20260729_154753",
+    "file_count": 1,
+    "total_size": 14845,
+    "formats": [
+      "md"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-29T07:47:53Z"
+  },
+  {
+    "id": "papers-MambaFusionANet_AAAI - 3.52_20260729_155425",
+    "name": "AAAI-Mamba",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/papers-MambaFusionANet_AAAI - 3.52_20260729_155425.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/papers/MambaFusionANet_AAAI - 3.52_20260729_155425",
+    "file_count": 1,
+    "total_size": 13529,
+    "formats": [
+      "md"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-29T07:54:25Z"
+  },
+  {
+    "id": "papers-Dentigraph_20260729_161100",
+    "name": "AAAI-denti",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/papers-Dentigraph_20260729_161100.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/papers/Dentigraph_20260729_161100",
+    "file_count": 1,
+    "total_size": 7439,
+    "formats": [
+      "md"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-29T08:11:00Z"
+  },
+  {
+    "id": "papers-2027 aaai  yhl_20260729_161828",
+    "name": "AAAI-YHL",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/papers-2027 aaai  yhl_20260729_161828.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/papers/2027 aaai  yhl_20260729_161828",
+    "file_count": 1,
+    "total_size": 9170,
+    "formats": [
+      "md"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-29T08:18:28Z"
+  },
+  {
+    "id": "papers-YiyangAAAI2027_merged_20260729_162821",
+    "name": "AAAI-Yiyang",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/papers-YiyangAAAI2027_merged_20260729_162821.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/papers/YiyangAAAI2027_merged_20260729_162821",
+    "file_count": 1,
+    "total_size": 7950,
+    "formats": [
+      "md"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-29T08:28:21Z"
+  },
+  {
+    "id": "papers-Mamba-full_20260729_163709",
+    "name": "AAAI-MAMBA-New",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/papers-Mamba-full_20260729_163709.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/papers/Mamba-full_20260729_163709",
+    "file_count": 1,
+    "total_size": 13548,
+    "formats": [
+      "md"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-29T08:37:09Z"
+  },
+  {
+    "id": "papers-EAAI-26-17134_reviewer_20260729_175043",
+    "name": "EAAI",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/papers-EAAI-26-17134_reviewer_20260729_175043.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/papers/EAAI-26-17134_reviewer_20260729_175043",
+    "file_count": 1,
+    "total_size": 7959,
+    "formats": [
+      "md"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-29T09:50:43Z"
   }
 ]

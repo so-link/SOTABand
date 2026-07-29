@@ -60,13 +60,17 @@ class ToolExecutor:
         与自动调试 sandbox_execute 使用完全相同的模板结构，
         但增加了 TOOL_DIR 环境变量设置。
         """
+        # 清理 surrogate 字符（如 LLM 生成的数学符号），避免 json.dumps 报错
+        def _safe_dumps(obj):
+            return json.dumps(obj, ensure_ascii=False).encode('utf-8', errors='replace').decode('utf-8')
+
         return (
             f"import json, sys, os\n"
-            f"os.environ['TOOL_DIR'] = {json.dumps(tool_dir)}\n"
-            f"sys.path.insert(0, {json.dumps(project_root)})\n"
+            f"os.environ['TOOL_DIR'] = {_safe_dumps(tool_dir)}\n"
+            f"sys.path.insert(0, {_safe_dumps(project_root)})\n"
             f"# 屏蔽 sys.argv 防止代码中误用 argparse 等 CLI 参数\n"
             f"sys.argv = [sys.argv[0]]\n"
-            f"code = {json.dumps(code)}\n"
+            f"code = {_safe_dumps(code)}\n"
             f"try:\n"
             f"    exec(code)\n"
             f"    result = execute(**{json.dumps(params)})\n"

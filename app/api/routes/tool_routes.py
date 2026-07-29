@@ -146,11 +146,19 @@ async def generate_spec(req: GenerateToolSpecRequest):
             temperature=0.3, max_tokens=100,
         )
         import re
-        match = re.search(r'\[.*?\]', tag_response, re.DOTALL)
-        if match:
-            parsed = _json.loads(match.group())
-            if isinstance(parsed, list) and all(isinstance(t, str) for t in parsed):
-                tags = parsed
+        # 先尝试直接解析，再回退用正则
+        clean = tag_response.strip().strip('`').strip()
+        if clean.startswith('[') and ']' in clean:
+            end = clean.rindex(']') + 1
+            parsed = _json.loads(clean[:end])
+        else:
+            match = re.search(r'\[.*\]', tag_response, re.DOTALL)
+            if match:
+                parsed = _json.loads(match.group())
+            else:
+                parsed = None
+        if parsed and isinstance(parsed, list) and all(isinstance(t, str) for t in parsed):
+            tags = parsed
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -407,17 +415,26 @@ async def _auto_generate_tags(tool_id: str, name: str, spec_md: str):
             temperature=0.3, max_tokens=100, timeout=30,
         )
         # 解析 JSON 数组
-        import re
-        match = re.search(r'\[.*?\]', response, re.DOTALL)
-        if match:
-            tags = _json.loads(match.group())
-            if isinstance(tags, list) and all(isinstance(t, str) for t in tags):
-                entry = await registry.get(tool_id)
-                if entry:
-                    entry["tags"] = tags
-                    await registry._save()
-    except Exception:
-        pass  # 标签生成失败不影响工具注册
+        clean = response.strip().strip('`').strip()
+        if clean.startswith('[') and ']' in clean:
+            end = clean.rindex(']') + 1
+            tags = _json.loads(clean[:end])
+        else:
+            import re
+            match = re.search(r'\[.*\]', response, re.DOTALL)
+            if match:
+                tags = _json.loads(match.group())
+            else:
+                return
+        if isinstance(tags, list) and all(isinstance(t, str) for t in tags):
+            entry = await registry.get(tool_id)
+            if entry:
+                entry["tags"] = tags
+                await registry._save()
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"[_auto_generate_tags] 标签生成失败 tool_id={tool_id}: {e}")
 
 
 # ── 列表 / 详情 / 调用 / 搜索 / 删除 ──

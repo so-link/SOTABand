@@ -1080,5 +1080,341 @@
     ],
     "usage_count": 0,
     "created_at": "2026-07-28T05:47:44Z"
+  },
+  {
+    "id": "extract-references-from-pdf",
+    "name": "PDF论文参考文献提取",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/extract-references-from-pdf.md",
+    "impl_path": "implementations/extract-references-from-pdf/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "path",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "待解析的 PDF 论文文件路径（本地绝对路径或可访问的网络路径）",
+        "hints": [
+          "/home/user/paper.pdf",
+          "https://example.com/paper.pdf"
+        ]
+      }
+    ],
+    "tags": [
+      "参考文献",
+      "PDF提取",
+      "论文工具",
+      "文献管理"
+    ],
+    "usage_count": 0,
+    "created_at": "2026-07-28T10:16:39Z"
+  },
+  {
+    "id": "pdf-reference-verifier",
+    "name": "PDF参考文献真实性验证器",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/pdf-reference-verifier.md",
+    "impl_path": "implementations/pdf-reference-verifier/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "path",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "PDF 论文文件的本地路径或可访问的 URI",
+        "hints": []
+      }
+    ],
+    "tags": [
+      "文献验证",
+      "PDF检测",
+      "学术查重",
+      "引用校验",
+      "真实性审查"
+    ],
+    "usage_count": 0,
+    "created_at": "2026-07-28T12:18:19Z"
+  },
+  {
+    "id": "image-to-grayscale",
+    "name": "图片黑白转换",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/image-to-grayscale.md",
+    "impl_path": "implementations/image-to-grayscale/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "file",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "输入图片的文件路径",
+        "hints": [
+          "/path/to/image.jpg",
+          "/home/user/photo.png",
+          "./input/sample.bmp"
+        ]
+      }
+    ],
+    "tags": [
+      "图片处理",
+      "黑白转换",
+      "灰度化",
+      "图像编辑"
+    ],
+    "usage_count": 0,
+    "created_at": "2026-07-28T15:51:34Z"
+  },
+  {
+    "id": "mel-spectrogram-generator",
+    "name": "梅尔频谱图生成器",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/mel-spectrogram-generator.md",
+    "impl_path": "implementations/mel-spectrogram-generator/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "voice",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "输入音频文件的路径（支持 WAV、MP3 等常见格式）"
+      },
+      {
+        "name": "sr",
+        "type": "int",
+        "required": false,
+        "default": "22050",
+        "desc": "目标采样率 (Hz)，音频会被重采样至该值"
+      },
+      {
+        "name": "n_fft",
+        "type": "int",
+        "required": false,
+        "default": "2048",
+        "desc": "FFT 窗口大小（采样点数）"
+      },
+      {
+        "name": "hop_length",
+        "type": "int",
+        "required": false,
+        "default": "512",
+        "desc": "帧移（采样点数）"
+      },
+      {
+        "name": "n_mels",
+        "type": "int",
+        "required": false,
+        "default": "128",
+        "desc": "梅尔滤波器组数量"
+      },
+      {
+        "name": "fmin",
+        "type": "float",
+        "required": false,
+        "default": "0",
+        "desc": "最小频率 (Hz)"
+      },
+      {
+        "name": "fmax",
+        "type": "float",
+        "required": false,
+        "default": "sr/2",
+        "desc": "最大频率 (Hz)，默认为奈奎斯特频率"
+      },
+      {
+        "name": "output_path",
+        "type": "string",
+        "required": false,
+        "default": "自动生成",
+        "desc": "输出梅尔频谱图的保存路径，如未指定则在同一目录生成与音频同名的 `.png` 文件"
+      },
+      {
+        "name": "dpi",
+        "type": "int",
+        "required": false,
+        "default": "100",
+        "desc": "输出图像的分辨率 (DPI)"
+      }
+    ],
+    "tags": [
+      "音频处理",
+      "频谱生成",
+      "声音可视化",
+      "信号分析",
+      "梅尔频谱"
+    ],
+    "usage_count": 0,
+    "created_at": "2026-07-28T16:13:10Z"
+  },
+  {
+    "id": "flight-search-by-city",
+    "name": "航班查询工具",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/flight-search-by-city.md",
+    "impl_path": "implementations/flight-search-by-city/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "city",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "要查询的城市名称，支持中文（内部自动转换为 API 所需的英文或 IATA 代码）",
+        "hints": [
+          "北京",
+          "上海"
+        ]
+      },
+      {
+        "name": "n",
+        "type": "integer",
+        "required": true,
+        "default": null,
+        "desc": "最多返回的航班数量，必须为正整数",
+        "hints": [
+          5,
+          10
+        ]
+      }
+    ],
+    "tags": [
+      "航班查询",
+      "实时航班",
+      "城市搜索",
+      "航空数据"
+    ],
+    "usage_count": 0,
+    "created_at": "2026-07-29T05:29:25Z"
+  },
+  {
+    "id": "paper-review",
+    "name": "论文评审",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/paper-review.md",
+    "impl_path": "implementations/paper-review/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "path",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "待评审论文的 PDF 文件路径",
+        "hints": [
+          "/home/user/paper.pdf",
+          "./example.pdf"
+        ]
+      },
+      {
+        "name": "conf",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "投稿的会议名称，用于匹配评审标准",
+        "hints": [
+          "CVPR",
+          "ICML",
+          "NeurIPS"
+        ]
+      },
+      {
+        "name": "dataset",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "评审结果输出数据集的名称",
+        "hints": [
+          "review_output",
+          "paper_feedback"
+        ]
+      }
+    ],
+    "tags": [
+      "论文评审",
+      "AI审稿",
+      "学术评估",
+      "PDF分析",
+      "深度求索"
+    ],
+    "usage_count": 0,
+    "created_at": "2026-07-29T07:00:02Z"
+  },
+  {
+    "id": "paper-review-suggestions",
+    "name": "论文修改建议",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/paper-review-suggestions.md",
+    "impl_path": "implementations/paper-review-suggestions/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "path",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "待评审的 PDF 论文文件绝对或相对路径",
+        "hints": [
+          "/path/to/paper.pdf",
+          "C:\\papers\\paper.pdf"
+        ]
+      },
+      {
+        "name": "conf",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "投稿的会议名称（如 ACL、NeurIPS），用于匹配评审标准",
+        "hints": [
+          "ACL",
+          "NeurIPS",
+          "ICLR"
+        ]
+      },
+      {
+        "name": "dataset",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "评审结果输出数据集的名称，用于数据集注册与存储",
+        "hints": [
+          "review_dataset",
+          "my_dataset"
+        ]
+      }
+    ],
+    "tags": [],
+    "usage_count": 0,
+    "created_at": "2026-07-29T07:48:32Z"
   }
 ]

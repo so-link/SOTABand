@@ -51,12 +51,15 @@ TOOL_HELPER_TEMPLATE = '''
         venv_python = PROJECT_ROOT / "resources" / "tools" / "implementations" / "{tool_id}" / ".venv" / "bin" / "python"
         python_exe = str(venv_python) if venv_python.exists() else sys.executable
 
+        def _safe_dumps(obj):
+            return json.dumps(obj, ensure_ascii=False).encode('utf-8', errors='replace').decode('utf-8')
+
         test_script = (
             f"import json, sys\\n"
-            f"sys.path.insert(0, {{json.dumps(str(PROJECT_ROOT))}})\\n"
-            f"code = {{json.dumps(code)}}\\n"
+            f"sys.path.insert(0, {{_safe_dumps(str(PROJECT_ROOT))}})\\n"
+            f"code = {{_safe_dumps(code)}}\\n"
             f"exec(code)\\n"
-            f"result = execute(**{{json.dumps(params)}})\\n"
+            f"result = execute(**{{_safe_dumps(params)}})\\n"
             f"print(json.dumps(result, default=str))\\n"
         )
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:

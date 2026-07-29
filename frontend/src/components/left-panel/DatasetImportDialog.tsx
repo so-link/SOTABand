@@ -52,14 +52,18 @@ export function DatasetImportDialog({ onImport, onClose }: Props) {
         type: 'directory', category: 'folder',
         path: dsPath,
         expanded: true,
-        children: files.map((f: Record<string, unknown>) => ({
-          id: `ds-${selected}-${f.name}`,
-          name: f.name as string,
-          type: 'file' as const, category: 'unknown' as const,
-          path: dsPath ? `${dsPath}/${f.name}` : (f.name as string),
-          format: (f.format as string) || '',
-          size: (f.size as number) || 0,
-        })),
+        children: files.map((f: Record<string, unknown>) => {
+          // 使用后端返回的相对路径（包含子目录），而非仅文件名
+          const relPath = (f.path as string) || (f.name as string)
+          return {
+            id: `ds-${selected}-${f.name}`,
+            name: f.name as string,
+            type: 'file' as const, category: 'unknown' as const,
+            path: dsPath ? `${dsPath}/${relPath}` : (f.name as string),
+            format: (f.format as string) || '',
+            size: (f.size as number) || 0,
+          }
+        }),
       }
       onImport(dsNode)
     } catch { /* ignore */ }

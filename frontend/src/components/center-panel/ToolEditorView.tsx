@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type KeyboardEvent } from 'react'
+import { useState, useEffect, useRef, useCallback, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Wrench, ArrowRight, ArrowLeft, CheckCircle2, XCircle,
@@ -10,6 +10,38 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardBody } from '@/components/ui/card'
 import { useUIStore } from '@/stores/ui-store'
 import { useToolEditorStore } from '@/stores/tool-editor-store'
+
+// ── 可拖拽分割面板 ──
+
+function ResizeHandle({ onResize }: { onResize: (delta: number) => void }) {
+  const handleRef = useRef<HTMLDivElement>(null)
+
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    const startY = e.clientY
+    const handleMouseMove = (ev: MouseEvent) => {
+      onResize(ev.clientY - startY)
+    }
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+  }, [onResize])
+
+  return (
+    <div
+      ref={handleRef}
+      onMouseDown={onMouseDown}
+      className="h-1.5 cursor-row-resize bg-maia-border hover:bg-maia-accent/40 transition-colors shrink-0 group relative"
+    >
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="w-6 h-0.5 rounded-full bg-maia-accent/50" />
+      </div>
+    </div>
+  )
+}
 
 export function ToolEditorView() {
   const store = useToolEditorStore()
@@ -228,6 +260,10 @@ function Step3() {
   const logEndRef = useRef<HTMLDivElement>(null)
   const fileInputRefs = useRef<Map<string, HTMLInputElement>>(new Map())
   const [uploadedFiles, setUploadedFiles] = useState<Map<string, File>>(new Map())
+  // 面板高度（px），初始值
+  const [codeHeight, setCodeHeight] = useState(300)
+  const [logHeight, setLogHeight] = useState(180)
+  const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: 'auto' }) }, [debugRounds])
 
@@ -253,145 +289,169 @@ function Step3() {
   const isPathParam = (name: string, type: string) =>
     type.toLowerCase().includes('path') || name.toLowerCase().includes('path') || name.toLowerCase().includes('file')
 
+  // 可拖拽分隔线处理
+  const handleCodeResize = useCallback((delta: number) => {
+    setCodeHeight(h => Math.max(120, Math.min(600, h + delta)))
+  }, [])
+
+  const handleLogResize = useCallback((delta: number) => {
+    setLogHeight(h => Math.max(80, Math.min(500, h - delta)))
+  }, [])
+
   return (
-    <div className="max-w-5xl mx-auto">
-      <h3 className="text-lg font-semibold text-maia-text-heading mb-2 tracking-wide">Step 3: 代码预览 & 沙箱测试</h3>
-      <div className="grid grid-cols-5 gap-4">
-        {/* 左：代码 */}
-        <div className="col-span-3">
-          <div className="flex items-center gap-1.5 mb-2"><FileCode className="h-3.5 w-3.5 text-amber-400" /><span className="text-xs font-medium text-maia-text-secondary tracking-wide">生成代码</span></div>
-          <div className="rounded-lg border border-maia-border bg-[#1e1e1e] overflow-auto max-h-[350px]">
-            <Highlight theme={themes.vsDark} code={generatedCode || '# 等待生成代码...'} language="python">
-              {({ style, tokens, getLineProps, getTokenProps }) => (
-                <pre style={style} className="px-3 py-2 text-[11px] font-mono leading-relaxed m-0">
-                  {tokens.map((line, i) => (
-                    <div key={i} {...getLineProps({ line })}>
-                      <span className="inline-block w-8 text-right mr-3 text-white/20 select-none text-[10px]">{i + 1}</span>
-                      {line.map((token, key) => (
-                        <span key={key} {...getTokenProps({ token })} />
-                      ))}
+    <div className="max-w-5xl mx-auto h-full flex flex-col" ref={containerRef}>
+      <h3 className="text-lg font-semibold text-maia-text-heading mb-2 tracking-wide shrink-0">Step 3: 代码预览 & 沙箱测试</h3>
+
+      {/* 上半部分：代码 + 测试区（水平分割） */}
+      <div className="flex-1 min-h-0 flex flex-col">
+        <div className="grid grid-cols-5 gap-4 flex-1 min-h-0">
+          {/* 左：代码预览 */}
+          <div className="col-span-3 flex flex-col min-h-0">
+            <div className="flex items-center gap-1.5 mb-2 shrink-0">
+              <FileCode className="h-3.5 w-3.5 text-amber-400" />
+              <span className="text-xs font-medium text-maia-text-secondary tracking-wide">生成代码</span>
+            </div>
+            <div className="flex-1 min-h-0 rounded-lg border border-maia-border bg-[#1e1e1e] overflow-auto" style={{ maxHeight: codeHeight }}>
+              <Highlight theme={themes.vsDark} code={generatedCode || '# 等待生成代码...'} language="python">
+                {({ style, tokens, getLineProps, getTokenProps }) => (
+                  <pre style={style} className="px-3 py-2 text-[11px] font-mono leading-relaxed m-0">
+                    {tokens.map((line, i) => (
+                      <div key={i} {...getLineProps({ line })}>
+                        <span className="inline-block w-8 text-right mr-3 text-white/20 select-none text-[10px]">{i + 1}</span>
+                        {line.map((token, key) => (
+                          <span key={key} {...getTokenProps({ token })} />
+                        ))}
+                      </div>
+                    ))}
+                  </pre>
+                )}
+              </Highlight>
+            </div>
+          </div>
+
+          {/* 右：沙箱测试 */}
+          <div className="col-span-2 flex flex-col min-h-0" style={{ maxHeight: codeHeight }}>
+            <div className="flex items-center gap-1.5 mb-2 shrink-0">
+              <Play className="h-3.5 w-3.5 text-amber-400" />
+              <span className="text-xs font-medium text-maia-text-secondary tracking-wide">沙箱测试</span>
+            </div>
+            <div className="flex-1 min-h-0 overflow-auto">
+              {/* 测试输入表单 */}
+              {params.length > 0 && (
+                <div className="mb-2 space-y-2">
+                  <div className="text-[10px] text-maia-text-muted uppercase tracking-wider font-semibold">测试参数</div>
+                  {params.map((p) => (
+                    <div key={p.name}>
+                      <div className="text-[10px] text-maia-text-muted mb-0.5 flex items-center gap-1">
+                        {p.name} <span className="text-maia-accent/60">({p.type})</span>
+                        {p.required && <span className="text-maia-danger">*</span>}
+                      </div>
+                      {isPathParam(p.name, p.type) ? (
+                        <div className="flex gap-1">
+                          <input type="text" value={testInputs[p.name] || ''}
+                            onChange={e => setTestInput(p.name, e.target.value)}
+                            className="flex-1 h-7 rounded border border-maia-border px-2 text-[11px] font-mono outline-none focus:border-maia-accent"
+                            placeholder={p.desc || p.name} />
+                          <button
+                            onClick={() => fileInputRefs.current.get(p.name)?.click()}
+                            className="shrink-0 h-7 px-2 text-[10px] rounded border border-maia-border hover:bg-maia-sidebar-hover text-maia-text-secondary tracking-wider"
+                          >📎 上传</button>
+                          <input type="file" ref={el => { if (el) fileInputRefs.current.set(p.name, el) }}
+                            onChange={e => handleFileUpload(p.name, e)} className="hidden" />
+                        </div>
+                      ) : (
+                        <input type="text" value={testInputs[p.name] || ''}
+                          onChange={e => setTestInput(p.name, e.target.value)}
+                          className="w-full h-7 rounded border border-maia-border px-2 text-[11px] font-mono outline-none focus:border-maia-accent"
+                          placeholder={p.desc || p.name} />
+                      )}
                     </div>
                   ))}
-                </pre>
+                </div>
               )}
-            </Highlight>
+
+              {/* 测试输出 */}
+              {testOutput && (
+                <Card className="border-maia-border mt-2">
+                  <CardBody>
+                    <div className="text-[10px] text-maia-text-muted uppercase tracking-wider font-semibold mb-1">执行输出</div>
+                    <pre className={`text-[10px] font-mono leading-relaxed max-h-[120px] overflow-auto whitespace-pre-wrap ${testOutput.success ? 'text-maia-success' : 'text-maia-danger'}`}>
+                      {testOutput.stdout || '(空)'}
+                    </pre>
+                    {testOutput.stderr && (
+                      <>
+                        <div className="text-[10px] text-maia-warning uppercase tracking-wider font-semibold mt-1.5 mb-0.5">stderr</div>
+                        <pre className="text-[10px] font-mono text-maia-danger leading-relaxed max-h-[80px] overflow-auto whitespace-pre-wrap">{testOutput.stderr}</pre>
+                      </>
+                    )}
+                  </CardBody>
+                </Card>
+              )}
+
+              {!testOutput && !isTesting && !isAutoDebugging && <div className="text-[11px] text-maia-text-muted mt-2">填写测试参数后运行</div>}
+              {isTesting && <div className="flex items-center gap-1.5 mt-2 text-xs text-maia-accent"><Loader2 className="h-3 w-3 animate-spin" />测试中...</div>}
+
+              {/* 按钮 */}
+              <div className="flex gap-1.5 mt-2">
+                {isTesting ? (
+                  <Button variant="danger" size="sm" className="flex-1" onClick={stopTest}><XCircle className="h-3.5 w-3.5" /> 停止测试</Button>
+                ) : (
+                  <Button variant="outline" size="sm" className="flex-1" onClick={handleRunTest} disabled={isTesting || isAutoDebugging}>
+                    <Play className="h-3.5 w-3.5" /> 运行测试
+                  </Button>
+                )}
+                {isAutoDebugging ? (
+                  <Button variant="danger" size="sm" onClick={stopAutoDebug}><XCircle className="h-3.5 w-3.5" /> 停止调试</Button>
+                ) : (
+                  <Button size="sm" onClick={handleAutoDebug} disabled={isTesting || isAutoDebugging}
+                    className="bg-amber-600 hover:bg-amber-700"><Rocket className="h-3.5 w-3.5" /> 自动调试
+                  </Button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* 右：测试 */}
-        <div className="col-span-2">
-          <div className="flex items-center gap-1.5 mb-2"><Play className="h-3.5 w-3.5 text-amber-400" /><span className="text-xs font-medium text-maia-text-secondary tracking-wide">沙箱测试</span></div>
+        {/* 可拖拽分隔线 — 代码/测试区 ↔ 调试日志 */}
+        {(isAutoDebugging || debugRounds.length > 0) && (
+          <ResizeHandle onResize={handleLogResize} />
+        )}
 
-          {/* 测试输入表单 */}
-          {params.length > 0 && (
-            <div className="mb-2 space-y-2">
-              <div className="text-[10px] text-maia-text-muted uppercase tracking-wider font-semibold">测试参数</div>
-              {params.map((p) => (
-                <div key={p.name}>
-                  <div className="text-[10px] text-maia-text-muted mb-0.5 flex items-center gap-1">
-                    {p.name} <span className="text-maia-accent/60">({p.type})</span>
-                    {p.required && <span className="text-maia-danger">*</span>}
+        {/* 下半部分：自动调试日志 */}
+        {(isAutoDebugging || debugRounds.length > 0) && (
+          <div className="shrink-0 rounded-lg border border-maia-border bg-maia-bg/50 overflow-auto" style={{ height: logHeight }}>
+            <div className="px-3 py-2 text-[11px] font-semibold text-maia-text-secondary tracking-wider border-b border-maia-border sticky top-0 bg-maia-bg/90 z-10">
+              🧠 自动调试日志 {isAutoDebugging && <Loader2 className="h-3 w-3 animate-spin inline ml-1" />}
+            </div>
+            <div className="p-2 space-y-1.5 font-mono text-[10px] text-maia-text-secondary">
+              {debugStream && (
+                <pre className="whitespace-pre-wrap break-all leading-relaxed text-[10px]">{debugStream}</pre>
+              )}
+              {debugRounds.map((round, i) => (
+                <div key={i}>
+                  <div className="flex items-center gap-2 text-[11px]">
+                    <span className="text-maia-text-muted shrink-0">[第{round.round}轮]</span>
+                    <span className={round.success ? 'text-maia-success' : 'text-maia-danger'}>
+                      {round.success ? '✅ 通过' : '❌ 失败'}
+                    </span>
+                    {round.stdout && (
+                      <span className="text-maia-text-secondary truncate max-w-[200px]">{round.stdout.slice(0, 80)}</span>
+                    )}
                   </div>
-                  {isPathParam(p.name, p.type) ? (
-                    <div className="flex gap-1">
-                      <input type="text" value={testInputs[p.name] || ''}
-                        onChange={e => setTestInput(p.name, e.target.value)}
-                        className="flex-1 h-7 rounded border border-maia-border px-2 text-[11px] font-mono outline-none focus:border-maia-accent"
-                        placeholder={p.desc || p.name} />
-                      <button
-                        onClick={() => fileInputRefs.current.get(p.name)?.click()}
-                        className="shrink-0 h-7 px-2 text-[10px] rounded border border-maia-border hover:bg-maia-sidebar-hover text-maia-text-secondary tracking-wider"
-                      >📎 上传</button>
-                      <input type="file" ref={el => { if (el) fileInputRefs.current.set(p.name, el) }}
-                        onChange={e => handleFileUpload(p.name, e)} className="hidden" />
-                    </div>
-                  ) : (
-                    <input type="text" value={testInputs[p.name] || ''}
-                      onChange={e => setTestInput(p.name, e.target.value)}
-                      className="w-full h-7 rounded border border-maia-border px-2 text-[11px] font-mono outline-none focus:border-maia-accent"
-                      placeholder={p.desc || p.name} />
+                  {round.analysis && (
+                    <pre className="text-green-400 font-mono text-[10px] whitespace-pre-wrap break-all ml-14 mt-0.5 leading-relaxed">{round.analysis}</pre>
                   )}
                 </div>
               ))}
+              <div ref={logEndRef} />
             </div>
-          )}
-
-          {/* 测试输出 */}
-          {testOutput && (
-            <Card className="border-maia-border mt-2">
-              <CardBody>
-                <div className="text-[10px] text-maia-text-muted uppercase tracking-wider font-semibold mb-1">执行输出</div>
-                <pre className={`text-[10px] font-mono leading-relaxed max-h-[120px] overflow-auto whitespace-pre-wrap ${testOutput.success ? 'text-maia-success' : 'text-maia-danger'}`}>
-                  {testOutput.stdout || '(空)'}
-                </pre>
-                {testOutput.stderr && (
-                  <>
-                    <div className="text-[10px] text-maia-warning uppercase tracking-wider font-semibold mt-1.5 mb-0.5">stderr</div>
-                    <pre className="text-[10px] font-mono text-maia-danger leading-relaxed max-h-[80px] overflow-auto whitespace-pre-wrap">{testOutput.stderr}</pre>
-                  </>
-                )}
-              </CardBody>
-            </Card>
-          )}
-
-          {!testOutput && !isTesting && !isAutoDebugging && <div className="text-[11px] text-maia-text-muted mt-2">填写测试参数后运行</div>}
-          {isTesting && <div className="flex items-center gap-1.5 mt-2 text-xs text-maia-accent"><Loader2 className="h-3 w-3 animate-spin" />测试中...</div>}
-
-          {/* 按钮 */}
-          <div className="flex gap-1.5 mt-2">
-            {isTesting ? (
-              <Button variant="danger" size="sm" className="flex-1" onClick={stopTest}><XCircle className="h-3.5 w-3.5" /> 停止测试</Button>
-            ) : (
-              <Button variant="outline" size="sm" className="flex-1" onClick={handleRunTest} disabled={isTesting || isAutoDebugging}>
-                <Play className="h-3.5 w-3.5" /> 运行测试
-              </Button>
-            )}
-            {isAutoDebugging ? (
-              <Button variant="danger" size="sm" onClick={stopAutoDebug}><XCircle className="h-3.5 w-3.5" /> 停止调试</Button>
-            ) : (
-              <Button size="sm" onClick={handleAutoDebug} disabled={isTesting || isAutoDebugging}
-                className="bg-amber-600 hover:bg-amber-700"><Rocket className="h-3.5 w-3.5" /> 自动调试
-              </Button>
-            )}
           </div>
-        </div>
+        )}
       </div>
 
-      {/* 自动调试日志 — 只要调试开始或已有记录就显示 */}
-      {(isAutoDebugging || debugRounds.length > 0) && (
-        <div className="mt-3 rounded-lg border border-maia-border bg-maia-bg/50 max-h-[250px] overflow-auto">
-          <div className="px-3 py-2 text-[11px] font-semibold text-maia-text-secondary tracking-wider border-b border-maia-border sticky top-0 bg-maia-bg/90 z-10">
-            🧠 自动调试日志 {isAutoDebugging && <Loader2 className="h-3 w-3 animate-spin inline ml-1" />}
-          </div>
-          <div className="p-2 space-y-1.5 font-mono text-[10px] text-maia-text-secondary">
-            {/* 实时流式日志（依赖安装等阶段） */}
-            {debugStream && (
-              <pre className="whitespace-pre-wrap break-all leading-relaxed text-[10px]">{debugStream}</pre>
-            )}
-            {debugRounds.map((round, i) => (
-              <div key={i}>
-                <div className="flex items-center gap-2 text-[11px]">
-                  <span className="text-maia-text-muted shrink-0">[第{round.round}轮]</span>
-                  <span className={round.success ? 'text-maia-success' : 'text-maia-danger'}>
-                    {round.success ? '✅ 通过' : '❌ 失败'}
-                  </span>
-                  {round.stdout && (
-                    <span className="text-maia-text-secondary truncate max-w-[200px]">{round.stdout.slice(0, 80)}</span>
-                  )}
-                </div>
-                {round.analysis && (
-                  <pre className="text-green-400 font-mono text-[10px] whitespace-pre-wrap break-all ml-14 mt-0.5 leading-relaxed">{round.analysis}</pre>
-                )}
-              </div>
-            ))}
-            <div ref={logEndRef} />
-          </div>
-        </div>
-      )}
+      {error && <div className="flex items-center gap-1.5 mt-2 text-xs text-maia-danger shrink-0"><XCircle className="h-3 w-3" />{error}</div>}
 
-      {error && <div className="flex items-center gap-1.5 mt-2 text-xs text-maia-danger"><XCircle className="h-3 w-3" />{error}</div>}
-
-      <div className="flex justify-between mt-4">
+      <div className="flex justify-between mt-4 shrink-0">
         <Button variant="outline" onClick={() => setStep(2)} disabled={isAutoDebugging}><ArrowLeft className="h-3.5 w-3.5" />返回修改 MD</Button>
         <div className="flex gap-2">
           <Button variant="danger" onClick={() => setStep(1)} disabled={isAutoDebugging}><XCircle className="h-3.5 w-3.5" />拒绝</Button>

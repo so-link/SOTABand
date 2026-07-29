@@ -159,14 +159,33 @@ class InteractiveAgent(BaseAgent):
                 p = missing[0]
                 yield {"event": "content", "data": {"text": f"要使用 **{matched_tool['name']}** 工具，请提供以下参数:\n\n**{p['name']}** — {p.get('desc', '')}"}}
                 return
+            # 记录执行前的数据集 ID 列表，用于检测新注册的数据集
+            datasets_before = set()
+            try:
+                from core.resource.registry.data_registry import DataRegistry
+                dr = DataRegistry()
+                datasets_before = {d.get("id") for d in dr._read()}
+            except Exception:
+                pass
+
             tool_result = await self._execute_tool(matched_tool, content, dataset_paths, params)
             if tool_result:
-                # 提取工具执行过程中注册的数据集 ID
+                # 检测工具执行过程中是否注册了新数据集
                 registered_dataset_id = None
-                tool_data = tool_result.get("data", {})
-                if isinstance(tool_data, dict):
-                    registered_dataset_id = tool_data.get("dataset_id") or tool_data.get("registered_dataset_id")
-                # 也在顶层查找
+                try:
+                    from core.resource.registry.data_registry import DataRegistry
+                    dr = DataRegistry()
+                    datasets_after = {d.get("id") for d in dr._read()}
+                    new_ids = datasets_after - datasets_before
+                    if new_ids:
+                        registered_dataset_id = list(new_ids)[0]
+                except Exception:
+                    pass
+                # 如果对比没发现，也尝试从返回结果中提取
+                if not registered_dataset_id:
+                    tool_data = tool_result.get("data", {})
+                    if isinstance(tool_data, dict):
+                        registered_dataset_id = tool_data.get("dataset_id") or tool_data.get("registered_dataset_id")
                 if not registered_dataset_id:
                     registered_dataset_id = tool_result.get("dataset_id") or tool_result.get("registered_dataset_id")
 
@@ -430,30 +449,44 @@ class InteractiveAgent(BaseAgent):
         return params
 
     def _get_path_params(self, tool_id: str) -> list[str]:
-        """从工具的 MD spec 中解析路径类型参数名（如 data_path, input_file 等）"""
+        """通过 param_meta 的 desc 字段识别文件/路径类型参数"""
         try:
+            import json
             from pathlib import Path
             project_root = Path(__file__).resolve().parent.parent.parent.parent.parent
-            spec_path = project_root / "resources" / "tools" / "definitions" / f"{tool_id}.md"
-            if not spec_path.exists():
+            reg_path = project_root / "resources" / "tools" / "registry.json"
+            if not reg_path.exists():
                 return []
-            md = spec_path.read_text()
+            tools = json.loads(reg_path.read_text())
+            entry = next((t for t in tools if t.get("id") == tool_id), None)
+            if not entry:
+                return []
+            param_meta = entry.get("param_meta", [])
+            if not param_meta:
+                return []
+
+            # 路径/文件 关键词
+            PATH_KEYWORDS = [
+                "文件", "路径", "目录", "文件夹",
+                "pdf", "图片", "图像", "音频", "视频", "文档",
+                "csv", "edf", "json", "xml", "txt",
+                "png", "jpg", "jpeg", "tiff", "wav", "mp3",
+            ]
             path_params = []
-            # 解析输入规范表格
-            in_section = False
-            for line in md.split("\n"):
-                if "输入规范" in line:
-                    in_section = True
-                    continue
-                if in_section and line.startswith("##"):
-                    break
-                if in_section and line.startswith("|") and "参数名" not in line and "---" not in line:
-                    parts = [p.strip() for p in line.split("|")[1:-1]]
-                    if len(parts) >= 2:
-                        name, ptype = parts[0], parts[1].lower()
-                        # 判断参数是否为路径类型
-                        if "path" in name.lower() or "file" in name.lower() or "dir" in name.lower():
-                            path_params.append(name)
+            for p in param_meta:
+                desc = (p.get("desc", "") or "").lower()
+                ptype = (p.get("type", "") or "").lower()
+                name = (p.get("name", "") or "").lower()
+                # 主要通过 desc 判断
+                is_path = any(kw in desc for kw in PATH_KEYWORDS)
+                # 辅助：type 包含 path/file
+                if not is_path and ("path" in ptype or "file" in ptype):
+                    is_path = True
+                # 辅助：name 包含 file（如 pdf_file, ref_file）
+                if not is_path and "file" in name:
+                    is_path = True
+                if is_path:
+                    path_params.append(p.get("name"))
             return path_params
         except Exception:
             return []
