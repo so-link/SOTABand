@@ -72,12 +72,25 @@ def _call_api(api_name: str, **params) -> dict:
 
 # ── 工具调用辅助 ──
 def _call_tool(tool_name: str, **params) -> dict:
-    """调用已注册的工具"""
+    """调用已注册的工具（通过 registry.json 查找工具 ID 对应的实现目录）"""
     import subprocess as _sp
-    tool_dir = _PROJECT_ROOT / "resources" / "tools" / "implementations" / tool_name
+    # 从 registry.json 中查找工具 ID（目录名）
+    reg_path = _PROJECT_ROOT / "resources" / "tools" / "registry.json"
+    tool_id = tool_name  # 默认用名称作为 ID
+    if reg_path.exists():
+        try:
+            tools = json.loads(reg_path.read_text(encoding="utf-8"))
+            # 先精确匹配 id，再模糊匹配 name
+            for t in tools:
+                if t.get("id") == tool_name or t.get("name") == tool_name:
+                    tool_id = t["id"]
+                    break
+        except Exception:
+            pass
+    tool_dir = _PROJECT_ROOT / "resources" / "tools" / "implementations" / tool_id
     tool_file = tool_dir / "tool.py"
     if not tool_file.exists():
-        return {"status": "failed", "message": f"Tool '{tool_name}' not found"}
+        return {"status": "failed", "message": f"Tool '{tool_name}' (id={tool_id}) not found"}
     venv_py = tool_dir / ".venv" / "bin" / "python"
     py_exe = str(venv_py) if venv_py.exists() else sys.executable
     script = f"import json, sys; sys.path.insert(0, {str(_PROJECT_ROOT)!r}); exec(open({str(tool_file)!r}).read()); print(json.dumps(execute(**{params!r}), default=str, ensure_ascii=False))"
@@ -280,7 +293,7 @@ CRITICAL RULES:
 6. File paths: _PROJECT_ROOT / "data" / ... or _resolve_path()
 7. API calls: use the EXACT api_id and param names from the SYSTEM API CALLS section above
 8. Map tool input parameters (from kwargs) to API parameters with the CORRECT names
-9. Tool calls: _call_tool("tool-name", param=value)
+9. Tool calls: _call_tool("工具名称", param=value) — 系统自动通过 registry.json 查找工具ID和实现目录
 10. NEVER async/await
 11. NEVER use pip install, subprocess.run for package installation, or any runtime dependency installation — dependencies are managed by the system automatically
 12. Output ONLY Python code, no markdown, no explanation"""

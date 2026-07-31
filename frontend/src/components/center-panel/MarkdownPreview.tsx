@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Loader2, FileText } from 'lucide-react'
+import { Loader2, FileText, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Card, CardBody } from '@/components/ui/card'
 
 const BASE_URL = ''
@@ -98,17 +98,28 @@ interface MarkdownPreviewProps {
 export function MarkdownPreview({ datasetPath, mdFiles }: MarkdownPreviewProps) {
   const [html, setHtml] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [currentIndex, setCurrentIndex] = useState(0)
 
-  useEffect(() => {
-    if (mdFiles.length === 0) { setHtml(null); return }
-    const mdFile = mdFiles[0]
-    const filePath = datasetPath ? `${datasetPath}/${mdFile.name}` : ''
-    if (!filePath) return
+  const currentFile = mdFiles[currentIndex]
+  const hasPrev = currentIndex > 0
+  const hasNext = currentIndex < mdFiles.length - 1
+
+  const loadFile = (index: number) => {
+    setCurrentIndex(index)
     setLoading(true)
+    setHtml(null)
+    const file = mdFiles[index]
+    if (!file) return
+    const filePath = datasetPath ? `${datasetPath}/${file.name}` : ''
+    if (!filePath) { setLoading(false); return }
     fetch(`${BASE_URL}/api/file/download?path=${encodeURIComponent(filePath)}`)
       .then(r => r.text())
       .then(text => { setHtml(renderMarkdown(text)); setLoading(false) })
       .catch(() => setLoading(false))
+  }
+
+  useEffect(() => {
+    if (mdFiles.length > 0) loadFile(0)
   }, [])
 
   if (mdFiles.length === 0) return null
@@ -116,9 +127,34 @@ export function MarkdownPreview({ datasetPath, mdFiles }: MarkdownPreviewProps) 
   return (
     <Card className="border-maia-border">
       <CardBody>
-        <div className="flex items-center gap-1.5 mb-3">
-          <FileText className="h-3.5 w-3.5 text-purple-400" />
-          <span className="text-xs font-medium text-maia-text-secondary tracking-wide">{mdFiles[0].name as string}</span>
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-1.5">
+            <FileText className="h-3.5 w-3.5 text-purple-400" />
+            <span className="text-xs font-medium text-maia-text-secondary tracking-wide">
+              {currentFile?.name as string}
+            </span>
+            <span className="text-[10px] text-maia-text-muted">({currentIndex + 1}/{mdFiles.length})</span>
+          </div>
+          {mdFiles.length > 1 && (
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => hasPrev && loadFile(currentIndex - 1)}
+                disabled={!hasPrev}
+                className="flex items-center gap-1 px-2 h-6 rounded border border-maia-border hover:bg-maia-bg disabled:opacity-30 disabled:cursor-not-allowed text-[10px] text-maia-text-secondary"
+                title="上一篇"
+              >
+                <ChevronLeft className="h-3 w-3" />上一篇
+              </button>
+              <button
+                onClick={() => hasNext && loadFile(currentIndex + 1)}
+                disabled={!hasNext}
+                className="flex items-center gap-1 px-2 h-6 rounded border border-maia-border hover:bg-maia-bg disabled:opacity-30 disabled:cursor-not-allowed text-[10px] text-maia-text-secondary"
+                title="下一篇"
+              >
+                下一篇<ChevronRight className="h-3 w-3" />
+              </button>
+            </div>
+          )}
         </div>
         {loading ? (
           <div className="flex items-center justify-center py-8">

@@ -11,7 +11,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.api.schemas.tool_schemas import (
     GenerateToolSpecRequest, GenerateToolCodeRequest, RegisterToolRequest,
-    ExecuteToolRequest, ModifyCodeRequest,
+    ExecuteToolRequest, ModifyCodeRequest, ModifyAndDebugRequest,
 )
 from core.llm.client import create_llm_client
 from core.resource.builder.tool_builder import ToolCodeBuilder, TOOL_TEMPLATE, stop_debug
@@ -130,12 +130,12 @@ async def generate_spec(req: GenerateToolSpecRequest):
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_content},
     ]
-    spec_md = await llm.chat(messages=messages, temperature=0.3, max_tokens=4000)
+    spec_md = await llm.chat(messages=messages, temperature=0.3, max_tokens=100000)
 
     # 同时生成标签
     tags: list[str] = []
     try:
-        tag_prompt = f"""根据以下工具信息，生成3-5个简短的中文标签（每个2-4字），用于工具分类和检索。返回 JSON 数组，不要其他内容。
+        tag_prompt = f"""根据以下工具信息，生成3-5个简短的中文标签（每个2-4字），用于工具分类和检索。直接返回 JSON 数组。
 
 工具描述: {req.description[:500]}
 生成的 MD 规范: {spec_md[:300]}
@@ -143,22 +143,13 @@ async def generate_spec(req: GenerateToolSpecRequest):
 返回格式: ["标签1", "标签2", "标签3"]"""
         tag_response = await llm.chat(
             messages=[{"role": "user", "content": tag_prompt}],
-            temperature=0.3, max_tokens=100,
+            temperature=0.3, max_tokens=200,
         )
-        import re
-        # 先尝试直接解析，再回退用正则
-        clean = tag_response.strip().strip('`').strip()
-        if clean.startswith('[') and ']' in clean:
-            end = clean.rindex(']') + 1
-            parsed = _json.loads(clean[:end])
-        else:
-            match = re.search(r'\[.*\]', tag_response, re.DOTALL)
-            if match:
-                parsed = _json.loads(match.group())
-            else:
-                parsed = None
-        if parsed and isinstance(parsed, list) and all(isinstance(t, str) for t in parsed):
-            tags = parsed
+        tags = _extract_tags_json(tag_response) or []
+        if not tags:
+            import re
+            matches = re.findall(r'[\u4e00-\u9fff]{2,4}', tag_response)
+            tags = list(dict.fromkeys(matches))[:5]
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -404,7 +395,7 @@ async def _auto_generate_tags(tool_id: str, name: str, spec_md: str):
     try:
         from core.llm.client import get_llm_client
         llm = get_llm_client()
-        prompt = f"""根据以下工具信息，生成3-5个简短的中文标签（每个2-4字），用于工具分类和检索。返回 JSON 数组，不要其他内容。
+        prompt = f"""根据以下工具信息，生成3-5个简短的中文标签（每个2-4字），用于工具分类和检索。直接返回 JSON 数组。
 
 工具名称: {name}
 工具描述: {spec_md[:500]}
@@ -412,29 +403,72 @@ async def _auto_generate_tags(tool_id: str, name: str, spec_md: str):
 返回格式: ["标签1", "标签2", "标签3"]"""
         response = await llm.chat(
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.3, max_tokens=100, timeout=30,
+            temperature=0.3, max_tokens=200, timeout=30,
         )
-        # 解析 JSON 数组
-        clean = response.strip().strip('`').strip()
-        if clean.startswith('[') and ']' in clean:
-            end = clean.rindex(']') + 1
-            tags = _json.loads(clean[:end])
-        else:
+        print(f"[_auto_generate_tags] LLM返回 tool_id={tool_id}: {repr(response[:200])}")
+
+        # 多策略 JSON 解析
+        tags = _extract_tags_json(response)
+        if not tags:
+            # 回退：用简单的正则提取所有引号内中文
             import re
-            match = re.search(r'\[.*\]', response, re.DOTALL)
-            if match:
-                tags = _json.loads(match.group())
-            else:
-                return
-        if isinstance(tags, list) and all(isinstance(t, str) for t in tags):
+            matches = re.findall(r'[\u4e00-\u9fff]{2,4}', response)
+            tags = list(dict.fromkeys(matches))[:5]  # 去重，最多5个
+            if tags:
+                print(f"[_auto_generate_tags] 回退正则提取 tool_id={tool_id}: {tags}")
+
+        if tags:
             entry = await registry.get(tool_id)
             if entry:
                 entry["tags"] = tags
                 await registry._save()
+                print(f"[_auto_generate_tags] 标签已更新 tool_id={tool_id}: {tags}")
+        else:
+            print(f"[_auto_generate_tags] 无法提取标签 tool_id={tool_id}")
     except Exception as e:
         import traceback
         traceback.print_exc()
-        print(f"[_auto_generate_tags] 标签生成失败 tool_id={tool_id}: {e}")
+        print(f"[_auto_generate_tags] 异常 tool_id={tool_id}: {e}")
+
+
+def _extract_tags_json(text: str) -> list[str] | None:
+    """多策略从 LLM 返回中提取 JSON 标签数组"""
+    import re
+    # 策略1：直接解析整个响应（去掉可能的 markdown 标记）
+    clean = text.strip()
+    for prefix in ['```json', '```', '`']:
+        if clean.startswith(prefix):
+            clean = clean[len(prefix):].strip()
+    for suffix in ['```', '`']:
+        if clean.endswith(suffix):
+            clean = clean[:-len(suffix)].strip()
+    if clean.startswith('[') and ']' in clean:
+        try:
+            end = clean.rindex(']') + 1
+            result = _json.loads(clean[:end])
+            if isinstance(result, list) and all(isinstance(t, str) for t in result):
+                return result
+        except Exception:
+            pass
+    # 策略2：正则找 [...]
+    match = re.search(r'\[.*\]', text, re.DOTALL)
+    if match:
+        try:
+            result = _json.loads(match.group())
+            if isinstance(result, list) and all(isinstance(t, str) for t in result):
+                return result
+        except Exception:
+            pass
+    # 策略3：找 [[...]] 嵌套格式
+    match = re.search(r'\[\[.*?\]\]', text, re.DOTALL)
+    if match:
+        try:
+            result = _json.loads(match.group())
+            if isinstance(result, list):
+                return result
+        except Exception:
+            pass
+    return None
 
 
 # ── 列表 / 详情 / 调用 / 搜索 / 删除 ──
@@ -522,6 +556,197 @@ Modified code:"""
             if len(parts) > 1: modified_code = parts[1]
             break
     return {"modified_code": modified_code.strip(), "original_code": current_code}
+
+
+@router.post("/{tool_id}/modify-and-debug")
+async def modify_and_debug(tool_id: str, req: "ModifyAndDebugRequest"):
+    """AI 辅助修改 + 自动调试（SSE 流式）"""
+    from app.api.schemas.tool_schemas import ModifyAndDebugRequest
+    from sse_starlette.sse import EventSourceResponse
+    from core.executor.tool_executor import ToolExecutor
+
+    entry = await registry.get(tool_id)
+    if not entry:
+        raise HTTPException(404, f"Tool '{tool_id}' not found")
+    current_code = req.current_code or ""
+    if not current_code.strip():
+        code_path = registry._get_impl_dir() / tool_id / "tool.py"
+        current_code = code_path.read_text() if code_path.exists() else ""
+    if not req.request.strip():
+        raise HTTPException(400, "修改描述不能为空")
+
+    spec_md = req.spec_md or ""
+    test_params = req.test_params or {}
+    max_rounds = 50
+    stop_key = f"modify_debug_{tool_id}"
+
+    builder = ToolCodeBuilder()
+    project_root = str(_Path(__file__).resolve().parent.parent.parent.parent)
+
+    # 调试日志目录
+    _log_dir = _Path(project_root) / "logs" / "modify_debug"
+    _log_dir.mkdir(parents=True, exist_ok=True)
+    _log_file = _log_dir / f"{tool_id}_{int(datetime.now().timestamp())}.log"
+
+    async def event_generator():
+        yield {"event": "debug_start", "data": _json.dumps({"max_rounds": max_rounds, "log_file": str(_log_file)})}
+
+        # 写入初始日志
+        with open(_log_file, "a", encoding="utf-8") as lf:
+            lf.write(f"=== AI 辅助修改调试日志 ===\n")
+            lf.write(f"工具ID: {tool_id}\n修改建议: {req.request}\n最大轮次: {max_rounds}\n\n")
+
+        base_prompt = f"""你是一个 Python 代码修改专家。根据用户的修改建议调整工具代码。
+
+## 工具接口约束（必须严格遵守）
+- 入口函数签名必须是: def execute(**kwargs) -> dict
+- 参数访问使用 kwargs.get("参数名", 默认值)
+- 返回值格式: {{"status":"success"|"failed","output_format":"text"|"image"|"table"|"file","message":"结果描述","data":{{}}}}
+- 不改变现有参数的名称和类型，不删除现有功能
+- 异常处理完善（try/except），失败时返回 status=failed
+
+## 工具规范文档
+{spec_md if spec_md else "（无）"}
+
+## 当前代码
+```python
+{current_code}
+```
+
+## 用户修改建议
+{req.request}
+
+## 要求
+根据修改建议调整代码，保持接口签名和参数不变。**必须进行实质性修改**，不能原样返回当前代码。直接返回完整修改后的 Python 代码，不要任何解释和markdown标记。"""
+
+        code = current_code
+        for round_num in range(1, max_rounds + 1):
+            # 检查停止标志
+            if hasattr(ToolExecutor, '_debug_states') and ToolExecutor._debug_states.get(stop_key, False):
+                ToolExecutor._debug_states.pop(stop_key, None)
+                yield {"event": "stopped", "data": _json.dumps({"code": code})}
+                return
+
+            yield {"event": "round_start", "data": _json.dumps({"round": round_num})}
+
+            with open(_log_file, "a", encoding="utf-8") as lf:
+                lf.write(f"\n{'─'*50}\n[第{round_num}轮]\n{'─'*50}\n")
+
+            # ── 步骤 1：LLM 输出原因分析和修改计划（流式显示在调试日志）──
+            analysis_text = ""
+            try:
+                # 分析用的 prompt：第一轮基于修改建议分析，后续轮次基于错误信息分析
+                if round_num == 1:
+                    analysis_prompt = f"根据用户的修改建议，简要分析需要如何修改代码（50字内，不要输出代码）：\n修改建议: {req.request}"
+                else:
+                    analysis_prompt = f"根据执行错误，简要分析失败原因和修复计划（50字内，不要输出代码）：\nstdout: {stdout[:300]}\nstderr: {stderr[:300]}"
+                analysis_stream = llm.chat_stream(
+                    messages=[{"role": "user", "content": analysis_prompt}],
+                    temperature=0.3, max_tokens=300,
+                )
+                async for token in analysis_stream:
+                    analysis_text += token
+                    yield {"event": "thinking_stream", "data": _json.dumps({"token": token})}
+            except Exception:
+                yield {"event": "thinking_stream", "data": _json.dumps({"token": "（正在分析...）"})}
+
+            with open(_log_file, "a", encoding="utf-8") as lf:
+                lf.write(f"分析: {analysis_text}\n\n")
+
+            # ── 步骤 2：LLM 生成完整代码（只更新代码面板，不显示在日志）──
+            try:
+                response = await llm.chat(
+                    messages=[{"role": "user", "content": base_prompt}],
+                    temperature=0.3, max_tokens=100000, timeout=60,
+                )
+            except Exception as e:
+                with open(_log_file, "a", encoding="utf-8") as lf:
+                    lf.write(f"❌ LLM调用失败: {e}\n")
+                yield {"event": "error", "data": _json.dumps({"message": f"LLM调用失败: {e}"})}
+                return
+
+            with open(_log_file, "a", encoding="utf-8") as lf:
+                lf.write(f"LLM返回代码 ({len(response)}字符)\n")
+
+            # 提取代码
+            new_code = response
+            if "```" in new_code:
+                start_marker = "```python" if "```python" in new_code else "```"
+                parts = new_code.split(start_marker, 1)
+                if len(parts) > 1:
+                    after = parts[1]
+                    if "```" in after:
+                        after = after.split("```", 1)[0]
+                    new_code = after
+            new_code = new_code.strip()
+            lines = new_code.split("\n")
+            for i, l in enumerate(lines):
+                if l.strip() and (l.startswith(("import ", "def ", "from ", "#", "try:", "if ")) or l.strip() == ""):
+                    break
+                if i > 5:
+                    break
+            else:
+                i = 0
+            new_code = "\n".join(lines[i:]).strip()
+            if new_code.endswith("```"):
+                new_code = new_code[:-3].strip()
+
+            code = new_code
+            yield {"event": "code_updated", "data": _json.dumps({"code": code})}
+
+            with open(_log_file, "a", encoding="utf-8") as lf:
+                lf.write(f"代码 ({len(code)}字符)\n")
+
+            # 沙箱执行
+            try:
+                result = await builder.sandbox_execute(code, test_params, tool_id, exec_timeout=30)
+                stdout = result.get("stdout", "")
+                stderr = result.get("stderr", "")
+                exit_code = result.get("exit_code", -1)
+                success = exit_code == 0 and not stderr.strip()
+
+                with open(_log_file, "a", encoding="utf-8") as lf:
+                    lf.write(f"执行: exit_code={exit_code}, success={success}\n")
+                    lf.write(f"stdout: {stdout[:500]}\nstderr: {stderr[:500]}\n")
+
+                yield {"event": "exec_result", "data": _json.dumps({
+                    "stdout": stdout[:1000], "stderr": stderr[:1000], "success": success
+                })}
+
+                if success:
+                    with open(_log_file, "a", encoding="utf-8") as lf:
+                        lf.write(f"✅ 调试成功！总轮次: {round_num}\n")
+                    yield {"event": "done", "data": _json.dumps({"code": code, "rounds": round_num, "success": True})}
+                    return
+
+                # 失败 → 更新 prompt 用于下一轮
+                base_prompt = f"""上一轮代码执行失败。
+
+## 错误信息
+stdout: {stdout[:500]}
+stderr: {stderr[:500]}
+
+## 用户修改建议
+{req.request}
+
+## 失败代码
+```python
+{code}
+```
+
+先简要分析失败原因和修复计划（50字内），然后输出完整修复后的 Python 代码。"""
+
+            except Exception as e:
+                with open(_log_file, "a", encoding="utf-8") as lf:
+                    lf.write(f"❌ 沙箱执行异常: {e}\n")
+                yield {"event": "error", "data": _json.dumps({"message": f"沙箱执行异常: {e}"})}
+                return
+
+        with open(_log_file, "a", encoding="utf-8") as lf:
+            lf.write(f"⚠ 达到最大轮次 {max_rounds}，调试未通过\n")
+        yield {"event": "done", "data": _json.dumps({"code": code, "rounds": max_rounds, "success": False})}
+
+    return EventSourceResponse(event_generator())
 
 
 @router.post("/{tool_id}/save-code")

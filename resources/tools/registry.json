@@ -1413,8 +1413,149 @@
         ]
       }
     ],
-    "tags": [],
+    "tags": [
+      "论文评审",
+      "审稿建议",
+      "学术写作",
+      "PDF分析"
+    ],
     "usage_count": 0,
     "created_at": "2026-07-29T07:48:32Z"
+  },
+  {
+    "id": "lens-patent-downloader",
+    "name": "Lens专利检索与注册工具",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/lens-patent-downloader.md",
+    "impl_path": "implementations/lens-patent-downloader/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "req",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "检索关键词或自然语言需求描述，用于构建 Lens API 的 query 参数",
+        "hints": [
+          "machine learning",
+          "blockchain technology"
+        ]
+      },
+      {
+        "name": "n",
+        "type": "integer",
+        "required": true,
+        "default": null,
+        "desc": "需要下载的专利数量（按相关度降序，取前 n 篇）",
+        "hints": [
+          5,
+          10,
+          20
+        ]
+      },
+      {
+        "name": "year",
+        "type": "integer",
+        "required": true,
+        "default": null,
+        "desc": "发表年份下限（包含该年），专利的公开日期应在此年及之后",
+        "hints": [
+          2020,
+          2019,
+          2023
+        ]
+      },
+      {
+        "name": "dataset",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "注册数据集时使用的名称，将传入【数据集注册API】",
+        "hints": [
+          "my_patent_dataset",
+          "research_papers"
+        ]
+      }
+    ],
+    "tags": [
+      "专利检索",
+      "文献下载",
+      "数据集注册",
+      "科研辅助"
+    ],
+    "usage_count": 0,
+    "created_at": "2026-07-30T09:48:29Z"
+  },
+  {
+    "id": "patent-translation-tool",
+    "name": "专利检索与翻译工具",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/patent-translation-tool.md",
+    "impl_path": "implementations/patent-translation-tool/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "req",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "用户需求描述，用于专利检索",
+        "hints": [
+          "一种基于深度学习的图像识别方法",
+          "自然语言处理相关专利"
+        ]
+      },
+      {
+        "name": "n",
+        "type": "int",
+        "required": true,
+        "default": null,
+        "desc": "需要检索并注册的专利数量",
+        "hints": [
+          "5",
+          "10",
+          "20"
+        ]
+      },
+      {
+        "name": "year",
+        "type": "int",
+        "required": true,
+        "default": null,
+        "desc": "专利发表年限",
+        "hints": [
+          "2023",
+          "2024",
+          "2025"
+        ]
+      },
+      {
+        "name": "dataset",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "数据集名称，用于定位存储目录",
+        "hints": [
+          "patent_dataset_v1",
+          "my_patents"
+        ]
+      }
+    ],
+    "tags": [
+      "专利检索",
+      "文献翻译",
+      "知识产权",
+      "多语言"
+    ],
+    "usage_count": 0,
+    "created_at": "2026-07-31T05:55:40Z"
   }
 ]

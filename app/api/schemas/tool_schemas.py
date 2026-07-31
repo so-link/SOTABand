@@ -42,6 +42,18 @@ class ModifyCodeRequest(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class ModifyAndDebugRequest(BaseModel):
+    """AI 辅助修改 + 自动调试"""
+    current_code: str = Field(default="", alias="current_code")
+    request: str = ""  # 用户修改描述
+    spec_md: str = Field(default="", alias="spec_md")
+    tool_id: str = Field(default="", alias="tool_id")
+    test_params: dict = Field(default_factory=dict, alias="test_params")
+    modify_history: list[str] = Field(default_factory=list, alias="modify_history")
+
+    model_config = {"populate_by_name": True}
+
+
 class ExecuteToolRequest(BaseModel):
     """调用工具"""
     params: dict = Field(default_factory=dict)

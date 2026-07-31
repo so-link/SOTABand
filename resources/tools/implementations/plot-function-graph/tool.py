@@ -1,4 +1,3 @@
-
 # === SOTABand 工具标准模板 ===
 import os, sys, json, time
 from pathlib import Path
@@ -62,11 +61,43 @@ try:
     import matplotlib
     matplotlib.use('Agg')  # 非交互式后端
     import matplotlib.pyplot as plt
+    import matplotlib.font_manager as fm
     import sympy as sp
     DEPENDENCIES_OK = True
 except ImportError as e:
     DEPENDENCIES_OK = False
     MISSING_DEP_ERROR = str(e)
+
+# 配置中文字体，解决标题/标签中文乱码问题
+def _setup_chinese_font():
+    """配置 matplotlib 使用可用的中文字体，避免乱码"""
+    # 常见中文字体候选列表（按优先级）
+    font_candidates = [
+        'SimHei', 'Microsoft YaHei', 'WenQuanYi Zen Hei',
+        'WenQuanYi Micro Hei', 'Noto Sans CJK SC', 'Noto Sans SC',
+        'AR PL UMing CN', 'AR PL UKai CN', 'PingFang SC',
+        'Heiti SC', 'STHeiti', 'Songti SC', 'Arial Unicode MS'
+    ]
+    try:
+        available_fonts = {f.name for f in fm.fontManager.ttflist}
+        selected = None
+        for font in font_candidates:
+            if font in available_fonts:
+                selected = font
+                break
+        if selected:
+            matplotlib.rcParams['font.sans-serif'] = [selected, 'DejaVu Sans']
+        else:
+            # 未找到中文字体则回退到默认无衬线字体，可能仍为乱码但不影响正常功能
+            matplotlib.rcParams['font.sans-serif'] = ['DejaVu Sans']
+    except Exception:
+        matplotlib.rcParams['font.sans-serif'] = ['DejaVu Sans']
+    # 解决负号显示为方块的问题
+    matplotlib.rcParams['axes.unicode_minus'] = False
+
+# 仅在依赖可用时配置字体
+if DEPENDENCIES_OK:
+    _setup_chinese_font()
 
 
 def _parse_param(value, target_type):

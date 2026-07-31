@@ -21,7 +21,8 @@ function isImageFile(file: Record<string, unknown>): boolean {
 
 export function DataPreviewView() {
   const selectedResource = useResourceStore((s) => s.selectedResource)
-  const dataset = selectedResource?.type === 'data' ? (selectedResource as DataResource) : null
+  const cachedDataset = useResourceStore((s) => s.cachedDatasetForDetail)
+  const dataset = selectedResource?.type === 'data' ? (selectedResource as DataResource) : cachedDataset
   const [loading, setLoading] = useState(false)
   const [detail, setDetail] = useState<Record<string, unknown> | null>(null)
   const [page, setPage] = useState(1)

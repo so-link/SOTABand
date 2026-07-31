@@ -1,0 +1,19 @@
+=== AI 辅助修改调试日志 ===
+工具ID: lens-patent-downloader
+修改建议: 输出的专利信息要全部翻译为中文，不管是什么语言都要全部翻译为中文进行输出
+最大轮次: 50
+
+
+──────────────────────────────────────────────────
+[第1轮]
+──────────────────────────────────────────────────
+分析: 
+
+# [WARNING] Response truncated due to max_tokens limit
+
+LLM返回代码 (16153字符)
+代码 (16139字符)
+执行: exit_code=0, success=True
+stdout: {"status": "success", "message": "检索完成，但未找到符合条件的专利", "output_format": "table", "data": {"columns": ["专利号", "标题", "公开日期", "发明人", "摘要"], "rows": []}}
+stderr: 
+✅ 调试成功！总轮次: 1

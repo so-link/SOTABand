@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Resource, ResourceType, AgentResource, ToolResource } from '@/types/resources'
+import type { Resource, ResourceType, AgentResource, ToolResource, DataResource } from '@/types/resources'
 import { MockResourceService } from '@/services/mock/resources'
 import { agentApi } from '@/services/api/agent'
 import { toolApi } from '@/services/api/tool'
@@ -9,6 +9,8 @@ const resourceService = new MockResourceService()
 
 interface ResourceState {
   selectedResource: Resource | null
+  cachedToolForDetail: ToolResource | null
+  cachedDatasetForDetail: DataResource | null
   dataResources: Resource[]
   toolResources: Resource[]
   modelResources: Resource[]
@@ -17,6 +19,7 @@ interface ResourceState {
   isLoading: boolean
 
   selectResource: (resource: Resource | null) => void
+  setCachedToolForDetail: (tool: ToolResource | null) => void
   fetchResources: (type: ResourceType) => Promise<void>
   fetchAllResources: () => Promise<void>
   fetchAgentsFromApi: () => Promise<void>
@@ -33,7 +36,17 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
   taskResources: [],
   isLoading: false,
 
-  selectResource: (resource) => set({ selectedResource: resource }),
+  selectResource: (resource) => {
+    const state: Partial<ResourceState> = { selectedResource: resource }
+    if (resource?.type === 'tool') {
+      state.cachedToolForDetail = resource as ToolResource
+    }
+    if (resource?.type === 'data') {
+      state.cachedDatasetForDetail = resource as DataResource
+    }
+    set(state as ResourceState)
+  },
+  setCachedToolForDetail: (tool) => set({ cachedToolForDetail: tool }),
 
   fetchResources: async (type) => {
     set({ isLoading: true })

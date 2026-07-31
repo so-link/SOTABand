@@ -1,0 +1,114 @@
+---
+id: lens-patent-downloader
+name: Lens专利检索与注册工具
+version: 0.1.0
+type: script
+language: python
+status: active
+created: 2026-07-30
+---
+
+# Lens专利检索与注册工具
+
+## 1. 功能概述
+
+该工具根据用户的研究需求（`req`），通过 Lens.org 公开 API 检索相关专利。检索范围限定在指定发表年份（`year`）及之后，按相关度排序，下载前 `n` 篇专利的全文（保存为 Markdown 文件），并生成包含专利基本信息的 CSV 文件。所有文件存入以时间戳命名的子目录中，最后通过【数据集注册API】将该目录注册为一个数据集，并以表格形式返回专利列表。
+
+## 2. 输入规范
+
+| 参数名 | 类型 | 必填 | 默认值 | 说明 |
+|--------|------|------|--------|------|
+| req | string | 是 | - | 检索关键词或自然语言需求描述，用于构建 Lens API 的 query 参数 |
+| n | integer | 是 | - | 需要下载的专利数量（按相关度降序，取前 n 篇） |
+| year | integer | 是 | - | 发表年份下限（包含该年），专利的公开日期应在此年及之后 |
+| dataset | string | 是 | - | 注册数据集时使用的名称，将传入【数据集注册API】 |
+
+> **内部配置项（非输入参数）**  
+> - `API_KEY`: Lens.org 访问令牌，当前固定为 `V5zdc1XJa3cFq8OUkbCJgtZmtdXivRb9NbM37SVQloUahXWDUEK1`（如需替换，请修改脚本内的硬编码或环境变量）  
+> - `base_dir`: 文件存储根路径，默认为 `./data/download/`
+
+## 3. 输出规范
+
+### 3.1 标准输出字段
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| status | string | `success` / `failed` |
+| message | string | 结果说明，成功时含数据集注册信息 |
+| output_format | string | `table` |
+| data | dict | 包含 `columns` 和 `rows` 的表格数据 |
+
+### 3.2 可视化输出格式
+| output_format | data 格式 | 界面渲染方式 |
+|---------------|----------|-------------|
+| `table` | `{"columns":["专利号","标题","公开日期","发明人","摘要"], "rows":[["...","...",...]]}` | 渲染表格 |
+
+> 成功时，`data.rows` 包含前 `n` 篇专利的基本信息列表，与下载目录中的 CSV 文件内容一致。
+
+## 4. 依赖环境
+
+| 依赖 | 版本 | 用途 |
+|------|------|------|
+| Python | >= 3.8 | 运行环境 |
+| requests | >= 2.28 | 调用 Lens API 和数据集注册 API |
+| pandas | >= 1.4 | 生成 CSV 文件，构建返回表格 |
+| os | 内置 | 创建目录、拼接路径 |
+| time | 内置 | 生成时间戳目录名 |
+
+## 5. 运行机制
+
+### 5.1 执行流程
+
+1. **参数读取与校验**  
+   接收 `req`、`n`、`year`、`dataset`，验证类型及范围（n>0，year ≥ 1900 等）。
+
+2. **创建存储目录**  
+   生成时间戳 `{timestamp}`（格式：`YYYYMMDDHHMMSS`），构建数据目录：`./data/download/{timestamp}/`，将其设为 `data_path`。若目录已存在则重新生成。
+
+3. **构建 Lens API 搜索请求**  
+   使用 `requests` 发送 GET 请求到 `https://api.lens.org/patent/search`，参数包括：
+   - `token`: 配置的 `API_KEY`
+   - `size`: 传入的 `n`
+   - `query`: 将 `req` 进行 URL 编码后的字符串，并附加检索条件 `+pub_date:[{year}-01-01 TO *]`（限制发表年份）
+   - `include`: `biblio,lens_id,abstract,claims`（根据实际返回字段调整，用于获取全文所需信息）
+   - `sort`: `desc(score)` 或 `desc(relevance)`，以确保按相关度排序（Lens 默认 score 排序，可通过 sort 参数指定）
+
+4. **处理检索结果**  
+   解析 JSON 响应，提取专利列表。对每篇专利：
+   - 从其 `lens_id` 或 `patent_number` 构建 MD 文件名，例如 `{lens_id}.md`
+   - 将专利全文信息（如标题、摘要、权利要求、说明书等，根据 Lens 返回的字段整理）格式化为 Markdown 文本并保存到 `data_path` 下。
+   - 记录基本信息：专利号、标题、公开日期、发明人、摘要等。
+
+5. **生成 CSV 文件**  
+   将收集到的专利基本信息用 `pandas.DataFrame` 写入 `{data_path}/patents_info.csv`。
+
+6. **注册数据集**  
+   调用【数据集注册API】，传入参数 `dataset` 和 `data_path`，将整个目录注册为指定名称的数据集。
+
+7. **构造返回结果**  
+   将基本信息构建为 `columns` 和 `rows` 结构，设置 `output_format` 为 `"table"`，返回给调用者。
+
+### 5.2 错误处理
+
+- **网络请求失败** → `status: failed`，`message` 包含具体异常信息（如超时、连接错误）
+- **API 返回错误**（如 token 无效、查询语法错误）→ 解析 HTTP 状态码或错误字段，返回 `failed` 并提示
+- **无检索结果** → 正常完成，`rows` 为空数组，并在 `message` 中说明
+- **文件写入失败** → 捕获 IOError，返回 `failed`
+- **数据集注册失败** → 返回 `failed`，保留已下载文件但注册不成功
+
+### 5.3 参考代码
+以下为用户提供的 Lens API 示例和文档链接，核心请求格式已整合在流程中。
+
+```python
+# lens.org 请求专利搜索的API的案例：
+# [GET] https://api.lens.org/patent/search?token=[your-access-token]&size=10&query=YOUR_QUERY&include=biblio,lens_id&sort=desc(date_published)
+
+# API开发参考：
+# https://docs.api.lens.org/getting-started.html
+# API请求的参数参考：
+# https://docs.api.lens.org/request-patent.html
+```
+
+## 6. 版本历史
+| 版本 | 日期 | 变更 |
+|------|------|------|
+| 0.1.0 | 2026-07-30 | 初始版本 |

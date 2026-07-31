@@ -381,125 +381,6 @@
     "created_at": "2026-07-28T16:21:00Z"
   },
   {
-    "id": "AAAI",
-    "name": "AAAI",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/AAAI.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/papers/MambaFusionANet_AAAI 728_20260729145311",
-    "file_count": 1,
-    "total_size": 10460,
-    "formats": [
-      "md"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-29T06:53:11Z"
-  },
-  {
-    "id": "AAAI1",
-    "name": "AAAI1",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/AAAI1.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/papers/MambaFusionANet_AAAI 728_1785308566",
-    "file_count": 1,
-    "total_size": 14837,
-    "formats": [
-      ".md"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-29T07:02:46Z"
-  },
-  {
-    "id": "papers-MambaFusionANet_AAAI 728_20260729_154753",
-    "name": "/tmp/sotaband-uploads/MambaFusionANet_AAAI 728.pdf",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/papers-MambaFusionANet_AAAI 728_20260729_154753.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/papers/MambaFusionANet_AAAI 728_20260729_154753",
-    "file_count": 1,
-    "total_size": 14845,
-    "formats": [
-      "md"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-29T07:47:53Z"
-  },
-  {
-    "id": "papers-MambaFusionANet_AAAI - 3.52_20260729_155425",
-    "name": "AAAI-Mamba",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/papers-MambaFusionANet_AAAI - 3.52_20260729_155425.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/papers/MambaFusionANet_AAAI - 3.52_20260729_155425",
-    "file_count": 1,
-    "total_size": 13529,
-    "formats": [
-      "md"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-29T07:54:25Z"
-  },
-  {
-    "id": "papers-Dentigraph_20260729_161100",
-    "name": "AAAI-denti",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/papers-Dentigraph_20260729_161100.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/papers/Dentigraph_20260729_161100",
-    "file_count": 1,
-    "total_size": 7439,
-    "formats": [
-      "md"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-29T08:11:00Z"
-  },
-  {
-    "id": "papers-2027 aaai  yhl_20260729_161828",
-    "name": "AAAI-YHL",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/papers-2027 aaai  yhl_20260729_161828.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/papers/2027 aaai  yhl_20260729_161828",
-    "file_count": 1,
-    "total_size": 9170,
-    "formats": [
-      "md"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-29T08:18:28Z"
-  },
-  {
-    "id": "papers-YiyangAAAI2027_merged_20260729_162821",
-    "name": "AAAI-Yiyang",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/papers-YiyangAAAI2027_merged_20260729_162821.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/papers/YiyangAAAI2027_merged_20260729_162821",
-    "file_count": 1,
-    "total_size": 7950,
-    "formats": [
-      "md"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-29T08:28:21Z"
-  },
-  {
     "id": "papers-Mamba-full_20260729_163709",
     "name": "AAAI-MAMBA-New",
     "version": "0.1.0",
@@ -532,5 +413,165 @@
     "tags": [],
     "quality_score": null,
     "created_at": "2026-07-29T09:50:43Z"
+  },
+  {
+    "id": "papers-new1702_TopMamba_Topology_guided__20260730_122212",
+    "name": "AAAI-MM",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/papers-new1702_TopMamba_Topology_guided__20260730_122212.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/papers/new1702_TopMamba_Topology_guided__20260730_122212",
+    "file_count": 1,
+    "total_size": 11425,
+    "formats": [
+      "md"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-30T04:22:12Z"
+  },
+  {
+    "id": "papers-new_FBD_CLIP_Discriminative_A_20260730_122528",
+    "name": "AAAI-CLIP",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/papers-new_FBD_CLIP_Discriminative_A_20260730_122528.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/papers/new_FBD_CLIP_Discriminative_A_20260730_122528",
+    "file_count": 1,
+    "total_size": 7434,
+    "formats": [
+      "md"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-30T04:25:28Z"
+  },
+  {
+    "id": "lens-机器人A-20260730180848",
+    "name": "机器人A",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/lens-机器人A-20260730180848.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/download/20260730180848",
+    "file_count": 4,
+    "total_size": 70077,
+    "formats": [
+      "md",
+      "csv"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-30T10:08:50Z"
+  },
+  {
+    "id": "lens-面霜-20260731142555",
+    "name": "面霜",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/lens-面霜-20260731142555.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/download/20260731142555",
+    "file_count": 6,
+    "total_size": 21031,
+    "formats": [
+      "md",
+      "csv"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-31T06:25:58Z"
+  },
+  {
+    "id": "lens-面霜配方-20260731142804",
+    "name": "面霜配方",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/lens-面霜配方-20260731142804.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/download/20260731142804",
+    "file_count": 11,
+    "total_size": 3871696,
+    "formats": [
+      "md",
+      "csv"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-31T06:28:14Z"
+  },
+  {
+    "id": "lens-面霜配方翻译-20260731142855",
+    "name": "面霜配方翻译",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/lens-面霜配方翻译-20260731142855.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/download/20260731142855",
+    "file_count": 11,
+    "total_size": 3871696,
+    "formats": [
+      "md",
+      "csv"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-31T06:29:02Z"
+  },
+  {
+    "id": "lens-face_cream-20260731143348",
+    "name": "face cream",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/lens-face_cream-20260731143348.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/download/20260731143348",
+    "file_count": 4,
+    "total_size": 124147,
+    "formats": [
+      "md",
+      "csv"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-31T06:33:51Z"
+  },
+  {
+    "id": "lens-专利配方-20260731143524",
+    "name": "专利配方",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/lens-专利配方-20260731143524.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/download/20260731143524",
+    "file_count": 11,
+    "total_size": 800267,
+    "formats": [
+      "md",
+      "csv"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-31T06:35:27Z"
+  },
+  {
+    "id": "lens-面霜配方专利-20260731175436",
+    "name": "面霜配方专利",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/lens-面霜配方专利-20260731175436.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/download/20260731175436",
+    "file_count": 11,
+    "total_size": 800267,
+    "formats": [
+      "md",
+      "csv"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-31T09:54:40Z"
   }
 ]
