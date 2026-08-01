@@ -19,11 +19,11 @@ class ToolRegistry(BaseRegistry):
             self._write([])
 
     def _read(self) -> list[dict]:
-        with open(REGISTRY_FILE, encoding='utf-8') as f:
+        with open(REGISTRY_FILE, encoding="utf-8") as f:
             return json.load(f)
 
     def _write(self, data: list[dict]):
-        with open(REGISTRY_FILE, "w", encoding='utf-8') as f:
+        with open(REGISTRY_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
     def _get_def_dir(self) -> Path:
