@@ -28,11 +28,11 @@ class AgentRegistry(BaseRegistry):
         return REGISTRY_DIR / "implementations"
 
     def _read(self) -> list[dict]:
-        with open(REGISTRY_FILE) as f:
+        with open(REGISTRY_FILE, encoding='utf-8') as f:
             return json.load(f)
 
     def _write(self, data: list[dict]):
-        with open(REGISTRY_FILE, "w") as f:
+        with open(REGISTRY_FILE, "w", encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
     async def register(self, resource: dict) -> str:
@@ -63,7 +63,7 @@ class AgentRegistry(BaseRegistry):
         if "raw_md" in resource:
             spec_path = REGISTRY_DIR / "definitions" / f"{agent_id}.md"
             spec_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(spec_path, "w") as f:
+            with open(spec_path, "w", encoding='utf-8') as f:
                 f.write(resource["raw_md"])
 
         return agent_id

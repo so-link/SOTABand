@@ -47,7 +47,7 @@ TOOL_HELPER_TEMPLATE = '''
         if not impl_path.exists():
             return {{"status": "failed", "message": f"工具不存在: {tool_id}"}}
 
-        code = impl_path.read_text()
+        code = impl_path.read_text(encoding='utf-8')
         venv_python = PROJECT_ROOT / "resources" / "tools" / "implementations" / "{tool_id}" / ".venv" / "bin" / "python"
         python_exe = str(venv_python) if venv_python.exists() else sys.executable
 
@@ -226,7 +226,7 @@ class AgentCodeBuilder(BaseBuilder):
         registry_file = tools_dir / "registry.json"
         try:
             if registry_file.exists():
-                for t in json.loads(registry_file.read_text()):
+                for t in json.loads(registry_file.read_text(encoding='utf-8')):
                     if t.get("name") == name:
                         return {"id": t["id"], "params": t.get("param_meta", [])}
         except Exception:
@@ -239,7 +239,7 @@ class AgentCodeBuilder(BaseBuilder):
         registry_file = api_dir / "registry.json"
         try:
             if registry_file.exists():
-                for a in json.loads(registry_file.read_text()):
+                for a in json.loads(registry_file.read_text(encoding='utf-8')):
                     if a.get("name") == name:
                         return {"id": a["id"], "params": a.get("input_schema", {})}
         except Exception:

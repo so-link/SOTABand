@@ -87,7 +87,7 @@ def get_python_exe() -> str:
 def extract_imports(file_path: Path) -> List[str]:
     """从 Python 文件中提取所有顶层 import 的模块名"""
     try:
-        tree = ast.parse(file_path.read_text())
+        tree = ast.parse(file_path.read_text(encoding='utf-8'))
     except SyntaxError:
         return []
 

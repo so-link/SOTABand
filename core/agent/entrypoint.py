@@ -41,7 +41,7 @@ def load_agent(impl_path: Path, agent_id: str):
     spec_file = impl_path / "spec.md"
     spec = AgentSpec(id=agent_id, name=agent_id, role=AgentRole.TASK)
     if spec_file.exists():
-        spec.raw_md = spec_file.read_text()
+        spec.raw_md = spec_file.read_text(encoding='utf-8')
 
     return agent_cls(spec)
 
@@ -93,7 +93,7 @@ async def main():
             if not line:
                 break  # stdin closed → 主进程要求退出
 
-            task = json.loads(line.decode().strip())
+            task = json.loads(line.decode('utf-8').strip())
 
             if task.get("action") == "stop":
                 break

@@ -40,7 +40,7 @@ class AgentFactory:
 
         # 预检查：验证代码质量
         if agent_file.exists():
-            code = agent_file.read_text()
+            code = agent_file.read_text(encoding='utf-8')
             issues = self._check_agent_code(code)
             if issues:
                 # 尝试自动修复
@@ -193,15 +193,15 @@ class AgentFactory:
         try:
             from core.resource.builder.agent_builder import AgentCodeBuilder
             builder = AgentCodeBuilder()
-            spec = {"id": agent_id, "raw_md": spec_file.read_text()}
+            spec = {"id": agent_id, "raw_md": spec_file.read_text(encoding='utf-8')}
             if not await builder.validate_spec(spec):
                 return False
 
             code = await builder.build(spec)
             impl_dir = PROJECT_ROOT / "resources" / "agents" / "implementations" / agent_id
             impl_dir.mkdir(parents=True, exist_ok=True)
-            (impl_dir / "agent.py").write_text(code)
-            (impl_dir / "spec.md").write_text(spec_file.read_text())
+            (impl_dir / "agent.py").write_text(code, encoding='utf-8')
+            (impl_dir / "spec.md").write_text(spec_file.read_text(encoding='utf-8'), encoding='utf-8')
             return True
         except Exception:
             return False
@@ -276,7 +276,7 @@ class AgentFactory:
                 while b"\n" in buffer:
                     line, buffer = buffer.split(b"\n", 1)
                     try:
-                        event = json.loads(line.decode())
+                        event = json.loads(line.decode('utf-8'))
                         yield event
                     except (json.JSONDecodeError, UnicodeDecodeError):
                         pass

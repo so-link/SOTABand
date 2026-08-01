@@ -206,7 +206,7 @@ MD 文档:
                         param_descriptions = {}
                         output_descriptions = {}
                         if md_file.exists():
-                            md_content = md_file.read_text()
+                            md_content = md_file.read_text(encoding='utf-8')
                             # 解析输入参数
                             in_input = False
                             in_output = False

@@ -58,7 +58,7 @@ class ApiDataGet:
         if not reg_path.exists():
             return {"dataset": None, "message": "数据注册表不存在"}
 
-        datasets = json.loads(reg_path.read_text())
+        datasets = json.loads(reg_path.read_text(encoding='utf-8'))
         # 精确匹配
         for ds in datasets:
             if ds.get("name") == name:

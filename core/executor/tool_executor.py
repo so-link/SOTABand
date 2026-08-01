@@ -66,6 +66,10 @@ class ToolExecutor:
 
         return (
             f"import json, sys, os\n"
+            f"import io\n"
+            f"# 强制 UTF-8 输出，避免 Windows GBK 编码问题\n"
+            f"sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')\n"
+            f"sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')\n"
             f"os.environ['TOOL_DIR'] = {_safe_dumps(tool_dir)}\n"
             f"sys.path.insert(0, {_safe_dumps(project_root)})\n"
             f"# 屏蔽 sys.argv 防止代码中误用 argparse 等 CLI 参数\n"
@@ -131,12 +135,12 @@ class ToolExecutor:
             impl_file = impl_dir / "tool.py"
             if not impl_file.exists():
                 return {"status": "failed", "message": f"工具代码不存在: {impl_file}"}
-            code = impl_file.read_text()
+            code = impl_file.read_text(encoding='utf-8')
 
         tool_dir = str(impl_dir)
         script = cls._build_script(code, params, tool_dir, project_root)
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding='utf-8') as f:
             f.write(script)
             tmp_path = f.name
 
@@ -162,9 +166,9 @@ class ToolExecutor:
                 await proc.wait()
                 raise
 
-            result = cls._parse_output(stdout.decode())
+            result = cls._parse_output(stdout.decode('utf-8', errors='replace'))
             if proc.returncode != 0 and result.get("status") != "success":
-                result.setdefault("stderr", stderr.decode()[:500])
+                result.setdefault("stderr", stderr.decode('utf-8', errors='replace')[:500])
             return result
 
         except asyncio.CancelledError:
@@ -206,12 +210,12 @@ class ToolExecutor:
             impl_file = impl_dir / "tool.py"
             if not impl_file.exists():
                 return {"status": "failed", "message": f"工具代码不存在: {impl_file}"}
-            code = impl_file.read_text()
+            code = impl_file.read_text(encoding='utf-8')
 
         tool_dir = str(impl_dir)
         script = cls._build_script(code, params, tool_dir, project_root)
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding='utf-8') as f:
             f.write(script)
             tmp_path = f.name
 
@@ -219,6 +223,7 @@ class ToolExecutor:
             proc = subprocess.run(
                 [python_exe, tmp_path],
                 capture_output=True, text=True, timeout=timeout,
+                encoding='utf-8', errors='replace',
             )
             result = cls._parse_output(proc.stdout.strip())
             if proc.returncode != 0 and result.get("status") != "success":
