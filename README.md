@@ -66,14 +66,27 @@ sotaband-engine/
 
 ## 快速开始
 
+### 环境要求
+
+- **Python >= 3.12**（推荐 3.12）
+- **Node.js >= 18**
+- **macOS / Linux / Windows**（Windows 推荐使用 WSL2）
+
+### 安装与启动
+
 ```bash
 # 1. 创建 .env 并填入 API Key
 cp .env.example .env
 # 编辑 .env，填写 DEEPSEEK_API_KEY
 
 # 2. 创建虚拟环境并安装 Python 依赖
-python3 -m venv venv
+python3.12 -m venv venv
+
+# macOS / Linux
 source venv/bin/activate
+# Windows
+venv\Scripts\activate
+
 pip install -e ".[dev]"
 
 # 3. 检查并修复工具运行环境（自动安装所有工具所需的依赖）
@@ -82,9 +95,15 @@ python scripts/check_tool_env.py --auto
 # 4. 启动后端（端口 8001）
 uvicorn app.main:app --host 0.0.0.0 --port 8001
 
-# 5. 新终端，安装前端依赖并启动
+# 5. 新终端，激活 venv 后安装前端依赖并启动
 cd frontend && npm install && npm run dev
 ```
+
+> **注意**：macOS 用户如果系统自带 Python 3.6，需使用 Homebrew 安装 Python 3.12：
+> ```bash
+> brew install python@3.12
+> ```
+> 然后用 `/opt/homebrew/bin/python3.12` 替代 `python3.12`。
 
 ### 工具环境检查脚本
 
