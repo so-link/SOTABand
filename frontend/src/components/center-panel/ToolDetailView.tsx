@@ -449,6 +449,21 @@ export function ToolDetailView() {
                         className="w-full h-8 rounded border border-maia-border bg-maia-surface px-3 text-[12px] text-maia-text outline-none focus:border-maia-accent/40" />
                     </div>))}
                   </div>)}
+                {/* 提交测试按钮 */}
+                {inputs.length > 0 && (
+                  <div className="pt-2">
+                    <Button size="sm" onClick={handleSubmit} disabled={isExecuting}
+                      className="bg-maia-accent hover:bg-maia-accent/90 text-white h-7 text-[11px] w-full">
+                      {isExecuting ? <><Loader2 className="h-3 w-3 animate-spin" />执行中</> : <><Play className="h-3 w-3" />提交测试</>}
+                    </Button>
+                    {output && (
+                      <div className="mt-2 rounded border border-maia-border bg-maia-surface p-2 max-h-[200px] overflow-auto">
+                        <pre className="text-[10px] text-maia-text whitespace-pre-wrap font-mono">{JSON.stringify(output, null, 2)}</pre>
+                      </div>
+                    )}
+                    {error && <p className="text-[10px] text-maia-danger mt-1">{error}</p>}
+                  </div>
+                )}
               </div>
 
               {/* AI 辅助修改 */}
@@ -567,6 +582,15 @@ export function ToolDetailView() {
                     placeholder={f.required ? '必填' : f.default || '可选'} className="w-full h-8 rounded border border-maia-border bg-maia-surface px-3 text-[12px] text-maia-text outline-none focus:border-maia-accent/40" />
                 </div>))}
               </div>)}
+            {/* 提交测试按钮 */}
+            {inputs.length > 0 && (
+              <div className="pt-3">
+                <Button size="sm" onClick={handleSubmit} disabled={isExecuting}
+                  className="bg-maia-accent hover:bg-maia-accent/90 text-white h-8 text-[12px] w-full">
+                  {isExecuting ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />执行中</> : <><Play className="h-3.5 w-3.5" />提交测试</>}
+                </Button>
+              </div>
+            )}
           </div>
           {error && <div className="p-3 rounded-lg border border-red-200 bg-red-50 text-xs text-maia-danger">{error}</div>}
           {output && (<Card className="border-emerald-200 bg-emerald-50/30"><CardBody>

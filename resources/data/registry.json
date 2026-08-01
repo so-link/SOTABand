@@ -573,5 +573,142 @@
     "tags": [],
     "quality_score": null,
     "created_at": "2026-07-31T09:54:40Z"
+  },
+  {
+    "id": "L1",
+    "name": "L1",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/L1.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/papers/new_FBD_CLIP_Discriminative_A_1785570813",
+    "file_count": 1,
+    "total_size": 13791,
+    "formats": [
+      ".md"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-08-01T07:53:33Z"
+  },
+  {
+    "id": "papers-new_FBD_CLIP_Discriminative_A_20260801_155800",
+    "name": "AAAI-Clip-go",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/papers-new_FBD_CLIP_Discriminative_A_20260801_155800.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/papers/new_FBD_CLIP_Discriminative_A_20260801_155800",
+    "file_count": 1,
+    "total_size": 8360,
+    "formats": [
+      "md"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-08-01T07:58:00Z"
+  },
+  {
+    "id": "配方_20260801_161606",
+    "name": "配方",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/配方_20260801_161606.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/20260801_161606",
+    "file_count": 1,
+    "total_size": 331,
+    "formats": [
+      "csv"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-08-01T08:16:06Z"
+  },
+  {
+    "id": "meeting-face_20260801165913",
+    "name": "meeting-face",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/meeting-face_20260801165913.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/20260801165913",
+    "file_count": 2,
+    "total_size": 6138883,
+    "formats": [
+      "png",
+      "txt"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-08-01T09:00:04Z"
+  },
+  {
+    "id": "YIYANG",
+    "name": "YIYANG",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/YIYANG.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/papers/d34b505e",
+    "file_count": 1,
+    "total_size": 16536,
+    "formats": [
+      "md"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-08-01T09:30:03Z"
+  },
+  {
+    "id": "坏蛋",
+    "name": "坏蛋",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/坏蛋.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/1785579503552",
+    "file_count": 1,
+    "total_size": 349196,
+    "formats": [
+      "png"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-08-01T10:18:49Z"
+  },
+  {
+    "id": "egg",
+    "name": "egg",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/egg.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/1785579813108",
+    "file_count": 1,
+    "total_size": 189173,
+    "formats": [
+      "png"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-08-01T10:23:46Z"
+  },
+  {
+    "id": "乖乖",
+    "name": "乖乖",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/乖乖.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/1785579949843",
+    "file_count": 1,
+    "total_size": 228079,
+    "formats": [
+      "png"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-08-01T10:26:04Z"
   }
 ]

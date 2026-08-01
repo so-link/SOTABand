@@ -1557,5 +1557,143 @@
     ],
     "usage_count": 0,
     "created_at": "2026-07-31T05:55:40Z"
+  },
+  {
+    "id": "function-plotter",
+    "name": "函数画图",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/function-plotter.md",
+    "impl_path": "implementations/function-plotter/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "equation",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "一元函数表达式，例如 `sin(x)+2*x`（无需写 `y=`）。支持 Python 数学运算符及部分常用函数。",
+        "hints": [
+          "sin(x)+2*x"
+        ]
+      }
+    ],
+    "tags": [
+      "函数绘图",
+      "数学可视化",
+      "图像生成",
+      "代数工具"
+    ],
+    "usage_count": 0,
+    "created_at": "2026-08-01T08:31:52Z"
+  },
+  {
+    "id": "paper-modification-suggestion-a",
+    "name": "论文修改建议A",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/paper-modification-suggestion-a.md",
+    "impl_path": "implementations/paper-modification-suggestion-a/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "path",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "待评审PDF论文文件的本地路径",
+        "hints": [
+          "/home/user/paper.pdf",
+          "C:\\papers\\submission.pdf",
+          "./docs/my_paper.pdf"
+        ]
+      },
+      {
+        "name": "conf",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "投稿的会议名称，用于匹配评审标准",
+        "hints": [
+          "NeurIPS 2026",
+          "ICML 2025",
+          "CVPR",
+          "ACL"
+        ]
+      },
+      {
+        "name": "dataset",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "评审结果输出数据集名称，用于存储和管理评审报告",
+        "hints": [
+          "review_results_v1",
+          "paper_review_dataset",
+          "my_review_output"
+        ]
+      }
+    ],
+    "tags": [
+      "论文评审",
+      "大模型辅助",
+      "修改建议",
+      "学术写作"
+    ],
+    "usage_count": 0,
+    "created_at": "2026-08-01T09:30:44Z"
+  },
+  {
+    "id": "weather-forecast",
+    "name": "天气预报",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/weather-forecast.md",
+    "impl_path": "implementations/weather-forecast/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "city",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "城市名称（中文或英文，需支持中文转拼音或用经纬度查询）",
+        "hints": [
+          "北京",
+          "上海",
+          "London"
+        ]
+      },
+      {
+        "name": "days",
+        "type": "integer",
+        "required": false,
+        "default": 3,
+        "desc": "未来查询天数，范围 1~16，默认 3 天",
+        "hints": [
+          3,
+          5,
+          1
+        ]
+      }
+    ],
+    "tags": [
+      "天气查询",
+      "气象预警",
+      "城市天气",
+      "未来预报",
+      "风速降雨"
+    ],
+    "usage_count": 0,
+    "created_at": "2026-08-01T12:33:28Z"
   }
 ]
