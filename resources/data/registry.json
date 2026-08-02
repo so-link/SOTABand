@@ -12,7 +12,12 @@
     "formats": [
       "jpg"
     ],
-    "tags": [],
+    "tags": [
+      "农田",
+      "农业",
+      "耕地",
+      "乡村"
+    ],
     "quality_score": null,
     "created_at": "2026-07-26T07:17:09Z"
   },
@@ -48,7 +53,13 @@
       "pdf",
       "csv"
     ],
-    "tags": [],
+    "tags": [
+      "记忆流",
+      "轻量级",
+      "记忆化",
+      "学术论文",
+      "机器学习"
+    ],
     "quality_score": null,
     "created_at": "2026-07-26T09:00:50Z"
   },
@@ -65,7 +76,12 @@
     "formats": [
       "png"
     ],
-    "tags": [],
+    "tags": [
+      "航拍船舶",
+      "军用舰艇",
+      "合成图像",
+      "海面视角"
+    ],
     "quality_score": null,
     "created_at": "2026-07-26T15:54:57Z"
   },
@@ -82,7 +98,13 @@
     "formats": [
       "png"
     ],
-    "tags": [],
+    "tags": [
+      "卫星遥感",
+      "军用船舶",
+      "合成图像",
+      "海面舰船",
+      "多船场景"
+    ],
     "quality_score": null,
     "created_at": "2026-07-26T15:56:58Z"
   },
@@ -99,7 +121,12 @@
     "formats": [
       "png"
     ],
-    "tags": [],
+    "tags": [
+      "海面船舶",
+      "远景拍摄",
+      "开阔海景",
+      "合成图片"
+    ],
     "quality_score": null,
     "created_at": "2026-07-26T16:07:52Z"
   },
@@ -116,7 +143,12 @@
     "formats": [
       "png"
     ],
-    "tags": [],
+    "tags": [
+      "船舶",
+      "海景",
+      "远景",
+      "AI合成"
+    ],
     "quality_score": null,
     "created_at": "2026-07-26T16:15:12Z"
   },
@@ -133,7 +165,13 @@
     "formats": [
       "png"
     ],
-    "tags": [],
+    "tags": [
+      "会议场景",
+      "多人合影",
+      "商务办公",
+      "合成数据",
+      "室内实景"
+    ],
     "quality_score": null,
     "created_at": "2026-07-26T17:55:34Z"
   },
@@ -150,7 +188,12 @@
     "formats": [
       "yolo"
     ],
-    "tags": [],
+    "tags": [
+      "目标检测",
+      "船只图像",
+      "自动标注",
+      "训练集"
+    ],
     "quality_score": null,
     "created_at": "2026-07-27T04:53:05Z"
   },
@@ -168,7 +211,12 @@
       "csv",
       "pdf"
     ],
-    "tags": [],
+    "tags": [
+      "大模型记忆",
+      "记忆研究",
+      "学术论文",
+      "2026+"
+    ],
     "quality_score": null,
     "created_at": "2026-07-27T11:41:58Z"
   },
@@ -220,7 +268,11 @@
     "formats": [
       "csv"
     ],
-    "tags": [],
+    "tags": [
+      "食品配方",
+      "实验数据",
+      "感官评分"
+    ],
     "quality_score": null,
     "created_at": "2026-07-28T06:46:22Z"
   },
@@ -237,7 +289,12 @@
     "formats": [
       "jpg"
     ],
-    "tags": [],
+    "tags": [
+      "大学教授",
+      "黑板教学",
+      "课堂讲授",
+      "高等教育"
+    ],
     "quality_score": null,
     "created_at": "2026-07-28T06:47:58Z"
   },
@@ -255,7 +312,12 @@
       "csv",
       "pdf"
     ],
-    "tags": [],
+    "tags": [
+      "机器学习",
+      "学术论文",
+      "预印本",
+      "近期研究"
+    ],
     "quality_score": null,
     "created_at": "2026-07-28T06:49:23Z"
   },
@@ -272,7 +334,13 @@
     "formats": [
       "jpg"
     ],
-    "tags": [],
+    "tags": [
+      "农田",
+      "农场",
+      "农业",
+      "田野",
+      "耕种"
+    ],
     "quality_score": null,
     "created_at": "2026-07-28T07:36:26Z"
   },
@@ -291,7 +359,12 @@
       "jpg",
       "png"
     ],
-    "tags": [],
+    "tags": [
+      "农田",
+      "农业",
+      "乡村",
+      "田野"
+    ],
     "quality_score": null,
     "created_at": "2026-07-28T07:38:23Z"
   },
@@ -308,7 +381,12 @@
     "formats": [
       "wav"
     ],
-    "tags": [],
+    "tags": [
+      "合成音频",
+      "录音文件",
+      "声音样本",
+      "语音数据"
+    ],
     "quality_score": null,
     "created_at": "2026-07-28T16:15:52Z",
     "preview_tool": "mel-spectrogram-generator"
@@ -326,7 +404,11 @@
     "formats": [
       "csv"
     ],
-    "tags": [],
+    "tags": [
+      "食品配方",
+      "实验数据",
+      "感官评分"
+    ],
     "quality_score": null,
     "created_at": "2026-07-28T16:21:00Z"
   },
@@ -343,7 +425,12 @@
     "formats": [
       "md"
     ],
-    "tags": [],
+    "tags": [
+      "论文修改",
+      "AAAI投稿",
+      "审稿建议",
+      "学术会议"
+    ],
     "quality_score": null,
     "created_at": "2026-07-29T08:37:09Z"
   },
@@ -360,7 +447,11 @@
     "formats": [
       "md"
     ],
-    "tags": [],
+    "tags": [
+      "论文修改",
+      "审稿建议",
+      "工程智能"
+    ],
     "quality_score": null,
     "created_at": "2026-07-29T09:50:43Z"
   },
@@ -377,7 +468,12 @@
     "formats": [
       "md"
     ],
-    "tags": [],
+    "tags": [
+      "论文修改",
+      "AAAI会议",
+      "拓扑引导",
+      "修改建议"
+    ],
     "quality_score": null,
     "created_at": "2026-07-30T04:22:12Z"
   },
@@ -394,7 +490,12 @@
     "formats": [
       "md"
     ],
-    "tags": [],
+    "tags": [
+      "论文修改",
+      "AAAI会议",
+      "模型建议",
+      "CLIP相关"
+    ],
     "quality_score": null,
     "created_at": "2026-07-30T04:25:28Z"
   },
@@ -466,7 +567,13 @@
       "md",
       "csv"
     ],
-    "tags": [],
+    "tags": [
+      "面霜配方",
+      "专利翻译",
+      "化妆品专利",
+      "配方数据",
+      "中英互译"
+    ],
     "quality_score": null,
     "created_at": "2026-07-31T06:29:02Z"
   },
@@ -502,7 +609,13 @@
       "md",
       "csv"
     ],
-    "tags": [],
+    "tags": [
+      "面霜配方",
+      "化妆品专利",
+      "护肤成分",
+      "配方技术",
+      "专利文献"
+    ],
     "quality_score": null,
     "created_at": "2026-07-31T06:35:27Z"
   },
@@ -537,7 +650,12 @@
     "formats": [
       ".md"
     ],
-    "tags": [],
+    "tags": [
+      "论文评审",
+      "AAAI会议",
+      "学术数据集",
+      "自然语言处理"
+    ],
     "quality_score": null,
     "created_at": "2026-08-01T07:53:33Z"
   },
@@ -554,7 +672,13 @@
     "formats": [
       "csv"
     ],
-    "tags": [],
+    "tags": [
+      "食品配方",
+      "实验数据",
+      "感官评分",
+      "工艺参数",
+      "配方优化"
+    ],
     "quality_score": null,
     "created_at": "2026-08-01T08:16:06Z"
   },
@@ -572,7 +696,12 @@
       "png",
       "txt"
     ],
-    "tags": [],
+    "tags": [
+      "人脸检测",
+      "YOLO标注",
+      "会议场景",
+      "目标检测"
+    ],
     "quality_score": null,
     "created_at": "2026-08-01T09:00:04Z"
   },
@@ -589,7 +718,12 @@
     "formats": [
       "png"
     ],
-    "tags": [],
+    "tags": [
+      "鸡蛋",
+      "合成图像",
+      "AI生成",
+      "豆包大模型"
+    ],
     "quality_score": null,
     "created_at": "2026-08-01T10:23:46Z"
   },
@@ -606,7 +740,12 @@
     "formats": [
       "png"
     ],
-    "tags": [],
+    "tags": [
+      "AI生成",
+      "合成图像",
+      "可爱风格",
+      "豆包模型"
+    ],
     "quality_score": null,
     "created_at": "2026-08-01T10:26:04Z"
   },
@@ -623,8 +762,74 @@
     "formats": [
       "png"
     ],
-    "tags": [],
+    "tags": [
+      "AI合成",
+      "儿童劈叉",
+      "柔韧训练",
+      "图像数据"
+    ],
     "quality_score": null,
     "created_at": "2026-08-01T14:55:34Z"
+  },
+  {
+    "id": "YiyangAAAI2027_merged.pdf_1785666027",
+    "name": "YiyangAAAI2027_merged.pdf",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/YiyangAAAI2027_merged.pdf_1785666027.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/uploads/dataset_1785665956958",
+    "file_count": 1,
+    "total_size": 9822752,
+    "formats": [
+      "pdf"
+    ],
+    "tags": [
+      "学术论文",
+      "AAAI会议",
+      "华南理工",
+      "计算机"
+    ],
+    "quality_score": null,
+    "created_at": "2026-08-02T10:20:27Z",
+    "preview_tool": "file-visualizer"
+  },
+  {
+    "id": "落汤鸡",
+    "name": "落汤鸡",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/落汤鸡.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/1785672812304",
+    "file_count": 1,
+    "total_size": 806482,
+    "formats": [
+      "png"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-08-02T12:13:51Z"
+  },
+  {
+    "id": "test-ds-api",
+    "name": "Test API DS",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/test-ds-api.md",
+    "data_path": "",
+    "file_count": 1,
+    "total_size": 0,
+    "formats": [
+      "png"
+    ],
+    "tags": [
+      "图像分类",
+      "测试数据",
+      "API示例"
+    ],
+    "quality_score": null,
+    "created_at": "2026-08-02T12:32:00Z"
   }
 ]

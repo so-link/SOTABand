@@ -16,9 +16,24 @@ class ApiDataRegister:
             "file_count": kwargs.get("file_count", 0),
             "total_size": kwargs.get("total_size", 0),
             "formats": kwargs.get("formats", []),
+            "tags": kwargs.get("tags", []),
         }
         dataset_id = await ApiDataRegister.registry.register(resource)
-        return {"dataset_id": dataset_id}
+        # 如果没有标签，同步等待 LLM 生成标签
+        if not resource["tags"]:
+            try:
+                from app.api.routes.data_routes import _auto_generate_dataset_tags
+                await _auto_generate_dataset_tags(
+                    dataset_id, resource["name"], resource.get("raw_md", "")
+                )
+            except Exception:
+                pass
+        return {
+            "dataset_id": dataset_id,
+            "name": resource["name"],
+            "tags": resource["tags"],
+            "_action": "register_dataset",  # 前端识别此标记，自动加入数据空间
+        }
 
 
 class ApiDataDelete:

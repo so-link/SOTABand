@@ -161,7 +161,31 @@ async def generate_spec(req: GenerateDataSpecRequest):
         ],
         temperature=0.3, max_tokens=100000,
     )
-    return {"spec_md": response.strip()}
+    spec_md = response.strip()
+
+    # 同时生成标签
+    tags = []
+    try:
+        tag_response = await llm.chat(
+            messages=[{
+                "role": "user",
+                "content": f"""根据以下数据集信息，生成3-5个简短的中文标签（每个2-4字），用于数据集分类和检索。直接返回 JSON 数组。
+
+数据集描述: {req.description}
+{spec_md[:300]}
+
+返回格式: ["标签1", "标签2", "标签3"]"""
+            }],
+            temperature=0.3, max_tokens=200, timeout=30,
+        )
+        tags = _extract_tags_json(tag_response)
+        if not tags:
+            matches = re.findall(r'[\u4e00-\u9fff]{2,4}', tag_response)
+            tags = list(dict.fromkeys(matches))[:5]
+    except Exception:
+        pass
+
+    return {"spec_md": spec_md, "tags": tags}
 
 
 @router.post("/register")
@@ -253,8 +277,8 @@ async def _match_preview_tool(dataset_id: str, spec_md: str):
 async def _auto_generate_dataset_tags(dataset_id: str, name: str, spec_md: str):
     """LLM 自动生成数据集标签，更新到 registry"""
     try:
-        from core.llm.client import get_llm_client
-        llm = get_llm_client()
+        from core.llm.client import create_llm_client
+        llm = create_llm_client()
         prompt = f"""根据以下数据集信息，生成3-5个简短的中文标签（每个2-4字），用于数据集分类和检索。直接返回 JSON 数组。
 
 数据集名称: {name}
@@ -276,11 +300,8 @@ async def _auto_generate_dataset_tags(dataset_id: str, name: str, spec_md: str):
                 print(f"[_auto_generate_dataset_tags] 回退正则提取 dataset_id={dataset_id}: {tags}")
 
         if tags:
-            entry = await registry.get(dataset_id)
-            if entry:
-                entry["tags"] = tags
-                await registry._save()
-                print(f"[_auto_generate_dataset_tags] 标签已更新 dataset_id={dataset_id}: {tags}")
+            await registry.update(dataset_id, {"tags": tags})
+            print(f"[_auto_generate_dataset_tags] 标签已更新 dataset_id={dataset_id}: {tags}")
         else:
             print(f"[_auto_generate_dataset_tags] 无法提取标签 dataset_id={dataset_id}")
     except Exception as e:

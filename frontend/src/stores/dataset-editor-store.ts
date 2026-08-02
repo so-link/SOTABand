@@ -20,6 +20,7 @@ interface DatasetEditorState {
   files: UploadedFile[]
   description: string
   generatedMd: string
+  generatedTags: string[]
   registeredId: string | null
   isGenerating: boolean
   error: string | null
@@ -28,6 +29,8 @@ interface DatasetEditorState {
   setDescription: (text: string) => void
   setGeneratedMd: (md: string) => void
   setStep: (s: EditorStep) => void
+  addTag: (tag: string) => void
+  removeTag: (tag: string) => void
   setFileDescription: (fileId: string, desc: string) => void
   uploadFile: (file: File) => Promise<void>
   removeFile: (fileId: string) => void
@@ -37,12 +40,18 @@ interface DatasetEditorState {
 }
 
 export const useDatasetEditorStore = create<DatasetEditorState>((set, get) => ({
-  step: 1, files: [], description: '', generatedMd: '', registeredId: null,
+  step: 1, files: [], description: '', generatedMd: '', generatedTags: [], registeredId: null,
   isGenerating: false, error: null, uploadSubdir: '',
 
   setDescription: (text) => set({ description: text }),
   setGeneratedMd: (md) => set({ generatedMd: md }),
   setStep: (s) => set({ step: s }),
+  addTag: (tag: string) => set((s) => ({
+    generatedTags: s.generatedTags.includes(tag) ? s.generatedTags : [...s.generatedTags, tag],
+  })),
+  removeTag: (tag: string) => set((s) => ({
+    generatedTags: s.generatedTags.filter(t => t !== tag),
+  })),
 
   setFileDescription: (fileId, desc) => set((state) => ({
     files: state.files.map(f => f.id === fileId ? { ...f, description: desc } : f),
@@ -90,7 +99,7 @@ export const useDatasetEditorStore = create<DatasetEditorState>((set, get) => ({
   },
 
   reset: () => set({
-    step: 1, files: [], description: '', generatedMd: '', registeredId: null,
+    step: 1, files: [], description: '', generatedMd: '', generatedTags: [], registeredId: null,
     isGenerating: false, error: null, uploadSubdir: '',
   }),
 
@@ -106,7 +115,7 @@ export const useDatasetEditorStore = create<DatasetEditorState>((set, get) => ({
         path: f.filePath,
       }))
       const result = await dataApi.generateSpec(description, fileDescs as unknown as Record<string, unknown>[])
-      set({ generatedMd: result.spec_md, step: 2, isGenerating: false })
+      set({ generatedMd: result.spec_md, generatedTags: result.tags || [], step: 2, isGenerating: false })
     } catch (e) { set({ error: e instanceof Error ? e.message : String(e), isGenerating: false }) }
   },
 
@@ -122,6 +131,7 @@ export const useDatasetEditorStore = create<DatasetEditorState>((set, get) => ({
       const result = await dataApi.register(
         generatedMd, nameMatch?.[1]?.trim() || 'Dataset',
         '', files.length, totalSize, formats, sourceFiles,
+        get().generatedTags,
       )
       set({ registeredId: result.dataset_id, step: 3, isGenerating: false })
       // 刷新数据空间列表

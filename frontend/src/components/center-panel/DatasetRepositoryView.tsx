@@ -149,20 +149,30 @@ export function DatasetRepositoryView() {
       {/* 标签筛选 */}
       {tagEntries.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 px-5 py-2 border-b border-maia-border shrink-0">
+          <button
+            onClick={() => { store.selectedTags.forEach(t => store.toggleTag(t)) }}
+            className={`px-2 py-0.5 rounded text-[11px] transition-colors ${
+              store.selectedTags.length === 0
+                ? 'bg-maia-accent text-white'
+                : 'bg-maia-bg text-maia-text-muted hover:bg-maia-sidebar-hover'
+            }`}
+          >
+            全部 ({store.datasets.length})
+          </button>
           {visibleTags.map(([tag, count]) => (
             <button key={tag} onClick={() => store.toggleTag(tag)}
-              className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+              className={`px-2 py-0.5 rounded text-[11px] transition-colors ${
                 store.selectedTags.includes(tag)
                   ? 'bg-maia-accent text-white'
-                  : 'bg-maia-surface border border-maia-border text-maia-text-muted hover:text-maia-text hover:border-maia-text-muted'
+                  : 'bg-maia-bg text-maia-text-muted hover:bg-maia-sidebar-hover'
               }`}>
-              {tag} ({count})
+              #{tag} ({count})
             </button>
           ))}
           {tagEntries.length > MAX_TAGS && (
             <button onClick={() => setShowAllTags(!showAllTags)}
-              className="px-2 py-0.5 text-[11px] text-maia-accent hover:underline">
-              {showAllTags ? '收起' : `+${tagEntries.length - MAX_TAGS} 更多`}
+              className="px-2 py-0.5 text-[11px] bg-maia-bg text-maia-text-muted hover:bg-maia-sidebar-hover rounded">
+              {showAllTags ? '收起' : `+ ${tagEntries.length - MAX_TAGS} 更多...`}
             </button>
           )}
         </div>
@@ -221,7 +231,9 @@ export function DatasetRepositoryView() {
                     <div className="flex flex-wrap gap-1">
                       {ds.tags.map((tag) => (
                         <button key={tag} onClick={(e) => { e.stopPropagation(); store.toggleTag(tag); }}
-                          className="px-1.5 py-px rounded text-[10px] bg-maia-bg border border-maia-border text-maia-text-muted hover:text-maia-text hover:border-maia-text-muted transition-colors cursor-pointer">
+                          className="inline-flex px-1.5 py-px rounded text-[10px] font-medium
+                            bg-cyan-500/10 text-cyan-700 border border-cyan-500/25
+                            hover:bg-cyan-500/20 transition-colors cursor-pointer">
                           {tag}
                         </button>
                       ))}
