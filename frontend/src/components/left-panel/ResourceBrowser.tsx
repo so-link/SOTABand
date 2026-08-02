@@ -15,6 +15,7 @@ import {
 import { useResourceStore } from '@/stores/resource-store'
 import { useUIStore } from '@/stores/ui-store'
 import { useWorkspaceToolStore } from '@/stores/workspace-tool-store'
+import { useWorkspaceDatasetStore } from '@/stores/workspace-dataset-store'
 import { cn } from '@/lib/utils'
 import type { Resource, ResourceType, ToolResource } from '@/types/resources'
 
@@ -70,10 +71,37 @@ export function ResourceBrowser() {
   // 工具空间：从 workspace store 读取已加载的工具
   const workspaceTools = useWorkspaceToolStore((s) => s.tools)
   const workspaceRemoveTool = useWorkspaceToolStore((s) => s.removeTool)
+  // 数据空间：从 workspace store 读取已加载的数据集
+  const workspaceDatasets = useWorkspaceDatasetStore((s) => s.datasets)
+  const workspaceRemoveDataset = useWorkspaceDatasetStore((s) => s.removeDataset)
 
   const getResources = (type: ResourceType): Resource[] => {
     switch (type) {
-      case 'data': return dataResources
+      case 'data':
+        // 数据空间只显示已加载的数据集（从 workspace store）
+        return workspaceDatasets.map(d => ({
+          id: d.id,
+          name: d.name,
+          type: 'data' as ResourceType,
+          version: '0.1.0',
+          status: 'active' as const,
+          tags: d.tags,
+          description: '',
+          createdAt: '',
+          updatedAt: '',
+          format: '',
+          filePath: '',
+          fileSize: 0,
+          source: 'upload' as const,
+          lineage: [],
+          isUserGenerated: true,
+          category: 'local' as const,
+          inputSpec: { formats: [] },
+          outputSpec: { formats: [] },
+          dependencies: [],
+          runtimeEnv: 'python' as const,
+          usageCount: 0,
+        }))
       case 'tool':
         // 工具空间只显示已加载的工具（从 workspace store）
         return workspaceTools.map(t => ({
@@ -113,14 +141,17 @@ export function ResourceBrowser() {
       workspaceRemoveTool(resource.id)
       return
     }
-    // 数据和 Agent：确认后彻底删除
+    // 数据：从工作空间移除（不删除仓库中的数据集）
+    if (resource.type === 'data') {
+      workspaceRemoveDataset(resource.id)
+      return
+    }
+    // Agent：确认后彻底删除
     if (!confirm(`确定删除 "${resource.name}"？此操作不可恢复。`)) return
     const BASE_URL = ''
-    const typePath = resource.type === 'data' ? 'data' : 'agent'
     try {
-      await fetch(`${BASE_URL}/api/${typePath}/${resource.id}`, { method: 'DELETE' })
-      if (resource.type === 'data') fetchDatasetsFromApi()
-      else if (resource.type === 'agent') fetchAgentsFromApi()
+      await fetch(`${BASE_URL}/api/agent/${resource.id}`, { method: 'DELETE' })
+      fetchAgentsFromApi()
     } catch { /* ignore */ }
   }
 
@@ -200,16 +231,28 @@ export function ResourceBrowser() {
                 </>
               )}
               {section.type === 'data' && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    useUIStore.getState().setActiveView('dataset-editor')
-                  }}
-                  className="flex items-center justify-center h-4 w-4 rounded hover:bg-blue-500/10 text-maia-text-muted hover:text-blue-500 transition-colors"
-                  title="添加数据集"
-                >
-                  <Plus className="h-3 w-3" />
-                </button>
+                <>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      useUIStore.getState().setActiveView('dataset-repository')
+                    }}
+                    className="flex items-center justify-center h-4 w-4 rounded hover:bg-blue-500/10 text-maia-text-muted hover:text-blue-500 transition-colors"
+                    title="数据集仓库"
+                  >
+                    <Package className="h-3 w-3" />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      useUIStore.getState().setActiveView('dataset-editor')
+                    }}
+                    className="flex items-center justify-center h-4 w-4 rounded hover:bg-blue-500/10 text-maia-text-muted hover:text-blue-500 transition-colors"
+                    title="创建新数据集"
+                  >
+                    <Plus className="h-3 w-3" />
+                  </button>
+                </>
               )}
             </button>
 

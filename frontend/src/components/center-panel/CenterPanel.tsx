@@ -10,6 +10,7 @@ import { ToolEditorView } from './ToolEditorView'
 import { ToolDetailView } from './ToolDetailView'
 import { DatasetEditorView } from './DatasetEditorView'
 import { RepositoryView } from './RepositoryView'
+import { DatasetRepositoryView } from './DatasetRepositoryView'
 import { MessageSquare, BarChart3, Search, GitBranch, Radio, Bot, X, Package } from 'lucide-react'
 
 const TAB_CONFIG: Record<ActiveView, { label: string; icon: typeof MessageSquare }> = {
@@ -23,6 +24,7 @@ const TAB_CONFIG: Record<ActiveView, { label: string; icon: typeof MessageSquare
   'tool-editor':   { label: '工具',    icon: Bot },
   'tool-detail':   { label: '工具',    icon: Bot },
   'dataset-editor':{ label: '数据集',  icon: BarChart3 },
+  'dataset-repository': { label: '数据集仓库', icon: Package },
   'repository':    { label: '工具仓库',    icon: Package },
 }
 
@@ -85,6 +87,7 @@ function ViewRouter({ view }: { view: ActiveView }) {
     case 'tool-editor': return <ToolEditorView />
     case 'tool-detail': return <ToolDetailView />
     case 'dataset-editor': return <DatasetEditorView />
+    case 'dataset-repository': return <DatasetRepositoryView />
     case 'repository': return <RepositoryView />
   }
 }

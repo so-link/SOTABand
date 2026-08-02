@@ -12,6 +12,7 @@ export type ActiveView =
   | 'tool-detail'
   | 'dataset-editor'
   | 'repository'
+  | 'dataset-repository'
 
 export type Theme = 'dark' | 'light'
 

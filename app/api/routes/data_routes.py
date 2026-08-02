@@ -1,11 +1,13 @@
 """数据管理路由 — 扫描、规格生成、注册、预览、处理"""
 
 import os
+import re
 import time
 import json as _json
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
 
 from app.api.schemas.data_schemas import (
     ScanDirectoryRequest,
@@ -15,6 +17,10 @@ from app.api.schemas.data_schemas import (
 )
 from core.llm.client import create_llm_client
 from core.resource.registry.data_registry import DataRegistry
+
+IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.tiff', '.tif'}
+
+
 def _parse_files_from_spec(spec_md: str) -> list[dict]:
     """从 MD 规范的"数据格式"表格中解析文件列表"""
     files = []
@@ -211,6 +217,10 @@ async def register_dataset(req: RegisterDatasetRequest):
     import asyncio
     asyncio.create_task(_match_preview_tool(registered_id, req.spec_md))
 
+    # 如果没有前端传入的标签，异步调用 LLM 自动生成
+    if not req.tags:
+        asyncio.create_task(_auto_generate_dataset_tags(registered_id, req.dataset_name or registered_id, req.spec_md))
+
     return {"dataset_id": registered_id, "entry": entry}
 
 
@@ -240,11 +250,192 @@ async def _match_preview_tool(dataset_id: str, spec_md: str):
         pass  # 后台任务失败不影响注册
 
 
+async def _auto_generate_dataset_tags(dataset_id: str, name: str, spec_md: str):
+    """LLM 自动生成数据集标签，更新到 registry"""
+    try:
+        from core.llm.client import get_llm_client
+        llm = get_llm_client()
+        prompt = f"""根据以下数据集信息，生成3-5个简短的中文标签（每个2-4字），用于数据集分类和检索。直接返回 JSON 数组。
+
+数据集名称: {name}
+数据集描述: {spec_md[:500]}
+
+返回格式: ["标签1", "标签2", "标签3"]"""
+        response = await llm.chat(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3, max_tokens=200, timeout=30,
+        )
+        print(f"[_auto_generate_dataset_tags] LLM返回 dataset_id={dataset_id}: {repr(response[:200])}")
+
+        tags = _extract_tags_json(response)
+        if not tags:
+            import re
+            matches = re.findall(r'[\u4e00-\u9fff]{2,4}', response)
+            tags = list(dict.fromkeys(matches))[:5]
+            if tags:
+                print(f"[_auto_generate_dataset_tags] 回退正则提取 dataset_id={dataset_id}: {tags}")
+
+        if tags:
+            entry = await registry.get(dataset_id)
+            if entry:
+                entry["tags"] = tags
+                await registry._save()
+                print(f"[_auto_generate_dataset_tags] 标签已更新 dataset_id={dataset_id}: {tags}")
+        else:
+            print(f"[_auto_generate_dataset_tags] 无法提取标签 dataset_id={dataset_id}")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"[_auto_generate_dataset_tags] 异常 dataset_id={dataset_id}: {e}")
+
+
+def _extract_tags_json(text: str) -> list[str] | None:
+    """多策略从 LLM 返回中提取 JSON 标签数组"""
+    import re
+    clean = text.strip()
+    for prefix in ['```json', '```', '`']:
+        if clean.startswith(prefix):
+            clean = clean[len(prefix):].strip()
+    for suffix in ['```', '`']:
+        if clean.endswith(suffix):
+            clean = clean[:-len(suffix)].strip()
+    if clean.startswith('[') and ']' in clean:
+        try:
+            end = clean.rindex(']') + 1
+            arr = _json.loads(clean[:end])
+            if isinstance(arr, list):
+                return [str(t).strip() for t in arr if str(t).strip()]
+        except _json.JSONDecodeError:
+            pass
+    return None
+
+
+@router.get("/repository")
+async def get_dataset_repository():
+    """获取数据集仓库列表（含标签统计和缩略图）"""
+    datasets = await registry.list_all()
+    # 计算标签统计
+    tag_stats: dict[str, int] = {}
+    for ds in datasets:
+        for tag in ds.get("tags", []):
+            tag_stats[tag] = tag_stats.get(tag, 0) + 1
+
+    # 为每个数据集查找第一张图片的缩略图路径
+    for ds in datasets:
+        ds_id = ds.get("id", "")
+        data_path = ds.get("data_path", "")
+        img = _find_first_image(ds_id, data_path)
+        if img:
+            ds["thumbnail"] = f"/api/data/{ds_id}/thumbnail"
+        else:
+            # 无图片：尝试提取第一句话作为预览
+            preview = _get_first_sentence(ds_id, data_path, ds.get("description", ""))
+            if preview:
+                ds["description_preview"] = preview
+
+    return {"datasets": datasets, "tag_stats": tag_stats}
+
+
 @router.get("/list")
 async def list_datasets():
     """列出所有已注册数据集"""
     datasets = await registry.list_all()
     return {"datasets": datasets}
+
+
+@router.post("/batch-generate-tags")
+async def batch_generate_tags():
+    """为所有无标签的数据集批量生成标签（LLM 异步生成）"""
+    datasets = await registry.list_all()
+    no_tag_ids = [ds["id"] for ds in datasets if not ds.get("tags")]
+    if not no_tag_ids:
+        return {"message": "所有数据集已有标签", "count": 0}
+
+    import asyncio
+    for ds_id in no_tag_ids:
+        entry = await registry.get(ds_id)
+        if not entry:
+            continue
+        spec_path = registry._get_def_dir() / f"{ds_id}.md"
+        spec_md = spec_path.read_text() if spec_path.exists() else ""
+        asyncio.create_task(_auto_generate_dataset_tags(
+            ds_id,
+            entry.get("name", ds_id),
+            spec_md
+        ))
+
+    return {"message": f"已触发 {len(no_tag_ids)} 个数据集的标签生成（后台异步进行）", "count": len(no_tag_ids), "dataset_ids": no_tag_ids}
+
+
+def _find_first_image(dataset_id: str, data_path: str | None = None) -> Path | None:
+    """查找数据集中第一张图片文件"""
+    # 优先使用 registry 中记录的 data_path
+    if data_path:
+        data_dir = Path(data_path)
+    else:
+        data_dir = registry._get_def_dir().parent / "datasets" / dataset_id
+    if not data_dir.exists():
+        return None
+    for f in sorted(data_dir.iterdir()):
+        if f.is_file() and f.suffix.lower() in IMAGE_EXTENSIONS:
+            return f
+    return None
+
+
+def _get_first_sentence(dataset_id: str, data_path: str = "", description: str = "") -> str:
+    """获取数据集的第一句话作为预览：
+    1. 优先找数据目录中第一个 .md 文件的内容的第一句话
+    2. 如果没有 .md 文件，取 description 的第一句话
+    """
+    # 尝试读取数据目录中的第一个 md 文件
+    if data_path:
+        data_dir = Path(data_path)
+    else:
+        data_dir = registry._get_def_dir().parent / "datasets" / dataset_id
+    if data_dir.exists() and data_dir.is_dir():
+        md_files = sorted([f for f in data_dir.iterdir() if f.is_file() and f.suffix.lower() == '.md'])
+        for md_file in md_files:
+            try:
+                text = md_file.read_text()
+                # 去掉 markdown 标题符号，取第一个有意义的句子
+                lines = [l.strip() for l in text.split('\n') if l.strip() and not l.strip().startswith('#')]
+                if lines:
+                    return _extract_first_sentence(lines[0])
+            except Exception:
+                continue
+
+    # 回退到 description
+    if description:
+        return _extract_first_sentence(description)
+
+    return ""
+
+
+def _extract_first_sentence(text: str) -> str:
+    """从文本中提取第一句话（截取到第一个句号、感叹号或问号，限制 80 字符）"""
+    text = text.strip()
+    if not text:
+        return ""
+    # 按中文/英文句子结束符截断
+    m = re.search(r'[。！？!?.]', text)
+    if m:
+        sentence = text[:m.end()]
+    else:
+        sentence = text
+    if len(sentence) > 80:
+        sentence = sentence[:80] + '…'
+    return sentence
+
+
+@router.get("/{dataset_id}/thumbnail")
+async def get_dataset_thumbnail(dataset_id: str):
+    """返回数据集的第一张图片缩略图"""
+    entry = await registry.get(dataset_id)
+    data_path = entry.get("data_path", "") if entry else ""
+    img_path = _find_first_image(dataset_id, data_path)
+    if img_path is None:
+        raise HTTPException(404, f"No image found in dataset '{dataset_id}'")
+    return FileResponse(img_path, media_type=f"image/{img_path.suffix.lstrip('.')}")
 
 
 @router.get("/{dataset_id}")

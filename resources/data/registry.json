@@ -1,55 +1,5 @@
 [
   {
-    "id": "",
-    "name": "大海",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/.md",
-    "data_path": "",
-    "file_count": 0,
-    "total_size": 0,
-    "formats": [],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-25T11:02:24Z"
-  },
-  {
-    "id": "kid_20260726_094756_798469",
-    "name": "kid",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/kid_20260726_094756_798469.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026 SOTABand/SOTABand/data/download/20260726_094756_798469",
-    "file_count": 1,
-    "total_size": 41163,
-    "formats": [
-      "jpg"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-26T01:48:00Z"
-  },
-  {
-    "id": "LLM",
-    "name": "LLM",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/LLM.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026 SOTABand/SOTABand/data/downloads/20260726_110958",
-    "file_count": 2,
-    "total_size": 6757282,
-    "formats": [
-      "pdf",
-      "csv"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-07-26T03:16:25Z"
-  },
-  {
     "id": "Farmland",
     "name": "Farmland",
     "version": "0.1.0",
@@ -661,23 +611,6 @@
     "created_at": "2026-08-01T10:26:04Z"
   },
   {
-    "id": "kid",
-    "name": "kid",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/kid.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/1785596062177",
-    "file_count": 1,
-    "total_size": 205925,
-    "formats": [
-      "png"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-08-01T14:54:43Z"
-  },
-  {
     "id": "kkid",
     "name": "kkid",
     "version": "0.1.0",
@@ -693,56 +626,5 @@
     "tags": [],
     "quality_score": null,
     "created_at": "2026-08-01T14:55:34Z"
-  },
-  {
-    "id": "kkkk",
-    "name": "kkkk",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/kkkk.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/1785596194749",
-    "file_count": 1,
-    "total_size": 207414,
-    "formats": [
-      "png"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-08-01T14:56:54Z"
-  },
-  {
-    "id": "yatui",
-    "name": "yatui",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/yatui.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/1785596432800",
-    "file_count": 1,
-    "total_size": 277153,
-    "formats": [
-      "png"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-08-01T15:00:49Z"
-  },
-  {
-    "id": "kdd2",
-    "name": "kdd2",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/kdd2.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/1785596516962",
-    "file_count": 1,
-    "total_size": 228671,
-    "formats": [
-      "png"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-08-01T15:02:19Z"
   }
 ]
