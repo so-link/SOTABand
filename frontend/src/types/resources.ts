@@ -29,6 +29,12 @@ export interface DataResource extends BaseResource {
   source: 'upload' | 'generated' | 'external'
   lineage: string[]        // IDs of upstream data resources
   qualityScore?: number    // 0–100
+  // ── 本机可用性 ──
+  // 注册表可能包含他人环境的数据集（项目目录从别处复制时会带上 registry.json），
+  // 这类条目的 data_path 指向对方机器，本机并没有数据。
+  available?: boolean
+  dataPathAbs?: string
+  fileCountActual?: number
 }
 
 // ---- 工具空间 ----

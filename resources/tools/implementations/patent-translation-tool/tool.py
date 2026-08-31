@@ -24,6 +24,20 @@ def _call_api(api_name: str, **params) -> dict:
     api = get_api(api_name)
     return api.call(**params)
 
+# ── LLM 调用辅助（统一走系统配置的 LLM_PROVIDER / LLM_API_KEY / LLM_MODEL） ──
+def _llm_chat(messages: list, **kwargs) -> str:
+    """同步调用系统统一大模型客户端，返回完整文本。"""
+    import asyncio
+    from core.llm.client import create_llm_client
+    client = create_llm_client()
+    loop = asyncio.new_event_loop()
+    try:
+        result = loop.run_until_complete(client.chat(messages, **kwargs))
+        loop.run_until_complete(client.aclose())
+        return result
+    finally:
+        loop.close()
+
 # ── 工具调用辅助 ──
 def _call_tool(tool_name: str, **params) -> dict:
     """调用已注册的工具（通过 registry.json 查找工具 ID 对应的实现目录）"""
@@ -64,7 +78,6 @@ def _resolve_path(path: str) -> str:
 
 # === 头部结束，以下由 LLM 生成 ===
 
-import openai
 import logging
 
 def execute(**kwargs) -> dict[str, Any]:
@@ -105,18 +118,7 @@ def execute(**kwargs) -> dict[str, Any]:
     if not isinstance(tool_res, dict) or tool_res.get("status") != "success":
         return {"status": "failed", "message": f"专利检索与注册工具异常: {tool_res.get('message', '未知错误')}", "output_format": "text", "data": {}}
 
-    # 3. 获取 DeepSeek API 密钥
-    try:
-        key_res = _call_api("api-deepseek-get-key")
-    except Exception as e:
-        return {"status": "failed", "message": f"获取 DeepSeek API KEY 失败: {str(e)}", "output_format": "text", "data": {}}
-    api_key = key_res.get("api_key")
-    base_url = key_res.get("base_url")
-    model = key_res.get("model")
-    if not api_key or not base_url or not model:
-        return {"status": "failed", "message": "无法获取完整的 DeepSeek API 信息 (api_key/base_url/model)", "output_format": "text", "data": {}}
-
-    # 4. 获取数据集本地路径
+    # 3. 获取数据集本地路径
     data_path = None
 
     # 优先从 Lens 工具返回结果中提取路径
@@ -160,7 +162,7 @@ def execute(**kwargs) -> dict[str, Any]:
         elif isinstance(data_info, dict):
             data_path = extract_path(data_info)
 
-    # 5. 备选路径：常见的数据集存放位置
+    # 4. 备选路径：常见的数据集存放位置
     if not data_path:
         candidate_dirs = [
             _DOWNLOADS_DIR / dataset,
@@ -172,7 +174,7 @@ def execute(**kwargs) -> dict[str, Any]:
                 data_path = str(cand)
                 break
 
-    # 6. 最终路径验证
+    # 5. 最终路径验证
     if not data_path:
         searched = "、".join([str(d) for d in candidate_dirs]) if candidate_dirs else "无"
         return {
@@ -186,13 +188,7 @@ def execute(**kwargs) -> dict[str, Any]:
     if not data_path.exists() or not data_path.is_dir():
         return {"status": "failed", "message": f"数据集路径无效或不存在: {data_path}", "output_format": "text", "data": {}}
 
-    # 7. 初始化 DeepSeek 客户端
-    try:
-        client = openai.OpenAI(api_key=api_key, base_url=base_url)
-    except Exception as e:
-        return {"status": "failed", "message": f"初始化 OpenAI 客户端失败: {str(e)}", "output_format": "text", "data": {}}
-
-    # 8. 遍历并翻译所有 .md 文件
+    # 6. 遍历并翻译所有 .md 文件（调用系统统一 LLM，跟随全局 LLM_PROVIDER / LLM_API_KEY / LLM_MODEL）
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
 
@@ -210,16 +206,11 @@ def execute(**kwargs) -> dict[str, Any]:
                 logger.info(f"跳过空文件: {md_file}")
                 continue
 
-            completion = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": "你是一个专业的专利文档翻译助手。请将以下 Markdown 内容完整翻译为中文，严格保留所有 Markdown 格式、代码块、标签和链接，不要修改任何非文本内容。只返回翻译后的内容，不要添加任何额外解释。"},
-                    {"role": "user", "content": original_content}
-                ],
-                temperature=0.1,
-                max_tokens=40960
-            )
-            translated = completion.choices[0].message.content
+            messages = [
+                {"role": "system", "content": "你是一个专业的专利文档翻译助手。请将以下 Markdown 内容完整翻译为中文，严格保留所有 Markdown 格式、代码块、标签和链接，不要修改任何非文本内容。只返回翻译后的内容，不要添加任何额外解释。"},
+                {"role": "user", "content": original_content}
+            ]
+            translated = _llm_chat(messages, temperature=0.1, max_tokens=40960)
             md_file.write_text(translated, encoding="utf-8")
             logger.info(f"翻译完成 ({idx}/{total}): {md_file.name}")
 
@@ -227,7 +218,7 @@ def execute(**kwargs) -> dict[str, Any]:
             failed_files.append(f"{md_file}: {str(e)}")
             logger.error(f"翻译失败: {md_file} - {str(e)}")
 
-    # 9. 返回结果
+    # 7. 返回结果
     if failed_files:
         fail_list = "; ".join(failed_files)
         return {

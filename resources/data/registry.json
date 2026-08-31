@@ -1,5 +1,62 @@
 [
   {
+    "id": "",
+    "name": "大海",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/.md",
+    "data_path": "",
+    "file_count": 0,
+    "total_size": 0,
+    "formats": [],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-25T11:02:24Z",
+    "owner": null,
+    "visibility": "private",
+    "storage": "local"
+  },
+  {
+    "id": "kid_20260726_094756_798469",
+    "name": "kid",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/kid_20260726_094756_798469.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026 SOTABand/SOTABand/data/download/20260726_094756_798469",
+    "file_count": 1,
+    "total_size": 41163,
+    "formats": [
+      "jpg"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-26T01:48:00Z",
+    "visibility": "private",
+    "storage": "local"
+  },
+  {
+    "id": "LLM",
+    "name": "LLM",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/LLM.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026 SOTABand/SOTABand/data/downloads/20260726_110958",
+    "file_count": 2,
+    "total_size": 6757282,
+    "formats": [
+      "pdf",
+      "csv"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-26T03:16:25Z",
+    "visibility": "private",
+    "storage": "local"
+  },
+  {
     "id": "Farmland",
     "name": "Farmland",
     "version": "0.1.0",
@@ -12,14 +69,11 @@
     "formats": [
       "jpg"
     ],
-    "tags": [
-      "农田",
-      "农业",
-      "耕地",
-      "乡村"
-    ],
+    "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-26T07:17:09Z"
+    "created_at": "2026-07-26T07:17:09Z",
+    "visibility": "private",
+    "storage": "local"
   },
   {
     "id": "jimmy",
@@ -37,7 +91,9 @@
     ],
     "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-26T08:55:50Z"
+    "created_at": "2026-07-26T08:55:50Z",
+    "visibility": "private",
+    "storage": "local"
   },
   {
     "id": "memmem",
@@ -53,15 +109,11 @@
       "pdf",
       "csv"
     ],
-    "tags": [
-      "记忆流",
-      "轻量级",
-      "记忆化",
-      "学术论文",
-      "机器学习"
-    ],
+    "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-26T09:00:50Z"
+    "created_at": "2026-07-26T09:00:50Z",
+    "visibility": "private",
+    "storage": "local"
   },
   {
     "id": "船舶",
@@ -76,14 +128,11 @@
     "formats": [
       "png"
     ],
-    "tags": [
-      "航拍船舶",
-      "军用舰艇",
-      "合成图像",
-      "海面视角"
-    ],
+    "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-26T15:54:57Z"
+    "created_at": "2026-07-26T15:54:57Z",
+    "visibility": "private",
+    "storage": "local"
   },
   {
     "id": "ships",
@@ -98,15 +147,11 @@
     "formats": [
       "png"
     ],
-    "tags": [
-      "卫星遥感",
-      "军用船舶",
-      "合成图像",
-      "海面舰船",
-      "多船场景"
-    ],
+    "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-26T15:56:58Z"
+    "created_at": "2026-07-26T15:56:58Z",
+    "visibility": "private",
+    "storage": "local"
   },
   {
     "id": "nfar",
@@ -121,14 +166,11 @@
     "formats": [
       "png"
     ],
-    "tags": [
-      "海面船舶",
-      "远景拍摄",
-      "开阔海景",
-      "合成图片"
-    ],
+    "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-26T16:07:52Z"
+    "created_at": "2026-07-26T16:07:52Z",
+    "visibility": "private",
+    "storage": "local"
   },
   {
     "id": "船只图像",
@@ -143,14 +185,11 @@
     "formats": [
       "png"
     ],
-    "tags": [
-      "船舶",
-      "海景",
-      "远景",
-      "AI合成"
-    ],
+    "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-26T16:15:12Z"
+    "created_at": "2026-07-26T16:15:12Z",
+    "visibility": "private",
+    "storage": "local"
   },
   {
     "id": "meeting",
@@ -165,15 +204,11 @@
     "formats": [
       "png"
     ],
-    "tags": [
-      "会议场景",
-      "多人合影",
-      "商务办公",
-      "合成数据",
-      "室内实景"
-    ],
+    "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-26T17:55:34Z"
+    "created_at": "2026-07-26T17:55:34Z",
+    "visibility": "private",
+    "storage": "local"
   },
   {
     "id": "船只训练集",
@@ -188,14 +223,11 @@
     "formats": [
       "yolo"
     ],
-    "tags": [
-      "目标检测",
-      "船只图像",
-      "自动标注",
-      "训练集"
-    ],
+    "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-27T04:53:05Z"
+    "created_at": "2026-07-27T04:53:05Z",
+    "visibility": "private",
+    "storage": "local"
   },
   {
     "id": "LLM-Memory",
@@ -211,14 +243,11 @@
       "csv",
       "pdf"
     ],
-    "tags": [
-      "大模型记忆",
-      "记忆研究",
-      "学术论文",
-      "2026+"
-    ],
+    "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-27T11:41:58Z"
+    "created_at": "2026-07-27T11:41:58Z",
+    "visibility": "private",
+    "storage": "local"
   },
   {
     "id": "园区航拍",
@@ -236,7 +265,9 @@
     ],
     "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-28T06:13:33Z"
+    "created_at": "2026-07-28T06:13:33Z",
+    "visibility": "private",
+    "storage": "local"
   },
   {
     "id": "食品配方_20260728_143922",
@@ -253,7 +284,9 @@
     ],
     "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-28T06:39:22Z"
+    "created_at": "2026-07-28T06:39:22Z",
+    "visibility": "private",
+    "storage": "local"
   },
   {
     "id": "食品_20260728_144622",
@@ -268,13 +301,11 @@
     "formats": [
       "csv"
     ],
-    "tags": [
-      "食品配方",
-      "实验数据",
-      "感官评分"
-    ],
+    "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-28T06:46:22Z"
+    "created_at": "2026-07-28T06:46:22Z",
+    "visibility": "private",
+    "storage": "local"
   },
   {
     "id": "teacher",
@@ -289,14 +320,11 @@
     "formats": [
       "jpg"
     ],
-    "tags": [
-      "大学教授",
-      "黑板教学",
-      "课堂讲授",
-      "高等教育"
-    ],
+    "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-28T06:47:58Z"
+    "created_at": "2026-07-28T06:47:58Z",
+    "visibility": "private",
+    "storage": "local"
   },
   {
     "id": "papers",
@@ -312,14 +340,11 @@
       "csv",
       "pdf"
     ],
-    "tags": [
-      "机器学习",
-      "学术论文",
-      "预印本",
-      "近期研究"
-    ],
+    "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-28T06:49:23Z"
+    "created_at": "2026-07-28T06:49:23Z",
+    "visibility": "private",
+    "storage": "local"
   },
   {
     "id": "farmfarm",
@@ -334,15 +359,11 @@
     "formats": [
       "jpg"
     ],
-    "tags": [
-      "农田",
-      "农场",
-      "农业",
-      "田野",
-      "耕种"
-    ],
+    "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-28T07:36:26Z"
+    "created_at": "2026-07-28T07:36:26Z",
+    "visibility": "private",
+    "storage": "local"
   },
   {
     "id": "farm2",
@@ -359,14 +380,11 @@
       "jpg",
       "png"
     ],
-    "tags": [
-      "农田",
-      "农业",
-      "乡村",
-      "田野"
-    ],
+    "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-28T07:38:23Z"
+    "created_at": "2026-07-28T07:38:23Z",
+    "visibility": "private",
+    "storage": "local"
   },
   {
     "id": "合成声音_1785255352",
@@ -381,15 +399,12 @@
     "formats": [
       "wav"
     ],
-    "tags": [
-      "合成音频",
-      "录音文件",
-      "声音样本",
-      "语音数据"
-    ],
+    "tags": [],
     "quality_score": null,
     "created_at": "2026-07-28T16:15:52Z",
-    "preview_tool": "mel-spectrogram-generator"
+    "preview_tool": "mel-spectrogram-generator",
+    "visibility": "private",
+    "storage": "local"
   },
   {
     "id": "配方_20260729_002100",
@@ -404,13 +419,11 @@
     "formats": [
       "csv"
     ],
-    "tags": [
-      "食品配方",
-      "实验数据",
-      "感官评分"
-    ],
+    "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-28T16:21:00Z"
+    "created_at": "2026-07-28T16:21:00Z",
+    "visibility": "private",
+    "storage": "local"
   },
   {
     "id": "papers-Mamba-full_20260729_163709",
@@ -425,14 +438,11 @@
     "formats": [
       "md"
     ],
-    "tags": [
-      "论文修改",
-      "AAAI投稿",
-      "审稿建议",
-      "学术会议"
-    ],
+    "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-29T08:37:09Z"
+    "created_at": "2026-07-29T08:37:09Z",
+    "visibility": "private",
+    "storage": "local"
   },
   {
     "id": "papers-EAAI-26-17134_reviewer_20260729_175043",
@@ -447,13 +457,11 @@
     "formats": [
       "md"
     ],
-    "tags": [
-      "论文修改",
-      "审稿建议",
-      "工程智能"
-    ],
+    "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-29T09:50:43Z"
+    "created_at": "2026-07-29T09:50:43Z",
+    "visibility": "private",
+    "storage": "local"
   },
   {
     "id": "papers-new1702_TopMamba_Topology_guided__20260730_122212",
@@ -468,14 +476,11 @@
     "formats": [
       "md"
     ],
-    "tags": [
-      "论文修改",
-      "AAAI会议",
-      "拓扑引导",
-      "修改建议"
-    ],
+    "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-30T04:22:12Z"
+    "created_at": "2026-07-30T04:22:12Z",
+    "visibility": "private",
+    "storage": "local"
   },
   {
     "id": "papers-new_FBD_CLIP_Discriminative_A_20260730_122528",
@@ -490,14 +495,11 @@
     "formats": [
       "md"
     ],
-    "tags": [
-      "论文修改",
-      "AAAI会议",
-      "模型建议",
-      "CLIP相关"
-    ],
+    "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-30T04:25:28Z"
+    "created_at": "2026-07-30T04:25:28Z",
+    "visibility": "private",
+    "storage": "local"
   },
   {
     "id": "lens-机器人A-20260730180848",
@@ -515,7 +517,9 @@
     ],
     "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-30T10:08:50Z"
+    "created_at": "2026-07-30T10:08:50Z",
+    "visibility": "private",
+    "storage": "local"
   },
   {
     "id": "lens-面霜-20260731142555",
@@ -533,7 +537,9 @@
     ],
     "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-31T06:25:58Z"
+    "created_at": "2026-07-31T06:25:58Z",
+    "visibility": "private",
+    "storage": "local"
   },
   {
     "id": "lens-面霜配方-20260731142804",
@@ -551,7 +557,9 @@
     ],
     "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-31T06:28:14Z"
+    "created_at": "2026-07-31T06:28:14Z",
+    "visibility": "private",
+    "storage": "local"
   },
   {
     "id": "lens-面霜配方翻译-20260731142855",
@@ -567,15 +575,11 @@
       "md",
       "csv"
     ],
-    "tags": [
-      "面霜配方",
-      "专利翻译",
-      "化妆品专利",
-      "配方数据",
-      "中英互译"
-    ],
+    "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-31T06:29:02Z"
+    "created_at": "2026-07-31T06:29:02Z",
+    "visibility": "private",
+    "storage": "local"
   },
   {
     "id": "lens-face_cream-20260731143348",
@@ -593,7 +597,9 @@
     ],
     "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-31T06:33:51Z"
+    "created_at": "2026-07-31T06:33:51Z",
+    "visibility": "private",
+    "storage": "local"
   },
   {
     "id": "lens-专利配方-20260731143524",
@@ -609,15 +615,11 @@
       "md",
       "csv"
     ],
-    "tags": [
-      "面霜配方",
-      "化妆品专利",
-      "护肤成分",
-      "配方技术",
-      "专利文献"
-    ],
+    "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-31T06:35:27Z"
+    "created_at": "2026-07-31T06:35:27Z",
+    "visibility": "private",
+    "storage": "local"
   },
   {
     "id": "lens-面霜配方专利-20260731175436",
@@ -635,201 +637,49 @@
     ],
     "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-31T09:54:40Z"
+    "created_at": "2026-07-31T09:54:40Z",
+    "visibility": "private",
+    "storage": "local"
   },
   {
-    "id": "L1",
-    "name": "L1",
+    "id": "无人机航拍初版_1787943139",
+    "name": "无人机航拍初版",
     "version": "0.1.0",
     "type": "generic",
     "status": "active",
-    "spec_path": "definitions/L1.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/papers/new_FBD_CLIP_Discriminative_A_1785570813",
-    "file_count": 1,
-    "total_size": 13791,
+    "spec_path": "definitions/无人机航拍初版_1787943139.md",
+    "data_path": "/Users/xuyi/Desktop/SOTABand-main/data/uploads/dataset_1787942962648",
+    "file_count": 894,
+    "total_size": 743390355,
     "formats": [
-      ".md"
-    ],
-    "tags": [
-      "论文评审",
-      "AAAI会议",
-      "学术数据集",
-      "自然语言处理"
-    ],
-    "quality_score": null,
-    "created_at": "2026-08-01T07:53:33Z"
-  },
-  {
-    "id": "配方_20260801_161606",
-    "name": "配方",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/配方_20260801_161606.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/20260801_161606",
-    "file_count": 1,
-    "total_size": 331,
-    "formats": [
-      "csv"
-    ],
-    "tags": [
-      "食品配方",
-      "实验数据",
-      "感官评分",
-      "工艺参数",
-      "配方优化"
-    ],
-    "quality_score": null,
-    "created_at": "2026-08-01T08:16:06Z"
-  },
-  {
-    "id": "meeting-face_20260801165913",
-    "name": "meeting-face",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/meeting-face_20260801165913.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/20260801165913",
-    "file_count": 2,
-    "total_size": 6138883,
-    "formats": [
-      "png",
-      "txt"
-    ],
-    "tags": [
-      "人脸检测",
-      "YOLO标注",
-      "会议场景",
-      "目标检测"
-    ],
-    "quality_score": null,
-    "created_at": "2026-08-01T09:00:04Z"
-  },
-  {
-    "id": "egg",
-    "name": "egg",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/egg.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/1785579813108",
-    "file_count": 1,
-    "total_size": 189173,
-    "formats": [
-      "png"
-    ],
-    "tags": [
-      "鸡蛋",
-      "合成图像",
-      "AI生成",
-      "豆包大模型"
-    ],
-    "quality_score": null,
-    "created_at": "2026-08-01T10:23:46Z"
-  },
-  {
-    "id": "乖乖",
-    "name": "乖乖",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/乖乖.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/1785579949843",
-    "file_count": 1,
-    "total_size": 228079,
-    "formats": [
-      "png"
-    ],
-    "tags": [
-      "AI生成",
-      "合成图像",
-      "可爱风格",
-      "豆包模型"
-    ],
-    "quality_score": null,
-    "created_at": "2026-08-01T10:26:04Z"
-  },
-  {
-    "id": "kkid",
-    "name": "kkid",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/kkid.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/1785596111664",
-    "file_count": 1,
-    "total_size": 208786,
-    "formats": [
-      "png"
-    ],
-    "tags": [
-      "AI合成",
-      "儿童劈叉",
-      "柔韧训练",
-      "图像数据"
-    ],
-    "quality_score": null,
-    "created_at": "2026-08-01T14:55:34Z"
-  },
-  {
-    "id": "YiyangAAAI2027_merged.pdf_1785666027",
-    "name": "YiyangAAAI2027_merged.pdf",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/YiyangAAAI2027_merged.pdf_1785666027.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/uploads/dataset_1785665956958",
-    "file_count": 1,
-    "total_size": 9822752,
-    "formats": [
-      "pdf"
-    ],
-    "tags": [
-      "学术论文",
-      "AAAI会议",
-      "华南理工",
-      "计算机"
-    ],
-    "quality_score": null,
-    "created_at": "2026-08-02T10:20:27Z",
-    "preview_tool": "file-visualizer"
-  },
-  {
-    "id": "落汤鸡",
-    "name": "落汤鸡",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/落汤鸡.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/1785672812304",
-    "file_count": 1,
-    "total_size": 806482,
-    "formats": [
-      "png"
+      "jpg"
     ],
     "tags": [],
     "quality_score": null,
-    "created_at": "2026-08-02T12:13:51Z"
+    "created_at": "2026-08-28T18:52:19Z",
+    "preview_tool": "file-visualizer",
+    "owner": "local-3697591d",
+    "visibility": "private",
+    "storage": "local"
   },
   {
-    "id": "test-ds-api",
-    "name": "Test API DS",
+    "id": "无人机航拍-测试20_1787944947",
+    "name": "无人机航拍-测试20",
     "version": "0.1.0",
     "type": "generic",
     "status": "active",
-    "spec_path": "definitions/test-ds-api.md",
-    "data_path": "",
-    "file_count": 1,
-    "total_size": 0,
+    "spec_path": "definitions/无人机航拍-测试20_1787944947.md",
+    "data_path": "/Users/xuyi/Desktop/SOTABand-main/data/uploads/uav_test20",
+    "file_count": 20,
+    "total_size": 13752148,
     "formats": [
-      "png"
+      "jpg"
     ],
-    "tags": [
-      "图像分类",
-      "测试数据",
-      "API示例"
-    ],
+    "tags": [],
     "quality_score": null,
-    "created_at": "2026-08-02T12:32:00Z"
+    "created_at": "2026-08-28T19:22:27Z",
+    "owner": "local-3697591d",
+    "visibility": "private",
+    "storage": "local"
   }
 ]

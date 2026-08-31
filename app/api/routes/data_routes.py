@@ -1,13 +1,11 @@
 """数据管理路由 — 扫描、规格生成、注册、预览、处理"""
 
 import os
-import re
 import time
 import json as _json
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, HTTPException, Query
 
 from app.api.schemas.data_schemas import (
     ScanDirectoryRequest,
@@ -17,10 +15,7 @@ from app.api.schemas.data_schemas import (
 )
 from core.llm.client import create_llm_client
 from core.resource.registry.data_registry import DataRegistry
-
-IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.tiff', '.tif'}
-
-
+from core.user_context import get_current_user_id
 def _parse_files_from_spec(spec_md: str) -> list[dict]:
     """从 MD 规范的"数据格式"表格中解析文件列表"""
     files = []
@@ -161,31 +156,7 @@ async def generate_spec(req: GenerateDataSpecRequest):
         ],
         temperature=0.3, max_tokens=100000,
     )
-    spec_md = response.strip()
-
-    # 同时生成标签
-    tags = []
-    try:
-        tag_response = await llm.chat(
-            messages=[{
-                "role": "user",
-                "content": f"""根据以下数据集信息，生成3-5个简短的中文标签（每个2-4字），用于数据集分类和检索。直接返回 JSON 数组。
-
-数据集描述: {req.description}
-{spec_md[:300]}
-
-返回格式: ["标签1", "标签2", "标签3"]"""
-            }],
-            temperature=0.3, max_tokens=200, timeout=30,
-        )
-        tags = _extract_tags_json(tag_response)
-        if not tags:
-            matches = re.findall(r'[\u4e00-\u9fff]{2,4}', tag_response)
-            tags = list(dict.fromkeys(matches))[:5]
-    except Exception:
-        pass
-
-    return {"spec_md": spec_md, "tags": tags}
+    return {"spec_md": response.strip()}
 
 
 @router.post("/register")
@@ -241,10 +212,6 @@ async def register_dataset(req: RegisterDatasetRequest):
     import asyncio
     asyncio.create_task(_match_preview_tool(registered_id, req.spec_md))
 
-    # 如果没有前端传入的标签，异步调用 LLM 自动生成
-    if not req.tags:
-        asyncio.create_task(_auto_generate_dataset_tags(registered_id, req.dataset_name or registered_id, req.spec_md))
-
     return {"dataset_id": registered_id, "entry": entry}
 
 
@@ -274,189 +241,59 @@ async def _match_preview_tool(dataset_id: str, spec_md: str):
         pass  # 后台任务失败不影响注册
 
 
-async def _auto_generate_dataset_tags(dataset_id: str, name: str, spec_md: str):
-    """LLM 自动生成数据集标签，更新到 registry"""
-    try:
-        from core.llm.client import create_llm_client
-        llm = create_llm_client()
-        prompt = f"""根据以下数据集信息，生成3-5个简短的中文标签（每个2-4字），用于数据集分类和检索。直接返回 JSON 数组。
-
-数据集名称: {name}
-数据集描述: {spec_md[:500]}
-
-返回格式: ["标签1", "标签2", "标签3"]"""
-        response = await llm.chat(
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3, max_tokens=200, timeout=30,
-        )
-        print(f"[_auto_generate_dataset_tags] LLM返回 dataset_id={dataset_id}: {repr(response[:200])}")
-
-        tags = _extract_tags_json(response)
-        if not tags:
-            import re
-            matches = re.findall(r'[\u4e00-\u9fff]{2,4}', response)
-            tags = list(dict.fromkeys(matches))[:5]
-            if tags:
-                print(f"[_auto_generate_dataset_tags] 回退正则提取 dataset_id={dataset_id}: {tags}")
-
-        if tags:
-            await registry.update(dataset_id, {"tags": tags})
-            print(f"[_auto_generate_dataset_tags] 标签已更新 dataset_id={dataset_id}: {tags}")
-        else:
-            print(f"[_auto_generate_dataset_tags] 无法提取标签 dataset_id={dataset_id}")
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        print(f"[_auto_generate_dataset_tags] 异常 dataset_id={dataset_id}: {e}")
-
-
-def _extract_tags_json(text: str) -> list[str] | None:
-    """多策略从 LLM 返回中提取 JSON 标签数组"""
-    import re
-    clean = text.strip()
-    for prefix in ['```json', '```', '`']:
-        if clean.startswith(prefix):
-            clean = clean[len(prefix):].strip()
-    for suffix in ['```', '`']:
-        if clean.endswith(suffix):
-            clean = clean[:-len(suffix)].strip()
-    if clean.startswith('[') and ']' in clean:
-        try:
-            end = clean.rindex(']') + 1
-            arr = _json.loads(clean[:end])
-            if isinstance(arr, list):
-                return [str(t).strip() for t in arr if str(t).strip()]
-        except _json.JSONDecodeError:
-            pass
-    return None
-
-
-@router.get("/repository")
-async def get_dataset_repository():
-    """获取数据集仓库列表（含标签统计和缩略图）"""
-    datasets = await registry.list_all()
-    # 计算标签统计
-    tag_stats: dict[str, int] = {}
-    for ds in datasets:
-        for tag in ds.get("tags", []):
-            tag_stats[tag] = tag_stats.get(tag, 0) + 1
-
-    # 为每个数据集查找第一张图片的缩略图路径
-    for ds in datasets:
-        ds_id = ds.get("id", "")
-        data_path = ds.get("data_path", "")
-        img = _find_first_image(ds_id, data_path)
-        if img:
-            ds["thumbnail"] = f"/api/data/{ds_id}/thumbnail"
-        else:
-            # 无图片：尝试提取第一句话作为预览
-            preview = _get_first_sentence(ds_id, data_path, ds.get("description", ""))
-            if preview:
-                ds["description_preview"] = preview
-
-    return {"datasets": datasets, "tag_stats": tag_stats}
-
-
 @router.get("/list")
-async def list_datasets():
-    """列出所有已注册数据集"""
-    datasets = await registry.list_all()
-    return {"datasets": datasets}
+async def list_datasets(
+    available_only: bool = Query(False, description="仅返回本机有数据的数据集"),
+    include_others: bool = Query(False, description="包含其他用户的数据集（默认只返回本人的）"),
+):
+    """列出已注册数据集（**按归属隔离**）。
 
+    数据集是「谁的资源」而不是共享资源。注册表文件随项目目录走，
+    从他人环境复制项目时会连同对方的注册记录一起带过来，这些记录
+    的 data_path 指向对方机器，本机并没有数据。
 
-@router.post("/batch-generate-tags")
-async def batch_generate_tags():
-    """为所有无标签的数据集批量生成标签（LLM 异步生成）"""
-    datasets = await registry.list_all()
-    no_tag_ids = [ds["id"] for ds in datasets if not ds.get("tags")]
-    if not no_tag_ids:
-        return {"message": "所有数据集已有标签", "count": 0}
+    默认只返回属于当前用户的数据集：
+    - 带 owner 且 == 当前用户 → 返回
+    - 早期无 owner 的历史条目 → 本机确实有数据的视为本人的（平滑迁移）
 
-    import asyncio
-    for ds_id in no_tag_ids:
-        entry = await registry.get(ds_id)
-        if not entry:
-            continue
-        spec_path = registry._get_def_dir() / f"{ds_id}.md"
-        spec_md = spec_path.read_text() if spec_path.exists() else ""
-        asyncio.create_task(_auto_generate_dataset_tags(
-            ds_id,
-            entry.get("name", ds_id),
-            spec_md
-        ))
-
-    return {"message": f"已触发 {len(no_tag_ids)} 个数据集的标签生成（后台异步进行）", "count": len(no_tag_ids), "dataset_ids": no_tag_ids}
-
-
-def _find_first_image(dataset_id: str, data_path: str | None = None) -> Path | None:
-    """查找数据集中第一张图片文件"""
-    # 优先使用 registry 中记录的 data_path
-    if data_path:
-        data_dir = Path(data_path)
-    else:
-        data_dir = registry._get_def_dir().parent / "datasets" / dataset_id
-    if not data_dir.exists():
-        return None
-    for f in sorted(data_dir.iterdir()):
-        if f.is_file() and f.suffix.lower() in IMAGE_EXTENSIONS:
-            return f
-    return None
-
-
-def _get_first_sentence(dataset_id: str, data_path: str = "", description: str = "") -> str:
-    """获取数据集的第一句话作为预览：
-    1. 优先找数据目录中第一个 .md 文件的内容的第一句话
-    2. 如果没有 .md 文件，取 description 的第一句话
+    参数：
+    - include_others=true ：返回全部（含他人条目），仅供排查/迁移使用
+    - available_only=true ：只返回本机确实有数据的
     """
-    # 尝试读取数据目录中的第一个 md 文件
-    if data_path:
-        data_dir = Path(data_path)
-    else:
-        data_dir = registry._get_def_dir().parent / "datasets" / dataset_id
-    if data_dir.exists() and data_dir.is_dir():
-        md_files = sorted([f for f in data_dir.iterdir() if f.is_file() and f.suffix.lower() == '.md'])
-        for md_file in md_files:
-            try:
-                text = md_file.read_text()
-                # 去掉 markdown 标题符号，取第一个有意义的句子
-                lines = [l.strip() for l in text.split('\n') if l.strip() and not l.strip().startswith('#')]
-                if lines:
-                    return _extract_first_sentence(lines[0])
-            except Exception:
-                continue
+    current_user = get_current_user_id()
+    entries = await registry.list_all(owner=None if include_others else current_user)
 
-    # 回退到 description
-    if description:
-        return _extract_first_sentence(description)
+    checked = []
+    for d in entries:
+        info = registry.check_availability(d)
+        # 标注归属关系，便于前端区分「我的」与「他人的」
+        owner = d.get("owner")
+        info["owner"] = owner
+        info["is_owner"] = (owner == current_user) if owner else \
+            registry.is_present_locally(d)
+        checked.append(info)
 
-    return ""
+    if available_only:
+        checked = [d for d in checked if d.get("available")]
 
-
-def _extract_first_sentence(text: str) -> str:
-    """从文本中提取第一句话（截取到第一个句号、感叹号或问号，限制 80 字符）"""
-    text = text.strip()
-    if not text:
-        return ""
-    # 按中文/英文句子结束符截断
-    m = re.search(r'[。！？!?.]', text)
-    if m:
-        sentence = text[:m.end()]
-    else:
-        sentence = text
-    if len(sentence) > 80:
-        sentence = sentence[:80] + '…'
-    return sentence
+    return {
+        "datasets": checked,
+        "total": len(checked),
+        "current_user": current_user,
+        "available_count": sum(1 for d in checked if d.get("available")),
+        "unavailable_count": sum(1 for d in checked if not d.get("available")),
+    }
 
 
-@router.get("/{dataset_id}/thumbnail")
-async def get_dataset_thumbnail(dataset_id: str):
-    """返回数据集的第一张图片缩略图"""
-    entry = await registry.get(dataset_id)
-    data_path = entry.get("data_path", "") if entry else ""
-    img_path = _find_first_image(dataset_id, data_path)
-    if img_path is None:
-        raise HTTPException(404, f"No image found in dataset '{dataset_id}'")
-    return FileResponse(img_path, media_type=f"image/{img_path.suffix.lstrip('.')}")
+@router.post("/claim-local")
+async def claim_local_datasets():
+    """把本机有数据、但缺少归属标记的历史数据集认领到当前用户。
+
+    用于一次性迁移：这些条目确认是自己的数据后打上 owner，
+    之后列表就走精确的归属匹配，不再依赖"本机是否有数据"的启发式判断。
+    """
+    claimed = registry.claim_local_orphans()
+    return {"claimed": claimed, "owner": get_current_user_id()}
 
 
 @router.get("/{dataset_id}")
@@ -478,17 +315,24 @@ async def list_files(dataset_id: str):
     if not entry:
         raise HTTPException(404, f"Dataset '{dataset_id}' not found")
 
-    data_path = Path(entry.get("data_path", ""))
+    data_path = registry.resolve_data_path(entry.get("data_path", ""))
+    if not data_path.exists():
+        # 明确告知"数据不在本机"，而不是静默返回空列表
+        raise HTTPException(
+            404,
+            f"数据集 '{dataset_id}' 的数据目录不存在: {data_path}。"
+            f"（该数据集可能注册于其他机器）"
+        )
+
     files = []
-    if data_path.exists():
-        for f in data_path.rglob("*"):
-            if f.is_file():
-                files.append({
-                    "name": f.name,
-                    "path": str(f.relative_to(data_path)),
-                    "format": f.suffix.lstrip("."),
-                    "size": f.stat().st_size,
-                })
+    for f in data_path.rglob("*"):
+        if f.is_file():
+            files.append({
+                "name": f.name,
+                "path": str(f.relative_to(data_path)),
+                "format": f.suffix.lstrip("."),
+                "size": f.stat().st_size,
+            })
     return {"files": files, "count": len(files)}
 
 
@@ -558,7 +402,7 @@ async def preview_dataset(dataset_id: str):
 
     # 如果 MD 中没有文件信息，扫描实际目录
     if not files:
-        data_path = Path(entry.get("data_path", ""))
+        data_path = registry.resolve_data_path(entry.get("data_path", ""))
         if data_path.exists():
             for f in data_path.rglob("*"):
                 if f.is_file():
@@ -593,8 +437,12 @@ async def delete_dataset(dataset_id: str):
 
     import shutil
     # 删除数据文件
-    data_path = Path(entry.get("data_path", ""))
-    if data_path.exists():
+    # 必须解析成绝对路径：相对路径若直接 rmtree，会误删 resources/data 下的目录
+    data_path = registry.resolve_data_path(entry.get("data_path", ""))
+    if data_path.exists() and data_path.is_dir():
+        # 安全兜底：绝不允许删除 resources/data 根目录自身
+        if data_path.resolve() == registry._get_data_dir().resolve().parent.resolve():
+            raise HTTPException(400, "拒绝删除数据根目录")
         shutil.rmtree(data_path, ignore_errors=True)
     # 删除 MD 文档
     spec_path = registry._get_def_dir() / f"{dataset_id}.md"

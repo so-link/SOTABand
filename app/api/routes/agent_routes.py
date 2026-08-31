@@ -5,6 +5,7 @@ import re
 import time
 from pathlib import Path
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from app.api.schemas.agent_schemas import (
@@ -330,6 +331,150 @@ async def get_agent(agent_id: str):
     demand_md = demand_path.read_text() if has_demand else ""
 
     return {**entry, "spec_md": spec_md, "code": code, "has_demand": has_demand, "demand_md": demand_md}
+
+
+class SaveSpecRequest(BaseModel):
+    """保存 Agent MD 规范文档请求"""
+    spec_md: str
+
+
+@router.post("/{agent_id}/save-spec")
+async def save_agent_spec(agent_id: str, req: SaveSpecRequest):
+    """保存手工编辑后的 MD 规范文档"""
+    entry = await registry.get(agent_id)
+    if not entry:
+        raise HTTPException(404, f"Agent '{agent_id}' not found")
+    if not req.spec_md.strip():
+        raise HTTPException(400, "文档内容不能为空")
+
+    await registry.update(agent_id, {"raw_md": req.spec_md})
+    for p in (registry._get_spec_dir() / f"{agent_id}.md",
+              registry._get_impl_dir() / agent_id / "spec.md"):
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(req.spec_md, encoding="utf-8")
+        except Exception:
+            pass
+    return {"saved": agent_id}
+
+
+class SaveCodeRequest(BaseModel):
+    """保存 Agent 代码请求"""
+    code: str
+
+
+@router.post("/{agent_id}/save-code")
+async def save_agent_code(agent_id: str, req: SaveCodeRequest):
+    """保存手工微调后的 Agent 代码"""
+    entry = await registry.get(agent_id)
+    if not entry:
+        raise HTTPException(404, f"Agent '{agent_id}' not found")
+    if not req.code.strip():
+        raise HTTPException(400, "代码不能为空")
+
+    impl_dir = registry._get_impl_dir() / agent_id
+    impl_dir.mkdir(parents=True, exist_ok=True)
+    (impl_dir / "agent.py").write_text(req.code)
+    return {"saved": agent_id}
+
+
+class SyncSpecRequest(BaseModel):
+    """代码 → 文档反向同步请求"""
+    agent_id: str
+    code: str
+    original_code: str = ""
+    current_spec: str = ""
+
+
+@router.post("/{agent_id}/sync-spec-from-code")
+async def sync_spec_from_code(agent_id: str, req: SyncSpecRequest):
+    """依据使用者微调后的代码，反向更新 Agent 的 MD 规范文档。
+
+    打通「文档 → 代码 → 文档」的双向闭环，避免文档与代码脱节。
+    """
+    entry = await registry.get(agent_id)
+    if not entry:
+        raise HTTPException(404, f"Agent '{agent_id}' not found")
+
+    code = req.code or ""
+    if not code.strip():
+        raise HTTPException(400, "代码不能为空")
+
+    current_spec = req.current_spec or ""
+    if not current_spec.strip():
+        current_spec = f"# {entry.get('name', agent_id)}\n\n（暂无历史规范文档，以下由代码反推生成）\n"
+
+    MAX_CHARS = 24000
+
+    def _clip(text: str) -> str:
+        if not text:
+            return "(空)"
+        return text if len(text) <= MAX_CHARS else (
+            text[:MAX_CHARS] + f"\n...[内容过长已截断，共 {len(text)} 字符]..."
+        )
+
+    system_prompt = (
+        "你是 SOTABand Agent 规范文档的维护专家。使用者手工修改了一个 Agent 的代码，"
+        "请你据此更新该 Agent 的 MD 规范文档。\n\n"
+        "【核心原则】\n"
+        "1. 只更新受本次代码改动实际影响的段落。\n"
+        "2. 未受影响的段落必须原样保留，不要改写。\n"
+        "3. 严格保持原文档的 Markdown 结构、标题层级与表格格式，"
+        "并保留 frontmatter（--- 之间的 id/name/version/role/status/created）。\n"
+        "4. 若改动引入了新的输入参数或输出字段，必须同步对应表格。\n"
+        "5. Agent 是工具与 API 的编排者：若改动了调用的工具（【【工具名】】）"
+        "或系统 API（【API名】），必须在文档中同步更新。\n"
+        "6. 只输出更新后的完整 MD 文档，不要任何解释性文字，不要 markdown 代码块包裹。"
+    )
+
+    user_prompt = f"""Agent 名称：{entry.get('name', agent_id)}
+
+=== 当前 MD 规范文档 ===
+{_clip(current_spec)}
+
+=== 修改前的代码 ===
+```python
+{_clip(req.original_code)}
+```
+
+=== 修改后的代码（使用者手工微调的结果）===
+```python
+{_clip(code)}
+```
+
+请输出更新后的完整 MD 规范文档："""
+
+    updated = await llm.chat(
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=0.2,
+        max_tokens=100000,
+    )
+
+    cleaned = (updated or "").strip()
+    for marker in ("```markdown", "```md", "```"):
+        if cleaned.startswith(marker):
+            cleaned = cleaned[len(marker):].strip()
+            if cleaned.rstrip().endswith("```"):
+                cleaned = cleaned.rstrip()[:-3].rstrip()
+            break
+
+    if not cleaned:
+        raise HTTPException(500, "同步失败：模型未返回有效文档")
+
+    # 落盘：更新 registry 的 raw_md 与 spec 目录下的两份文档
+    await registry.update(agent_id, {"raw_md": cleaned})
+    for p in (registry._get_spec_dir() / f"{agent_id}.md",
+              registry._get_impl_dir() / agent_id / "spec.md"):
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(cleaned, encoding="utf-8")
+        except Exception:
+            pass
+
+    return {"spec_md": cleaned}
 
 
 @router.get("/{agent_id}/status")

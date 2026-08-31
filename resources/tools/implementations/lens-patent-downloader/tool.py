@@ -24,6 +24,20 @@ def _call_api(api_name: str, **params) -> dict:
     api = get_api(api_name)
     return api.call(**params)
 
+# ── LLM 调用辅助（统一走系统配置的 LLM_PROVIDER / LLM_API_KEY / LLM_MODEL） ──
+def _llm_chat(messages: list, **kwargs) -> str:
+    """同步调用系统统一大模型客户端，返回完整文本。"""
+    import asyncio
+    from core.llm.client import create_llm_client
+    client = create_llm_client()
+    loop = asyncio.new_event_loop()
+    try:
+        result = loop.run_until_complete(client.chat(messages, **kwargs))
+        loop.run_until_complete(client.aclose())
+        return result
+    finally:
+        loop.close()
+
 # ── 工具调用辅助 ──
 def _call_tool(tool_name: str, **params) -> dict:
     """调用已注册的工具"""
@@ -60,9 +74,8 @@ _API_KEY = "V5zdc1XJa3cFq8OUkbCJgtZmtdXivRb9NbM37SVQloUahXWDUEK1"
 _BASE_URL = "https://api.lens.org/patent/search"
 _DOWNLOAD_DIR = _DATA_DIR / "download"  # 规范要求 ./data/download/
 
-# 翻译缓存与DeepSeek密钥管理
+# 翻译缓存
 _TRANSLATE_CACHE = {}
-_DEEPSEEK_API_KEY = None
 
 # 英文月份映射，用于日期转换
 _EN_MONTHS = {
@@ -89,22 +102,6 @@ def _safe_str(val: Any, default: str = "") -> str:
     if val is None:
         return default
     return str(val)
-
-def _get_deepseek_key() -> str:
-    """通过系统API获取DeepSeek API密钥，并缓存"""
-    global _DEEPSEEK_API_KEY
-    if _DEEPSEEK_API_KEY:
-        return _DEEPSEEK_API_KEY
-    try:
-        resp = _call_api("api-deepseek-get-key")
-        if resp.get("status") == "success":
-            key = resp.get("api_key")
-            if key:
-                _DEEPSEEK_API_KEY = key
-                return key
-    except Exception:
-        pass
-    return ""
 
 def _split_long_text(text: str, max_len: int = 4000) -> list:
     """将长文本按句子边界切分成不大于 max_len 的片段，尽量保持语义完整"""
@@ -142,7 +139,7 @@ def _split_long_text(text: str, max_len: int = 4000) -> list:
     return chunks if chunks else [text]
 
 def _translate_text(text: str, source: str = "en", target: str = "zh") -> str:
-    """使用DeepSeek API翻译文本，支持长文本分段翻译，失败时返回原文"""
+    """使用系统统一 LLM 翻译文本，支持长文本分段翻译，失败时返回原文"""
     if not text or not text.strip():
         return text
     text = text.strip()
@@ -154,11 +151,6 @@ def _translate_text(text: str, source: str = "en", target: str = "zh") -> str:
     if cache_key in _TRANSLATE_CACHE:
         return _TRANSLATE_CACHE[cache_key]
 
-    api_key = _get_deepseek_key()
-    if not api_key:
-        _TRANSLATE_CACHE[cache_key] = text
-        return text
-
     if len(text) > 5000:
         segments = _split_long_text(text, max_len=4000)
         translated_segments = []
@@ -167,47 +159,32 @@ def _translate_text(text: str, source: str = "en", target: str = "zh") -> str:
             if seg_cache_key in _TRANSLATE_CACHE:
                 translated_segments.append(_TRANSLATE_CACHE[seg_cache_key])
             else:
-                t = _translate_single(seg, source, target, api_key)
+                t = _translate_single(seg, source, target)
                 _TRANSLATE_CACHE[seg_cache_key] = t
                 translated_segments.append(t)
         combined = "\n\n".join(translated_segments)
         _TRANSLATE_CACHE[cache_key] = combined
         return combined
     else:
-        result = _translate_single(text, source, target, api_key)
+        result = _translate_single(text, source, target)
         _TRANSLATE_CACHE[cache_key] = result
         return result
 
-def _translate_single(text: str, source: str, target: str, api_key: str) -> str:
-    """翻译单个文本段，失败返回原文"""
+def _translate_single(text: str, source: str = "en", target: str = "zh") -> str:
+    """翻译单个文本段（调用系统统一 LLM），失败返回原文"""
     try:
-        url = "https://api.deepseek.com/v1/chat/completions"
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}"
-        }
-        # 明确要求自动检测源语言并翻译为中文
+        # 明确要求自动检测源语言并翻译为目标语言
         prompt = (
             "Translate the following text to Chinese. "
             "Automatically detect the source language. "
             "Only output the translation without any extra text.\n\n"
             + text
         )
-        payload = {
-            "model": "deepseek-v4-pro",
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.0,
-            "max_tokens": 8000
-        }
-        resp = requests.post(url, json=payload, headers=headers, timeout=30)
-        if resp.status_code == 200:
-            data = resp.json()
-            translated = data["choices"][0]["message"]["content"].strip()
-            if translated.startswith('"') and translated.endswith('"'):
-                translated = translated[1:-1]
-            return translated
-        else:
-            return text
+        messages = [{"role": "user", "content": prompt}]
+        translated = _llm_chat(messages, temperature=0.0, max_tokens=8000).strip()
+        if translated.startswith('"') and translated.endswith('"'):
+            translated = translated[1:-1]
+        return translated
     except Exception:
         return text
 

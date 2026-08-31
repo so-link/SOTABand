@@ -105,29 +105,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const stream = chatService.sendMessage({ content: inputText, attachments: attachedFiles, workspaceToolIds })
 
       for await (const chunk of stream) {
-        // 检查是否有新数据集注册，自动加入数据空间并刷新列表
+        // 检查是否有新数据集注册，自动刷新数据空间列表
         if (chunk.cards) {
           for (const card of chunk.cards) {
             const cardData = (card as Record<string, unknown>).data as Record<string, unknown> | undefined
-            if (cardData?.registered_dataset_id || cardData?._action === 'register_dataset') {
+            if (cardData?.registered_dataset_id) {
               try {
                 const { useResourceStore } = await import('@/stores/resource-store')
                 useResourceStore.getState().fetchDatasetsFromApi()
-              } catch { /* ignore */ }
-              // 自动添加到数据空间
-              try {
-                const { useWorkspaceDatasetStore } = await import('@/stores/workspace-dataset-store')
-                const dsId = (cardData?.registered_dataset_id || cardData?.dataset_id) as string
-                const dsName = (cardData?.name) as string || dsId
-                const dsTags = (cardData?.tags as string[]) || []
-                if (dsId) {
-                  useWorkspaceDatasetStore.getState().addDataset({
-                    id: dsId,
-                    name: dsName,
-                    tags: dsTags,
-                    loadedAt: new Date().toISOString(),
-                  })
-                }
               } catch { /* ignore */ }
               break
             }

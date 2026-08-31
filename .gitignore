@@ -13,6 +13,7 @@ eggs/
 .venv/
 venv/
 env/
+.runtime/
 
 # IDE
 .vscode/
@@ -51,3 +52,13 @@ data/files/
 
 # Docker
 docker-compose.override.yml
+
+# Local runtime cache
+.cache/
+
+# Local runtime state
+storage/user.json
+storage/workspace_tools.json
+
+# Generated local assessment logs
+logs/aerial-image-quality-batch-assessment_*.md

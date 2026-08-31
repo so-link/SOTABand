@@ -29,24 +29,144 @@ def _load_dotenv():
 _load_dotenv()
 
 
+# OpenAI 兼容协议的主流服务商预设表
+# 任何遵循 OpenAI /v1/chat/completions 协议的服务（包括自建网关、第三方聚合平台）
+# 都可以通过 <PROVIDER>_API_KEY / <PROVIDER>_BASE_URL / <PROVIDER>_MODEL 环境变量覆盖接入。
+PROVIDER_PRESETS: dict[str, dict] = {
+    "deepseek": {
+        "name": "DeepSeek",
+        "env_key": "DEEPSEEK_API_KEY",
+        "default_base_url": "https://api.deepseek.com/v1",
+        "default_model": "deepseek-v4-pro",
+    },
+    "openai": {
+        "name": "OpenAI",
+        "env_key": "OPENAI_API_KEY",
+        "default_base_url": "https://api.openai.com/v1",
+        "default_model": "gpt-4o",
+    },
+    "moonshot": {
+        "name": "Kimi (Moonshot)",
+        "env_key": "MOONSHOT_API_KEY",
+        "default_base_url": "https://api.moonshot.cn/v1",
+        "default_model": "kimi-k2",
+    },
+    "zhipu": {
+        "name": "智谱 GLM",
+        "env_key": "ZHIPU_API_KEY",
+        "default_base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "default_model": "glm-4-plus",
+    },
+    "qwen": {
+        "name": "通义千问 (阿里云百炼)",
+        "env_key": "DASHSCOPE_API_KEY",
+        "default_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "default_model": "qwen-plus",
+    },
+    "siliconflow": {
+        "name": "硅基流动",
+        "env_key": "SILICONFLOW_API_KEY",
+        "default_base_url": "https://api.siliconflow.cn/v1",
+        "default_model": "deepseek-ai/DeepSeek-V3",
+    },
+    "minimax": {
+        "name": "MiniMax",
+        "env_key": "MINIMAX_API_KEY",
+        "default_base_url": "https://api.minimaxi.com/v1",
+        "default_model": "MiniMax-Text-01",
+    },
+    "mimo": {
+        "name": "MiMo Coding Plan",
+        "env_key": "MIMO_API_KEY",
+        "default_base_url": "https://token-plan-cn.xiaomimimo.com/v1",
+        # Token Plan 覆盖 V2.5 系列：MiMo-V2.5 / MiMo-V2.5-Pro
+        # 默认取 V2.5；想用 Pro 旗舰请在 .env 设 LLM_MODEL=MiMo-V2.5-Pro
+        "default_model": "MiMo-V2.5",
+    },
+    "doubao": {
+        "name": "豆包 (火山方舟)",
+        "env_key": "DOUBAO_API_KEY",
+        "default_base_url": "https://ark.cn-beijing.volces.com/api/v3",
+        "default_model": "doubao-pro-32k",
+    },
+}
+
+
 @dataclass
 class LLMConfig:
-    """LLM 配置 — 默认 DeepSeek v4
+    """LLM 配置 — 默认 DeepSeek v4，支持任意 OpenAI 兼容协议服务商
 
-    api_key 读取优先级:
-    1. 环境变量 DEEPSEEK_API_KEY
-    2. 项目根目录 .env 文件中的 DEEPSEEK_API_KEY=xxx
-    3. 代码中直接赋值 settings.llm.api_key = "xxx"
+    推荐写法（统一变量，切换服务商只改两行）:
+        LLM_PROVIDER=mimo
+        LLM_API_KEY=tp-xxx
+        # 可选覆盖（不填则用服务商预设的默认端点/模型）
+        # LLM_BASE_URL=https://token-plan-cn.xiaomimimo.com/v1
+        # LLM_MODEL=MiMo-7B
+        # LLM_TIMEOUT=900  # 可选：LLM 请求超时秒数（默认 300；接 1M 长上下文模型建议调大）
+
+    各字段读取优先级（高 → 低）:
+        api_key : 代码赋值 > LLM_API_KEY(仅默认provider) > <PROVIDER>_API_KEY > 空
+        base_url: 代码赋值 > LLM_BASE_URL(仅默认provider) > <PROVIDER>_BASE_URL > 服务商预设默认值
+        model   : 代码赋值 > LLM_MODEL(仅默认provider)    > <PROVIDER>_MODEL    > 服务商预设默认值
+
+    全局变量 LLM_API_KEY / LLM_BASE_URL / LLM_MODEL 跟随 LLM_PROVIDER 指定的
+    当前默认 provider；当显式使用其他 provider 时（如测试连接接口传 provider=mimo），
+    只读取该服务商的专属变量 <PROVIDER>_API_KEY 等 + 预设默认值，避免误用默认 provider 的 key。
+    专属变量（如 DEEPSEEK_API_KEY）保留向后兼容。
+
+    支持的 provider: deepseek / openai / moonshot / zhipu / qwen /
+    siliconflow / minimax / mimo / doubao，以及任意自定义名称
+    （自定义 provider 同样只需 LLM_PROVIDER + LLM_API_KEY，端点用 LLM_BASE_URL 指定）。
     """
 
-    provider: str = "deepseek"
-    api_key: str = field(default_factory=lambda: os.getenv("DEEPSEEK_API_KEY", ""))
-    base_url: str = "https://api.deepseek.com/v1"
-    model: str = "deepseek-v4-pro"
+    provider: str = field(default_factory=lambda: os.getenv("LLM_PROVIDER", "deepseek"))
+    api_key: str = ""
+    base_url: str = ""
+    model: str = ""
     max_tokens: int = 100000
     temperature: float = 0.7
     streaming: bool = True
-    timeout: int = 300
+    # LLM 请求超时（秒），可通过 .env 的 LLM_TIMEOUT 覆盖；
+    # 接 1M 长上下文旗舰模型时建议调大（默认 300 = 5 分钟）。
+    timeout: int = field(default_factory=lambda: int(os.getenv("LLM_TIMEOUT", "300")))
+
+    def __post_init__(self):
+        """按优先级从环境变量补全 api_key / base_url / model"""
+        # provider=None（显式传 None）时回退到环境变量 / 默认值
+        self.provider = self.provider or os.getenv("LLM_PROVIDER", "deepseek")
+        preset = PROVIDER_PRESETS.get(self.provider)
+        prefix = self.provider.upper()
+        if preset:
+            legacy_key_env = preset["env_key"]
+            default_base_url = preset["default_base_url"]
+            default_model = preset["default_model"]
+        else:
+            legacy_key_env = f"{prefix}_API_KEY"
+            default_base_url = ""
+            default_model = ""
+        # 全局 LLM_* 变量只跟随当前默认 provider，避免测试其他服务商时误用
+        is_default = self.provider == os.getenv("LLM_PROVIDER", "deepseek")
+        global_api_key = os.getenv("LLM_API_KEY", "") if is_default else ""
+        global_base_url = os.getenv("LLM_BASE_URL", "") if is_default else ""
+        global_model = os.getenv("LLM_MODEL", "") if is_default else ""
+        # api_key: 代码赋值 > LLM_API_KEY(默认provider) > <PROVIDER>_API_KEY
+        self.api_key = (
+            self.api_key
+            or global_api_key
+            or os.getenv(legacy_key_env, "")
+        )
+        # base_url: 代码赋值 > LLM_BASE_URL(默认provider) > <PROVIDER>_BASE_URL > 预设默认
+        self.base_url = (
+            self.base_url
+            or global_base_url
+            or os.getenv(f"{prefix}_BASE_URL", default_base_url)
+        )
+        # model: 代码赋值 > LLM_MODEL(默认provider) > <PROVIDER>_MODEL > 预设默认
+        self.model = (
+            self.model
+            or global_model
+            or os.getenv(f"{prefix}_MODEL", default_model)
+        )
 
 
 @dataclass
@@ -58,34 +178,32 @@ class DoubaoConfig:
     model: str = field(default_factory=lambda: os.getenv("DOUBAO_MODEL", "doubao-pro-32k"))
 
 
-def get_llm_api_config(provider: str = "deepseek") -> dict:
-    """API 调用：返回 LLM 配置（含 api_key）"""
-    if provider == "doubao":
-        return {
-            "provider": "doubao",
-            "api_key": settings.doubao.api_key,
-            "base_url": settings.doubao.base_url,
-            "model": settings.doubao.model,
-        }
+def get_llm_api_config(provider: str = None) -> dict:
+    """API 调用：返回 LLM 配置（含 api_key）
+
+    provider 缺省时使用当前默认 provider（LLM_PROVIDER 或 deepseek）。
+    """
+    provider = provider or settings.llm.provider
+    cfg = settings.llm if provider == settings.llm.provider else LLMConfig(provider=provider)
     return {
-        "provider": "deepseek",
-        "api_key": settings.llm.api_key,
-        "base_url": settings.llm.base_url,
-        "model": settings.llm.model,
+        "provider": cfg.provider,
+        "api_key": cfg.api_key,
+        "base_url": cfg.base_url,
+        "model": cfg.model,
     }
 
 
-def get_llm_config(provider: str = "deepseek"):
-    """根据 provider 返回对应的 LLM 配置"""
-    if provider == "doubao":
-        cfg = DoubaoConfig()
-        return LLMConfig(
-            provider="doubao",
-            api_key=cfg.api_key,
-            base_url=cfg.base_url,
-            model=cfg.model,
-        )
-    return settings.llm
+def get_llm_config(provider: str = None) -> LLMConfig:
+    """根据 provider 返回对应的 LLM 配置
+
+    所有 OpenAI 兼容协议的服务商统一由 LLMConfig 承载（含豆包/火山方舟，
+    其 /api/v3 同样是 OpenAI 兼容端点）；未来接入非兼容协议（Claude/Gemini）
+    时再在此扩展独立配置类。
+    """
+    provider = provider or settings.llm.provider
+    if provider == settings.llm.provider:
+        return settings.llm
+    return LLMConfig(provider=provider)
 
 
 @dataclass

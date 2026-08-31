@@ -1,7 +1,9 @@
 # InteractiveAgent 运行时配置
-llm_provider: deepseek
-llm_model: deepseek-v4
-llm_base_url: https://api.deepseek.com/v1
+# LLM 统一跟随全局配置（config/settings.py）：LLM_PROVIDER / LLM_API_KEY / LLM_MODEL
+# 运行时通过 create_llm_client() 自动选择服务商（DeepSeek / OpenAI / Kimi / 智谱 / 通义 / 硅基流动 / MiniMax / MiMo / 豆包 等）
+llm_provider: auto   # 跟随全局 LLM_PROVIDER
+llm_model: auto      # 跟随全局 LLM_MODEL
+llm_base_url: auto   # 跟随全局 provider 预设
 max_history: 20
 temperature: 0.7
 max_tokens: 4096

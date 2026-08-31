@@ -70,6 +70,25 @@ def _call_api(api_name: str, **params) -> dict:
     api = get_api(api_name)
     return api.call(**params)
 
+# ── LLM 调用辅助（统一走系统配置的 LLM_PROVIDER / LLM_API_KEY / LLM_MODEL） ──
+def _llm_chat(messages: list, **kwargs) -> str:
+    """同步调用系统统一大模型客户端，返回完整文本。
+
+    跟随全局配置（config/settings.py 的 PROVIDER_PRESETS）自动选择服务商：
+    DeepSeek / OpenAI / Kimi / 智谱 / 通义 / 硅基流动 / MiniMax / MiMo / 豆包 等。
+    禁止在本工具内直连任何具体服务商端点或硬编码模型名。
+    """
+    import asyncio
+    from core.llm.client import create_llm_client
+    client = create_llm_client()
+    loop = asyncio.new_event_loop()
+    try:
+        result = loop.run_until_complete(client.chat(messages, **kwargs))
+        loop.run_until_complete(client.aclose())
+        return result
+    finally:
+        loop.close()
+
 # ── 工具调用辅助 ──
 def _call_tool(tool_name: str, **params) -> dict:
     """调用已注册的工具（通过 registry.json 查找工具 ID 对应的实现目录）"""
@@ -289,18 +308,40 @@ CRITICAL RULES:
 2. Function: def execute(**kwargs) -> dict[str, Any]
 3. Access params: kwargs.get("param_name", default) — NEVER kwargs["param_name"]
 4. Return: {{"status":"success"|"failed","output_format":"text"|"image"|"table"|"file","message":"...","data":{{}}}}
-5. All errors: try/except, return {{"status":"failed","message":str(e)}}
+5. All errors: try/except. In the top-level except of execute(), the message MUST include the full traceback so that auto-debugging can locate the failure:
+       import traceback
+       except Exception as e:
+           return {{"status":"failed","output_format":"text","message":f"工具执行失败: {{str(e)}}\\n\\nTraceback:\\n{{traceback.format_exc()}}","data":{{}}}}
+   NEVER swallow the traceback — a bare str(e) without stack info makes auto-debug unable to find the bug.
 6. File paths: _PROJECT_ROOT / "data" / ... or _resolve_path()
 7. API calls: use the EXACT api_id and param names from the SYSTEM API CALLS section above
 8. Map tool input parameters (from kwargs) to API parameters with the CORRECT names
 9. Tool calls: _call_tool("工具名称", param=value) — 系统自动通过 registry.json 查找工具ID和实现目录
 10. NEVER async/await
 11. NEVER use pip install, subprocess.run for package installation, or any runtime dependency installation — dependencies are managed by the system automatically
-12. Output ONLY Python code, no markdown, no explanation"""
+12. LLM calls: ALWAYS use _llm_chat(messages, max_tokens=..., temperature=...) from the template. NEVER hardcode a provider (e.g. DeepSeek / OpenAI / Moonshot / GLM / Qwen / MiMo), NEVER use _call_api("api-deepseek-get-key"), NEVER call any provider endpoint directly (e.g. api.deepseek.com), NEVER hardcode model names like deepseek-chat / gpt-4o — the model and endpoint follow the global LLM_PROVIDER / LLM_API_KEY / LLM_MODEL config automatically
+13. NEVER trust external/parsed data types. Data from LLM output, JSON parsing, API responses, or files is NOT guaranteed to be the expected type — an LLM may return 90 as the STRING "90", or a non-numeric word, and then min()/max()/sum()/comparisons crash with "'<' not supported between instances of 'str' and 'int'".
+    ALWAYS coerce and validate before aggregating. Filtering by an error flag alone is NOT enough:
+       # WRONG — filters out failed items but still mixes types
+       success = [r for r in results if not r.get("error")]
+       min(r["score"] for r in success)
+       # RIGHT — validate the numeric field itself
+       scores = [float(r["score"]) for r in results
+                 if isinstance(r.get("score"), (int, float))]
+       scores = [s for s in scores if s == s and abs(s) != float('inf')]  # drop NaN/inf
+       stats = ({{"min": min(scores), "max": max(scores), "avg": sum(scores)/len(scores)}}
+                if scores else {{"min": 0, "max": 0, "avg": 0}})
+    Also: constructor/accessor calls on parsed data (dict/list index, float(), int(), len()) MUST be guarded by try/except or a type check.
+14. When parsing LLM JSON output, be defensive end-to-end: strip markdown fences (```), then json.loads() inside try/except. On failure, record the item as failed WITH the raw response snippet kept for debugging, and CONTINUE processing the remaining items — never let one bad item abort the whole batch.
+    For every numeric field the LLM returns, coerce with float()/int() in a try/except; if coercion fails, treat that item as failed rather than storing the raw value, because raw values silently poison later aggregation (see rule 13).
+15. Batch processing over many items MUST be per-item fault-tolerant: wrap each item's work in try/except, collect per-item errors, and only return status:"failed" if ALL items failed. If any item succeeds, return status:"success".
+16. NEVER hardcode any API key, token, password, or secret in the generated code — not as a literal, not as a default value, not in a comment or docstring. Credentials MUST come from input params (kwargs.get("api_key")) or from @LLM自定义配置对话API. If a credential is needed, accept it as an input parameter named api_key and pass it straight through to the API call; never store it, never log it, never print it.
+17. NEVER print, log, or echo credential values (api_key/token/secret) to stdout/stderr or include them in the returned "message"/"data". Tool stdout is recorded into debug logs and may be sent to an LLM for auto-debugging; leaking a key there is irreversible.
+18. Output ONLY Python code, no markdown, no explanation"""
 
         response = await self.llm.chat(
             messages=[{"role":"user","content":prompt}],
-            temperature=0.3, max_tokens=100000, timeout=300,
+            temperature=0.3, max_tokens=100000,
         )
         code = response.strip()
         # 清理开头的 markdown 代码块标记
@@ -400,11 +441,42 @@ CRITICAL RULES:
             )
         except asyncio.TimeoutError:
             result = {"status": "failed", "message": f"工具执行超时 ({exec_timeout}秒)", "error": "TimeoutError"}
+        except Exception as e:
+            # 执行器本身抛异常时，把堆栈保留下来供自动调试定位
+            import traceback as _tb
+            result = {
+                "status": "failed",
+                "message": f"工具执行失败: {str(e)}\n\nTraceback:\n{_tb.format_exc()}",
+                "error": f"{type(e).__name__}: {str(e)}",
+                "stderr": _tb.format_exc(),
+            }
+
+        # 失败时若 stderr 为空（工具自身 try/except 吞掉了异常），
+        # 把完整结果补进 stderr —— 自动调试依赖 stderr 定位问题，
+        # 否则 LLM 只能看到 message 里的一句话，无法定位到具体代码行。
+        stderr = result.get("stderr", "")
+        if result.get("status") != "success" and not stderr:
+            parts = []
+            msg = result.get("message", "")
+            if msg:
+                parts.append(f"[message] {msg}")
+            err = result.get("error")
+            if err:
+                parts.append(f"[error] {err}")
+            data = result.get("data")
+            if data:
+                try:
+                    parts.append(f"[data] {json.dumps(data, ensure_ascii=False)[:2000]}")
+                except Exception:
+                    pass
+            if not parts:
+                parts.append(f"[result] {json.dumps(result, ensure_ascii=False)[:2000]}")
+            stderr = "\n".join(parts)
 
         return {
             "exit_code": 0 if result.get("status") == "success" else 1,
             "stdout": json.dumps(result, ensure_ascii=False),
-            "stderr": result.get("stderr", ""),
+            "stderr": stderr,
             "success": result.get("status") == "success",
         }
 
@@ -636,6 +708,9 @@ CRITICAL RULES:
         """将调试日志写入 logs/ 目录下的时间戳文件"""
         import asyncio
 
+        # 日志脱敏：避免 API Key 等凭据随工具输出写入日志文件
+        from core.security.secrets import scrub_text as _scrub
+
         def _write():
             try:
                 project_root = Path(__file__).resolve().parent.parent.parent.parent
@@ -655,14 +730,16 @@ CRITICAL RULES:
                     r = entry["round"]
                     lines.append(f"## 第 {r} 轮\n")
                     lines.append(f"### 执行结果\n")
-                    lines.append(f"```\n{entry['exec_result']}\n```\n")
+                    # 脱敏：工具可能把 API Key 打印到 stdout，
+                    # 直接落盘会让密钥长期留存在日志文件中。
+                    lines.append(f"```\n{_scrub(entry['exec_result'])}\n```\n")
                     if entry.get("dep_feedback"):
                         lines.append(f"### 依赖反馈\n")
                         lines.append(f"{entry['dep_feedback']}\n")
                     lines.append(f"### 发送给 LLM 的 Prompt\n")
-                    lines.append(f"```\n{entry['prompt']}\n```\n")
+                    lines.append(f"```\n{_scrub(entry['prompt'])}\n```\n")
                     lines.append(f"### LLM 返回\n")
-                    lines.append(f"```\n{entry['response']}\n```\n")
+                    lines.append(f"```\n{_scrub(entry['response'])}\n```\n")
                     if i < len(entries) - 1:
                         lines.append("======================\n")
 
@@ -835,7 +912,19 @@ CRITICAL RULES:
             yield {"event": "thinking", "round": round_num, "message": "LLM 分析错误..."}
 
             # ── 构建本轮执行摘要（用于日志）──
-            exec_summary = f"stdout:\n{exec_result['stdout'][:3000]}\n\nstderr:\n{exec_result['stderr'][:2000]}"
+            # 脱敏：以下内容会随 Prompt 发给第三方模型服务商，
+            # 一旦 API Key 混入就无法撤回，因此必须在此拦截。
+            from core.security.secrets import redact_for_prompt as _redact, scrub_mapping as _scrub_mapping
+
+            _safe_test_input = json.dumps(
+                _scrub_mapping(test_input), ensure_ascii=False, indent=2
+            )
+            _safe_stdout_full = _redact(exec_result['stdout'], max_len=3000)
+            _safe_stderr_full = _redact(exec_result['stderr'], max_len=2000)
+            _safe_stdout = _redact(exec_result['stdout'], max_len=2000)
+            _safe_stderr = _redact(exec_result['stderr'], max_len=1000)
+
+            exec_summary = f"stdout:\n{_safe_stdout_full}\n\nstderr:\n{_safe_stderr_full}"
 
             fix_prompt = f"""Debug this tool code. It failed execution.
 
@@ -844,12 +933,12 @@ CRITICAL RULES:
 === END CODE ===
 
 === TEST INPUT ===
-{json.dumps(test_input, ensure_ascii=False, indent=2)}
+{_safe_test_input}
 === END INPUT ===
 
 === EXECUTION RESULT ===
-stdout: {exec_result['stdout'][:2000]}
-stderr: {exec_result['stderr'][:1000]}
+stdout: {_safe_stdout}
+stderr: {_safe_stderr}
 === END RESULT ===
 {dep_feedback}
 
@@ -873,7 +962,7 @@ Output ONLY Python code. NO pip install, NO subprocess, NO install directives, N
 
             full_response = ""
             llm_task = None
-            LLM_TIMEOUT = 120  # LLM 调用总超时（秒）
+            LLM_TIMEOUT = int(_os.getenv("LLM_TIMEOUT", "120"))  # LLM 调用总超时（秒），跟随 .env 可调大
             try:
                 token_queue: list = []
 

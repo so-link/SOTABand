@@ -7,7 +7,7 @@ export const dataApi = {
       body: JSON.stringify({ description, files }),
     })
     if (!res.ok) throw new Error((await res.json().catch(() => ({ detail: res.statusText }))).detail)
-    return res.json() as Promise<{ spec_md: string; tags: string[] }>
+    return res.json() as Promise<{ spec_md: string }>
   },
 
   async scanDirectory(path: string) {
@@ -25,13 +25,25 @@ export const dataApi = {
     return res.json() as Promise<Record<string, unknown>>
   },
 
-  async list(): Promise<{ datasets: Array<Record<string, unknown>> }> {
-    const res = await fetch(`${BASE_URL}/api/data/list`)
+  /**
+   * 列出数据集。
+   * @param availableOnly 默认 true：只返回本机真实存在数据的数据集。
+   *   注册表常包含他人环境的条目（data_path 指向对方机器），默认过滤掉，
+   *   避免展示能选中、但一运行就报“路径不存在”的幽灵数据集。
+   */
+  async list(availableOnly: boolean = true): Promise<{
+    datasets: Array<Record<string, unknown>>
+    total: number
+    available_count: number
+    unavailable_count: number
+  }> {
+    const url = `${BASE_URL}/api/data/list?available_only=${availableOnly ? 'true' : 'false'}`
+    const res = await fetch(url)
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     return res.json()
   },
 
-  async register(specMd: string, datasetName: string, dataPath: string, fileCount: number, totalSize: number, formats: string[], sourceFiles: string[], tags: string[] = []) {
+  async register(specMd: string, datasetName: string, dataPath: string, fileCount: number, totalSize: number, formats: string[], sourceFiles: string[]) {
     const res = await fetch(`${BASE_URL}/api/data/register`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -42,7 +54,6 @@ export const dataApi = {
         totalSize,
         formats,
         sourceFiles,
-        tags,
       }),
     })
     if (!res.ok) {

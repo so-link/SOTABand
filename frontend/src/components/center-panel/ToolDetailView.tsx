@@ -10,6 +10,7 @@ import { Card, CardBody } from '@/components/ui/card'
 import { useResourceStore } from '@/stores/resource-store'
 import { useUIStore } from '@/stores/ui-store'
 import { useToolEditorStore } from '@/stores/tool-editor-store'
+import { useTabIndent } from '@/hooks/use-tab-indent'
 import type { ToolResource } from '@/types/resources'
 
 const BASE_URL = ''
@@ -42,6 +43,8 @@ export function ToolDetailView() {
   const cachedToolForDetail = useResourceStore((s) => s.cachedToolForDetail)
   const setActiveView = useUIStore((s) => s.setActiveView)
   const tool = selectedResource?.type === 'tool' ? (selectedResource as ToolResource) : cachedToolForDetail
+  // Python 代码用 4 空格缩进
+  const onCodeTabIndent = useTabIndent('    ')
 
   const [specMd, setSpecMd] = useState('')
   const [code, setCode] = useState('')
@@ -93,12 +96,15 @@ export function ToolDetailView() {
         const init: Record<string, string> = {}
         fields.forEach(f => { init[f.name] = f.default || '' })
         setFormValues(init)
-        if (data.has_demand && data.demand_md) {
-          setDemandText(data.demand_md)
-        }
+        // 切换工具时必须无条件重置：若只在"有值"时 set，上一个工具的
+        // 需求描述/参考代码会残留到没有这些内容的工具上（内容错位）
+        setDemandText(data.has_demand && data.demand_md ? data.demand_md : '')
         if (data.has_reference && data.reference_code) {
           setReferenceCode(data.reference_code)
           setHasReference(true)
+        } else {
+          setReferenceCode('')
+          setHasReference(false)
         }
       })
       .catch(() => {})
@@ -350,8 +356,24 @@ export function ToolDetailView() {
           </button>
           <button
             onClick={() => {
-              const desc = demandText || tool.name
-              useToolEditorStore.getState().prefill(desc, referenceCode)
+              // 编辑已有工具：带齐当前 MD/代码，从「审阅」步进入，
+              // 避免被迫从「重新描述需求」走一遍全流程。
+              const params = (inputs || []).map((f: { name: string; type?: string; required?: boolean; default?: string | null; desc?: string }) => ({
+                name: f.name,
+                type: f.type || 'string',
+                required: !!f.required,
+                default: f.default ?? null,
+                desc: f.desc || '',
+              }))
+              useToolEditorStore.getState().prefillFromTool({
+                toolId: tool.id,
+                toolName: tool.name,
+                description: demandText || tool.name,
+                specMd: specMd || '',
+                code: editedCode || code || '',
+                tags: (tool as { tags?: string[] }).tags || [],
+                params,
+              })
               setActiveView('tool-editor')
             }}
             className="flex items-center gap-1 text-[11px] text-amber-500 hover:underline ml-2"
@@ -383,6 +405,7 @@ export function ToolDetailView() {
                   </div>
                   {isEditing ? (
                     <textarea value={editedCode} onChange={(e) => handleCodeChange(e.target.value)}
+                      onKeyDown={onCodeTabIndent}
                       className="flex-1 min-h-0 rounded border border-maia-border bg-maia-bg px-3 py-2 text-[11px] font-mono leading-relaxed outline-none resize-none focus:border-maia-accent/40"
                       spellCheck={false} />
                   ) : (
@@ -449,21 +472,6 @@ export function ToolDetailView() {
                         className="w-full h-8 rounded border border-maia-border bg-maia-surface px-3 text-[12px] text-maia-text outline-none focus:border-maia-accent/40" />
                     </div>))}
                   </div>)}
-                {/* 提交测试按钮 */}
-                {inputs.length > 0 && (
-                  <div className="pt-2">
-                    <Button size="sm" onClick={handleSubmit} disabled={isExecuting}
-                      className="bg-maia-accent hover:bg-maia-accent/90 text-white h-7 text-[11px] w-full">
-                      {isExecuting ? <><Loader2 className="h-3 w-3 animate-spin" />执行中</> : <><Play className="h-3 w-3" />提交测试</>}
-                    </Button>
-                    {output && (
-                      <div className="mt-2 rounded border border-maia-border bg-maia-surface p-2 max-h-[200px] overflow-auto">
-                        <pre className="text-[10px] text-maia-text whitespace-pre-wrap font-mono">{JSON.stringify(output, null, 2)}</pre>
-                      </div>
-                    )}
-                    {error && <p className="text-[10px] text-maia-danger mt-1">{error}</p>}
-                  </div>
-                )}
               </div>
 
               {/* AI 辅助修改 */}
@@ -582,15 +590,6 @@ export function ToolDetailView() {
                     placeholder={f.required ? '必填' : f.default || '可选'} className="w-full h-8 rounded border border-maia-border bg-maia-surface px-3 text-[12px] text-maia-text outline-none focus:border-maia-accent/40" />
                 </div>))}
               </div>)}
-            {/* 提交测试按钮 */}
-            {inputs.length > 0 && (
-              <div className="pt-3">
-                <Button size="sm" onClick={handleSubmit} disabled={isExecuting}
-                  className="bg-maia-accent hover:bg-maia-accent/90 text-white h-8 text-[12px] w-full">
-                  {isExecuting ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />执行中</> : <><Play className="h-3.5 w-3.5" />提交测试</>}
-                </Button>
-              </div>
-            )}
           </div>
           {error && <div className="p-3 rounded-lg border border-red-200 bg-red-50 text-xs text-maia-danger">{error}</div>}
           {output && (<Card className="border-emerald-200 bg-emerald-50/30"><CardBody>

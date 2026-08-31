@@ -78,7 +78,7 @@ class InteractiveAgent(BaseAgent):
     async def execute(
         self, ctx: AgentContext, **kwargs
     ) -> AsyncGenerator[dict, None]:
-        """处理用户输入，调用 DeepSeek v4，流式返回"""
+        """处理用户输入，调用系统统一 LLM（跟随全局 LLM_PROVIDER / LLM_API_KEY / LLM_MODEL），流式返回"""
         content = kwargs.get("content", "")
         attachments = kwargs.get("attachments", [])
         workspace_tool_ids = kwargs.get("workspace_tool_ids", [])
@@ -189,31 +189,18 @@ class InteractiveAgent(BaseAgent):
                 if not registered_dataset_id:
                     registered_dataset_id = tool_result.get("dataset_id") or tool_result.get("registered_dataset_id")
 
-                card_data: dict = {
-                    "type": "result-summary",
-                    "title": f"工具执行: {matched_tool['name']}",
-                    "summary": tool_result.get("message", json.dumps(tool_result, ensure_ascii=False, default=str)[:200]),
-                    "data": {
-                        "tool_id": matched_tool["id"],
-                        "result": tool_result,
-                        "registered_dataset_id": registered_dataset_id,
-                    },
-                }
-                # 如果是数据集注册操作，附加信息供前端自动加入数据空间
-                if registered_dataset_id:
-                    tool_data = tool_result.get("data", {})
-                    if isinstance(tool_data, dict):
-                        card_data["data"]["_action"] = tool_data.get("_action", "register_dataset")
-                        card_data["data"]["name"] = tool_data.get("name", registered_dataset_id)
-                        card_data["data"]["tags"] = tool_data.get("tags", [])
-                    else:
-                        card_data["data"]["_action"] = "register_dataset"
-                        card_data["data"]["name"] = registered_dataset_id
-                        card_data["data"]["tags"] = []
-                    card_data["data"]["dataset_id"] = registered_dataset_id
                 yield {
                     "event": "card",
-                    "data": card_data,
+                    "data": {
+                        "type": "result-summary",
+                        "title": f"工具执行: {matched_tool['name']}",
+                        "summary": tool_result.get("message", json.dumps(tool_result, ensure_ascii=False, default=str)[:200]),
+                        "data": {
+                            "tool_id": matched_tool["id"],
+                            "result": tool_result,
+                            "registered_dataset_id": registered_dataset_id,
+                        },
+                    },
                 }
                 # 图片/表格/文件/失败 → 直接结束，不调 LLM（文件由前端渲染，如音频播放器、下载链接等）
                 if tool_result.get("output_format") in ("image", "table", "file") or tool_result.get("status") == "failed":

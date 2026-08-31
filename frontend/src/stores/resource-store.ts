@@ -67,7 +67,7 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
     const apiResults = await Promise.allSettled([
       toolApi.list(),
       agentApi.list(),
-      dataApi.list(),
+      dataApi.list(true),   // 只加载本机有数据的数据集
     ])
     const [toolResult, agentResult, dataResult] = apiResults
 
@@ -79,7 +79,9 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
           category: ((t.type as string) === 'api-wrapper' ? 'model-wrapper' : 'builtin') as ToolResource['category'],
           version: (t.version as string) || '0.1.0', status: 'active' as const, createdAt: (t.created_at as string) || '',
           updatedAt: '', tags: (t.tags as string[]) || [], inputSpec: { formats: [] }, outputSpec: { formats: [] },
-          dependencies: [], runtimeEnv: 'python' as const, usageCount: (t.usage_count as number) || 0, isUserGenerated: true,
+          dependencies: [], runtimeEnv: 'python' as const, usageCount: (t.usage_count as number) || 0,
+          // 后端按 owner 字段判定：内置示例工具无 owner → 非本地生成
+          isUserGenerated: Boolean(t.is_user_generated),
         }))
       })
     }
@@ -105,6 +107,9 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
           version: (d.version as string) || '0.1.0', status: 'active' as const, createdAt: (d.created_at as string) || '',
           updatedAt: '', tags: (d.tags as string[]) || [], format: ((d.formats as string[])?.[0]) || 'unknown',
           filePath: (d.data_path as string) || '', fileSize: (d.total_size as number) || 0, source: 'upload' as const, lineage: [],
+          available: d.available as boolean | undefined,
+          dataPathAbs: d.data_path_abs as string | undefined,
+          fileCountActual: d.file_count_actual as number | undefined,
         }))
       })
     }
@@ -149,7 +154,8 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
           category: ((t.type as string) === 'api-wrapper' ? 'model-wrapper' : 'builtin') as ToolResource['category'],
           version: (t.version as string) || '0.1.0', status: 'active' as const, createdAt: (t.created_at as string) || '',
           updatedAt: '', tags: (t.tags as string[]) || [], inputSpec: { formats: [] }, outputSpec: { formats: [] },
-          dependencies: [], runtimeEnv: 'python' as const, usageCount: (t.usage_count as number) || 0, isUserGenerated: true,
+          dependencies: [], runtimeEnv: 'python' as const, usageCount: (t.usage_count as number) || 0,
+          isUserGenerated: Boolean(t.is_user_generated),
         })) })
       }
     } catch { /* ignore */ }
@@ -157,13 +163,18 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
 
   fetchDatasetsFromApi: async () => {
     try {
-      const result = await dataApi.list()
+      // 默认只取本机可用的数据集：注册表里他人环境的条目（data_path 指向
+      // 对方机器）本机没有数据，展示出来会造成"能选中但跑不了"的误导。
+      const result = await dataApi.list(true)
       if (Array.isArray(result.datasets) && result.datasets.length > 0) {
         set({ dataResources: result.datasets.map((d: Record<string, unknown>) => ({
           id: d.id as string, name: (d.name as string) || (d.id as string), description: '', type: 'data' as const,
           version: (d.version as string) || '0.1.0', status: 'active' as const, createdAt: (d.created_at as string) || '',
           updatedAt: '', tags: (d.tags as string[]) || [], format: ((d.formats as string[])?.[0]) || 'unknown',
           filePath: (d.data_path as string) || '', fileSize: (d.total_size as number) || 0, source: 'upload' as const, lineage: [],
+          available: d.available as boolean | undefined,
+          dataPathAbs: d.data_path_abs as string | undefined,
+          fileCountActual: d.file_count_actual as number | undefined,
         })) })
       }
     } catch { /* ignore */ }

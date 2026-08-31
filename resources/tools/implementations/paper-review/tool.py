@@ -24,6 +24,20 @@ def _call_api(api_name: str, **params) -> dict:
     api = get_api(api_name)
     return api.call(**params)
 
+# ── LLM 调用辅助（统一走系统配置的 LLM_PROVIDER / LLM_API_KEY / LLM_MODEL） ──
+def _llm_chat(messages: list, **kwargs) -> str:
+    """同步调用系统统一大模型客户端，返回完整文本。"""
+    import asyncio
+    from core.llm.client import create_llm_client
+    client = create_llm_client()
+    loop = asyncio.new_event_loop()
+    try:
+        result = loop.run_until_complete(client.chat(messages, **kwargs))
+        loop.run_until_complete(client.aclose())
+        return result
+    finally:
+        loop.close()
+
 # ── 工具调用辅助 ──
 def _call_tool(tool_name: str, **params) -> dict:
     """调用已注册的工具"""
@@ -93,28 +107,7 @@ def execute(**kwargs) -> dict[str, Any]:
             "data": {}
         }
 
-    # 2. 获取DeepSeek API KEY
-    try:
-        api_info = _call_api("api-deepseek-get-key")
-        api_key = api_info.get("api_key")
-        base_url = api_info.get("base_url")
-        model = api_info.get("model")
-        if not api_key or not base_url or not model:
-            return {
-                "status": "failed",
-                "message": "DeepSeek API KEY 获取不完整",
-                "output_format": "text",
-                "data": {}
-            }
-    except Exception as e:
-        return {
-            "status": "failed",
-            "message": f"获取API KEY失败: {str(e)}",
-            "output_format": "text",
-            "data": {}
-        }
-
-    # 3. 提取 PDF 文本（替代文件上传，避免 404 错误）
+    # 2. 提取 PDF 文本（替代文件上传，避免 404 错误）
     try:
         from PyPDF2 import PdfReader
     except ImportError:
@@ -147,7 +140,7 @@ def execute(**kwargs) -> dict[str, Any]:
             "data": {}
         }
 
-    # 4. 构建评审提示词（包含论文文本）
+    # 3. 构建评审提示词（包含论文文本）
     system_prompt = "你是一位严格的学术论文评审专家。请按照用户要求对论文进行细致评审，使用中文输出评审意见。"
     user_prompt = f"""请对提供的论文进行详细评审，会议为 {conf}。评审要点包括：
 （1）总体创新性评估；
@@ -166,52 +159,23 @@ def execute(**kwargs) -> dict[str, Any]:
     report_path = ""
 
     try:
-        # 5. 调用 DeepSeek 文本补全（不再上传文件）
+        # 4. 调用系统统一 LLM（跟随全局 LLM_PROVIDER / LLM_API_KEY / LLM_MODEL）
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": full_user_message}
         ]
-        # 处理 base_url：确保路径以 /v1 结尾，避免重复拼接导致 404
-        api_base = base_url.rstrip('/')
-        if not api_base.endswith('/v1'):
-            api_base += '/v1'
-        chat_url = f"{api_base}/chat/completions"
-
-        payload = {
-            "model": model,
-            "messages": messages,
-            "temperature": 0.3,
-            "max_tokens": 8000,
-            "stream": False
-        }
-        resp = requests.post(
-            chat_url,
-            json=payload,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            },
-            timeout=300
-        )
-        if resp.status_code != 200:
-            raise Exception(f"DeepSeek 模型调用失败: {resp.status_code} {resp.text[:500]}")
-        resp_data = resp.json()
-        choices = resp_data.get("choices", [])
-        if not choices:
-            raise Exception("模型返回空响应")
-        review_content = choices[0].get("message", {}).get("content", "")
+        review_content = _llm_chat(messages, temperature=0.3, max_tokens=8000)
         if not review_content:
             raise Exception("评审内容为空")
-
     except Exception as e:
         return {
             "status": "failed",
-            "message": f"DeepSeek API 请求失败: {str(e)}",
+            "message": f"LLM API 请求失败: {str(e)}",
             "output_format": "text",
             "data": {}
         }
 
-    # 6. 保存评审报告到 ./data/papers/{XXXX}/
+    # 5. 保存评审报告到 ./data/papers/{XXXX}/
     try:
         paper_name = Path(pdf_path).stem
         ts = int(time.time())
@@ -231,7 +195,7 @@ def execute(**kwargs) -> dict[str, Any]:
             "data": {}
         }
 
-    # 7. 注册/检查数据集
+    # 6. 注册/检查数据集
     try:
         # 先查询数据集是否存在
         ds_info = _call_api("api-data-get", name=dataset_name)

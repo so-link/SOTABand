@@ -15,7 +15,7 @@ import {
 import { useResourceStore } from '@/stores/resource-store'
 import { useUIStore } from '@/stores/ui-store'
 import { useWorkspaceToolStore } from '@/stores/workspace-tool-store'
-import { useWorkspaceDatasetStore } from '@/stores/workspace-dataset-store'
+import { useUnsavedMarks } from '@/hooks/use-unsaved-marks'
 import { cn } from '@/lib/utils'
 import type { Resource, ResourceType, ToolResource } from '@/types/resources'
 
@@ -51,12 +51,16 @@ export function ResourceBrowser() {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(['data', 'tool', 'agent'])
   )
+  // 各编辑器中的未保存改动，用于在资源树上打标记
+  const unsaved = useUnsavedMarks()
 
   // 启动时确保从 API 加载（仅一次，MainLayout 的 fetchAllResources 已经调过）
   useEffect(() => {
     fetchAgentsFromApi()
     fetchToolsFromApi()
     fetchDatasetsFromApi()
+    // 工具空间清单以后端为准（无痕窗口 / 换浏览器时 localStorage 是空的）
+    useWorkspaceToolStore.getState().fetchFromApi()
   }, []) // 空依赖，只执行一次
 
   const toggleSection = (type: string) => {
@@ -71,62 +75,41 @@ export function ResourceBrowser() {
   // 工具空间：从 workspace store 读取已加载的工具
   const workspaceTools = useWorkspaceToolStore((s) => s.tools)
   const workspaceRemoveTool = useWorkspaceToolStore((s) => s.removeTool)
-  // 数据空间：从 workspace store 读取已加载的数据集
-  const workspaceDatasets = useWorkspaceDatasetStore((s) => s.datasets)
-  const workspaceRemoveDataset = useWorkspaceDatasetStore((s) => s.removeDataset)
 
   const getResources = (type: ResourceType): Resource[] => {
     switch (type) {
-      case 'data':
-        // 数据空间只显示已加载的数据集（从 workspace store）
-        return workspaceDatasets.map(d => ({
-          id: d.id,
-          name: d.name,
-          type: 'data' as ResourceType,
-          version: '0.1.0',
-          status: 'active' as const,
-          tags: d.tags,
-          description: '',
-          createdAt: '',
-          updatedAt: '',
-          format: '',
-          filePath: '',
-          fileSize: 0,
-          source: 'upload' as const,
-          lineage: [],
-          isUserGenerated: true,
-          category: 'local' as const,
-          inputSpec: { formats: [] },
-          outputSpec: { formats: [] },
-          dependencies: [],
-          runtimeEnv: 'python' as const,
-          usageCount: 0,
-        }))
+      case 'data': return dataResources
       case 'tool':
-        // 工具空间只显示已加载的工具（从 workspace store）
-        return workspaceTools.map(t => ({
-          id: t.id,
-          name: t.name,
-          type: 'tool' as ResourceType,
-          version: '0.1.0',
-          status: 'active' as const,
-          tags: t.tags,
-          description: '',
-          createdAt: '',
-          updatedAt: '',
-          format: '',
-          filePath: '',
-          fileSize: 0,
-          source: 'upload' as const,
-          lineage: [],
-          isUserGenerated: true,
-          category: 'local' as const,
-          inputSpec: { formats: [] },
-          outputSpec: { formats: [] },
-          dependencies: [],
-          runtimeEnv: 'python' as const,
-          usageCount: 0,
-        }))
+        // 工具空间只显示已加载的工具（从 workspace store）。
+        // isUserGenerated 不能硬编码为 true —— workspace 只是"加载清单"，
+        // 里面既有内置示例也有用户本地生成的工具。
+        // 真实判定要查工具仓库（toolResources，后端按 owner 字段标注）。
+        return workspaceTools.map(t => {
+          const repoTool = toolResources.find(r => r.id === t.id)
+          return {
+            id: t.id,
+            name: t.name,
+            type: 'tool' as ResourceType,
+            version: repoTool?.version || '0.1.0',
+            status: 'active' as const,
+            tags: t.tags,
+            description: '',
+            createdAt: '',
+            updatedAt: '',
+            format: '',
+            filePath: '',
+            fileSize: 0,
+            source: 'upload' as const,
+            lineage: [],
+            isUserGenerated: repoTool?.isUserGenerated ?? false,
+            category: 'local' as const,
+            inputSpec: { formats: [] },
+            outputSpec: { formats: [] },
+            dependencies: [],
+            runtimeEnv: 'python' as const,
+            usageCount: 0,
+          }
+        })
       case 'model': return modelResources
       case 'agent': return agentResources
       case 'task': return taskResources
@@ -141,17 +124,14 @@ export function ResourceBrowser() {
       workspaceRemoveTool(resource.id)
       return
     }
-    // 数据：从工作空间移除（不删除仓库中的数据集）
-    if (resource.type === 'data') {
-      workspaceRemoveDataset(resource.id)
-      return
-    }
-    // Agent：确认后彻底删除
+    // 数据和 Agent：确认后彻底删除
     if (!confirm(`确定删除 "${resource.name}"？此操作不可恢复。`)) return
     const BASE_URL = ''
+    const typePath = resource.type === 'data' ? 'data' : 'agent'
     try {
-      await fetch(`${BASE_URL}/api/agent/${resource.id}`, { method: 'DELETE' })
-      fetchAgentsFromApi()
+      await fetch(`${BASE_URL}/api/${typePath}/${resource.id}`, { method: 'DELETE' })
+      if (resource.type === 'data') fetchDatasetsFromApi()
+      else if (resource.type === 'agent') fetchAgentsFromApi()
     } catch { /* ignore */ }
   }
 
@@ -177,10 +157,22 @@ export function ResourceBrowser() {
 
         return (
           <div key={section.type}>
-            {/* Section header */}
-            <button
+            {/* Section header
+                注意：这里必须是 div 而非 button —— header 内部还有
+                「创建 Agent/工具/数据集」「工具仓库」等操作按钮，
+                button 嵌套 button 是非法 DOM，会触发 React hydration
+                错误并导致点击行为异常。 */}
+            <div
+              role="button"
+              tabIndex={0}
               onClick={() => toggleSection(section.type)}
-              className="flex items-center gap-1.5 w-full py-1 px-2 rounded hover:bg-maia-sidebar-hover transition-colors text-[11px] font-medium tracking-wider uppercase"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  toggleSection(section.type)
+                }
+              }}
+              className="flex items-center gap-1.5 w-full py-1 px-2 rounded hover:bg-maia-sidebar-hover transition-colors text-[11px] font-medium tracking-wider uppercase cursor-pointer select-none"
             >
               {isExpanded ? (
                 <ChevronDown className="h-3 w-3 text-maia-text-muted" />
@@ -231,38 +223,36 @@ export function ResourceBrowser() {
                 </>
               )}
               {section.type === 'data' && (
-                <>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      useUIStore.getState().setActiveView('dataset-repository')
-                    }}
-                    className="flex items-center justify-center h-4 w-4 rounded hover:bg-blue-500/10 text-maia-text-muted hover:text-blue-500 transition-colors"
-                    title="数据集仓库"
-                  >
-                    <Package className="h-3 w-3" />
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      useUIStore.getState().setActiveView('dataset-editor')
-                    }}
-                    className="flex items-center justify-center h-4 w-4 rounded hover:bg-blue-500/10 text-maia-text-muted hover:text-blue-500 transition-colors"
-                    title="创建新数据集"
-                  >
-                    <Plus className="h-3 w-3" />
-                  </button>
-                </>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    useUIStore.getState().setActiveView('dataset-editor')
+                  }}
+                  className="flex items-center justify-center h-4 w-4 rounded hover:bg-blue-500/10 text-maia-text-muted hover:text-blue-500 transition-colors"
+                  title="添加数据集"
+                >
+                  <Plus className="h-3 w-3" />
+                </button>
               )}
-            </button>
+            </div>
 
             {/* Section items — indented to align under parent label */}
             {isExpanded && (
               <div>
                 {resources.map((resource) => (
-                  <button
+                  // 条目也必须是 div —— 行内的「删除/移除」按钮若嵌在
+                  // <button> 里会触发 React 的非法 DOM 嵌套报错
+                  <div
                     key={resource.id}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => handleResourceClick(resource)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        handleResourceClick(resource)
+                      }
+                    }}
                     style={{ paddingLeft: '52px' }}
                     className={cn(
                       'flex items-center gap-1.5 w-full py-[3px] pr-1.5 rounded text-[11px] tracking-wide',
@@ -273,6 +263,21 @@ export function ResourceBrowser() {
                     )}
                   >
                     <span className="truncate flex-1">{resource.name}</span>
+                    {/* 未保存改动标记：即使切到其他视图也能看到
+                        "这个资源还有改动没保存"（类似 VSCode 标签页的圆点） */}
+                    {((resource.type === 'tool' && unsaved.tools.has(resource.id)) ||
+                      (resource.type === 'agent' && unsaved.agents.has(resource.id))) && (
+                      <span
+                        className="h-1.5 w-1.5 rounded-full shrink-0 bg-amber-500"
+                        title="有未保存的改动"
+                      />
+                    )}
+                    {resource.type === 'data' && resource.available === false && (
+                      <span
+                        className="h-1.5 w-1.5 rounded-full shrink-0 bg-maia-danger"
+                        title="数据不在本机（可能注册于其他机器）"
+                      />
+                    )}
                     {resource.type === 'tool' &&
                       (resource as ToolResource).isUserGenerated && (
                         <span title="用户本地工具">
@@ -295,7 +300,7 @@ export function ResourceBrowser() {
                     >
                       <Minus className="h-3 w-3" />
                     </button>
-                  </button>
+                  </div>
                 ))}
                 {resources.length === 0 && (
                   <p className="text-[10px] text-maia-text-muted py-1 px-1.5 tracking-wide">

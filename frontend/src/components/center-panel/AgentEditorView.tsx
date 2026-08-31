@@ -2,17 +2,74 @@ import { useState, useRef, useEffect, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Bot, ArrowRight, ArrowLeft, CheckCircle2, XCircle,
-  Loader2, FileCode, Play, CheckCheck, Rocket,
+  Loader2, FileCode, Play, CheckCheck, Rocket, Save,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardBody } from '@/components/ui/card'
 import { useUIStore } from '@/stores/ui-store'
+import { useResourceStore } from '@/stores/resource-store'
 import { useAgentEditorStore } from '@/stores/agent-editor-store'
+import { useTabIndent } from '@/hooks/use-tab-indent'
+import { useSaveShortcut } from '@/hooks/use-save-shortcut'
+
+/** Agent 保存状态指示器 + 保存按钮（手动保存，支持 Ctrl/Cmd+S） */
+function AgentSaveIndicator() {
+  const { saveState, saveError, flushSave } = useAgentEditorStore()
+
+  const cfg = {
+    idle:   { text: '无改动',   cls: 'text-maia-text-muted', spin: false, canSave: false },
+    dirty:  { text: '未保存',   cls: 'text-amber-500',       spin: false, canSave: true  },
+    saving: { text: '保存中',   cls: 'text-maia-accent',     spin: true,  canSave: false },
+    saved:  { text: '已保存',   cls: 'text-maia-success',    spin: false, canSave: false },
+    error:  { text: '保存失败', cls: 'text-maia-danger',     spin: false, canSave: true  },
+  }[saveState]
+
+  return (
+    <span className="flex items-center gap-2">
+      <span className="flex items-center gap-1.5" title={saveError || ''}>
+        {cfg.spin && <Loader2 className="h-3 w-3 animate-spin" />}
+        <span className={`text-[11px] ${cfg.cls}`}>{cfg.text}</span>
+      </span>
+      <button
+        onClick={() => void flushSave()}
+        disabled={!cfg.canSave}
+        title="保存 (Ctrl/Cmd+S)"
+        className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded border border-maia-border text-maia-accent hover:bg-maia-accent/10 disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        <Save className="h-3 w-3" />
+        保存
+      </button>
+    </span>
+  )
+}
 
 export function AgentEditorView() {
   const store = useAgentEditorStore()
   const setActiveView = useUIStore((s) => s.setActiveView)
+  const selectedResource = useResourceStore((s) => s.selectedResource)
+
+  // Ctrl/Cmd+S 保存（仅编辑已注册 Agent 时有效）
+  useSaveShortcut(
+    () => { if (store.editingAgentId) void store.flushSave() },
+    Boolean(store.editingAgentId)
+  )
+
+  const handleClose = () => {
+    const isEditingExisting = Boolean(store.editingAgentId)
+    const backTo = isEditingExisting && selectedResource?.type === 'agent' ? 'agent-detail' : 'chat'
+    if (isEditingExisting && store.hasUnsavedChanges()) {
+      const ok = window.confirm(
+        '当前 Agent 有未保存的改动。\n\n' +
+        '点击「确定」：保存后关闭\n' +
+        '点击「取消」：留在编辑器（不保存）'
+      )
+      if (!ok) return
+      void store.flushSave()
+    }
+    setActiveView(backTo)
+    store.reset()
+  }
 
   return (
     <div className="flex flex-col h-full bg-maia-surface">
@@ -23,12 +80,16 @@ export function AgentEditorView() {
           <span className="text-sm font-semibold text-maia-text-heading tracking-wide">
             Agent 编辑器
           </span>
+          {store.editingAgentId && (
+            <span className="text-[11px] text-amber-500 tracking-wide">
+              编辑中：{store.editingAgentName || store.editingAgentId}
+            </span>
+          )}
+          {store.editingAgentId && <AgentSaveIndicator />}
         </div>
         <button
-          onClick={() => {
-            store.reset()
-            setActiveView('chat')
-          }}
+          onClick={handleClose}
+          title={store.editingAgentId ? '返回该 Agent 详情' : '返回对话'}
           className="text-maia-text-muted hover:text-maia-text text-sm"
         >
           × 关闭
@@ -309,21 +370,33 @@ function Step1Description() {
 // ── Step 2: 审阅 MD 文档 ─────────────────────────────────────
 
 function Step2Review() {
-  const { generatedMd, setGeneratedMd, generateCode, setStep, isGenerating, error } =
+  const { generatedMd, setGeneratedMd, generateCode, setStep, isGenerating, error,
+          editingAgentId, editingAgentName } =
     useAgentEditorStore()
+  const isEditMode = Boolean(editingAgentId)
+  // Markdown 用 2 空格缩进
+  const onTabIndent = useTabIndent('  ')
+  const notifyEdit = useAgentEditorStore((s) => s.notifyEdit)
+  const handleMdChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setGeneratedMd(e.target.value)
+    notifyEdit()
+  }
 
   return (
     <div className="max-w-3xl mx-auto">
       <h3 className="text-lg font-semibold text-maia-text-heading mb-2 tracking-wide">
-        Step 2: 审阅 & 编辑 MD 规范文档
+        Step 2: 审阅 &amp; 编辑 MD 规范文档
       </h3>
       <p className="text-sm text-maia-text-secondary mb-4">
-        以下是 AI 生成的 Agent 规范文档，你可以直接编辑修改。
+        {isEditMode
+          ? <>正在编辑已有 Agent <span className="text-amber-500">{editingAgentName || editingAgentId}</span>，以下是其现有规范文档，可直接修改后重新生成代码。</>
+          : '以下是 AI 生成的 Agent 规范文档，你可以直接编辑修改。'}
       </p>
 
       <textarea
         value={generatedMd}
-        onChange={(e) => setGeneratedMd(e.target.value)}
+        onChange={handleMdChange}
+        onKeyDown={onTabIndent}
         rows={20}
         className="w-full rounded-lg border border-maia-border bg-maia-bg/50 px-4 py-3 text-[12px] font-mono tracking-tight outline-none resize-y focus:border-maia-accent/40"
         spellCheck={false}
@@ -362,19 +435,42 @@ function Step2Review() {
 // ── Step 3: 代码核验 ─────────────────────────────────────────
 
 function Step3Verify() {
-  const { generatedCode, sandboxResults, registerAgent, setStep, isGenerating, error } =
+  const { generatedCode, sandboxResults, registerAgent, setStep, isGenerating, error,
+          setGeneratedCode, editingAgentId, editingAgentName, baselineCode,
+          syncSpecFromCode, saveCode } =
     useAgentEditorStore()
   const [editingCode, setEditingCode] = useState(false)
-  const [code, setCode] = useState(generatedCode)
+
+  // 直接读写 store 中的 generatedCode，确保手工微调后的内容
+  // 能被 registerAgent 正确提交（此前用局部 state 会导致改动被丢弃）。
+  const code = generatedCode
+
+  const isEditMode = Boolean(editingAgentId)
+  const codeDirty = code.trim() !== baselineCode.trim()
+  // Python 代码用 4 空格缩进
+  const onCodeTabIndent = useTabIndent('    ')
+  const notifyEdit = useAgentEditorStore((s) => s.notifyEdit)
+  // 代码变更后标记「未保存」
+  const handleCodeEdit = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setGeneratedCode(e.target.value)
+    notifyEdit()
+  }
 
   const passed = (sandboxResults as Record<string, unknown>)?.passed as string[] || []
   const failed = (sandboxResults as Record<string, unknown>)?.failed as string[] || []
 
   return (
     <div className="max-w-4xl mx-auto">
-      <h3 className="text-lg font-semibold text-maia-text-heading mb-2 tracking-wide">
-        Step 3: 代码预览 & 沙箱核验
-      </h3>
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-lg font-semibold text-maia-text-heading tracking-wide">
+          Step 3: 代码预览 &amp; 沙箱核验
+        </h3>
+        {isEditMode && (
+          <span className="text-[11px] text-amber-500 tracking-wide">
+            正在编辑已有 Agent：{editingAgentName || editingAgentId}
+          </span>
+        )}
+      </div>
 
       <div className="grid grid-cols-5 gap-4">
         {/* Code panel */}
@@ -385,18 +481,42 @@ function Step3Verify() {
               <span className="text-xs font-medium text-maia-text-secondary tracking-wide">
                 生成代码
               </span>
+              {codeDirty && <span className="text-[10px] text-amber-500 tracking-wide">已手工修改</span>}
             </div>
-            <button
-              onClick={() => setEditingCode(!editingCode)}
-              className="text-[11px] text-maia-accent hover:underline"
-            >
-              {editingCode ? '只读' : '编辑'}
-            </button>
+            <div className="flex items-center gap-2">
+              {isEditMode && (
+                <>
+                  <button
+                    onClick={() => syncSpecFromCode()}
+                    disabled={!codeDirty || isGenerating}
+                    title={codeDirty ? '让 AI 依据代码改动更新 MD 文档' : '代码未修改，无需同步'}
+                    className="text-[11px] text-purple-500 hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    同步代码改动到文档
+                  </button>
+                  <button
+                    onClick={() => saveCode()}
+                    disabled={!codeDirty || isGenerating}
+                    title="保存代码到该 Agent"
+                    className="text-[11px] text-maia-accent hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    保存代码
+                  </button>
+                </>
+              )}
+              <button
+                onClick={() => setEditingCode(!editingCode)}
+                className="text-[11px] text-maia-accent hover:underline"
+              >
+                {editingCode ? '只读' : '编辑'}
+              </button>
+            </div>
           </div>
           {editingCode ? (
             <textarea
               value={code}
-              onChange={(e) => setCode(e.target.value)}
+              onChange={handleCodeEdit}
+              onKeyDown={onCodeTabIndent}
               rows={18}
               className="w-full rounded-lg border border-maia-border bg-maia-bg/50 px-3 py-2 text-[11px] font-mono outline-none resize-y"
               spellCheck={false}

@@ -24,6 +24,20 @@ def _call_api(api_name: str, **params) -> dict:
     api = get_api(api_name)
     return api.call(**params)
 
+# ── LLM 调用辅助（统一走系统配置的 LLM_PROVIDER / LLM_API_KEY / LLM_MODEL） ──
+def _llm_chat(messages: list, **kwargs) -> str:
+    """同步调用系统统一大模型客户端，返回完整文本。"""
+    import asyncio
+    from core.llm.client import create_llm_client
+    client = create_llm_client()
+    loop = asyncio.new_event_loop()
+    try:
+        result = loop.run_until_complete(client.chat(messages, **kwargs))
+        loop.run_until_complete(client.aclose())
+        return result
+    finally:
+        loop.close()
+
 # ── 工具调用辅助 ──
 def _call_tool(tool_name: str, **params) -> dict:
     """调用已注册的工具"""
@@ -87,9 +101,9 @@ def _extract_text_from_pdf(pdf_path: str) -> str:
     except ImportError:
         raise RuntimeError("没有可用的 PDF 库，请安装 PyMuPDF 或 pypdf")
 
-def _extract_references(text: str, api_key: str, base_url: str, model: str) -> list:
+def _extract_references(text: str) -> list:
     """
-    通过 DeepSeek API 解析参考文献列表。
+    通过系统统一 LLM 解析参考文献列表（跟随全局 LLM_PROVIDER / LLM_API_KEY / LLM_MODEL）。
     返回：list[dict]，每个 dict 包含 title, authors, journal/conference 等。
     """
     if not text.strip():
@@ -105,28 +119,15 @@ def _extract_references(text: str, api_key: str, base_url: str, model: str) -> l
         "请严格按照 JSON 数组格式输出，每个元素是一个对象，包含以下字段："
         "title (字符串), authors (字符串), journal (字符串)。"
         "如果某个字段缺失，请用空字符串填充。不要输出任何其他内容。"
+        "不要输出 markdown 代码块，直接输出 JSON 文本。"
     )
     user_prompt = f"论文全文：\n{text}\n\n请提取参考文献列表。"
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt}
     ]
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "model": model,
-        "messages": messages,
-        "temperature": 0.0,
-        "response_format": {"type": "json_object"}  # 期望 JSON 输出 (OpenAI 兼容)
-    }
-    api_url = f"{base_url}/chat/completions"
     try:
-        resp = requests.post(api_url, json=payload, headers=headers, timeout=60)
-        resp.raise_for_status()
-        result = resp.json()
-        content = result["choices"][0]["message"]["content"]
+        content = _llm_chat(messages, temperature=0.0, max_tokens=8192)
         # 尝试解析 JSON，可能被包裹在 markdown 代码块内
         content = content.strip()
         if content.startswith("```json"):
@@ -218,28 +219,15 @@ def execute(**kwargs) -> dict[str, Any]:
     except Exception as e:
         return {"status": "failed", "message": f"PDF 文本提取失败: {str(e)}", "output_format": "table", "data": {}}
 
-    # 2. 获取 DeepSeek API KEY
+    # 2. 解析参考文献列表
     try:
-        api_resp = _call_api("api-deepseek-get-key")
-        if not isinstance(api_resp, dict) or api_resp.get("status") == "failed":
-            return {"status": "failed", "message": "获取 DeepSeek API KEY 失败", "output_format": "table", "data": {}}
-        api_key = api_resp.get("api_key")
-        base_url = api_resp.get("base_url")
-        model = api_resp.get("model")
-        if not all([api_key, base_url, model]):
-            return {"status": "failed", "message": "DeepSeek API 凭证不完整", "output_format": "table", "data": {}}
-    except Exception as e:
-        return {"status": "failed", "message": f"调用 API 获取密钥异常: {str(e)}", "output_format": "table", "data": {}}
-
-    # 3. 解析参考文献列表
-    try:
-        refs = _extract_references(full_text, api_key, base_url, model)
+        refs = _extract_references(full_text)
         if not refs:
             return {"status": "failed", "message": "未能从论文中解析出任何参考文献", "output_format": "table", "data": {}}
     except Exception as e:
         return {"status": "failed", "message": f"参考文献解析错误: {str(e)}", "output_format": "table", "data": {}}
 
-    # 4. 逐条验证真实性
+    # 3. 逐条验证真实性
     rows = []
     total = len(refs)
     warning_messages = []
