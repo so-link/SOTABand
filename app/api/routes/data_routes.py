@@ -304,7 +304,7 @@ async def get_dataset(dataset_id: str):
         raise HTTPException(404, f"Dataset '{dataset_id}' not found")
 
     spec_path = registry._get_def_dir() / f"{dataset_id}.md"
-    spec_md = spec_path.read_text() if spec_path.exists() else ""
+    spec_md = spec_path.read_text(encoding="utf-8") if spec_path.exists() else ""
     return {**entry, "spec_md": spec_md}
 
 
@@ -345,7 +345,7 @@ async def match_tools(req: MatchToolsRequest):
     ds_info = ""
     if entry:
         spec_path = registry._get_def_dir() / f"{req.dataset_id}.md"
-        ds_info = spec_path.read_text()[:1000] if spec_path.exists() else entry.get("name", "")
+        ds_info = spec_path.read_text(encoding="utf-8")[:1000] if spec_path.exists() else entry.get("name", "")
 
     # 获取所有工具
     tools = await tool_registry.list_all()
@@ -395,7 +395,7 @@ async def preview_dataset(dataset_id: str):
         raise HTTPException(404, f"Dataset '{dataset_id}' not found")
 
     spec_path = registry._get_def_dir() / f"{dataset_id}.md"
-    spec_md = spec_path.read_text() if spec_path.exists() else ""
+    spec_md = spec_path.read_text(encoding="utf-8") if spec_path.exists() else ""
 
     # 从 MD 文档的"数据格式"表格中解析文件列表
     files = _parse_files_from_spec(spec_md)

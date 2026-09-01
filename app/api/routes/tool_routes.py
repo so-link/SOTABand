@@ -382,11 +382,11 @@ async def register_tool(req: RegisterToolRequest):
     tool_id = await registry.register(resource)
 
     if hasattr(req, 'demand_desc') and req.demand_desc:
-        (registry._get_def_dir() / f"{tool_id}-demand.md").write_text(req.demand_desc)
+        (registry._get_def_dir() / f"{tool_id}-demand.md").write_text(req.demand_desc, encoding="utf-8")
 
     # 保存参考代码为独立文件
     if hasattr(req, 'reference_code') and req.reference_code:
-        (registry._get_def_dir() / f"{tool_id}-reference.md").write_text(req.reference_code)
+        (registry._get_def_dir() / f"{tool_id}-reference.md").write_text(req.reference_code, encoding="utf-8")
 
     entry = await registry.get(tool_id)
 
@@ -584,15 +584,15 @@ async def get_tool(tool_id: str):
     entry = await registry.get(tool_id)
     if not entry: raise HTTPException(404, f"Tool '{tool_id}' not found")
     spec_path = registry._get_def_dir() / f"{tool_id}.md"
-    spec_md = spec_path.read_text() if spec_path.exists() else ""
+    spec_md = spec_path.read_text(encoding="utf-8") if spec_path.exists() else ""
     code_path = registry._get_impl_dir() / tool_id / "tool.py"
-    code = code_path.read_text() if code_path.exists() else ""
+    code = code_path.read_text(encoding="utf-8") if code_path.exists() else ""
     demand_path = registry._get_def_dir() / f"{tool_id}-demand.md"
     has_demand = demand_path.exists()
-    demand_md = demand_path.read_text() if has_demand else ""
+    demand_md = demand_path.read_text(encoding="utf-8") if has_demand else ""
     reference_path = registry._get_def_dir() / f"{tool_id}-reference.md"
     has_reference = reference_path.exists()
-    reference_code = reference_path.read_text() if has_reference else ""
+    reference_code = reference_path.read_text(encoding="utf-8") if has_reference else ""
     return {**entry, "spec_md": spec_md, "code": code, "has_demand": has_demand, "demand_md": demand_md, "has_reference": has_reference, "reference_code": reference_code}
 
 
@@ -1216,7 +1216,7 @@ async def modify_code(tool_id: str, req: "ModifyCodeRequest"):
     current_code = req.current_code or ""
     if not current_code.strip():
         code_path = registry._get_impl_dir() / tool_id / "tool.py"
-        current_code = code_path.read_text() if code_path.exists() else ""
+        current_code = code_path.read_text(encoding="utf-8") if code_path.exists() else ""
     if not req.request.strip():
         raise HTTPException(400, "修改描述不能为空")
 
@@ -1256,7 +1256,7 @@ async def modify_and_debug(tool_id: str, req: "ModifyAndDebugRequest"):
     current_code = req.current_code or ""
     if not current_code.strip():
         code_path = registry._get_impl_dir() / tool_id / "tool.py"
-        current_code = code_path.read_text() if code_path.exists() else ""
+        current_code = code_path.read_text(encoding="utf-8") if code_path.exists() else ""
     if not req.request.strip():
         raise HTTPException(400, "修改描述不能为空")
 
@@ -1682,7 +1682,7 @@ async def save_code(tool_id: str, req: dict):
         raise HTTPException(400, "代码不能为空")
     impl_dir = registry._get_impl_dir() / tool_id
     impl_dir.mkdir(parents=True, exist_ok=True)
-    (impl_dir / "tool.py").write_text(code)
+    (impl_dir / "tool.py").write_text(code, encoding="utf-8")
     return {"saved": tool_id}
 
 

@@ -112,8 +112,11 @@ def _call_tool(tool_name: str, **params) -> dict:
         return {"status": "failed", "message": f"Tool '{tool_name}' (id={tool_id}) not found"}
     venv_py = tool_dir / ".venv" / "bin" / "python"
     py_exe = str(venv_py) if venv_py.exists() else sys.executable
-    script = f"import json, sys; sys.path.insert(0, {str(_PROJECT_ROOT)!r}); exec(open({str(tool_file)!r}).read()); print(json.dumps(execute(**{params!r}), default=str, ensure_ascii=False))"
-    proc = _sp.run([py_exe, "-c", script], capture_output=True, text=True, timeout=30)
+    script = f"import json, sys; sys.path.insert(0, {str(_PROJECT_ROOT)!r}); exec(open({str(tool_file)!r}, encoding='utf-8').read()); print(json.dumps(execute(**{params!r}), default=str, ensure_ascii=False))"
+    # encoding/errors 必须显式：工具输出是含中文的 UTF-8 JSON，
+    # Windows 下 text=True 默认按 GBK 解码会直接 UnicodeDecodeError
+    proc = _sp.run([py_exe, "-c", script], capture_output=True, text=True,
+                   encoding="utf-8", errors="replace", timeout=30)
     try:
         return json.loads(proc.stdout.strip())
     except:
@@ -573,7 +576,8 @@ CRITICAL RULES:
                     parts,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
-                    text=True, bufsize=1,
+                    # pip 在中文 Windows 上会输出中文警告，按系统默认 GBK 解码会炸
+                    text=True, encoding="utf-8", errors="replace", bufsize=1,
                 )
                 for line in proc.stdout:
                     line = line.rstrip()

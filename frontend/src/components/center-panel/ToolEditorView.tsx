@@ -172,8 +172,13 @@ function Step1() {
   const onRefTabIndent = useTabIndent('    ')
 
   // Autocomplete data
+  // 注意：列表为空 ≠ 正在加载。必须用显式状态区分「加载中 / 就绪 / 失败」，
+  // 否则后端未启动时 fetch 静默失败，下拉框会永远显示"加载中"误导使用者
+  // （曾经的问题是 isLoading 直接用 apiItems.length === 0 判断）。
   const [apiItems, setApiItems] = useState<Array<{name:string,id:string}>>([])
   const [toolItems, setToolItems] = useState<Array<{name:string,id:string}>>([])
+  const [apiState, setApiState] = useState<'loading' | 'ready' | 'failed'>('loading')
+  const [toolState, setToolState] = useState<'loading' | 'ready' | 'failed'>('loading')
 
   // Dropdown state
   const [show, setShow] = useState(false)
@@ -184,14 +189,31 @@ function Step1() {
   const [tRange, setTRange] = useState({ start: 0, end: 0 })
 
   useEffect(() => {
-    fetch(`${BASE}/api/apis/list`).then(r => r.json()).then(d => {
+    const TIMEOUT_MS = 10000
+    // 统一的列表拉取：带超时与非 2xx 判定，失败走 onFail 而不是静默吞掉。
+    // 后端未启动（代理 ECONNREFUSED）、返回 404/HTML、挂起超时，统一归为 failed。
+    const fetchList = (url: string,
+                       onOk: (d: Record<string, unknown>) => void,
+                       onFail: () => void) => {
+      const ctrl = new AbortController()
+      const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS)
+      fetch(url, { signal: ctrl.signal })
+        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
+        .then(d => { clearTimeout(timer); onOk(d as Record<string, unknown>) })
+        .catch(() => { clearTimeout(timer); onFail() })
+    }
+
+    fetchList(`${BASE}/api/apis/list`, (d) => {
       const items = ((d.apis||[]) as Array<Record<string,unknown>>).map((a:Record<string,unknown>) => ({name:(a.name as string)||(a.id as string)||'', id:(a.id as string)||''}))
       setApiItems(items)
-    }).catch(()=>{})
-    fetch(`${BASE}/api/tool/list`).then(r => r.json()).then(d => {
+      setApiState('ready')
+    }, () => setApiState('failed'))
+
+    fetchList(`${BASE}/api/tool/list`, (d) => {
       const items = (((d as Record<string,unknown>).tools||[]) as Array<Record<string,unknown>>).map((t:Record<string,unknown>) => ({name:(t.name as string)||(t.id as string)||'', id:(t.id as string)||''}))
       setToolItems(items)
-    }).catch(()=>{})
+      setToolState('ready')
+    }, () => setToolState('failed'))
   }, [])
 
   function getPos() {
@@ -237,7 +259,12 @@ function Step1() {
     else if (e.key === 'Escape') { e.preventDefault(); setShow(false) }
   }
 
-  const isLoading = trigger === '@' ? apiItems.length === 0 : toolItems.length === 0
+  // 当前触发符对应的列表与状态
+  const acSrc = trigger === '@' ? apiItems : toolItems
+  const acState = trigger === '@' ? apiState : toolState
+  // 下拉框可见性：加载中 / 失败 / 就绪但列表为空 时显示提示行；
+  // 仅"有数据但无匹配项"时静默收起（保持原行为）
+  const showHint = acState !== 'ready' || acSrc.length === 0
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -257,10 +284,21 @@ function Step1() {
           rows={8} className="w-full rounded-lg border border-maia-border bg-maia-bg px-4 py-3 text-[12px] font-mono tracking-wide outline-none resize-none focus:border-maia-accent/40 placeholder:text-maia-text-muted" />
       </div>
 
-      {show && (isLoading || filtered.length > 0) && createPortal(
+      {show && (showHint || filtered.length > 0) && createPortal(
         <div className="fixed z-[9999] w-72 max-h-48 overflow-y-auto rounded-lg border border-maia-border bg-maia-surface shadow-lg py-1" style={{ top: ddPos.top, left: ddPos.left }}>
-          {isLoading ? <div className="px-3 py-2 text-[12px] text-maia-text-muted">加载中...</div> :
-            filtered.map((item, i) => (
+          {acState === 'failed' ? (
+            // 后端连不上是最高频的失败原因（下载仓库后只起了前端），如实告知而不是永远"加载中"
+            <div className="px-3 py-2 text-[12px] text-maia-danger leading-relaxed">
+              无法连接后端服务（http://localhost:8001）<br />
+              <span className="text-[10px] text-maia-text-muted">请先启动后端：uvicorn app.main:app --port 8001</span>
+            </div>
+          ) : acState === 'loading' ? (
+            <div className="px-3 py-2 text-[12px] text-maia-text-muted">加载中...</div>
+          ) : acSrc.length === 0 ? (
+            <div className="px-3 py-2 text-[12px] text-maia-text-muted">
+              {trigger === '@' ? '暂无可用系统 API' : '暂无可用工具'}
+            </div>
+          ) : filtered.map((item, i) => (
               <button key={item.id} className={`w-full text-left px-3 py-1.5 flex flex-col gap-0 transition-colors ${i === selIdx ? 'bg-maia-accent/10 text-maia-accent' : 'hover:bg-maia-bg text-maia-text'}`}
                 onMouseDown={e => { e.preventDefault(); doSelect(item) }}>
                 <span className="text-[12px] font-medium tracking-wide truncate">{trigger === '@' ? `【${item.name}】` : `【【${item.name}】】`}</span>

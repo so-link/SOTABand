@@ -187,7 +187,7 @@ async def generate_spec(req: GenerateSpecRequest):
             spec_file = tools_def_dir / f"{tr['id']}.md"
             output_info = ""
             if spec_file.exists():
-                spec_text = spec_file.read_text()
+                spec_text = spec_file.read_text(encoding="utf-8")
                 # 提取输出规范段落
                 out_match = re.search(r'## 3\.\s*输出规范.*?(?=## \d\.|\Z)', spec_text, re.DOTALL)
                 if out_match:
@@ -290,18 +290,19 @@ async def register_agent(req: RegisterAgentRequest):
     if req.code.strip():
         impl_dir = registry._get_impl_dir() / registered_id
         impl_dir.mkdir(parents=True, exist_ok=True)
-        (impl_dir / "agent.py").write_text(req.code)
-        (impl_dir / "spec.md").write_text(req.spec_md)
+        (impl_dir / "agent.py").write_text(req.code, encoding="utf-8")
+        (impl_dir / "spec.md").write_text(req.spec_md, encoding="utf-8")
         (impl_dir / "config.yaml").write_text(
             f"# {req.agent_name} 运行时配置\n"
             f"role: {req.role}\n"
-            f"version: {req.version}\n"
+            f"version: {req.version}\n",
+            encoding="utf-8",
         )
 
-    # 保存用户需求描述
+    # 保存用户需求描述（中文内容，Windows 默认 GBK，必须显式 utf-8）
     if req.demand_desc.strip():
         demand_path = registry._get_spec_dir() / f"{registered_id}-demand.md"
-        demand_path.write_text(req.demand_desc)
+        demand_path.write_text(req.demand_desc, encoding="utf-8")
 
     return {"agent_id": registered_id, "entry": entry}
 
@@ -321,14 +322,14 @@ async def get_agent(agent_id: str):
         raise HTTPException(404, f"Agent '{agent_id}' not found")
 
     spec_path = registry._get_spec_dir() / f"{agent_id}.md"
-    spec_md = spec_path.read_text() if spec_path.exists() else ""
+    spec_md = spec_path.read_text(encoding="utf-8") if spec_path.exists() else ""
 
     code_path = registry._get_impl_dir() / agent_id / "agent.py"
-    code = code_path.read_text() if code_path.exists() else ""
+    code = code_path.read_text(encoding="utf-8") if code_path.exists() else ""
 
     demand_path = registry._get_spec_dir() / f"{agent_id}-demand.md"
     has_demand = demand_path.exists()
-    demand_md = demand_path.read_text() if has_demand else ""
+    demand_md = demand_path.read_text(encoding="utf-8") if has_demand else ""
 
     return {**entry, "spec_md": spec_md, "code": code, "has_demand": has_demand, "demand_md": demand_md}
 
@@ -374,7 +375,7 @@ async def save_agent_code(agent_id: str, req: SaveCodeRequest):
 
     impl_dir = registry._get_impl_dir() / agent_id
     impl_dir.mkdir(parents=True, exist_ok=True)
-    (impl_dir / "agent.py").write_text(req.code)
+    (impl_dir / "agent.py").write_text(req.code, encoding="utf-8")
     return {"saved": agent_id}
 
 
