@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Database, File, Image, Loader2, ChevronLeft, ChevronRight, Table2 } from 'lucide-react'
+import { Database, File, Image, Loader2, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardBody } from '@/components/ui/card'
@@ -11,7 +11,6 @@ import type { DataResource } from '@/types/resources'
 const BASE_URL = ''
 const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'tiff', 'tif', 'ico'])
 const PAGE_SIZE_OPTIONS = [8, 16, 24, 32, 48]
-const TABLE_PAGE_OPTIONS = [8, 16, 32, 64, 100]
 
 function isImageFile(file: Record<string, unknown>): boolean {
   const fmt = ((file.format as string) || '').toLowerCase()

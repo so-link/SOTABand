@@ -35,6 +35,8 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
   agentResources: [],
   taskResources: [],
   isLoading: false,
+  cachedToolForDetail: null,
+  cachedDatasetForDetail: null,
 
   selectResource: (resource) => {
     const state: Partial<ResourceState> = { selectedResource: resource }

@@ -141,7 +141,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         // 检查是否有新数据集注册，自动刷新数据空间列表
         if (chunk.cards) {
           for (const card of chunk.cards) {
-            const cardData = (card as Record<string, unknown>).data as Record<string, unknown> | undefined
+            const cardData = card.data
             if (cardData?.registered_dataset_id) {
               try {
                 const { useResourceStore } = await import('@/stores/resource-store')

@@ -48,4 +48,5 @@ export interface CreateMessageInput {
   content: string
   attachments?: FileAttachment[]
   workspaceToolIds?: string[]
+  sessionId?: string
 }

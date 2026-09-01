@@ -31,6 +31,8 @@ export interface SpecOutline {
   summary: Record<string, unknown>
   version: number
   warning?: string
+  /** 人话摘要是否命中后台预生成缓存（withSummary=true 时后端返回） */
+  cached?: boolean
 }
 
 /** 文档中的 Markdown 表格结构（供表单化编辑） */

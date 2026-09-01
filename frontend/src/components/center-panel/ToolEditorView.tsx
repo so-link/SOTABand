@@ -179,6 +179,10 @@ function Step1() {
   const [toolItems, setToolItems] = useState<Array<{name:string,id:string}>>([])
   const [apiState, setApiState] = useState<'loading' | 'ready' | 'failed'>('loading')
   const [toolState, setToolState] = useState<'loading' | 'ready' | 'failed'>('loading')
+  // 失败细分：network（连不上/超时）与 http（后端在跑但接口异常，如编码 500）。
+  // 二者的处置完全不同——前者启动后端，后者查后端日志——不能混成一句话。
+  const [apiFailReason, setApiFailReason] = useState('network')
+  const [toolFailReason, setToolFailReason] = useState('network')
 
   // Dropdown state
   const [show, setShow] = useState(false)
@@ -190,30 +194,34 @@ function Step1() {
 
   useEffect(() => {
     const TIMEOUT_MS = 10000
-    // 统一的列表拉取：带超时与非 2xx 判定，失败走 onFail 而不是静默吞掉。
-    // 后端未启动（代理 ECONNREFUSED）、返回 404/HTML、挂起超时，统一归为 failed。
+    // 统一的列表拉取：带超时与失败原因细分，失败走 onFail 而不是静默吞掉。
+    // network：连不上（ECONNREFUSED）、超时——后端多半没起；
+    // http：后端在跑但接口异常（如 GBK 编码导致的 500）——查后端日志。
     const fetchList = (url: string,
                        onOk: (d: Record<string, unknown>) => void,
-                       onFail: () => void) => {
+                       onFail: (reason: string) => void) => {
       const ctrl = new AbortController()
       const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS)
       fetch(url, { signal: ctrl.signal })
-        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
+        .then(r => {
+          if (!r.ok) throw { kind: 'http', status: r.status }
+          return r.json()
+        })
         .then(d => { clearTimeout(timer); onOk(d as Record<string, unknown>) })
-        .catch(() => { clearTimeout(timer); onFail() })
+        .catch(e => { clearTimeout(timer); onFail(e?.kind === 'http' ? `http:${e.status}` : 'network') })
     }
 
     fetchList(`${BASE}/api/apis/list`, (d) => {
       const items = ((d.apis||[]) as Array<Record<string,unknown>>).map((a:Record<string,unknown>) => ({name:(a.name as string)||(a.id as string)||'', id:(a.id as string)||''}))
       setApiItems(items)
       setApiState('ready')
-    }, () => setApiState('failed'))
+    }, (reason) => { setApiFailReason(reason); setApiState('failed') })
 
     fetchList(`${BASE}/api/tool/list`, (d) => {
       const items = (((d as Record<string,unknown>).tools||[]) as Array<Record<string,unknown>>).map((t:Record<string,unknown>) => ({name:(t.name as string)||(t.id as string)||'', id:(t.id as string)||''}))
       setToolItems(items)
       setToolState('ready')
-    }, () => setToolState('failed'))
+    }, (reason) => { setToolFailReason(reason); setToolState('failed') })
   }, [])
 
   function getPos() {
@@ -262,6 +270,7 @@ function Step1() {
   // 当前触发符对应的列表与状态
   const acSrc = trigger === '@' ? apiItems : toolItems
   const acState = trigger === '@' ? apiState : toolState
+  const acFailReason = trigger === '@' ? apiFailReason : toolFailReason
   // 下拉框可见性：加载中 / 失败 / 就绪但列表为空 时显示提示行；
   // 仅"有数据但无匹配项"时静默收起（保持原行为）
   const showHint = acState !== 'ready' || acSrc.length === 0
@@ -287,11 +296,19 @@ function Step1() {
       {show && (showHint || filtered.length > 0) && createPortal(
         <div className="fixed z-[9999] w-72 max-h-48 overflow-y-auto rounded-lg border border-maia-border bg-maia-surface shadow-lg py-1" style={{ top: ddPos.top, left: ddPos.left }}>
           {acState === 'failed' ? (
-            // 后端连不上是最高频的失败原因（下载仓库后只起了前端），如实告知而不是永远"加载中"
-            <div className="px-3 py-2 text-[12px] text-maia-danger leading-relaxed">
-              无法连接后端服务（http://localhost:8001）<br />
-              <span className="text-[10px] text-maia-text-muted">请先启动后端：uvicorn app.main:app --port 8001</span>
-            </div>
+            // 两种失败给不同指引：接口异常时让用户查后端日志（后端明明在跑，
+            // 说"请先启动后端"反而误导——正是条目 27 误诊案例的教训）
+            acFailReason.startsWith('http:') ? (
+              <div className="px-3 py-2 text-[12px] text-maia-danger leading-relaxed">
+                后端接口异常（HTTP {acFailReason.slice(5)}）。后端在运行但该接口出错，
+                常见原因（编码/权限等）见后端控制台日志。
+              </div>
+            ) : (
+              <div className="px-3 py-2 text-[12px] text-maia-danger leading-relaxed">
+                无法连接后端服务（http://localhost:8001）<br />
+                <span className="text-[10px] text-maia-text-muted">请先启动后端：uvicorn app.main:app --port 8001</span>
+              </div>
+            )
           ) : acState === 'loading' ? (
             <div className="px-3 py-2 text-[12px] text-maia-text-muted">加载中...</div>
           ) : acSrc.length === 0 ? (
@@ -361,7 +378,11 @@ function OutlineSection({
       // 结构与表格都是纯解析（毫秒级），一起加载不影响秒开体验
       const [res, tbl] = await Promise.all([
         toolApi.getSpecOutline(toolId, md, false),
-        toolApi.getSpecTable(toolId, md).catch(() => ({ has_table: false })),
+        // 无表格时回退到完整形状（has_table=false 使消费方跳过渲染），
+        // 缺省字段给空数组，避免联合类型污染 setTable
+        toolApi.getSpecTable(toolId, md).catch(() => ({
+          has_table: false, header: [], rows: [], align: [],
+        })),
       ])
       setOutline(res)
       setTable(tbl)
@@ -590,7 +611,7 @@ function Step3() {
   const fileInputRefs = useRef<Map<string, HTMLInputElement>>(new Map())
   const [uploadedFiles, setUploadedFiles] = useState<Map<string, File>>(new Map())
   // 面板高度（px），初始值
-  const [codeHeight, setCodeHeight] = useState(300)
+  const [codeHeight] = useState(300)
   const [logHeight, setLogHeight] = useState(180)
   const containerRef = useRef<HTMLDivElement>(null)
   // 代码手工微调开关
@@ -630,11 +651,6 @@ function Step3() {
 
   const isPathParam = (name: string, type: string) =>
     type.toLowerCase().includes('path') || name.toLowerCase().includes('path') || name.toLowerCase().includes('file')
-
-  // 可拖拽分隔线处理
-  const handleCodeResize = useCallback((delta: number) => {
-    setCodeHeight(h => Math.max(120, Math.min(600, h + delta)))
-  }, [])
 
   const handleLogResize = useCallback((delta: number) => {
     setLogHeight(h => Math.max(80, Math.min(500, h - delta)))

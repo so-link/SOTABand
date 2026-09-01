@@ -4,7 +4,6 @@ import {
   Trash2, Plus, Check, Package,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Card, CardBody } from '@/components/ui/card'
 import { useUIStore } from '@/stores/ui-store'
 import { useResourceStore } from '@/stores/resource-store'
@@ -157,11 +156,6 @@ export function RepositoryView() {
                         description: '',
                         createdAt: tool.created_at,
                         updatedAt: '',
-                        format: '',
-                        filePath: '',
-                        fileSize: 0,
-                        source: 'upload' as const,
-                        lineage: [],
                         isUserGenerated: true,
                         category: 'local' as const,
                         inputSpec: { formats: [] },

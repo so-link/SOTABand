@@ -85,22 +85,20 @@ export function ResourceBrowser() {
         // 里面既有内置示例也有用户本地生成的工具。
         // 真实判定要查工具仓库（toolResources，后端按 owner 字段标注）。
         return workspaceTools.map(t => {
-          const repoTool = toolResources.find(r => r.id === t.id)
+          // 用类型谓词收窄：仓库里混着各类型资源，只有 tool 才有 isUserGenerated
+          const repoTool = toolResources.find(
+            (r): r is ToolResource => r.type === 'tool' && r.id === t.id,
+          )
           return {
             id: t.id,
             name: t.name,
-            type: 'tool' as ResourceType,
+            type: 'tool' as const,
             version: repoTool?.version || '0.1.0',
             status: 'active' as const,
             tags: t.tags,
             description: '',
             createdAt: '',
             updatedAt: '',
-            format: '',
-            filePath: '',
-            fileSize: 0,
-            source: 'upload' as const,
-            lineage: [],
             isUserGenerated: repoTool?.isUserGenerated ?? false,
             category: 'local' as const,
             inputSpec: { formats: [] },

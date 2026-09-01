@@ -62,3 +62,6 @@ storage/workspace_tools.json
 
 # Generated local assessment logs
 logs/aerial-image-quality-batch-assessment_*.md
+
+# 老师的功能规划表（内部资料，不入仓库）
+功能点开发参与.xlsx

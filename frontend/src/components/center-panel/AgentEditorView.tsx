@@ -152,6 +152,10 @@ function Step1Description() {
   const [toolItems, setToolItems] = useState<AcItem[]>([])
   const [apiState, setApiState] = useState<'loading' | 'ready' | 'failed'>('loading')
   const [toolState, setToolState] = useState<'loading' | 'ready' | 'failed'>('loading')
+  // 失败细分：network（连不上/超时）与 http（后端在跑但接口异常，如编码 500）。
+  // 二者的处置完全不同——前者启动后端，后者查后端日志——不能混成一句话。
+  const [apiFailReason, setApiFailReason] = useState('network')
+  const [toolFailReason, setToolFailReason] = useState('network')
 
   // Dropdown state
   const [show, setShow] = useState(false)
@@ -170,22 +174,22 @@ function Step1Description() {
     const fetchList = (
       url: string,
       onOk: (d: Record<string, unknown>) => void,
-      onFail: () => void
+      onFail: (reason: string) => void
     ) => {
       const ctrl = new AbortController()
       const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS)
       fetch(url, { signal: ctrl.signal })
         .then((r) => {
-          if (!r.ok) throw new Error(`HTTP ${r.status}`)
+          if (!r.ok) throw { kind: 'http', status: r.status }
           return r.json()
         })
         .then((d) => {
           clearTimeout(timer)
           onOk(d as Record<string, unknown>)
         })
-        .catch(() => {
+        .catch((e) => {
           clearTimeout(timer)
-          onFail()
+          onFail(e?.kind === 'http' ? `http:${e.status}` : 'network')
         })
     }
 
@@ -201,7 +205,10 @@ function Step1Description() {
         setApiItems(items)
         setApiState('ready')
       },
-      () => setApiState('failed')
+      (reason) => {
+        setApiFailReason(reason)
+        setApiState('failed')
+      }
     )
 
     fetchList(
@@ -216,7 +223,10 @@ function Step1Description() {
         setToolItems(items)
         setToolState('ready')
       },
-      () => setToolState('failed')
+      (reason) => {
+        setToolFailReason(reason)
+        setToolState('failed')
+      }
     )
   }, [])
 
@@ -315,6 +325,7 @@ function Step1Description() {
   // 当前触发符对应的列表与状态
   const acSrc = trigger === '@' ? apiItems : toolItems
   const acState = trigger === '@' ? apiState : toolState
+  const acFailReason = trigger === '@' ? apiFailReason : toolFailReason
   // 下拉框可见性：加载中 / 失败 / 就绪但列表为空 时显示提示行；
   // 仅"有数据但无匹配项"时静默收起（保持原行为）
   const showHint = acState !== 'ready' || acSrc.length === 0
@@ -350,14 +361,22 @@ function Step1Description() {
             style={{ top: ddPos.top, left: ddPos.left }}
           >
             {acState === 'failed' ? (
-              // 后端连不上是最高频的失败原因（下载仓库后只起了前端），如实告知而不是永远"加载中"
-              <div className="px-3 py-2 text-[12px] text-maia-danger leading-relaxed">
-                无法连接后端服务（http://localhost:8001）
-                <br />
-                <span className="text-[10px] text-maia-text-muted">
-                  请先启动后端：uvicorn app.main:app --port 8001
-                </span>
-              </div>
+              // 两种失败给不同指引：接口异常时让用户查后端日志（后端明明在跑，
+              // 说"请先启动后端"反而误导——正是条目 27 误诊案例的教训）
+              acFailReason.startsWith('http:') ? (
+                <div className="px-3 py-2 text-[12px] text-maia-danger leading-relaxed">
+                  后端接口异常（HTTP {acFailReason.slice(5)}）。后端在运行但该接口出错，
+                  常见原因（编码/权限等）见后端控制台日志。
+                </div>
+              ) : (
+                <div className="px-3 py-2 text-[12px] text-maia-danger leading-relaxed">
+                  无法连接后端服务（http://localhost:8001）
+                  <br />
+                  <span className="text-[10px] text-maia-text-muted">
+                    请先启动后端：uvicorn app.main:app --port 8001
+                  </span>
+                </div>
+              )
             ) : acState === 'loading' ? (
               <div className="px-3 py-2 text-[12px] text-maia-text-muted">加载中...</div>
             ) : acSrc.length === 0 ? (

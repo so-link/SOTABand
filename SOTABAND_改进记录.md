@@ -1,6 +1,6 @@
 # SOTABand 改进记录
 
-> 记录时间：2026-08-29（首版，条目 1-22）／ 2026-08-30 增量（条目 23-26）／ 2026-09-01 增量（条目 27-31）
+> 记录时间：2026-08-29（首版，条目 1-22）／ 2026-08-30 增量（条目 23-26）／ 2026-09-01 增量（条目 27-31）／ 2026-09-02 增量（条目 32）
 > 改动范围：27 个源码文件（后端 Python + 前端 TypeScript）
 > 说明：本文只记录对 **SOTABand 平台本身**的改动；业务工具（如航拍图像质量评估器）的代码由平台生成，不在本记录范围内。
 
@@ -123,16 +123,19 @@
 
 **现象**：Windows 使用者输入 `@` 引用系统 API，下拉框永远"加载中..."；`$` 引用工具正常。
 
-**第一轮（前端表象）**：`isLoading = apiItems.length === 0` 把"失败"谎报为"加载中"——fetch 失败被 `.catch(()=>{})` 吞掉，列表永远为空，下拉框永远转圈。改为显式三态 `loading / ready / failed`：失败显示"无法连接后端服务 + 启动命令"，fetch 加 10s 超时（AbortController），非 2xx（如返回 HTML）也判为失败。
+**第一轮（前端表象）**：`isLoading = apiItems.length === 0` 把"失败"谎报为"加载中"——fetch 失败被 `.catch(()=>{})` 吞掉，列表永远为空，下拉框永远转圈。改为显式三态 `loading / ready / failed`，fetch 加 10s 超时（AbortController），非 2xx（如返回 HTML）也判为失败。
 
 **第二轮（后端真因）**：她 `$` 能用证明后端在跑，推翻第一判断。继续深挖发现 `0b4cc89` 修 Windows GBK 问题时改了 `tool_registry.py` / `data_registry.py` / `agent_registry.py` 三个注册中心，**漏了 `core/api/registry.py`**（`@` 的数据源）。registry.json 含中文，Windows 默认 GBK 解码 → `UnicodeDecodeError` → `/api/apis/list` 返回 500。更隐蔽的是：500 响应里 `d.apis` 为 `undefined`，`(d.apis||[])` 得空数组——**连 `.catch` 都不触发**，前端彻底感知不到失败。
 
 **修复**：补上该文件的 `encoding="utf-8"`；顺势全仓扫描，又修出约 20 处无 encoding 的中文文件读写（工具/Agent 注册写 MD 与代码、详情页读取、pip 子进程输出等，共 9 个文件）——这些在 Windows 上迟早会以"工具详情打不开""注册的代码文件损坏"等形式爆发。
 
+**失败文案修正（2026-09-02）**：第一轮曾把失败统一提示为"无法连接后端服务，请先启动后端"——那是误诊"使用者没启动后端"的产物。对本案例的真实场景（后端在跑、接口因 GBK 返回 500）该文案恰恰误导：让人去启动一个正在运行的后端。已把失败态细分为两种并各自给准确指引：**网络失败**（连不上/超时 → 附启动命令）与**接口异常**（HTTP 状态码 → 指向后端控制台日志）。
+
 **教训**：
 1. 修"同类问题"必须全局搜——三个 registry 修了、第四个漏了，正是"同构代码漏改温床"（条目 23、24 的重演）；
 2. "列表为空" ≠ "加载中"，加载态必须显式建模，否则任何失败都会被伪装成永久加载；
-3. 排障时"某个相邻功能正常"是最有价值的反证——它直接否证了最容易得出的浅层结论（"没启动后端"）。
+3. 失败原因不同，处置就不同——把多种失败混成一句提示，等于把误诊固化进产品；
+4. 排障时"某个相邻功能正常"是最有价值的反证——它直接否证了最容易得出的浅层结论。
 
 ---
 
@@ -428,6 +431,40 @@ visibility = private/public → 决定谁能看
 
 ---
 
+### 32. 主/副 Key 三层模型：工具可点名任一副 Key（2026-09-02）
+
+**背景**：平台定位确认为"联邦式"（每人本机主权空间 + 全局服务器注册/集市，见《功能点开发参与.xlsx》），`.env` 即使用者自己的密钥档案——平台不提供 key，使用者自带多把。原先 `api-llm-chat-with-config` 的 `api_key` 必填，导致一个死结：**key 已躺在 `.env` 里的副 key，工具也得把它翻出来传一遍**——密钥被迫出现在聊天记录或工具参数里。
+
+**方案**：主/副 key 三层模型，存储复用已有的 `<PROVIDER>_API_KEY` 机制（零新概念）：
+
+```
+主 key = LLM_PROVIDER 指向的那家（LLM_API_KEY，Agent 对话与普通工具的默认）
+副 key = .env 里其他 <PROVIDER>_API_KEY（安静躺着，工具点名 provider 即取）
+临时 key = 调用时显式传入（custom-model-caller 原模式，用完即弃）
+```
+
+**api_key 降级链**（`api-llm-chat-with-config` / `api-llm-test-config` 同步支持）：
+
+1. 显式传入 → 直接用（临时试用未入库的 key）
+2. 未传 → 读 `.env` 中该 provider 的 `<PROVIDER>_API_KEY`
+3. 该 provider 未配置 → 回落全局主 key（实测中主 key 顶上成功调用）
+4. 仍为空 → 报错并引导"在 .env 添加 <PROVIDER>_API_KEY 或显式传 key"
+
+只给 `model` 时先按模型名推断 provider 再走降级链。
+
+**配套**：
+- `create_llm_client_for(provider, model=...)`：工具作者直连副 key 的便捷入口，端点自适应在 client 层同样生效（实测 `tp-` 主 key 自动落到 Token Plan 端点）
+- `custom-model-caller` 升 0.1.1：api_key 改可选，key/provider/base_url 三全空才失败
+- `.env.example` 增加主/副 key 约定与示例
+
+**效果**：工具代码与聊天记录中密钥零出现——`_call_api("api-llm-chat-with-config", provider="doubao", model=..., messages=...)` 即可，使用者只需在 `.env` 放一把 `DOUBAO_API_KEY`。上一轮讨论的"凭据策略"契约由平台层自动兑现，工具作者无需再写专门段落。
+
+**取舍**：同 provider 多把 key（如 mimo 按量付费 + Token Plan 并存）第一版不做——`endpoint_variants` 已按前缀自适应，换 key 改一行 `.env` 即可，YAGNI。层 3 的 keyring 管理 API（列表/写入/设置页）与主 provider 热重载明确缓行：前者是体验项，后者在 uvicorn 多进程下有坑且重启成本低。
+
+**教训**：`api_key` 必填的设计把"密钥管理"推给了每一次调用；正确的归属是——密钥收敛在 `.env` 一处，调用方只表达意图（用谁家的模型），凭据注入由平台解析链完成。
+
+---
+
 ## 六、当前状态
 
 ```
@@ -437,9 +474,11 @@ Agent： 共享，6 个
 系统 API：17 个
 服务商目录：9 家（6 家支持多模态；mimo/moonshot/zhipu/qwen/minimax 登记多端点变体）
 文件 I/O：核心读写均已显式 encoding="utf-8"（Windows GBK 防护，条目 27）
+密钥模型：主/副 key 三层降级链（显式 key > <PROVIDER>_API_KEY > 主 key，条目 32）
+平台定位：联邦式（本机主权空间 + 全局服务器注册/集市，据《功能点开发参与.xlsx》）
 ```
 
-验证：全项目编译通过、前端类型错误与基线持平（19 个既有错误，本次改动零新增）、ESLint 0 错误；LLM 真实调用（MiMo 按量付费 sk- key 自动命中 api.xiaomimimo.com）与拖拽契约、附件清理逻辑均冒烟通过。
+验证：全项目编译通过、**前端 tsc 0 错误**（2026-09-02 将历史遗留的 19 个类型错误全部清零：未用导入/变量 9 处、ToolResource 字面量误带 DataResource 字段 4 处、SpecOutline 缺 cached 字段、saveCode 服务缺失补齐、CreateMessageInput 补 sessionId、resource-store 初始态缺省、InlineCard 冗余强转）、ESLint 0 错误；LLM 真实调用（MiMo 按量付费 sk- key 自动命中 api.xiaomimimo.com）、三层 key 降级链（显式 > env 副 key > 主 key）与拖拽契约、附件清理逻辑均冒烟通过。
 
 ---
 
@@ -460,9 +499,11 @@ Agent： 共享，6 个
 当前仅**数据集**做了归属隔离。工具与 Agent 是共享设计（有意为之），但：
 
 - 二者均**未记录 owner**，无法追溯创建者
-- 未来若需"私有工具/私有 Agent"或"公共池自选"，需要 `visibility` 开关与界面入口
+- 私有工具/Agent 与公共池自选需要 `visibility` 开关与界面入口
 
 > 字段已预留（`owner` + `visibility` + 判定函数 `is_visible()`），接上界面即可用。
+>
+> **2026-09-02 定位确认**：《功能点开发参与.xlsx》明确组网/集市（模块 7.3-7.5、8.2）为**既定规划而非"未来若需"**——共享是主场景，本条与模块 7/8/9/10 的实现顺序需按 xlsx 统一排期，且以模块 3.x 安全性为先行项（本机将执行他人代码）。
 
 ### P0-3. 数据集列表每次都要校验 35 条路径
 
@@ -495,6 +536,8 @@ Agent： 共享，6 个
 `api-llm-chat-with-config` 允许填任意 `base_url`，工具可把数据发到任何地址。
 
 当前单机使用无风险；多人共用后端时建议加白名单（只允许已登记的服务商地址）。
+
+> 2026-09-02 定位更新：平台确认为联邦式架构（本机主权空间 + 全局服务器），"单机"表述修正为"本机主权"。base_url 白名单仍缓行——api_key 降级链（条目 32）已让 provider-only 调用成为推荐路径，显式 base_url 只剩自定义网关场景。**真正的先行项是 xlsx 模块 3.x 安全性（代码约束/静态审查/运行时审查），目前无人认领**：9.3 工具虚拟化意味着本机要执行他人代码，没有 3.x 托底，集市等同木马分发渠道。
 
 ### P1-5. 静态服务商目录会过时
 
@@ -607,4 +650,38 @@ components/center-panel/AgentEditorView.tsx    + 同上（同构代码，一并�
 core/api/definitions/api-llm-test-config.md     + 端点自适应说明 / 新增返回字段
 core/api/definitions/api-llm-test-connection.md + 报错追加端点对照提示
 本文件（SOTABAND_改进记录.md）                   + 条目 27-31
+```
+
+---
+
+## 十二、附：2026-09-02 增量改动文件清单（11 个）
+
+本日两批改动：① 主/副 key 三层模型（条目 32）——背景是平台定位确认（联邦式架构，据《功能点开发参与.xlsx》），`.env` 即使用者密钥档案，工具应能点名任一副 key 而无需搬运密钥；② 条目 27 补记——清除误诊产物（统一"无法连接后端"文案），失败态细分为网络失败/接口异常。
+
+**后端（2）**
+```
+core/api/implementations/api_llm.py   + api_key 降级链（显式 > <PROVIDER>_API_KEY > 主 key），
+                                        chat-with-config 与 test-config 同步；model→provider 推断
+core/llm/client.py                    + create_llm_client_for(provider) 便捷入口（无 key 抛引导性错误）
+```
+
+**工具（1）**
+```
+resources/tools/implementations/custom-model-caller/tool.py
+                                      + api_key 改可选；三全空才失败并引导传 provider（升 0.1.1）
+```
+
+**前端（2，第二批）**
+```
+components/center-panel/ToolEditorView.tsx   + 失败态细分 network/http，两种失败各自准确指引
+components/center-panel/AgentEditorView.tsx  + 同上（同构代码，一并修复）
+```
+
+**文档同步（6）**
+```
+.env.example                                          + 主/副 key 约定与示例
+core/api/definitions/api-llm-chat-with-config.md      + 降级链说明 / 推荐只传 provider+model
+resources/tools/definitions/custom-model-caller.md    + api_key 可选 / 校验规则（升 0.1.1）
+resources/tools/implementations/custom-model-caller/spec.md + 同步定义文档改动
+本文件（SOTABAND_改进记录.md）                         + 条目 32 / P1-4 定位更新 / 文件清单
 ```

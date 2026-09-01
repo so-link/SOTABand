@@ -96,6 +96,32 @@ class OpenAICompatibleClient(LLMClient):
 DeepSeekClient = OpenAICompatibleClient
 
 
+def create_llm_client_for(provider: str, model: str = None,
+                          **overrides) -> LLMClient:
+    """按 provider 创建客户端，key/端点/模型自动从 .env 解析。
+
+    工具作者的便捷入口——等价于
+    ``create_llm_client(LLMConfig(provider=provider, model=model, **overrides))``。
+    密钥来源是 .env 的 ``<PROVIDER>_API_KEY``（主 key 为 LLM_PROVIDER 指向的那家，
+    其余为副 key），调用方**不需要也无法接触到明文 key**。
+
+    用法（工具代码里切换副 key）::
+
+        client = create_llm_client_for("doubao")            # 用 .env 里的 DOUBAO_API_KEY
+        client = create_llm_client_for("mimo", model="mimo-v2.5-pro")
+
+    Raises:
+        ValueError: 该 provider 无预设且未提供 base_url，或 .env 中没有对应 key。
+    """
+    cfg = LLMConfig(provider=provider, model=model, **overrides)
+    if not cfg.api_key:
+        raise ValueError(
+            f".env 中没有 {provider.upper()}_API_KEY，"
+            f"请先在 .env 添加该条目（主 key 为 LLM_API_KEY）"
+        )
+    return create_llm_client(cfg)
+
+
 def create_llm_client(config: LLMConfig = None) -> LLMClient:
     """工厂函数：根据配置创建对应的 LLM 客户端
 

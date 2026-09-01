@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Wrench, FileCode, FileText, X, Play, Loader2,
-  CheckCheck, Save, Bot, Code, Pencil, Tag, Plus, Square,
+  CheckCheck, Save, Bot, Code, Pencil, Plus, Square,
 } from 'lucide-react'
 import { Highlight, themes } from 'prism-react-renderer'
 import { Button } from '@/components/ui/button'
@@ -58,8 +58,8 @@ export function ToolDetailView() {
   const [referenceCode, setReferenceCode] = useState('')
   const [hasReference, setHasReference] = useState(false)
   const [formValues, setFormValues] = useState<Record<string, string>>({})
-  const [output, setOutput] = useState<Record<string, unknown> | null>(null)
-  const [isExecuting, setIsExecuting] = useState(false)
+  // output 只被渲染消费（沙箱执行走的是 modify-and-debug 流），不再有独立 setter
+  const [output] = useState<Record<string, unknown> | null>(null)
   const [isTesting, setIsTesting] = useState(false)
   const [isUpdating, setIsUpdating] = useState(false)
   const [rightPanelWidth, setRightPanelWidth] = useState(288)  // w-72 = 288px
@@ -169,30 +169,6 @@ export function ToolDetailView() {
       setTestResults(null)
     } catch (e) { setError(String(e)) }
     setIsUpdating(false)
-  }
-
-  const handleSubmit = async () => {
-    setIsExecuting(true)
-    setError(null)
-    setOutput(null)
-    try {
-      const params: Record<string, unknown> = {}
-      inputs.forEach(f => {
-        const val = formValues[f.name]
-        if (!val && f.required) return
-        if (f.type.includes('int')) params[f.name] = parseInt(val) || 0
-        else if (f.type.includes('float')) params[f.name] = parseFloat(val) || 0
-        else if (f.type.includes('list')) {
-          try { params[f.name] = JSON.parse(val) } catch { params[f.name] = val.split(',').map(s => s.trim()) }
-        } else params[f.name] = val
-      })
-      const res = await fetch(`${BASE_URL}/api/tool/${tool.id}/execute`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ params }),
-      })
-      setOutput(await res.json())
-    } catch (e) { setError(String(e)) }
-    setIsExecuting(false)
   }
 
   const passed = (testResults?.passed as string[]) || []
@@ -611,7 +587,7 @@ function ToolTagsEditor({ toolId, tags: initialTags }: { toolId: string; tags: s
   const [tags, setTags] = useState<string[]>(initialTags || [])
   const [editing, setEditing] = useState(false)
   const [newTag, setNewTag] = useState('')
-  const [saving, setSaving] = useState(false)
+  const [, setSaving] = useState(false)
 
   const saveTags = async (updated: string[]) => {
     setSaving(true)

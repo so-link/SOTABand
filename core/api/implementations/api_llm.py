@@ -1,6 +1,6 @@
 """LLM 相关 API 实现"""
 from core.llm.client import create_llm_client
-from config.settings import get_llm_api_config, PROVIDER_PRESETS
+from config.settings import get_llm_api_config, PROVIDER_PRESETS, LLMConfig
 from core.llm import providers as provider_catalog
 from core.llm.providers import CAP_REASONING
 from core.security.secrets import mask_secret, scrub_text
@@ -53,8 +53,22 @@ class ApiLlmTestConfig:
         base_url = (kwargs.get("base_url") or "").strip()
         model = (kwargs.get("model") or "").strip()
 
+        # api_key 三层降级：显式传入 > .env 中该 provider 的 <PROVIDER>_API_KEY
+        # > 全局主 key（LLM_API_KEY）。这样「key 已躺在 .env 里的副 key」
+        # 不必被翻出来传一遍——工具/前端只报 provider 即可。
+        if not api_key and (provider or base_url):
+            api_key = LLMConfig(
+                provider=provider or "custom", base_url=base_url or None
+            ).api_key
+        if not api_key and model:
+            inferred = provider_catalog.infer_provider_from_model(model)
+            if inferred:
+                api_key = LLMConfig(provider=inferred).api_key
         if not api_key:
-            return {"ok": False, "error": "未提供 api_key"}
+            return {
+                "ok": False,
+                "error": "未提供 api_key，且 .env 中没有该服务商的 <PROVIDER>_API_KEY",
+            }
 
         # 带上 api_key：同一厂商可能有多套互不通用的端点，按 Key 前缀自动选择
         resolved_provider, resolved_url = provider_catalog.resolve(
@@ -364,10 +378,28 @@ class ApiLlmChatWithConfig:
 
         if not messages:
             return {"content": "", "error": "messages 不能为空"}
-        if not api_key:
-            return {"content": "", "error": "未提供 api_key"}
         if not model:
             return {"content": "", "error": "未提供 model"}
+
+        # api_key 三层降级：显式传入 > .env 中该 provider 的 <PROVIDER>_API_KEY
+        # > 全局主 key（LLM_API_KEY）。key 已配置在 .env 里的副 key 无需
+        # 重复传入——工具只报 provider 即可，密钥全程不进聊天框/工具代码。
+        # 只给了 model 时先按模型名推断 provider（如 gpt-4o → openai）再解析。
+        if not api_key and (provider or base_url or model):
+            if not provider and not base_url:
+                provider = provider_catalog.infer_provider_from_model(model) or ""
+            api_key = LLMConfig(
+                provider=provider or "custom", base_url=base_url or None
+            ).api_key
+        if not api_key:
+            return {
+                "content": "",
+                "error": (
+                    "未提供 api_key，且 .env 中没有该服务商的 "
+                    "<PROVIDER>_API_KEY。可在 .env 添加对应条目后重试，"
+                    "或调用时显式传入 api_key。"
+                ),
+            }
 
         # base_url 自动解析（使用者无需知道各家的端点地址）：
         #   1) 显式给了 base_url  → 自定义模式，直接采用

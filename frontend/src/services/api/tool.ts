@@ -312,6 +312,19 @@ export const toolApi = {
     return res.json()
   },
 
+  /** 保存手工编辑后的工具代码 */
+  async saveCode(toolId: string, code: string): Promise<{ saved: string }> {
+    const res = await fetch(`${BASE_URL}/api/tool/${encodeURIComponent(toolId)}/save-code`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }))
+      throw new Error(err.detail || `HTTP ${res.status}`)
+    }
+    return res.json()
+  },
+
   /**
    * 代码 → 文档反向同步：
    * 使用者手工微调代码后，让 AI 把改动同步回 MD 规范文档。

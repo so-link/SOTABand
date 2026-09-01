@@ -4,6 +4,11 @@
 
 场景：项目 .env 用某个纯文本模型，但本次任务需要多模态（看图）、
 长上下文或想试用其他厂商的模型 —— 无需修改全局配置。
+
+密钥策略（api_key 可选）：优先用调用方显式传入的 key；未传时由
+【LLM自定义配置对话API】自动降级读取 .env 中该服务商的
+<PROVIDER>_API_KEY（或主 key LLM_API_KEY）。推荐只传 provider
+让 key 走 .env——密钥不进聊天记录、不进工具参数。
 """
 
 import base64
@@ -80,9 +85,16 @@ def execute(**kwargs):
     if not model:
         return {"status": "failed", "output_format": "text",
                 "message": "缺少必填参数：model（模型名称）", "data": {}}
-    if not api_key:
+    # api_key 已改为可选：key 已配置在 .env（<PROVIDER>_API_KEY 或主 LLM_API_KEY）
+    # 时无需传入，避免密钥出现在聊天记录/工具参数里。降级链由
+    # 【LLM自定义配置对话API】完成：显式 api_key > .env 副 key > .env 主 key。
+    # 仅当「无显式 key 且无法定位服务商」时才失败。
+    if not api_key and not provider and not base_url:
         return {"status": "failed", "output_format": "text",
-                "message": "缺少必填参数：api_key（该服务商的 API Key）", "data": {}}
+                "message": (
+                    "缺少服务商信息：请传 provider（推荐，key 会自动从 .env 的 "
+                    "<PROVIDER>_API_KEY 读取，无需粘贴密钥），或直接传 api_key。"
+                ), "data": {}}
 
     # ── 构造消息（支持多模态）──
     messages: list = []
