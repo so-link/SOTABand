@@ -42,6 +42,7 @@ interface FileTreeState {
   setSearchQuery: (query: string) => void
   getFilteredTree: () => FileTreeNode | null
   persist: () => void
+  clearWorkspace: () => Promise<void>
 }
 
 export const useFileTreeStore = create<FileTreeState>((set, get) => ({
@@ -117,5 +118,24 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => ({
   persist: () => {
     const { root } = get()
     if (root) persistTree(root)
+  },
+
+  // 清空工作区间的唯一入口。
+  // 不要让调用方自己 setState + persist：那样每加一个删除入口，
+  // 就要记得在别处同步清理附件，迟早会漏（本次 bug 正是这么产生的）。
+  clearWorkspace: async () => {
+    const fresh = emptyTree()
+    set({ root: fresh, selectedFile: null })
+    persistTree(fresh)
+
+    // 文件已全部移除，对话里残留的附件引用一并清掉。
+    // 动态 import 与 chat-store 解耦其它 store 的写法保持一致，
+    // 同时避免任何模块初始化顺序上的耦合。
+    try {
+      const { useChatStore } = await import('@/stores/chat-store')
+      useChatStore.getState().pruneAttachmentsToValidIds(new Set())
+    } catch {
+      // 清理失败不影响清空这一主操作
+    }
   },
 }))

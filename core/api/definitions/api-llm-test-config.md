@@ -20,6 +20,7 @@
 | 测什么 | 项目 `.env` 的全局配置 | 调用方传入的临时配置 |
 | 影响范围 | 全局 | 不影响全局配置 |
 | 模型校验 | 只测连通 | **校验模型是否存在 + 列出可用模型** |
+| 端点自适应 | 按 Key 前缀选端点 | 按 Key 前缀选端点，失败时**自动试遍其他端点** |
 
 ## 输入
 
@@ -46,6 +47,18 @@
 | capabilities | list | 模型存在时的能力标注（text/vision/reasoning） |
 | hint | string | 提示，如"推理模型 max_tokens 建议 >= 1500" |
 | error | string | 失败原因（已脱敏） |
+| endpoint_note | string | 默认端点不通、改用另一套端点后成功时的说明 |
+| tried_endpoints | list | 全部端点都失败时，逐个端点的失败原因 |
+
+### 端点自适应（同厂商多套端点）
+
+不少厂商按计费方式 / 订阅套餐 / 站点区域拆分出**互不通用的多套端点 + 多套 Key**
+（如小米 MiMo：按量付费 `sk-` → `api.xiaomimimo.com`，Token Plan 订阅 `tp-` →
+`token-plan-cn.xiaomimimo.com`）。用错端点时服务端只回 401，使用者看不出该换哪个。
+
+本 API 会先用 Key 前缀自动选端点；若仍失败，则把该厂商登记的其余端点逐个试一遍，
+命中即在 `endpoint_note` 中告知应改用哪个端点，全部失败则在 `tried_endpoints`
+列出每个端点的具体错误。
 
 ## 调用示例
 

@@ -56,8 +56,9 @@ class ApiLlmTestConfig:
         if not api_key:
             return {"ok": False, "error": "未提供 api_key"}
 
+        # 带上 api_key：同一厂商可能有多套互不通用的端点，按 Key 前缀自动选择
         resolved_provider, resolved_url = provider_catalog.resolve(
-            provider=provider, base_url=base_url
+            provider=provider, base_url=base_url, api_key=api_key
         )
         if not resolved_url:
             return {
@@ -79,11 +80,40 @@ class ApiLlmTestConfig:
 
         if not result.get("ok"):
             out["error"] = result.get("error", "连接失败")
-            out["hint"] = (
-                "常见原因：Key 无效或已过期、端点填错、"
-                "该 Key 无此模型权限、网络不通。"
+            # 首选端点失败 → 该 Key 可能属于同一厂商的另一套端点
+            # （如 MiMo 按量付费 sk- 与 Token Plan 订阅 tp- 互不通用的两套）。
+            # 逐个试一遍，命中就直接切换到可用端点，省去人工试错。
+            alt, alt_url, tried = await _probe_endpoint_variants(
+                resolved_provider, resolved_url, api_key
             )
-            return out
+            if alt is not None:
+                result = alt
+                resolved_url = alt_url
+                out["ok"] = True
+                out["base_url"] = alt_url
+                del out["error"]
+                out["endpoint_note"] = (
+                    f"当前 Key 不属于默认端点，已自动改用 {alt_url}。"
+                    f"建议把该端点写入 .env（LLM_BASE_URL 或 "
+                    f"<PROVIDER>_BASE_URL），以免每次多试一次。"
+                )
+            else:
+                out["tried_endpoints"] = [
+                    {"base_url": resolved_url, "label": "默认",
+                     "error": out["error"]},
+                    *tried,
+                ]
+                endpoint_hint = provider_catalog.format_endpoint_hint(
+                    resolved_provider, exclude=resolved_url
+                )
+                out["hint"] = (
+                    (endpoint_hint + " ") if endpoint_hint else ""
+                ) + (
+                    "常见原因：Key 无效或已过期、Key 与端点不匹配"
+                    "（例如把按量付费的 Key 用到了订阅套餐专用端点）、"
+                    "该 Key 无此模型权限、网络不通。"
+                )
+                return out
 
         models = result.get("models", [])
         out["models"] = models
@@ -107,6 +137,115 @@ class ApiLlmTestConfig:
                 if CAP_REASONING in caps:
                     out["hint"] = "该模型为推理模型，max_tokens 建议 >= 1500，否则返回空内容"
         return out
+
+
+# 这些错误特征通常意味着「Key 与端点不是同一套方案」，而非 Key 本身无效
+_ENDPOINT_MISMATCH_MARKERS = (
+    "401", "403", "unauthorized", "authentication", "forbidden",
+    "invalid api key", "invalid_api_key", "invalid token", "invalid_token",
+    "incorrect api key", "authentication_error", "permission",
+    "model not found", "model does not exist", "no such model",
+    "invalid model", "not_found", "404",
+)
+
+
+def _looks_like_endpoint_mismatch(err_text: str) -> bool:
+    """判断失败是否疑似「Key 与端点不匹配」。
+
+    命中时才值得换端点重试；超时、限流、内容审核等错误重试无意义。
+    """
+    low = (err_text or "").lower()
+    return any(m in low for m in _ENDPOINT_MISMATCH_MARKERS)
+
+
+async def _retry_chat_on_other_endpoints(provider: str, tried_url: str,
+                                         api_key: str, model: str,
+                                         messages: list,
+                                         temperature: float,
+                                         max_tokens: int) -> dict | None:
+    """用该厂商的其他端点重试一次对话，成功则返回结果，全失败返回 None。
+
+    仅由 ``_looks_like_endpoint_mismatch`` 判定后才调用。
+    """
+    from config.settings import LLMConfig
+
+    for variant in provider_catalog.describe_endpoint_variants(
+        provider, exclude=tried_url
+    ):
+        alt_url = (variant.get("base_url") or "").strip()
+        if not alt_url:
+            continue
+        alt_cfg = LLMConfig(
+            provider=provider or "custom",
+            api_key=api_key,
+            base_url=alt_url,
+            model=model,
+        )
+        client = None
+        try:
+            client = create_llm_client(alt_cfg)
+            content = await client.chat(
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            return {
+                "content": content,
+                "provider": alt_cfg.provider,
+                "model": model,
+                "base_url": alt_url,
+                "api_key_masked": mask_secret(api_key),
+                "endpoint_note": (
+                    f"当前 Key 不属于默认端点，已自动改用 {alt_url}。"
+                    f"建议把该端点写入配置（<PROVIDER>_BASE_URL 或 "
+                    f"LLM_BASE_URL），以免每次多试一次。"
+                ),
+            }
+        except Exception:
+            continue
+        finally:
+            # 用完即关：不保留连接，也不在进程内留下可用凭据
+            if client is not None:
+                try:
+                    await client.aclose()
+                except Exception:
+                    pass
+    return None
+
+
+async def _probe_endpoint_variants(provider: str, tried_url: str,
+                                   api_key: str) -> tuple[dict | None, str, list]:
+    """首选端点失败后，逐个尝试该厂商的其他端点，返回第一个可用的。
+
+    背景：同一厂商往往有多套方案（按量付费 / 订阅套餐 / 区域站点），
+    每套端点不同且 Key 互不通用。用错端点时服务端只回 401「invalid api key」，
+    使用者根本看不出该换哪个端点。这里自动试一遍，命中就直接给出答案。
+
+    Returns:
+        (result, base_url, tried)
+        - result 为 None 表示全部失败；否则是首个成功端点的拉取结果
+        - base_url 为成功端点（失败时为原 tried_url）
+        - tried 为已尝试过的失败端点列表，便于一次性呈现
+    """
+    tried: list[dict] = []
+    variants = provider_catalog.describe_endpoint_variants(
+        provider, exclude=tried_url
+    )
+    for variant in variants:
+        alt_url = (variant.get("base_url") or "").strip()
+        if not alt_url:
+            continue
+        alt = await provider_catalog.fetch_remote_models(
+            provider=provider, base_url=alt_url, api_key=api_key
+        )
+        if alt.get("ok"):
+            return alt, alt_url, tried
+        tried.append({
+            "base_url": alt_url,
+            "label": variant.get("label", ""),
+            "error": alt.get("error", "连接失败"),
+        })
+    return None, tried_url, tried
 
 
 def _closest_match(target: str, candidates: list[str]) -> str | None:
@@ -148,20 +287,23 @@ class ApiLlmListProviders:
     输入：
         capability（可选）：按能力过滤，如 "vision" 只要支持图像输入的
         provider（可选）：只查指定服务商的详情
+        api_key（可选）：给了则按 Key 前缀返回该 Key 实际会命中的端点
 
     输出：
         providers: 服务商列表，每项含 id/name/capabilities/models/
-                   key_url/docs_url/notes
+                   endpoint_variants/key_url/docs_url/notes
+                   （endpoint_variants 列出该厂商多套互不通用的端点及适用 Key 前缀）
     """
 
     @staticmethod
     async def call(**kwargs) -> dict:
         capability = (kwargs.get("capability") or "").strip() or None
         provider = (kwargs.get("provider") or "").strip()
+        api_key = (kwargs.get("api_key") or "").strip()
 
         if provider:
             meta = provider_catalog.get_provider_meta(provider)
-            base_url = provider_catalog.get_base_url(provider)
+            base_url = provider_catalog.get_base_url(provider, api_key=api_key)
             if not meta and not base_url:
                 return {
                     "providers": [],
@@ -177,6 +319,9 @@ class ApiLlmListProviders:
                     "capabilities": meta.get("capabilities", []),
                     "models": meta.get("models", []),
                     "default_model": preset.get("default_model", ""),
+                    "endpoint_variants": provider_catalog.describe_endpoint_variants(
+                        provider
+                    ),
                     "key_url": meta.get("key_url", ""),
                     "docs_url": meta.get("docs_url", ""),
                     "notes": meta.get("notes", ""),
@@ -226,10 +371,10 @@ class ApiLlmChatWithConfig:
 
         # base_url 自动解析（使用者无需知道各家的端点地址）：
         #   1) 显式给了 base_url  → 自定义模式，直接采用
-        #   2) 给了 provider      → 查服务商目录
+        #   2) 给了 provider      → 查服务商目录（按 Key 前缀在多套端点间自动选择）
         #   3) 只给了 model       → 按模型名推断服务商（如 gpt-4o → openai）
         resolved_provider, resolved_base_url = provider_catalog.resolve(
-            provider=provider, model=model, base_url=base_url
+            provider=provider, model=model, base_url=base_url, api_key=api_key
         )
 
         if not resolved_base_url:
@@ -271,14 +416,36 @@ class ApiLlmChatWithConfig:
             }
         except Exception as e:
             # 脱敏后再返回，防止 key 被拼进异常文本
-            return {
+            err_text = scrub_text(str(e), max_len=500)
+            # Key 与端点不匹配是最高频的失败原因（如把按量付费 Key 用到
+            # 订阅套餐专用端点）。这类错误自动换端点重试一次；其他错误
+            # （网络超时、内容审核等）不重试，避免掩盖真实问题。
+            if not base_url and _looks_like_endpoint_mismatch(err_text):
+                retried = await _retry_chat_on_other_endpoints(
+                    provider=resolved_provider,
+                    tried_url=resolved_base_url,
+                    api_key=api_key,
+                    model=model,
+                    messages=messages,
+                    temperature=kwargs.get("temperature", 0.7),
+                    max_tokens=kwargs.get("max_tokens", 4096),
+                )
+                if retried is not None:
+                    return retried
+            out = {
                 "content": "",
-                "error": f"调用失败: {scrub_text(str(e), max_len=500)}",
+                "error": f"调用失败: {err_text}",
                 "provider": cfg.provider,
                 "model": model,
                 "base_url": resolved_base_url,
                 "api_key_masked": mask_secret(api_key),
             }
+            endpoint_hint = provider_catalog.format_endpoint_hint(
+                resolved_provider, exclude=resolved_base_url
+            )
+            if endpoint_hint:
+                out["endpoint_hint"] = endpoint_hint
+            return out
         finally:
             # 用完即关：不保留连接，也不在进程内留下可用凭据
             if client is not None:
@@ -362,6 +529,9 @@ class ApiLlmTestConnection:
             return {"ok": False, "provider": test_cfg.provider, "model": test_cfg.model,
                     "base_url": test_cfg.base_url, "latency_ms": None,
                     "message": "未配置模型名（LLM_MODEL，或该服务商没有预设模型）"}
+        # 记录最终端点供失败提示使用；LLMConfig 已按 Key 前缀自动选过端点，
+        # 若 Key 与端点不属于同一套方案，这里仍可能鉴权失败。
+        endpoint_hint = provider_catalog.format_endpoint_hint(test_cfg.provider)
 
         start = time.monotonic()
         try:
@@ -388,10 +558,15 @@ class ApiLlmTestConnection:
             err_lower = err.lower()
             if any(k in err_lower for k in ("api key", "authentication", "401", "403", "unauthorized")):
                 hint = "API Key 无效或未授权，请检查 LLM_API_KEY"
+                # Key 与端点不属于同一套方案时，服务端同样只回「无效 Key」
+                if endpoint_hint:
+                    hint = f"{hint}。{endpoint_hint}"
             elif any(k in err_lower for k in ("model not found", "model does not exist",
                                               "no such model", "invalid model", "model_name",
                                               "404", "not_found")):
                 hint = "模型名不正确，或当前套餐不包含该模型，请检查 LLM_MODEL"
+                if endpoint_hint:
+                    hint = f"{hint}。{endpoint_hint}"
             elif any(k in err_lower for k in ("connection", "resolve", "timed out", "timeout",
                                               "network", "ssl", "econnrefused", "dns")):
                 hint = "无法连接，请检查 LLM_BASE_URL 与网络"

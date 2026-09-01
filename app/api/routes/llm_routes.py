@@ -27,7 +27,14 @@ async def get_config(provider: str = None):
         "providers": [
             {"id": pid, "name": p["name"],
              "default_base_url": p["default_base_url"],
-             "default_model": p["default_model"]}
+             "default_model": p["default_model"],
+             # 同一厂商可能有多套互不通用的端点（按量付费 / 订阅套餐 / 区域站点），
+             # 系统按 Key 前缀自动选择；这里一并下发，便于前端提示与手动切换。
+             "endpoint_variants": [
+                 {"base_url": v.get("base_url", ""), "label": v.get("label", ""),
+                  "key_prefix": v.get("key_prefix", ""), "docs_url": v.get("docs_url", "")}
+                 for v in p.get("endpoint_variants", [])
+             ]}
             for pid, p in PROVIDER_PRESETS.items()
         ],
     }

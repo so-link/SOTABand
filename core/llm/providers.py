@@ -19,11 +19,26 @@
 - 新增服务商：在 ``_PROVIDER_META`` 加条目即可；若端点也需要，同步加进
   ``PROVIDER_PRESETS``。
 - 不在目录中的服务商仍可用：显式传 ``base_url`` 即可（custom 模式）。
+
+## 关于「一个厂商多个端点」
+
+相当多厂商按计费方式 / 订阅套餐 / 站点区域拆分出**互不通用的多套端点 + 多套
+Key**。若把端点写死成其中一个，用另一类 Key 调用必然鉴权失败（401），
+而报错信息通常只说 "invalid api key"，使用者很难自查。
+
+因此端点解析统一走 :func:`resolve` 并带上 ``api_key``：
+能按 Key 前缀区分的厂商（如 MiMo 的 ``sk-`` / ``tp-``）自动命中正确端点；
+前缀无区分度的厂商（如 Moonshot 中国站/国际站）保留默认端点，
+并在连接失败时通过 :func:`describe_endpoint_variants` 列出备选端点提示使用者。
 """
 
 from __future__ import annotations
 
-from config.settings import PROVIDER_PRESETS
+from config.settings import (
+    PROVIDER_PRESETS,
+    list_endpoint_variants,
+    resolve_base_url,
+)
 
 # 能力标识
 CAP_TEXT = "text"        # 纯文本对话
@@ -95,10 +110,17 @@ _PROVIDER_META: dict[str, dict] = {
     },
     "mimo": {
         "capabilities": [CAP_TEXT, CAP_VISION, CAP_REASONING],
-        "models": ["MiMo-V2.5", "MiMo-V2.5-Pro"],
-        "key_url": "https://token-plan-cn.xiaomimimo.com/",
-        "docs_url": "https://platform.xiaomimimo.com/documents",
-        "notes": "支持图像输入；推理模型，max_tokens 务必 >= 1500。",
+        # 官方 curl 示例用小写 mimo-v2.5 / mimo-v2.5-pro，平台展示为
+        # MiMo-V2.5 / MiMo-V2.5-Pro；两种写法服务端均可识别。
+        "models": ["mimo-v2.5", "mimo-v2.5-pro", "MiMo-V2.5", "MiMo-V2.5-Pro"],
+        "key_url": "https://platform.xiaomimimo.com/",
+        "docs_url": "https://mimo.mi.com/docs/zh-CN/quick-start/summary/first-api-call",
+        "notes": (
+            "两套方案端点与 Key 互不通用，已按 Key 前缀自动选择："
+            "按量付费 sk- → api.xiaomimimo.com；Token Plan 订阅 tp- → "
+            "token-plan-cn.xiaomimimo.com。支持图像输入；"
+            "推理模型，max_tokens 务必 >= 1500。"
+        ),
     },
 }
 
@@ -124,9 +146,55 @@ def get_provider_meta(provider: str) -> dict:
     return _PROVIDER_META.get(provider, {})
 
 
-def get_base_url(provider: str) -> str:
-    """取服务商端点。以 PROVIDER_PRESETS 为准（可被 .env 覆盖）"""
-    return PROVIDER_PRESETS.get(provider, {}).get("default_base_url", "")
+def get_base_url(provider: str, api_key: str = "") -> str:
+    """取服务商端点。以 PROVIDER_PRESETS 为准（可被 .env 覆盖）
+
+    Args:
+        provider: 服务商 id
+        api_key:  API Key。同一厂商的多套方案（按量付费 / 订阅套餐 / 区域站点）
+                  端点不同且 Key 不通用，能按 Key 前缀区分时会据此自动选端点
+                  （如 MiMo 的 sk- / tp-）。不传则用预设默认端点。
+    """
+    preset = PROVIDER_PRESETS.get(provider, {})
+    default_url = preset.get("default_base_url", "")
+    return resolve_base_url(provider, api_key, default_url)
+
+
+def describe_endpoint_variants(provider: str,
+                               exclude: str = "") -> list[dict]:
+    """列出该服务商的备选端点（排除 ``exclude``），用于连接失败时给出提示。
+
+    解决的场景：使用者拿到的是「另一套方案」的 Key（例如 MiMo Token Plan 的
+    tp- key 配了按量付费端点），服务端只会回 401/invalid api key，
+    看不出该换哪个端点。这里把备选端点连同用途一起列出来。
+    """
+    out = []
+    for v in list_endpoint_variants(provider):
+        if exclude and v.get("base_url") == exclude:
+            continue
+        out.append({
+            "base_url": v.get("base_url", ""),
+            "label": v.get("label", ""),
+            "key_prefix": v.get("key_prefix", ""),
+            "docs_url": v.get("docs_url", ""),
+        })
+    return out
+
+
+def format_endpoint_hint(provider: str, exclude: str = "") -> str:
+    """把备选端点格式化为一行中文提示（用于报错 message）"""
+    variants = describe_endpoint_variants(provider, exclude=exclude)
+    if not variants:
+        return ""
+    parts = []
+    for v in variants:
+        prefix = f"key 前缀 {v['key_prefix']}" if v["key_prefix"] else "key 前缀无法区分"
+        parts.append(f"{v['base_url']}（{v['label']}，{prefix}）")
+    return (
+        f"该服务商有多套端点且 Key 互不通用，请确认你的 Key 属于哪一套："
+        + "；".join(parts)
+        + "。可设 <PROVIDER>_BASE_URL 或 LLM_BASE_URL 显式指定。"
+    )
 
 
 def infer_provider_from_model(model: str) -> str | None:
@@ -164,6 +232,11 @@ def list_providers(capability: str | None = None) -> list[dict]:
             "capabilities": caps,
             "models": meta.get("models", [preset.get("default_model")] if preset.get("default_model") else []),
             "default_model": preset.get("default_model", ""),
+            "endpoint_variants": [
+                {"base_url": v.get("base_url", ""), "label": v.get("label", ""),
+                 "key_prefix": v.get("key_prefix", ""), "docs_url": v.get("docs_url", "")}
+                for v in list_endpoint_variants(pid)
+            ],
             "key_url": meta.get("key_url", ""),
             "docs_url": meta.get("docs_url", ""),
             "notes": meta.get("notes", ""),
@@ -172,15 +245,21 @@ def list_providers(capability: str | None = None) -> list[dict]:
 
 
 def resolve(provider: str | None = None, model: str | None = None,
-            base_url: str | None = None) -> tuple[str, str]:
+            base_url: str | None = None,
+            api_key: str | None = None) -> tuple[str, str]:
     """解析出最终使用的 (provider, base_url)。
 
     优先级：显式 base_url > provider 查表 > model 名推断。
+
+    Args:
+        api_key: 用于在同一厂商的多套端点间自动选择（按 Key 前缀，
+            如 MiMo 的 sk- / tp-）。不传则用预设默认端点。
 
     Returns:
         (provider, base_url)。若无法解析，base_url 为空串，由调用方报错。
     """
     base_url = (base_url or "").strip()
+    key = (api_key or "").strip()
 
     # 1) 显式给了 base_url —— 自定义模式，直接采用
     if base_url:
@@ -189,7 +268,7 @@ def resolve(provider: str | None = None, model: str | None = None,
     # 2) 按 provider 查表
     p = (provider or "").strip()
     if p:
-        url = get_base_url(p)
+        url = get_base_url(p, api_key=key)
         if url:
             return p, url
         # provider 已知但无预设端点 → 留空让调用方报错并提示
@@ -198,7 +277,7 @@ def resolve(provider: str | None = None, model: str | None = None,
     # 3) 按 model 名推断
     inferred = infer_provider_from_model(model or "")
     if inferred:
-        url = get_base_url(inferred)
+        url = get_base_url(inferred, api_key=key)
         if url:
             return inferred, url
 
@@ -250,7 +329,7 @@ async def fetch_remote_models(provider: str | None = None,
     from core.security.secrets import scrub_text
 
     resolved_provider, resolved_url = resolve(
-        provider=provider, base_url=base_url
+        provider=provider, base_url=base_url, api_key=api_key
     )
     if not resolved_url:
         return {"ok": False, "error": "无法解析服务地址：请提供 provider 或 base_url"}

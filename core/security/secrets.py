@@ -26,6 +26,14 @@
 - ``scrub_text(text)``           对任意文本脱敏（替换所有疑似密钥）
 - ``scrub_mapping(obj)``         对 dict 脱敏（用于工具输入参数）
 - ``SENSITIVE_KEY_NAMES``        需要整值脱敏的参数名
+- ``KEY_PREFIXES``               各厂商 API Key 前缀登记表
+
+## 关于 Key 前缀
+
+密钥形态的判断不能写死在某家厂商上：同一厂商的不同计费/订阅方案前缀也不同
+（小米 MiMo 按量付费为 ``sk-``、Token Plan 订阅为 ``tp-``），厂商还会不断增加。
+因此把前缀抽成 ``KEY_PREFIXES`` 登记表，正则由其动态生成——
+接入新厂商时只需加一项，而不是改正则，也不必担心漏掉某个前缀导致密钥未脱敏。
 """
 
 from __future__ import annotations
@@ -43,18 +51,46 @@ SENSITIVE_KEY_NAMES = {
     "private_key", "private-key",
 }
 
+# 已知厂商的 API Key 前缀（小写）。
+#
+# 各厂商前缀层出不穷，而且**同一厂商的不同计费/订阅方案前缀也不同**
+# （典型如小米 MiMo：按量付费是 sk-，Token Plan 订阅是 tp-）。
+# 因此这里集中登记前缀，新增厂商/新方案时只需往元组里加一项。
+#
+# 刻意**不做**「任意小写词 + 连字符 + 长随机串」这种宽泛匹配：
+# 那会误伤 tool-id、日志文件名等普通文本（如 large-model-bounding-box、
+# lunwen-pingshen_20260729_151202），把无关信息也打码，反而妨碍排查。
+KEY_PREFIXES: tuple[str, ...] = (
+    "sk-or-v1-",   # OpenRouter
+    "sk-proj-",    # OpenAI 项目级 Key
+    "sk-ant-",     # Anthropic
+    "github_pat_", # GitHub 细粒度令牌
+    "glpat-",      # GitLab
+    "dop_v1_",     # DigitalOcean
+    "sk-",         # OpenAI / DeepSeek / Moonshot / 通义 / 硅基流动 / MiMo 按量付费 ...
+    "tp-",         # 小米 MiMo Token Plan 订阅
+    "gsk_",        # Groq
+    "xai-",        # xAI
+    "ghp_",        # GitHub
+)
+
+# 由 KEY_PREFIXES 动态生成：「已知前缀 + 至少 12 位随机串」。
+# 长前缀排在前面，保证 sk-ant- 优先于 sk- 命中。
+_PREFIX_SECRET_PATTERN = re.compile(
+    r"\b(?:%s)[A-Za-z0-9_\-]{12,}\b"
+    % "|".join(re.escape(p) for p in sorted(KEY_PREFIXES, key=len, reverse=True))
+)
+
 # 常见密钥形态（按“长得像不像”判断，与参数名无关）
 _SECRET_PATTERNS = [
-    # OpenAI / 兼容厂商: sk-xxx, sk-proj-xxx
-    re.compile(r"\bsk-[A-Za-z0-9_\-]{16,}\b"),
-    # Anthropic: sk-ant-xxx
-    re.compile(r"\bsk-ant-[A-Za-z0-9_\-]{16,}\b"),
-    # 本项目 mimo: tp-xxx
-    re.compile(r"\btp-[A-Za-z0-9_\-]{16,}\b"),
+    # 已知厂商前缀：sk-xxx / sk-ant-xxx / tp-xxx / gsk_xxx ...
+    _PREFIX_SECRET_PATTERN,
     # Google AI: AIzaSy...
     re.compile(r"\bAIza[A-Za-z0-9_\-]{30,}\b"),
     # AWS Access Key
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
+    # 智谱式 {32位id}.{16位secret}：中间的点会打断“长随机串”规则，需单独匹配
+    re.compile(r"\b[A-Za-z0-9]{24,}\.[A-Za-z0-9]{16,}\b"),
     # 通用长随机串（32位以上 hex / base62，无空格）
     re.compile(r"\b[A-Za-z0-9_\-]{40,}\b"),
     # JWT

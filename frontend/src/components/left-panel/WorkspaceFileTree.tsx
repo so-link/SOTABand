@@ -23,6 +23,7 @@ import { useChatStore } from '@/stores/chat-store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
+import { setWorkspaceFileDragData } from '@/lib/dnd'
 import { DatasetImportDialog } from './DatasetImportDialog'
 import type { FileTreeNode, FileCategory } from '@/types/workspace'
 
@@ -65,8 +66,15 @@ export function WorkspaceFileTree() {
   }
 
   const handleDragStart = (e: React.DragEvent, node: FileTreeNode) => {
-    e.dataTransfer.setData('application/json', JSON.stringify(node))
-    e.dataTransfer.effectAllowed = 'copy'
+    // 目录不是有效附件，拒绝拖起（否则拖到输入框会静默无反应）
+    if (node.type !== 'file') return
+    setWorkspaceFileDragData(e.dataTransfer, {
+      id: node.id,
+      name: node.name,
+      path: node.path,
+      size: node.size || 0,
+      format: node.format || '',
+    })
   }
 
   const [showImport, setShowImport] = useState(false)
@@ -81,13 +89,9 @@ export function WorkspaceFileTree() {
     setShowImport(false)
   }
 
-  const handleClear = () => {
-    const { root, persist } = useFileTreeStore.getState()
-    if (root) {
-      root.children = []
-      useFileTreeStore.setState({ root: { ...root } })
-      persist()
-    }
+  const handleClear = async () => {
+    // 走 store 的统一入口：清空文件的同时会把对话里残留的附件引用清掉
+    await useFileTreeStore.getState().clearWorkspace()
   }
 
   const handleDoubleClick = (node: FileTreeNode) => {
@@ -218,7 +222,7 @@ function FileTreeItem({
   return (
     <div>
       <div
-        draggable
+        draggable={!isDir}
         onDragStart={(e) => onDragStart(e, node)}
         onClick={() => {
           if (isDir) onToggle(node.id)
