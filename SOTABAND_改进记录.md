@@ -1,6 +1,6 @@
 # SOTABand 改进记录
 
-> 记录时间：2026-08-29（首版，条目 1-22）／ 2026-08-30 增量（条目 23-26）
+> 记录时间：2026-08-29（首版，条目 1-22）／ 2026-08-30 增量（条目 23-26）／ 2026-09-01 增量（条目 27-31）
 > 改动范围：27 个源码文件（后端 Python + 前端 TypeScript）
 > 说明：本文只记录对 **SOTABand 平台本身**的改动；业务工具（如航拍图像质量评估器）的代码由平台生成，不在本记录范围内。
 
@@ -119,6 +119,37 @@
 
 ---
 
+### 27. 编辑器 `@` 补全永远"加载中"（两轮修复，Windows 特有）
+
+**现象**：Windows 使用者输入 `@` 引用系统 API，下拉框永远"加载中..."；`$` 引用工具正常。
+
+**第一轮（前端表象）**：`isLoading = apiItems.length === 0` 把"失败"谎报为"加载中"——fetch 失败被 `.catch(()=>{})` 吞掉，列表永远为空，下拉框永远转圈。改为显式三态 `loading / ready / failed`：失败显示"无法连接后端服务 + 启动命令"，fetch 加 10s 超时（AbortController），非 2xx（如返回 HTML）也判为失败。
+
+**第二轮（后端真因）**：她 `$` 能用证明后端在跑，推翻第一判断。继续深挖发现 `0b4cc89` 修 Windows GBK 问题时改了 `tool_registry.py` / `data_registry.py` / `agent_registry.py` 三个注册中心，**漏了 `core/api/registry.py`**（`@` 的数据源）。registry.json 含中文，Windows 默认 GBK 解码 → `UnicodeDecodeError` → `/api/apis/list` 返回 500。更隐蔽的是：500 响应里 `d.apis` 为 `undefined`，`(d.apis||[])` 得空数组——**连 `.catch` 都不触发**，前端彻底感知不到失败。
+
+**修复**：补上该文件的 `encoding="utf-8"`；顺势全仓扫描，又修出约 20 处无 encoding 的中文文件读写（工具/Agent 注册写 MD 与代码、详情页读取、pip 子进程输出等，共 9 个文件）——这些在 Windows 上迟早会以"工具详情打不开""注册的代码文件损坏"等形式爆发。
+
+**教训**：
+1. 修"同类问题"必须全局搜——三个 registry 修了、第四个漏了，正是"同构代码漏改温床"（条目 23、24 的重演）；
+2. "列表为空" ≠ "加载中"，加载态必须显式建模，否则任何失败都会被伪装成永久加载；
+3. 排障时"某个相邻功能正常"是最有价值的反证——它直接否证了最容易得出的浅层结论（"没启动后端"）。
+
+---
+
+### 28. 清空工作区后，对话中的附件引用残留
+
+**现象**：点"清空工作区"文件树清空了，但输入框待发送的附件胶囊与历史消息上的附件标签还在，发送后后端拿到指向不存在路径的悬空引用。
+
+**根因**：`handleClear` 绕过 store 直接 `setState` 改 `root.children`，只动文件树，对话层完全不知情。附件存在于 chat-store 的两处：待发的 `attachedFiles` 与历史消息的 `message.attachments`。
+
+**修复**：
+- `chat-store` 新增 `pruneAttachmentsToValidIds(validIds)`：一次性清理两处；某消息附件全失效时置 `undefined` 而非空数组（避免气泡渲染出空附件区）；无变化时返回原 state，借 zustand 的 `Object.is` 比较跳过通知，避免消息列表无谓重渲染
+- `file-tree-store` 新增 `clearWorkspace()` 作为清空的唯一入口：清树 + 重置 selectedFile + 持久化 + 通知对话层清理
+
+**教训**：让调用方自己 `setState + persist`，等于每新增一个删除入口就要记得在别处同步清理——本次 bug 正是这么漏的。状态清理必须收敛为 store action。**复用性**：将来支持删除单个文件时，传"剩余文件 id 集合"即可，无需再改对话层。
+
+---
+
 ## 二、安全加固
 
 ### 8. API Key 三条泄露路径（高危）
@@ -150,6 +181,23 @@
 - **规则 16**：禁止硬编码任何 API key / token / password（含字面量、默认值、注释）
 - **规则 17**：禁止把凭据打印到 stdout/stderr 或放入返回的 message/data
 - **规则 18**：（原 16 顺延）
+
+---
+
+### 29. 密钥脱敏：前缀写死 → 登记表驱动（2026-09-01 追加）
+
+**问题**：条目 8 落地后暴露两个缺陷：
+
+1. `_SECRET_PATTERNS` 里单列了一条 `tp-` 正则，注释写着"本项目 mimo"——前缀写死，下一个用非常见前缀的厂商（如 `xai-`、`gsk_`）就会漏脱敏；
+2. 智谱式 `{32位id}.{16位secret}` 的中间点会打断"40+ 位长随机串"规则，导致**漏脱敏**。
+
+**修复**：
+
+- 前缀收敛为 `KEY_PREFIXES` 登记表（`sk-or-v1-` / `sk-proj-` / `sk-ant-` / `github_pat_` / `glpat-` / `dop_v1_` / `sk-` / `tp-` / `gsk_` / `xai-` / `ghp_`），正则由表动态生成，长前缀优先匹配（`sk-ant-` 先于 `sk-` 命中）
+- 补智谱式点分隔模式
+- **刻意不做**"任意小写词+连字符+长串"的宽泛匹配：实测会误伤 `large-model-bounding-box-tool` 这类工具 id 和日志文件名，把无关信息打码反而妨碍排查
+
+**教训**：脱敏这类"枚举外部世界"的规则，宁可维护一张表也不要散落的正则——表是数据，改表不用动逻辑，review 也一目了然。
 
 ---
 
@@ -290,6 +338,20 @@ visibility = private/public → 决定谁能看
 | `GET /api/data/list?available_only=` | **增强**：可用性过滤 + 归属隔离 |
 | `POST /api/data/claim-local` | **新增**：认领本机历史数据集 |
 
+### 30. 工作区间 → 对话的文件拖拽附加（2026-09-01）
+
+**问题**：ChatInput 里一直渲染着"📎 从左侧拖拽文件到此处附加"，但全仓库搜 `dataTransfer.getData` 命中数为 **0**——拖拽只有发射端（文件树的 `draggable` + `onDragStart`），接收端压根没写，拖过去**静默无反应**。textarea 默认只接受 `text/plain`，而拖拽源写的是 `application/json`，二者对不上。
+
+**修复**：
+
+- 新建 `frontend/src/lib/dnd.ts` 拖拽契约：专属 MIME `application/x-sotaband-workspace-file`（dataTransfer 会混入浏览器拖来的任意内容，通用 `application/json` 无法可靠判定来源）、载荷只带附件所需 5 字段（不塞整棵子树）、另写 `text/plain` 兜底（拖到外部编辑器至少落下文件路径）
+- ChatInput 补接收端：`onDrop` 附加 + 悬停高亮（dragenter/leave 用计数器判断真正离开，否则鼠标掠过子元素时高亮疯狂闪烁）+ 提示文案随状态变化（"松手即可附加"）
+- OS 拖入的文件也能用：复用 `uploadFiles` 上传进工作区间后自动附加
+- 文件树目录不可拖（`draggable={!isDir}`）——目录非有效附件，拖过去同样静默失败
+- `addAttachment` 按 id 去重（连拖两次/双击两次会出重复胶囊）
+
+**坑**：zustand `set` 的返回值会被 `Object.assign` 进 state——去重命中时若直接返回裸数组 `s.attachedFiles`，数组下标会变成 state 的键，污染整个 store。返回"无变化"必须包成对象 `{ attachedFiles: s.attachedFiles }`。
+
 ---
 
 ## 五、LLM 能力增强
@@ -346,6 +408,24 @@ visibility = private/public → 决定谁能看
 
 新增 API 一览：`api-llm-chat-with-config`、`api-llm-test-config`、`api-llm-list-providers`。
 
+### 31. 同厂商多端点自适应：按 Key 前缀自动选端点（2026-09-01）
+
+**问题**（实际发生的事故）：使用者调用 MiMo 按量付费 API 失败，而 Token Plan（`tp-` key）正常。根因是 `mimo` 预设把端点写死为 Token Plan 专用端点——小米官方两套方案端点不同且**互不通用**（官方文档原话"相互独立，不可混用"）：
+
+- 按量付费：`sk-` → `https://api.xiaomimimo.com/v1`
+- Token Plan：`tp-` → `https://token-plan-cn.xiaomimimo.com/v1`
+
+用错端点时服务端只回 401 "invalid api key"，使用者无从自查。
+
+**方案**：
+
+- `PROVIDER_PRESETS` 每家登记 `endpoint_variants`（端点 / 用途 / Key 前缀 / 官方文档），`resolve()` 带上 `api_key` 按前缀自动选端点；前缀无区分度的厂商（Moonshot / Qwen / MiniMax 的中外站、智谱通用端点与 GLM Coding Plan 端点）保留 `<PROVIDER>_BASE_URL` 显式指定兜底
+- `api-llm-test-config`：首选端点失败时自动试遍其余端点，命中则回 `endpoint_note` 告知该用哪个；全失败回 `tried_endpoints` 逐个错误
+- `api-llm-chat-with-config`：仅鉴权类错误（401/403/model not found）换端点重试一次——超时、限流、内容审核不重试，避免掩盖真实问题
+- `api-llm-test-connection` 的报错追加备选端点对照提示（`format_endpoint_hint`）
+
+**教训**：端点这种"同一厂商多套方案"的信息必须建模为数据（variants），而不是写死一个默认值。写死任何一个，另一半用户必然踩坑，且报错信息（invalid api key）完全不指向真正原因。
+
 ---
 
 ## 六、当前状态
@@ -355,10 +435,11 @@ visibility = private/public → 决定谁能看
 工具：  共享，32 个
 Agent： 共享，6 个
 系统 API：17 个
-服务商目录：9 家（6 家支持多模态）
+服务商目录：9 家（6 家支持多模态；mimo/moonshot/zhipu/qwen/minimax 登记多端点变体）
+文件 I/O：核心读写均已显式 encoding="utf-8"（Windows GBK 防护，条目 27）
 ```
 
-验证：全项目编译通过、前端 `tsc --noEmit` 零错误、ESLint 0 错误。
+验证：全项目编译通过、前端类型错误与基线持平（19 个既有错误，本次改动零新增）、ESLint 0 错误；LLM 真实调用（MiMo 按量付费 sk- key 自动命中 api.xiaomimimo.com）与拖拽契约、附件清理逻辑均冒烟通过。
 
 ---
 
@@ -420,14 +501,16 @@ Agent： 共享，6 个
 模型列表已改为动态拉取（P0 已解）。但**端点、文档链接、能力标注**仍是硬编码，厂商改域名或调整能力后需要人工更新。
 
 **建议**：
-- 端点失效时给出明确提示（而非通用网络错误）
-- 定期检查目录中的 `docs_url` 可达性
+- ~~端点失效时给出明确提示（而非通用网络错误）~~ ✅ 2026-09-01 已解：端点变体登记（条目 31）+ 失败自动试测其余端点 + 报错附备选端点对照
+- 定期检查目录中的 `docs_url` 可达性（仍未做）
 
 ### P1-6. 密钥脱敏存在误判
 
 `scrub_text()` 对 40+ 位无空格随机串一律脱敏，可能误伤正常长文本（如 base64 图片数据、长哈希）。
 
 当前"宁可多脱敏"，安全性优先；但会削弱日志可读性。建议后续对已知安全字段（如 base64 图片）加白名单豁免。
+
+> 2026-09-01 部分缓解（条目 29）：厂商前缀收敛为 KEY_PREFIXES 登记表、去掉宽泛的"任意小写词+连字符"匹配（实测会误伤工具 id 与日志文件名），并补上智谱式点分隔密钥的**漏脱敏**。40+ 位通用串规则仍在，base64 白名单豁免仍未做。
 
 ### P1-7. 工具编辑器无「已修改」的全局提示
 
@@ -484,3 +567,44 @@ frontend/src/components/left-panel/ResourceBrowser.tsx + 条目行 DOM 嵌套修
 ```
 
 新增数据文件：`storage/workspace_tools.json`（工具空间清单，版本控制之外）
+
+---
+
+## 十一、附：2026-09-01 增量改动文件清单（19 个）
+
+本日三批改动：① MiMo 多端点修复（条目 31 / 29，对应"调用 mimo 按量付费 API 失败"事故）；② 拖拽附加 + 清空工作区联动（条目 30 / 28）；③ 编辑器 @ 补全修复 + Windows GBK 全量补齐（条目 27）。
+
+**后端（12）**
+```
+config/settings.py                       + endpoint_variants / resolve_base_url 按 Key 前缀选端点
+core/llm/providers.py                    + resolve/get_base_url 带 api_key / format_endpoint_hint
+core/api/implementations/api_llm.py      + 端点自动试测 / 鉴权错误换端点重试 / 报错附端点提示
+core/security/secrets.py                 + KEY_PREFIXES 登记表 / 智谱式点分隔模式（条目 29）
+app/api/routes/llm_routes.py             + provider 列表下发 endpoint_variants
+core/api/registry.py                     + encoding=utf-8（0b4cc89 遗漏，@ 补全 500 的真因）
+core/resource/registry/tool_registry.py  + encoding=utf-8（写 MD/代码/测试数据）
+core/resource/registry/data_registry.py  + encoding=utf-8
+core/agent/factory.py                    + encoding=utf-8
+core/resource/builder/tool_builder.py    + encoding=utf-8 / 子进程中文输出解码
+app/api/routes/{tool,agent,data}_routes.py + encoding=utf-8（读写 spec/demand/code 约 15 处）
+scripts/backfill_tool_tags.py            + encoding=utf-8
+```
+
+**前端（7）**
+```
+lib/dnd.ts                                     【新建】拖拽契约（专属 MIME / 载荷 / 三阶段判定）
+components/center-panel/ChatInput.tsx          + drop 接收端 / OS 文件上传附加 / 悬停高亮
+components/left-panel/WorkspaceFileTree.tsx    + 目录不可拖 / 载荷契约化 / 清空走统一入口
+stores/chat-store.ts                           + addAttachment 去重 / pruneAttachmentsToValidIds
+stores/file-tree-store.ts                      + clearWorkspace 统一入口（联动清理对话附件）
+components/center-panel/ToolEditorView.tsx     + @/$ 补全三态 loading/ready/failed / fetch 超时
+components/center-panel/AgentEditorView.tsx    + 同上（同构代码，一并修复）
+```
+
+**文档同步（4）**
+```
+.env.example                                    + 各厂商 Key 前缀与端点说明 / 多端点警告
+core/api/definitions/api-llm-test-config.md     + 端点自适应说明 / 新增返回字段
+core/api/definitions/api-llm-test-connection.md + 报错追加端点对照提示
+本文件（SOTABAND_改进记录.md）                   + 条目 27-31
+```
