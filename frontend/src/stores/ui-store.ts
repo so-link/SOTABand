@@ -3,6 +3,7 @@ import { create } from 'zustand'
 export type ActiveView =
   | 'chat'
   | 'data-preview'
+  | 'file-preview'
   | 'code-review'
   | 'orchestration'
   | 'task-monitor'
@@ -13,6 +14,7 @@ export type ActiveView =
   | 'dataset-editor'
   | 'repository'
   | 'dataset-repository'
+  | 'settings'
 
 export type Theme = 'dark' | 'light'
 

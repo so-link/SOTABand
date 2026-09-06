@@ -795,23 +795,6 @@
     "preview_tool": "file-visualizer"
   },
   {
-    "id": "落汤鸡",
-    "name": "落汤鸡",
-    "version": "0.1.0",
-    "type": "generic",
-    "status": "active",
-    "spec_path": "definitions/落汤鸡.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/1785672812304",
-    "file_count": 1,
-    "total_size": 806482,
-    "formats": [
-      "png"
-    ],
-    "tags": [],
-    "quality_score": null,
-    "created_at": "2026-08-02T12:13:51Z"
-  },
-  {
     "id": "test-ds-api",
     "name": "Test API DS",
     "version": "0.1.0",
@@ -831,5 +814,232 @@
     ],
     "quality_score": null,
     "created_at": "2026-08-02T12:32:00Z"
+  },
+  {
+    "id": "变电站",
+    "name": "变电站",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/变电站.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/1785687920159",
+    "file_count": 1,
+    "total_size": 1071223,
+    "formats": [
+      "png"
+    ],
+    "tags": [
+      "航拍巡检",
+      "变电站",
+      "合成图片",
+      "电力设施"
+    ],
+    "quality_score": null,
+    "created_at": "2026-08-02T16:25:59Z"
+  },
+  {
+    "id": "无人机",
+    "name": "无人机",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/无人机.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/1785722591559",
+    "file_count": 1,
+    "total_size": 185632,
+    "formats": [
+      "png"
+    ],
+    "tags": [
+      "无人机",
+      "合成图像",
+      "豆包模型",
+      "图片数据",
+      "提示词"
+    ],
+    "quality_score": null,
+    "created_at": "2026-08-03T02:03:28Z"
+  },
+  {
+    "id": "moon walker",
+    "name": "moon walker",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/moon walker.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/1785729026953",
+    "file_count": 1,
+    "total_size": 953306,
+    "formats": [
+      "png"
+    ],
+    "tags": [
+      "合成图像",
+      "月球漫步",
+      "太空探索",
+      "地球人",
+      "AI生成"
+    ],
+    "quality_score": null,
+    "created_at": "2026-08-03T03:50:49Z"
+  },
+  {
+    "id": "test_data_20260803115050",
+    "name": "test_data",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/test_data_20260803115050.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/20260803115050",
+    "file_count": 1,
+    "total_size": 637,
+    "formats": [
+      "csv"
+    ],
+    "tags": [
+      "奶昔配方",
+      "实验数据",
+      "测试记录",
+      "食品研发"
+    ],
+    "quality_score": null,
+    "created_at": "2026-08-03T03:50:50Z"
+  },
+  {
+    "id": "sotaband",
+    "name": "sotaband",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/sotaband.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/1785746407584",
+    "file_count": 1,
+    "total_size": 315514,
+    "formats": [
+      "png"
+    ],
+    "tags": [
+      "AI生成",
+      "合成图像",
+      "智能体",
+      "未来科技"
+    ],
+    "quality_score": null,
+    "created_at": "2026-08-03T08:40:33Z"
+  },
+  {
+    "id": "奶昔配方实验数据_20260804113642",
+    "name": "奶昔配方实验数据",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/奶昔配方实验数据_20260804113642.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/20260804113642",
+    "file_count": 1,
+    "total_size": 46163,
+    "formats": [
+      "csv"
+    ],
+    "tags": [
+      "奶昔配方",
+      "实验数据",
+      "饮品研发"
+    ],
+    "quality_score": null,
+    "created_at": "2026-08-04T03:36:42Z"
+  },
+  {
+    "id": "field",
+    "name": "field",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/field.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/1786335679570",
+    "file_count": 1,
+    "total_size": 1016623,
+    "formats": [
+      "png"
+    ],
+    "tags": [
+      "合成图片",
+      "农田场景",
+      "豆包生成",
+      "AI绘图",
+      "农业视觉"
+    ],
+    "quality_score": null,
+    "created_at": "2026-08-10T04:21:34Z"
+  },
+  {
+    "id": "电力数据_1786586722",
+    "name": "电力数据",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/电力数据_1786586722.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/uploads/dataset_1786586606815",
+    "file_count": 1,
+    "total_size": 296464,
+    "formats": [
+      "csv"
+    ],
+    "tags": [
+      "电力数据",
+      "传感器",
+      "时间序列",
+      "数据监控",
+      "能源分析"
+    ],
+    "quality_score": null,
+    "created_at": "2026-08-13T02:05:22Z",
+    "preview_tool": "file-visualizer"
+  },
+  {
+    "id": "安利原材料供应商评估_1788399791",
+    "name": "安利原材料供应商评估",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/安利原材料供应商评估_1788399791.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/uploads/dataset_1788399734884",
+    "file_count": 3,
+    "total_size": 1064441,
+    "formats": [
+      "pdf"
+    ],
+    "tags": [
+      "供应商评估",
+      "原材料",
+      "内部基准",
+      "安利"
+    ],
+    "quality_score": null,
+    "created_at": "2026-09-03T01:43:11Z",
+    "preview_tool": "file-visualizer"
+  },
+  {
+    "id": "安利供应商材料_1788401469",
+    "name": "安利供应商材料",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/安利供应商材料_1788401469.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/uploads/dataset_1788401415016",
+    "file_count": 2,
+    "total_size": 714014,
+    "formats": [
+      "pdf"
+    ],
+    "tags": [
+      "供应商材料",
+      "供应商管理",
+      "企业文档",
+      "归档查阅",
+      "PDF文件"
+    ],
+    "quality_score": null,
+    "created_at": "2026-09-03T02:11:09Z",
+    "preview_tool": "file-visualizer"
   }
 ]

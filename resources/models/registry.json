@@ -1,0 +1,492 @@
+[
+  {
+    "id": "model-1785859398",
+    "name": "linear_regression model for experiment_data",
+    "version": "0.1.0",
+    "type": "model",
+    "status": "registered",
+    "spec_path": "definitions/model-1785859398.md",
+    "framework": "scikit-learn",
+    "model_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/models/linear_regression_20260805_000318.pkl",
+    "input_format": "CSV数值特征（8维）",
+    "output_format": "数值预测",
+    "tags": [
+      "regression",
+      "linear_regression",
+      "experiment_data"
+    ],
+    "associated_tool_id": "csv-regression-trainer",
+    "created_at": "2026-08-04T16:03:18Z"
+  },
+  {
+    "id": "model-1785859522",
+    "name": "random_forest model for experiment_data",
+    "version": "0.1.0",
+    "type": "model",
+    "status": "registered",
+    "spec_path": "definitions/model-1785859522.md",
+    "framework": "scikit-learn",
+    "model_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/models/random_forest_20260805_000522.pkl",
+    "input_format": "CSV数值特征（8维）",
+    "output_format": "数值预测",
+    "tags": [
+      "regression",
+      "random_forest",
+      "experiment_data"
+    ],
+    "associated_tool_id": "csv-regression-trainer",
+    "created_at": "2026-08-04T16:05:22Z"
+  },
+  {
+    "id": "model-1785859773",
+    "name": "回归模型-xgboost",
+    "version": "0.1.0",
+    "type": "model",
+    "status": "registered",
+    "spec_path": "definitions/model-1785859773.md",
+    "framework": "xgboost",
+    "model_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/regression_xgboost_1785859773.pkl",
+    "input_format": "csv",
+    "output_format": "numerical",
+    "tags": [
+      "regression",
+      "xgboost"
+    ],
+    "associated_tool_id": "train-regression-model",
+    "created_at": "2026-08-04T16:09:33Z"
+  },
+  {
+    "id": "model-1785861486",
+    "name": "奶昔预测模型1785861486",
+    "version": "0.1.0",
+    "type": "model",
+    "status": "registered",
+    "spec_path": "definitions/model-1785861486.md",
+    "framework": "xgboost",
+    "model_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/predict.pkl",
+    "input_format": "tabular",
+    "output_format": "numeric",
+    "tags": [
+      "regression",
+      "xgboost"
+    ],
+    "associated_tool_id": "regression-trainer",
+    "created_at": "2026-08-04T16:38:06Z"
+  },
+  {
+    "id": "model-1785875647",
+    "name": "奶昔预测模型1785875647",
+    "version": "0.1.0",
+    "type": "model",
+    "status": "registered",
+    "spec_path": "definitions/model-1785875647.md",
+    "framework": "xgboost",
+    "model_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/predict.pkl",
+    "input_format": "tabular",
+    "output_format": "numeric",
+    "tags": [
+      "regression",
+      "xgboost"
+    ],
+    "associated_tool_id": "regression-trainer",
+    "created_at": "2026-08-04T20:34:07Z"
+  },
+  {
+    "id": "model-1785875659",
+    "name": "奶昔预测模型1785875659",
+    "version": "0.1.0",
+    "type": "model",
+    "status": "registered",
+    "spec_path": "definitions/model-1785875659.md",
+    "framework": "xgboost",
+    "model_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/predict.pkl",
+    "input_format": "tabular",
+    "output_format": "numeric",
+    "tags": [
+      "regression",
+      "xgboost"
+    ],
+    "associated_tool_id": "regression-trainer",
+    "created_at": "2026-08-04T20:34:19Z"
+  },
+  {
+    "id": "model-1785875998",
+    "name": "奶昔预测模型20260805043958",
+    "version": "0.1.0",
+    "type": "model",
+    "status": "registered",
+    "spec_path": "definitions/model-1785875998.md",
+    "framework": "xgboost",
+    "model_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/model_20260805043958.pkl",
+    "input_format": "tabular",
+    "output_format": "scalar",
+    "tags": [
+      "regression",
+      "milkshake",
+      "prediction"
+    ],
+    "associated_tool_id": "milkshake-predictor-trainer",
+    "created_at": "2026-08-04T20:39:58Z"
+  },
+  {
+    "id": "model-1786592987",
+    "name": "power_data_forecast_20260813_114947",
+    "version": "0.1.0",
+    "type": "model",
+    "status": "registered",
+    "spec_path": "definitions/model-1786592987.md",
+    "framework": "pytorch",
+    "model_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/models/power_data_forecast_20260813_114947.pt",
+    "input_format": "csv",
+    "output_format": "model",
+    "tags": [
+      "time-series",
+      "lstm",
+      "forecast"
+    ],
+    "associated_tool_id": "power-data-forecast-model-training",
+    "created_at": "2026-08-13T03:49:47Z"
+  },
+  {
+    "id": "model-1786594985",
+    "name": "electricity_forecast_col2_w10_v3_epoch10.pt_20260813_122305_760",
+    "version": "0.1.0",
+    "type": "model",
+    "status": "registered",
+    "spec_path": "definitions/model-1786594985.md",
+    "framework": "pytorch",
+    "model_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/models/electricity_forecast_col2_w10_v3_epoch10.pt",
+    "input_format": "csv",
+    "output_format": "timeseries_forecast",
+    "tags": [
+      "electricity",
+      "forecast",
+      "lstm"
+    ],
+    "associated_tool_id": "electricity-data-forecast-model-training",
+    "created_at": "2026-08-13T04:23:05Z"
+  },
+  {
+    "id": "model-1786595019",
+    "name": "electricity_forecast_col2_w10_v3_epoch100.pt_20260813_122339_121",
+    "version": "0.1.0",
+    "type": "model",
+    "status": "registered",
+    "spec_path": "definitions/model-1786595019.md",
+    "framework": "pytorch",
+    "model_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/models/electricity_forecast_col2_w10_v3_epoch100.pt",
+    "input_format": "csv",
+    "output_format": "timeseries_forecast",
+    "tags": [
+      "electricity",
+      "forecast",
+      "lstm"
+    ],
+    "associated_tool_id": "electricity-data-forecast-model-training",
+    "created_at": "2026-08-13T04:23:39Z"
+  },
+  {
+    "id": "model-1786595661",
+    "name": "power_data_forecast_20260813_123421_20260813_123421_309",
+    "version": "0.1.0",
+    "type": "model",
+    "status": "registered",
+    "spec_path": "definitions/model-1786595661.md",
+    "framework": "pytorch",
+    "model_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/models/power_data_forecast_20260813_123421.pt",
+    "input_format": "csv",
+    "output_format": "model",
+    "tags": [
+      "time-series",
+      "lstm",
+      "forecast"
+    ],
+    "associated_tool_id": "power-data-forecast-model-training",
+    "created_at": "2026-08-13T04:34:21Z"
+  },
+  {
+    "id": "model-1786595679",
+    "name": "power_data_forecast_20260813_123439_20260813_123439_500",
+    "version": "0.1.0",
+    "type": "model",
+    "status": "registered",
+    "spec_path": "definitions/model-1786595679.md",
+    "framework": "pytorch",
+    "model_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/models/power_data_forecast_20260813_123439.pt",
+    "input_format": "csv",
+    "output_format": "model",
+    "tags": [
+      "time-series",
+      "lstm",
+      "forecast"
+    ],
+    "associated_tool_id": "power-data-forecast-model-training",
+    "created_at": "2026-08-13T04:34:39Z"
+  },
+  {
+    "id": "model-1786595697",
+    "name": "power_data_forecast_20260813_123457_20260813_123457_030",
+    "version": "0.1.0",
+    "type": "model",
+    "status": "registered",
+    "spec_path": "definitions/model-1786595697.md",
+    "framework": "pytorch",
+    "model_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/models/power_data_forecast_20260813_123457.pt",
+    "input_format": "csv",
+    "output_format": "model",
+    "tags": [
+      "time-series",
+      "lstm",
+      "forecast"
+    ],
+    "associated_tool_id": "power-data-forecast-model-training",
+    "created_at": "2026-08-13T04:34:57Z"
+  },
+  {
+    "id": "model-1786595729",
+    "name": "power_data_forecast_20260813_123529_20260813_123529_190",
+    "version": "0.1.0",
+    "type": "model",
+    "status": "registered",
+    "spec_path": "definitions/model-1786595729.md",
+    "framework": "pytorch",
+    "model_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/models/power_data_forecast_20260813_123529.pt",
+    "input_format": "csv",
+    "output_format": "model",
+    "tags": [
+      "time-series",
+      "lstm",
+      "forecast"
+    ],
+    "associated_tool_id": "power-data-forecast-model-training",
+    "created_at": "2026-08-13T04:35:29Z"
+  },
+  {
+    "id": "model-1786599686",
+    "name": "power_data_forecast_20260813_134126_20260813_134126_704",
+    "version": "0.1.0",
+    "type": "model",
+    "status": "registered",
+    "spec_path": "definitions/model-1786599686.md",
+    "framework": "pytorch",
+    "model_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/models/power_data_forecast_20260813_134126.pt",
+    "input_format": "csv",
+    "output_format": "model",
+    "tags": [
+      "time-series",
+      "lstm",
+      "forecast"
+    ],
+    "associated_tool_id": "power-data-forecast-model-training",
+    "created_at": "2026-08-13T05:41:26Z"
+  },
+  {
+    "id": "model-1786599740",
+    "name": "power_data_forecast_20260813_134220_20260813_134220_743",
+    "version": "0.1.0",
+    "type": "model",
+    "status": "registered",
+    "spec_path": "definitions/model-1786599740.md",
+    "framework": "pytorch",
+    "model_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/models/power_data_forecast_20260813_134220.pt",
+    "input_format": "csv",
+    "output_format": "model",
+    "tags": [
+      "time-series",
+      "lstm",
+      "forecast"
+    ],
+    "associated_tool_id": "power-data-forecast-model-training",
+    "created_at": "2026-08-13T05:42:20Z"
+  },
+  {
+    "id": "model-1786600081",
+    "name": "power_data_forecast_20260813_134801_20260813_134801_127",
+    "version": "0.1.0",
+    "type": "model",
+    "status": "registered",
+    "spec_path": "definitions/model-1786600081.md",
+    "framework": "pytorch",
+    "model_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/models/power_data_forecast_20260813_134801.pt",
+    "input_format": "csv",
+    "output_format": "model",
+    "tags": [
+      "time-series",
+      "lstm",
+      "forecast"
+    ],
+    "associated_tool_id": "power-data-forecast-model-training",
+    "created_at": "2026-08-13T05:48:01Z"
+  },
+  {
+    "id": "model-1786600099",
+    "name": "power_data_forecast_20260813_134819_20260813_134819_136",
+    "version": "0.1.0",
+    "type": "model",
+    "status": "registered",
+    "spec_path": "definitions/model-1786600099.md",
+    "framework": "pytorch",
+    "model_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/models/power_data_forecast_20260813_134819.pt",
+    "input_format": "csv",
+    "output_format": "model",
+    "tags": [
+      "time-series",
+      "lstm",
+      "forecast"
+    ],
+    "associated_tool_id": "power-data-forecast-model-training",
+    "created_at": "2026-08-13T05:48:19Z"
+  },
+  {
+    "id": "model-1786600117",
+    "name": "power_data_forecast_20260813_134837_20260813_134837_808",
+    "version": "0.1.0",
+    "type": "model",
+    "status": "registered",
+    "spec_path": "definitions/model-1786600117.md",
+    "framework": "pytorch",
+    "model_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/models/power_data_forecast_20260813_134837.pt",
+    "input_format": "csv",
+    "output_format": "model",
+    "tags": [
+      "time-series",
+      "lstm",
+      "forecast"
+    ],
+    "associated_tool_id": "power-data-forecast-model-training",
+    "created_at": "2026-08-13T05:48:37Z"
+  },
+  {
+    "id": "model-1786600429",
+    "name": "power_data_forecast_20260813_135349_20260813_135349_784",
+    "version": "0.1.0",
+    "type": "model",
+    "status": "registered",
+    "spec_path": "definitions/model-1786600429.md",
+    "framework": "pytorch",
+    "model_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/models/power_data_forecast_20260813_135349.pt",
+    "input_format": "csv",
+    "output_format": "model",
+    "tags": [
+      "time-series",
+      "lstm",
+      "forecast"
+    ],
+    "associated_tool_id": "power-data-forecast-model-training",
+    "created_at": "2026-08-13T05:53:49Z"
+  },
+  {
+    "id": "model-1786600435",
+    "name": "power_data_forecast_20260813_135355_20260813_135355_961",
+    "version": "0.1.0",
+    "type": "model",
+    "status": "registered",
+    "spec_path": "definitions/model-1786600435.md",
+    "framework": "pytorch",
+    "model_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/models/power_data_forecast_20260813_135355.pt",
+    "input_format": "csv",
+    "output_format": "model",
+    "tags": [
+      "time-series",
+      "lstm",
+      "forecast"
+    ],
+    "associated_tool_id": "power-data-forecast-model-training",
+    "created_at": "2026-08-13T05:53:55Z"
+  },
+  {
+    "id": "model-1786600743",
+    "name": "power_data_forecast_20260813_135903_20260813_135903_831",
+    "version": "0.1.0",
+    "type": "model",
+    "status": "registered",
+    "spec_path": "definitions/model-1786600743.md",
+    "framework": "pytorch",
+    "model_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/models/power_data_forecast_20260813_135903.pt",
+    "input_format": "csv",
+    "output_format": "model",
+    "tags": [
+      "time-series",
+      "lstm",
+      "forecast"
+    ],
+    "associated_tool_id": "power-data-forecast-model-training",
+    "created_at": "2026-08-13T05:59:03Z"
+  },
+  {
+    "id": "model-1786601886",
+    "name": "electricity_lstm_model.pt_20260813_141806_503",
+    "version": "0.1.0",
+    "type": "model",
+    "status": "registered",
+    "spec_path": "definitions/model-1786601886.md",
+    "framework": "PyTorch",
+    "model_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/models/electricity_lstm_model.pt",
+    "input_format": "csv",
+    "output_format": "table",
+    "tags": [
+      "electricity",
+      "lstm",
+      "time-series"
+    ],
+    "associated_tool_id": "electricity-data-forecast-model-training",
+    "created_at": "2026-08-13T06:18:06Z"
+  },
+  {
+    "id": "model-1786603627",
+    "name": "electricity_lstm_model.pt_20260813_144707_928",
+    "version": "0.1.0",
+    "type": "model",
+    "status": "registered",
+    "spec_path": "definitions/model-1786603627.md",
+    "framework": "PyTorch",
+    "model_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/models/electricity_lstm_model.pt",
+    "input_format": "csv",
+    "output_format": "table",
+    "tags": [
+      "electricity",
+      "lstm",
+      "time-series"
+    ],
+    "associated_tool_id": "electricity-data-forecast-model-training",
+    "created_at": "2026-08-13T06:47:07Z"
+  },
+  {
+    "id": "model-1786603805",
+    "name": "electricity_lstm_model.pt_20260813_145005_085",
+    "version": "0.1.0",
+    "type": "model",
+    "status": "registered",
+    "spec_path": "definitions/model-1786603805.md",
+    "framework": "PyTorch",
+    "model_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/models/electricity_lstm_model.pt",
+    "input_format": "csv",
+    "output_format": "table",
+    "tags": [
+      "electricity",
+      "lstm",
+      "time-series"
+    ],
+    "associated_tool_id": "electricity-data-forecast-model-training",
+    "created_at": "2026-08-13T06:50:05Z"
+  },
+  {
+    "id": "model-1786604461",
+    "name": "electricity_lstm_model.pt_20260813_150101_328",
+    "version": "0.1.0",
+    "type": "model",
+    "status": "registered",
+    "spec_path": "definitions/model-1786604461.md",
+    "framework": "PyTorch",
+    "model_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/models/electricity_lstm_model.pt",
+    "input_format": "csv",
+    "output_format": "table",
+    "tags": [
+      "electricity",
+      "lstm",
+      "time-series"
+    ],
+    "associated_tool_id": "electricity-data-forecast-model-training",
+    "created_at": "2026-08-13T07:01:01Z"
+  }
+]

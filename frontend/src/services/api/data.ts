@@ -57,4 +57,10 @@ export const dataApi = {
     if (!res.ok) throw new Error((await res.json().catch(() => ({ detail: res.statusText }))).detail)
     return res.json() as Promise<{ success: boolean }>
   },
+
+  async listFiles(datasetId: string) {
+    const res = await fetch(`${BASE_URL}/api/data/${encodeURIComponent(datasetId)}/files`)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    return res.json() as Promise<{ files: Array<{ name: string; path: string; format: string; size: number }>; count: number }>
+  },
 }

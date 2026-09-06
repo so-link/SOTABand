@@ -25,6 +25,7 @@ interface ResourceState {
   fetchAgentsFromApi: () => Promise<void>
   fetchToolsFromApi: () => Promise<void>
   fetchDatasetsFromApi: () => Promise<void>
+  fetchModelsFromApi: () => Promise<void>
 }
 
 export const useResourceStore = create<ResourceState>((set, get) => ({
@@ -64,12 +65,14 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
     set({ isLoading: true })
 
     // 优先从真实 API 加载
+    const BASE_URL = ''
     const apiResults = await Promise.allSettled([
       toolApi.list(),
       agentApi.list(),
       dataApi.list(),
+      fetch(`${BASE_URL}/api/model/list`).then(r => r.json()),
     ])
-    const [toolResult, agentResult, dataResult] = apiResults
+    const [toolResult, agentResult, dataResult, modelResult] = apiResults
 
     // 工具
     if (toolResult.status === 'fulfilled' && Array.isArray(toolResult.value?.tools) && toolResult.value.tools.length > 0) {
@@ -109,9 +112,22 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
       })
     }
 
+    // 模型
+    if (modelResult.status === 'fulfilled' && Array.isArray(modelResult.value?.models) && modelResult.value.models.length > 0) {
+      set({
+        modelResources: modelResult.value.models.map((m: Record<string, unknown>) => ({
+          id: m.id as string, name: (m.name as string) || (m.id as string), description: '', type: 'model' as const,
+          version: (m.version as string) || '0.1.0', status: 'active' as const, createdAt: (m.created_at as string) || '',
+          updatedAt: '', tags: (m.tags as string[]) || [], format: (m.framework as string) || '',
+          filePath: (m.model_path as string) || '', fileSize: 0, source: 'upload' as const, lineage: [],
+        }))
+      })
+    }
+
     // Mock 兜底：空的类型用 Mock 数据填充
     const s = get()
-    const types: ResourceType[] = ['model', 'task']
+    const types: ResourceType[] = ['task']
+    if (s.modelResources.length === 0) types.push('model')
     if (s.toolResources.length === 0) types.push('tool')
     if (s.agentResources.length === 0) types.push('agent')
     if (s.dataResources.length === 0) types.push('data')
@@ -164,6 +180,23 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
           version: (d.version as string) || '0.1.0', status: 'active' as const, createdAt: (d.created_at as string) || '',
           updatedAt: '', tags: (d.tags as string[]) || [], format: ((d.formats as string[])?.[0]) || 'unknown',
           filePath: (d.data_path as string) || '', fileSize: (d.total_size as number) || 0, source: 'upload' as const, lineage: [],
+        })) })
+      }
+    } catch { /* ignore */ }
+  },
+
+  fetchModelsFromApi: async () => {
+    try {
+      const BASE_URL = ''
+      const res = await fetch(`${BASE_URL}/api/model/list`)
+      const data = await res.json()
+      if (Array.isArray(data.models) && data.models.length > 0) {
+        set({ modelResources: data.models.map((m: Record<string, unknown>) => ({
+          id: m.id as string, name: (m.name as string) || (m.id as string), description: '',
+          type: 'model' as const, version: (m.version as string) || '0.1.0', status: 'active' as const,
+          createdAt: (m.created_at as string) || '', updatedAt: '',
+          tags: (m.tags as string[]) || [], format: (m.framework as string) || '',
+          filePath: (m.model_path as string) || '', fileSize: 0, source: 'upload' as const, lineage: [],
         })) })
       }
     } catch { /* ignore */ }

@@ -135,7 +135,7 @@ async def generate_spec(req: GenerateToolSpecRequest):
     # 同时生成标签
     tags: list[str] = []
     try:
-        tag_prompt = f"""根据以下工具信息，生成3-5个简短的中文标签（每个2-4字），用于工具分类和检索。直接返回 JSON 数组。
+        tag_prompt = f"""根据以下工具信息，生成3-5个简短的中文标签（每个2-4字），用于工具分类和检索。只输出 JSON 数组，不要输出任何其他内容。
 
 工具描述: {req.description[:500]}
 生成的 MD 规范: {spec_md[:300]}
@@ -143,7 +143,7 @@ async def generate_spec(req: GenerateToolSpecRequest):
 返回格式: ["标签1", "标签2", "标签3"]"""
         tag_response = await llm.chat(
             messages=[{"role": "user", "content": tag_prompt}],
-            temperature=0.3, max_tokens=200,
+            temperature=0.3, max_tokens=1000,
         )
         tags = _extract_tags_json(tag_response) or []
         if not tags:

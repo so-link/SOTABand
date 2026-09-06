@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useUIStore, type ActiveView } from '@/stores/ui-store'
 import { useToolEditorStore } from '@/stores/tool-editor-store'
+import { useChatStore } from '@/stores/chat-store'
 import {
   Database,
   Wrench,
@@ -30,6 +31,8 @@ export function InlineCard({ card }: InlineCardProps) {
       return <DataPreviewCard title={title} summary={summary} data={data} />
     case 'tool-match':
       return <ToolMatchCard title={title} summary={summary} data={data} />
+    case 'tool-confirm':
+      return <ToolConfirmCard title={title} summary={summary} data={data} />
     case 'code-review':
       return <CodeReviewCard title={title} summary={summary} data={data} setActiveView={setActiveView} />
     case 'execution-progress':
@@ -441,6 +444,48 @@ function CreateToolCard({ title, summary, data }: { title: string; summary: stri
         <Button size="sm" className="text-xs" onClick={handleCreate}>
           创建新工具 <ArrowRight className="h-3 w-3" />
         </Button>
+      </CardBody>
+    </Card>
+  )
+}
+
+// ── Tool Confirm Card ──
+
+function ToolConfirmCard({ title, summary, data }: { title: string; summary: string; data: Record<string, unknown> }) {
+  const sendDirectMessage = useChatStore((s) => s.sendDirectMessage)
+  const candidates = (data.candidates as Array<{ id: string; name: string; index: number }>) || []
+
+  const handleSelect = (candidate: { id: string; name: string; index: number }) => {
+    // 发送选择消息，让后端识别并继续引导参数
+    sendDirectMessage(`我选择第${candidate.index}个工具：${candidate.name}`)
+  }
+
+  return (
+    <Card className="border-maia-card-amber bg-maia-card-amber">
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Wrench className="h-4 w-4 text-amber-500" />
+          <span className="text-xs font-medium">{title}</span>
+          <Badge variant="default">{candidates.length} 个候选</Badge>
+        </div>
+      </CardHeader>
+      <CardBody>
+        <p className="text-xs text-maia-text-secondary mb-2">{summary}</p>
+        <div className="space-y-1.5">
+          {candidates.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => handleSelect(c)}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded border border-maia-border bg-maia-surface hover:bg-maia-accent/10 hover:border-maia-accent/40 transition-colors text-left group"
+            >
+              <span className="flex items-center justify-center h-5 w-5 rounded-full bg-maia-bg text-[11px] font-medium text-maia-text-secondary shrink-0 group-hover:bg-maia-accent group-hover:text-white">
+                {c.index}
+              </span>
+              <span className="flex-1 truncate text-xs text-maia-text">{c.name}</span>
+              <ArrowRight className="h-3 w-3 text-maia-text-muted shrink-0 group-hover:text-maia-accent" />
+            </button>
+          ))}
+        </div>
       </CardBody>
     </Card>
   )

@@ -28,24 +28,35 @@ class DeepSeekClient(LLMClient):
     """DeepSeek v4 客户端（OpenAI 兼容协议）"""
 
     def __init__(self, config: LLMConfig = None):
-        self.config = config or settings.llm
-        self.client = AsyncOpenAI(
-            base_url=self.config.base_url,
-            api_key=self.config.api_key,
+        self._config = config
+        # 若未显式传入 config，则每次调用动态读取 settings.llm，
+        # 以便运行时更新 api_key / model 后立即生效
+        self._dynamic = config is None
+
+    @property
+    def config(self) -> LLMConfig:
+        return self._config if self._config is not None else settings.llm
+
+    def _build_client(self) -> AsyncOpenAI:
+        cfg = self.config
+        return AsyncOpenAI(
+            base_url=cfg.base_url,
+            api_key=cfg.api_key,
         )
-        self.model = self.config.model
 
     async def chat_stream(
         self, messages: list[dict], **kwargs
     ) -> AsyncGenerator[str, None]:
         """流式调用 DeepSeek v4"""
-        stream = await self.client.chat.completions.create(
-            model=self.model,
+        client = self._build_client()
+        cfg = self.config
+        stream = await client.chat.completions.create(
+            model=cfg.model,
             messages=messages,
             stream=True,
-            max_tokens=kwargs.get("max_tokens", self.config.max_tokens),
-            temperature=kwargs.get("temperature", self.config.temperature),
-            timeout=self.config.timeout,
+            max_tokens=kwargs.get("max_tokens", cfg.max_tokens),
+            temperature=kwargs.get("temperature", cfg.temperature),
+            timeout=cfg.timeout,
             stream_options={"include_usage": True},
         )
         finish_reason = None
@@ -61,13 +72,15 @@ class DeepSeekClient(LLMClient):
 
     async def chat(self, messages: list[dict], **kwargs) -> str:
         """非流式调用 DeepSeek v4"""
-        response = await self.client.chat.completions.create(
-            model=self.model,
+        client = self._build_client()
+        cfg = self.config
+        response = await client.chat.completions.create(
+            model=cfg.model,
             messages=messages,
             stream=False,
-            max_tokens=kwargs.get("max_tokens", self.config.max_tokens),
-            temperature=kwargs.get("temperature", self.config.temperature),
-            timeout=self.config.timeout,
+            max_tokens=kwargs.get("max_tokens", cfg.max_tokens),
+            temperature=kwargs.get("temperature", cfg.temperature),
+            timeout=cfg.timeout,
         )
         content = response.choices[0].message.content or ""
         if response.choices[0].finish_reason == "length":

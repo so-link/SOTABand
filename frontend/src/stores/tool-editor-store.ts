@@ -35,6 +35,7 @@ interface ToolEditorState {
   setDescription: (text: string) => void
   setReferenceCode: (code: string) => void
   setGeneratedMd: (md: string) => void
+  setGeneratedCode: (code: string) => void
   setTags: (tags: string[]) => void
   addTag: (tag: string) => void
   removeTag: (tag: string) => void
@@ -60,6 +61,7 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
   setDescription: (text) => set({ description: text }),
   setReferenceCode: (code) => set({ referenceCode: code }),
   setGeneratedMd: (md) => set({ generatedMd: md }),
+  setGeneratedCode: (code) => set({ generatedCode: code }),
   setTags: (tags) => set({ tags }),
   addTag: (tag) => set((s) => ({ tags: s.tags.includes(tag) ? s.tags : [...s.tags, tag] })),
   removeTag: (tag) => set((s) => ({ tags: s.tags.filter(t => t !== tag) })),
@@ -159,15 +161,52 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
           case 'thinking':
             set((s) => {
               const rounds = [...s.debugRounds]; const last = rounds[rounds.length - 1]
-              if (last) last.analysis = 'LLM 分析中...'
+              if (last) {
+                const msg = (data.message as string) || ''
+                if (msg.includes('过短') || msg.includes('跳过')) {
+                  // 分析结果提示：追加，不覆盖已累积的 LLM 分析内容
+                  last.analysis = last.analysis ? `${last.analysis}\n⚠️ ${msg}` : `⚠️ ${msg}`
+                } else if (!last.analysis) {
+                  // 首次开始分析
+                  last.analysis = 'LLM 分析中...'
+                }
+              }
               return { debugRounds: rounds }
             })
             break
           case 'thinking_stream':
             set((s) => {
               const rounds = [...s.debugRounds]; const last = rounds[rounds.length - 1]
-              if (last) last.analysis = (last.analysis || '') + (data.token || '')
-              return { debugRounds: rounds, debugStream: s.debugStream + (data.token || '') }
+              if (last) {
+                // 第一个 token 到来时，清除"LLM 分析中..."占位符
+                if (last.analysis === 'LLM 分析中...' || last.analysis.startsWith('LLM 分析中')) {
+                  last.analysis = ''
+                }
+                last.analysis += (data.token || '')
+              }
+              return { debugRounds: rounds }
+            })
+            break
+          case 'analysis_result':
+            set((s) => {
+              const rounds = [...s.debugRounds]; const last = rounds[rounds.length - 1]
+              if (last) {
+                // 直接以分析结论替换占位符（LLM 分析的结论 + 修改计划）
+                last.analysis = (data.analysis as string) || ''
+              }
+              return { debugRounds: rounds }
+            })
+            break
+          case 'llm_error':
+            set((s) => {
+              const rounds = [...s.debugRounds]; const last = rounds[rounds.length - 1]
+              if (last) {
+                const msg = (data.message as string) || 'LLM 调用异常'
+                last.analysis = last.analysis && last.analysis !== 'LLM 分析中...'
+                  ? `${last.analysis}\n❌ ${msg}`
+                  : `❌ ${msg}`
+              }
+              return { debugRounds: rounds }
             })
             break
           case 'deps_start':

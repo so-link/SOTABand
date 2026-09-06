@@ -6,7 +6,7 @@ import { Avatar } from '@/components/ui/avatar'
 import { useUIStore } from '@/stores/ui-store'
 
 export function TopBar() {
-  const { leftPanelOpen, rightPanelOpen, toggleLeftPanel, toggleRightPanel, theme, toggleTheme } = useUIStore()
+  const { leftPanelOpen, rightPanelOpen, toggleLeftPanel, toggleRightPanel, theme, toggleTheme, setActiveView } = useUIStore()
 
   return (
     <header className="flex h-9 items-center justify-between px-3 shrink-0 select-none glass border-b border-white/[0.04] relative">
@@ -54,7 +54,7 @@ export function TopBar() {
           </Button>
         </Tooltip>
         <Tooltip content="设置">
-          <Button variant="ghost" size="icon" className="h-7 w-7"><Settings className="h-3.5 w-3.5" /></Button>
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setActiveView('settings')}><Settings className="h-3.5 w-3.5" /></Button>
         </Tooltip>
         <Tooltip content={rightPanelOpen ? '隐藏属性面板' : '显示属性面板'}>
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={toggleRightPanel}>

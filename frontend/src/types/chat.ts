@@ -9,6 +9,7 @@ export type MessageRole = 'user' | 'agent' | 'system'
 export type CardType =
   | 'data-preview'
   | 'tool-match'
+  | 'tool-confirm'
   | 'code-review'
   | 'execution-progress'
   | 'result-summary'

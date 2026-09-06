@@ -324,5 +324,61 @@
       "查询"
     ],
     "created_at": "2026-07-25T00:00:00Z"
+  },
+  {
+    "id": "api-model-register",
+    "name": "模型注册API",
+    "version": "1.0.0",
+    "category": "resource",
+    "status": "active",
+    "spec_path": "definitions/api-model-register.md",
+    "impl_module": "core.api.implementations.api_model",
+    "impl_class": "ApiModelRegister",
+    "impl_method": "call",
+    "is_async": true,
+    "input_schema": {
+      "name": "string",
+      "raw_md": "string",
+      "framework": "string",
+      "model_path": "string",
+      "input_format": "string",
+      "output_format": "string",
+      "version": "string",
+      "tags": "list",
+      "associated_tool_id": "string"
+    },
+    "output_schema": {
+      "model_id": "string"
+    },
+    "tags": [
+      "模型",
+      "注册",
+      "管理"
+    ],
+    "created_at": "2026-08-04T00:00:00Z"
+  },
+  {
+    "id": "api-model-get",
+    "name": "获取模型信息",
+    "version": "1.0.0",
+    "category": "resource",
+    "status": "active",
+    "spec_path": "definitions/api-model-get.md",
+    "impl_module": "core.api.implementations.api_model",
+    "impl_class": "ApiModelGet",
+    "impl_method": "call",
+    "is_async": false,
+    "input_schema": {
+      "name": "string"
+    },
+    "output_schema": {
+      "model": "dict"
+    },
+    "tags": [
+      "模型",
+      "检索",
+      "查询"
+    ],
+    "created_at": "2026-08-04T00:00:00Z"
   }
 ]

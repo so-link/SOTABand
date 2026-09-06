@@ -169,14 +169,14 @@ async def generate_spec(req: GenerateDataSpecRequest):
         tag_response = await llm.chat(
             messages=[{
                 "role": "user",
-                "content": f"""根据以下数据集信息，生成3-5个简短的中文标签（每个2-4字），用于数据集分类和检索。直接返回 JSON 数组。
+                "content": f"""根据以下数据集信息，生成3-5个简短的中文标签（每个2-4字），用于数据集分类和检索。只输出 JSON 数组，不要输出任何其他内容。
 
 数据集描述: {req.description}
 {spec_md[:300]}
 
 返回格式: ["标签1", "标签2", "标签3"]"""
             }],
-            temperature=0.3, max_tokens=200, timeout=30,
+            temperature=0.3, max_tokens=1000, timeout=30,
         )
         tags = _extract_tags_json(tag_response)
         if not tags:
@@ -279,7 +279,7 @@ async def _auto_generate_dataset_tags(dataset_id: str, name: str, spec_md: str):
     try:
         from core.llm.client import create_llm_client
         llm = create_llm_client()
-        prompt = f"""根据以下数据集信息，生成3-5个简短的中文标签（每个2-4字），用于数据集分类和检索。直接返回 JSON 数组。
+        prompt = f"""根据以下数据集信息，生成3-5个简短的中文标签（每个2-4字），用于数据集分类和检索。只输出 JSON 数组，不要输出任何其他内容。
 
 数据集名称: {name}
 数据集描述: {spec_md[:500]}
@@ -287,7 +287,7 @@ async def _auto_generate_dataset_tags(dataset_id: str, name: str, spec_md: str):
 返回格式: ["标签1", "标签2", "标签3"]"""
         response = await llm.chat(
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.3, max_tokens=200, timeout=30,
+            temperature=0.3, max_tokens=1000, timeout=30,
         )
         print(f"[_auto_generate_dataset_tags] LLM返回 dataset_id={dataset_id}: {repr(response[:200])}")
 

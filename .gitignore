@@ -51,3 +51,11 @@ data/files/
 
 # Docker
 docker-compose.override.yml
+
+# 运行时产物（日志、训练生成的模型）
+logs/
+predict.pkl
+models/*.pt
+models/*_2026*.pkl
+models/random_forest_*.pkl
+models/linear_regression_*.pkl

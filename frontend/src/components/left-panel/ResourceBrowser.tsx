@@ -46,6 +46,7 @@ export function ResourceBrowser() {
     fetchAgentsFromApi,
     fetchToolsFromApi,
     fetchDatasetsFromApi,
+    fetchModelsFromApi,
   } = useResourceStore()
   const { rightPanelOpen, toggleRightPanel, setActiveView } = useUIStore()
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
@@ -57,6 +58,7 @@ export function ResourceBrowser() {
     fetchAgentsFromApi()
     fetchToolsFromApi()
     fetchDatasetsFromApi()
+    fetchModelsFromApi()
   }, []) // 空依赖，只执行一次
 
   const toggleSection = (type: string) => {
@@ -144,6 +146,16 @@ export function ResourceBrowser() {
     // 数据：从工作空间移除（不删除仓库中的数据集）
     if (resource.type === 'data') {
       workspaceRemoveDataset(resource.id)
+      return
+    }
+    // 模型：确认后彻底删除
+    if (resource.type === 'model') {
+      if (!confirm(`确定删除模型 "${resource.name}"？此操作不可恢复。`)) return
+      const BASE_URL = ''
+      try {
+        await fetch(`${BASE_URL}/api/model/${resource.id}`, { method: 'DELETE' })
+        fetchModelsFromApi()
+      } catch { /* ignore */ }
       return
     }
     // Agent：确认后彻底删除

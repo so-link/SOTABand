@@ -42,7 +42,7 @@ class LLMConfig:
     provider: str = "deepseek"
     api_key: str = field(default_factory=lambda: os.getenv("DEEPSEEK_API_KEY", ""))
     base_url: str = "https://api.deepseek.com/v1"
-    model: str = "deepseek-v4-pro"
+    model: str = field(default_factory=lambda: os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro"))
     max_tokens: int = 100000
     temperature: float = 0.7
     streaming: bool = True

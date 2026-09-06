@@ -1695,5 +1695,360 @@
     ],
     "usage_count": 0,
     "created_at": "2026-08-01T12:33:28Z"
+  },
+  {
+    "id": "generate-milk-shake-experiment-data",
+    "name": "奶昔配方实验数据生成与注册",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/generate-milk-shake-experiment-data.md",
+    "impl_path": "implementations/generate-milk-shake-experiment-data/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "n",
+        "type": "int",
+        "required": true,
+        "default": null,
+        "desc": "生成的样本数量（数据条目）",
+        "hints": [
+          10,
+          100,
+          500
+        ]
+      },
+      {
+        "name": "output_dataset",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "注册数据集的名称",
+        "hints": [
+          "奶昔配方实验数据_v1",
+          "milk_shake_exp_2026"
+        ]
+      }
+    ],
+    "tags": [],
+    "usage_count": 0,
+    "created_at": "2026-08-03T03:53:29Z"
+  },
+  {
+    "id": "train-regression-model",
+    "name": "训练回归模型",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/train-regression-model.md",
+    "impl_path": "implementations/train-regression-model/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "path",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "CSV数据文件的完整路径（第1列为标识或不被使用，其余列作为特征预测最后一列目标值）",
+        "hints": [
+          "/data/train.csv",
+          "/home/user/data.csv"
+        ]
+      },
+      {
+        "name": "model_type",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "回归模型类型，支持：random_forest、xgboost、linear_regression",
+        "hints": [
+          "random_forest",
+          "xgboost",
+          "linear_regression"
+        ]
+      },
+      {
+        "name": "r",
+        "type": "float",
+        "required": true,
+        "default": null,
+        "desc": "测试集占比，取值范围 (0, 1)，训练集为 (1-r)",
+        "hints": [
+          0.2,
+          0.3
+        ]
+      }
+    ],
+    "tags": [],
+    "usage_count": 0,
+    "created_at": "2026-08-04T16:10:01Z"
+  },
+  {
+    "id": "milkshake-predictor-trainer",
+    "name": "奶昔预测模型训练器",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/milkshake-predictor-trainer.md",
+    "impl_path": "implementations/milkshake-predictor-trainer/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "path",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "CSV 数据文件路径，第一列为标识列（不使用），其余列作为特征，最后一列为目标值",
+        "hints": [
+          "/data/sales.csv",
+          "./dataset/energy.csv"
+        ]
+      },
+      {
+        "name": "model_type",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "回归器类型，如“random_forest”、“xgboost”、“linear”等，内部将映射至对应的回归模型",
+        "hints": [
+          "random_forest",
+          "xgboost",
+          "linear"
+        ]
+      },
+      {
+        "name": "r",
+        "type": "float",
+        "required": true,
+        "default": null,
+        "desc": "测试集占比，取值范围 (0,1)，训练集占比 = 1 - r",
+        "hints": [
+          0.2,
+          0.3,
+          0.25
+        ]
+      }
+    ],
+    "tags": [],
+    "usage_count": 0,
+    "created_at": "2026-08-04T20:40:21Z"
+  },
+  {
+    "id": "power-data-visualization",
+    "name": "电力数据可视化",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/power-data-visualization.md",
+    "impl_path": "implementations/power-data-visualization/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "path",
+        "type": "string",
+        "required": true,
+        "default": "无",
+        "desc": "CSV 文件路径"
+      },
+      {
+        "name": "n",
+        "type": "integer",
+        "required": true,
+        "default": "无",
+        "desc": "列编号，从 1 开始"
+      },
+      {
+        "name": "start",
+        "type": "integer",
+        "required": true,
+        "default": "无",
+        "desc": "起始行号（数据行，不含表头，从 1 开始）"
+      },
+      {
+        "name": "end",
+        "type": "integer",
+        "required": true,
+        "default": "无",
+        "desc": "结束行号（数据行，不含表头，从 1 开始）"
+      }
+    ],
+    "tags": [
+      "数据可视化",
+      "电力数据",
+      "时序曲线",
+      "曲线绘制",
+      "CSV分析"
+    ],
+    "usage_count": 0,
+    "created_at": "2026-08-13T02:20:18Z"
+  },
+  {
+    "id": "electricity-data-forecast-model-training",
+    "name": "电力数据预测模型训练",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/electricity-data-forecast-model-training.md",
+    "impl_path": "implementations/electricity-data-forecast-model-training/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "path",
+        "type": "string",
+        "required": true,
+        "default": "无",
+        "desc": "CSV 文件路径，第一行为表头"
+      },
+      {
+        "name": "n",
+        "type": "integer",
+        "required": true,
+        "default": "无",
+        "desc": "列编号，从0开始；第 {n} 列传感器数据"
+      },
+      {
+        "name": "w",
+        "type": "integer",
+        "required": true,
+        "default": "无",
+        "desc": "历史时间窗口大小，表示使用过去 {w} 个时刻的数据"
+      },
+      {
+        "name": "v",
+        "type": "integer",
+        "required": true,
+        "default": "无",
+        "desc": "预测时间窗口大小，表示预测未来 {v} 个时刻的数据"
+      },
+      {
+        "name": "epoch",
+        "type": "integer",
+        "required": true,
+        "default": "无",
+        "desc": "LSTM 模型训练轮次"
+      }
+    ],
+    "tags": [
+      "电力数据",
+      "时序预测",
+      "LSTM",
+      "模型训练",
+      "模型注册"
+    ],
+    "usage_count": 0,
+    "created_at": "2026-08-13T06:12:23Z"
+  },
+  {
+    "id": "electricity-data-forecast-test",
+    "name": "电力数据预测测试",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/electricity-data-forecast-test.md",
+    "impl_path": "implementations/electricity-data-forecast-test/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "path",
+        "type": "string",
+        "required": true,
+        "default": "无",
+        "desc": "CSV 文件路径，表格数据为时序数据，第一行为表头，每行代表一个时刻，每列代表一个传感器"
+      },
+      {
+        "name": "n",
+        "type": "int",
+        "required": true,
+        "default": "无",
+        "desc": "待测试的列编号（从 0 开始），对应 CSV 中某一列传感器数据"
+      },
+      {
+        "name": "model_name",
+        "type": "string",
+        "required": true,
+        "default": "无",
+        "desc": "已注册的 LSTM 模型名称，工具将通过【获取模型信息】获取其存储路径"
+      },
+      {
+        "name": "w",
+        "type": "int",
+        "required": true,
+        "default": "无",
+        "desc": "历史时间窗口大小，即用于预测的连续历史时刻数量"
+      },
+      {
+        "name": "v",
+        "type": "int",
+        "required": true,
+        "default": "无",
+        "desc": "预测时间窗口大小，即需要预测的未来时刻数量"
+      }
+    ],
+    "tags": [
+      "电力预测",
+      "时序预测",
+      "LSTM模型",
+      "模型测试",
+      "误差评估"
+    ],
+    "usage_count": 0,
+    "created_at": "2026-08-13T07:30:09Z"
+  },
+  {
+    "id": "supplier-material-benchmark-evaluator",
+    "name": "供应商原材料基准吻合度评估工具",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/supplier-material-benchmark-evaluator.md",
+    "impl_path": "implementations/supplier-material-benchmark-evaluator/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "filepath",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "评估基准文件的路径，用于解析生成基准比对字段",
+        "hints": [
+          "/data/benchmark/supplier_benchmark.pdf",
+          "/documents/原材料基准.pdf"
+        ]
+      },
+      {
+        "name": "dirpath",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "目录路径，用于读取供应商原材料资料 PDF，并保存生成的 CSV 与 MD 报告",
+        "hints": [
+          "/data/suppliers",
+          "/reports/供应商评估"
+        ]
+      }
+    ],
+    "tags": [
+      "供应商评估",
+      "原材料合规",
+      "基准比对",
+      "智能评估",
+      "食品安全"
+    ],
+    "usage_count": 0,
+    "created_at": "2026-09-06T03:40:25Z"
   }
 ]

@@ -1,6 +1,7 @@
 import { useUIStore, type ActiveView } from '@/stores/ui-store'
 import { ChatView } from './ChatView'
 import { DataPreviewView } from './DataPreviewView'
+import { FilePreviewView } from './FilePreviewView'
 import { CodeReviewView } from './CodeReviewView'
 import { OrchestrationView } from './OrchestrationView'
 import { TaskMonitorView } from './TaskMonitorView'
@@ -11,11 +12,13 @@ import { ToolDetailView } from './ToolDetailView'
 import { DatasetEditorView } from './DatasetEditorView'
 import { RepositoryView } from './RepositoryView'
 import { DatasetRepositoryView } from './DatasetRepositoryView'
-import { MessageSquare, BarChart3, Search, GitBranch, Radio, Bot, X, Package } from 'lucide-react'
+import { SettingsView } from './SettingsView'
+import { MessageSquare, BarChart3, Search, GitBranch, Radio, Bot, X, Package, Settings } from 'lucide-react'
 
 const TAB_CONFIG: Record<ActiveView, { label: string; icon: typeof MessageSquare }> = {
   chat:            { label: '对话',    icon: MessageSquare },
   'data-preview':  { label: '数据',    icon: BarChart3 },
+  'file-preview':  { label: '预览',    icon: BarChart3 },
   'code-review':   { label: '核验',    icon: Search },
   orchestration:   { label: '编排',    icon: GitBranch },
   'task-monitor':  { label: '监控',    icon: Radio },
@@ -26,6 +29,7 @@ const TAB_CONFIG: Record<ActiveView, { label: string; icon: typeof MessageSquare
   'dataset-editor':{ label: '数据集',  icon: BarChart3 },
   'dataset-repository': { label: '数据集仓库', icon: Package },
   'repository':    { label: '工具仓库',    icon: Package },
+  settings:        { label: '设置',    icon: Settings },
 }
 
 export function CenterPanel() {
@@ -79,6 +83,7 @@ function ViewRouter({ view }: { view: ActiveView }) {
   switch (view) {
     case 'chat': return <ChatView />
     case 'data-preview': return <DataPreviewView />
+    case 'file-preview': return <FilePreviewView />
     case 'code-review': return <CodeReviewView />
     case 'orchestration': return <OrchestrationView />
     case 'task-monitor': return <TaskMonitorView />
@@ -89,5 +94,6 @@ function ViewRouter({ view }: { view: ActiveView }) {
     case 'dataset-editor': return <DatasetEditorView />
     case 'dataset-repository': return <DatasetRepositoryView />
     case 'repository': return <RepositoryView />
+    case 'settings': return <SettingsView />
   }
 }

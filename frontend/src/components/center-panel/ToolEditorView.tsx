@@ -3,13 +3,14 @@ import { createPortal } from 'react-dom'
 import {
   Wrench, ArrowRight, ArrowLeft, CheckCircle2, XCircle,
   Loader2, FileCode, Play, Rocket, Tag, Plus, X,
+  Database, File, Folder, ChevronRight, ChevronDown, Search,
 } from 'lucide-react'
-import { Highlight, themes } from 'prism-react-renderer'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardBody } from '@/components/ui/card'
 import { useUIStore } from '@/stores/ui-store'
 import { useToolEditorStore } from '@/stores/tool-editor-store'
+import { dataApi } from '@/services/api/data'
 
 // ── 可拖拽分割面板 ──
 
@@ -256,14 +257,19 @@ function Step2() {
 
 function Step3() {
   const { generatedCode, params, testInputs, testOutput, registerTool, runTest, stopTest, autoDebug, stopAutoDebug,
-          setStep, isGenerating, isTesting, isAutoDebugging, error, debugRounds, debugStream, setTestInput } = useToolEditorStore()
+          setStep, isGenerating, isTesting, isAutoDebugging, error, debugRounds, debugStream, setTestInput, setGeneratedCode } = useToolEditorStore()
   const logEndRef = useRef<HTMLDivElement>(null)
   const fileInputRefs = useRef<Map<string, HTMLInputElement>>(new Map())
+  const codeTextareaRef = useRef<HTMLTextAreaElement>(null)
+  const lineNumberRef = useRef<HTMLDivElement>(null)
   const [uploadedFiles, setUploadedFiles] = useState<Map<string, File>>(new Map())
   // 面板高度（px），初始值
   const [codeHeight, setCodeHeight] = useState(300)
   const [logHeight, setLogHeight] = useState(180)
   const containerRef = useRef<HTMLDivElement>(null)
+  // 数据空间文件选择器状态
+  const [filePickerOpen, setFilePickerOpen] = useState(false)
+  const [filePickerParam, setFilePickerParam] = useState<string>('')
 
   useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: 'auto' }) }, [debugRounds])
 
@@ -305,27 +311,45 @@ function Step3() {
       {/* 上半部分：代码 + 测试区（水平分割） */}
       <div className="flex-1 min-h-0 flex flex-col">
         <div className="grid grid-cols-5 gap-4 flex-1 min-h-0">
-          {/* 左：代码预览 */}
+          {/* 左：代码预览（可编辑） */}
           <div className="col-span-3 flex flex-col min-h-0">
             <div className="flex items-center gap-1.5 mb-2 shrink-0">
               <FileCode className="h-3.5 w-3.5 text-amber-400" />
               <span className="text-xs font-medium text-maia-text-secondary tracking-wide">生成代码</span>
+              <span className="text-[10px] text-maia-text-muted tracking-wide ml-auto">可直接编辑</span>
             </div>
-            <div className="flex-1 min-h-0 rounded-lg border border-maia-border bg-[#1e1e1e] overflow-auto" style={{ maxHeight: codeHeight }}>
-              <Highlight theme={themes.vsDark} code={generatedCode || '# 等待生成代码...'} language="python">
-                {({ style, tokens, getLineProps, getTokenProps }) => (
-                  <pre style={style} className="px-3 py-2 text-[11px] font-mono leading-relaxed m-0">
-                    {tokens.map((line, i) => (
-                      <div key={i} {...getLineProps({ line })}>
-                        <span className="inline-block w-8 text-right mr-3 text-white/20 select-none text-[10px]">{i + 1}</span>
-                        {line.map((token, key) => (
-                          <span key={key} {...getTokenProps({ token })} />
-                        ))}
-                      </div>
-                    ))}
-                  </pre>
-                )}
-              </Highlight>
+            <div className="flex-1 min-h-0 rounded-lg border border-maia-border bg-[#1e1e1e] overflow-hidden flex" style={{ maxHeight: codeHeight }}>
+              {/* 行号 */}
+              <div
+                ref={lineNumberRef}
+                className="shrink-0 w-10 bg-[#1a1a1a] text-right pr-2 pt-2 pb-2 text-[11px] leading-[1.6] font-mono text-white/25 select-none overflow-hidden"
+                aria-hidden
+              >
+                {(generatedCode || '').split('\n').map((_, i) => (
+                  <div key={i}>{i + 1}</div>
+                ))}
+              </div>
+              {/* 可编辑代码 */}
+              <textarea
+                ref={codeTextareaRef}
+                value={generatedCode}
+                onChange={(e) => {
+                  setGeneratedCode(e.target.value)
+                  // 同步行号滚动
+                  if (lineNumberRef.current) {
+                    lineNumberRef.current.scrollTop = e.target.scrollTop
+                  }
+                }}
+                onScroll={(e) => {
+                  if (lineNumberRef.current) {
+                    lineNumberRef.current.scrollTop = e.currentTarget.scrollTop
+                  }
+                }}
+                spellCheck={false}
+                placeholder="# 等待生成代码..."
+                className="flex-1 bg-transparent text-[11px] font-mono leading-[1.6] p-2 text-[#d4d4d4] outline-none resize-none"
+                style={{ whiteSpace: 'pre', overflowWrap: 'normal', overflowX: 'auto' }}
+              />
             </div>
           </div>
 
@@ -353,8 +377,14 @@ function Step3() {
                             className="flex-1 h-7 rounded border border-maia-border px-2 text-[11px] font-mono outline-none focus:border-maia-accent"
                             placeholder={p.desc || p.name} />
                           <button
+                            onClick={() => { setFilePickerParam(p.name); setFilePickerOpen(true) }}
+                            className="shrink-0 h-7 px-2 text-[10px] rounded border border-maia-border hover:bg-maia-sidebar-hover text-maia-text-secondary tracking-wider"
+                            title="从数据空间选择文件"
+                          ><Database className="h-3 w-3 inline" /> 选择</button>
+                          <button
                             onClick={() => fileInputRefs.current.get(p.name)?.click()}
                             className="shrink-0 h-7 px-2 text-[10px] rounded border border-maia-border hover:bg-maia-sidebar-hover text-maia-text-secondary tracking-wider"
+                            title="上传本地文件"
                           >📎 上传</button>
                           <input type="file" ref={el => { if (el) fileInputRefs.current.set(p.name, el) }}
                             onChange={e => handleFileUpload(p.name, e)} className="hidden" />
@@ -441,6 +471,14 @@ function Step3() {
                   {round.analysis && (
                     <pre className="text-green-400 font-mono text-[10px] whitespace-pre-wrap break-all ml-14 mt-0.5 leading-relaxed">{round.analysis}</pre>
                   )}
+                  {round.code && (
+                    <details className="ml-14 mt-1">
+                      <summary className="cursor-pointer text-[10px] text-blue-400 hover:text-blue-300 select-none tracking-wide">
+                        查看修改后的代码（{round.code.length} 字符）
+                      </summary>
+                      <pre className="text-maia-text-secondary font-mono text-[10px] whitespace-pre-wrap break-all mt-1 leading-relaxed border-l-2 border-blue-500/40 pl-2 max-h-[300px] overflow-auto">{round.code}</pre>
+                    </details>
+                  )}
                 </div>
               ))}
               <div ref={logEndRef} />
@@ -460,6 +498,18 @@ function Step3() {
           </Button>
         </div>
       </div>
+
+      {/* 数据空间文件选择弹窗 */}
+      {filePickerOpen && (
+        <DataFilePicker
+          paramName={filePickerParam}
+          onSelect={(fullPath) => {
+            setTestInput(filePickerParam, fullPath)
+            setFilePickerOpen(false)
+          }}
+          onClose={() => setFilePickerOpen(false)}
+        />
+      )}
     </div>
   )
 }
@@ -477,6 +527,165 @@ function Step4() {
         <Button onClick={() => reset()}><Wrench className="h-3.5 w-3.5" />创建新工具</Button>
       </div>
     </div>
+  )
+}
+
+// ─ 数据空间文件选择器 ─
+
+interface DatasetEntry {
+  id: string
+  name: string
+  data_path: string
+  formats?: string[]
+  file_count?: number
+}
+
+interface DataFile {
+  name: string
+  path: string
+  format: string
+  size: number
+}
+
+function DataFilePicker({ paramName, onSelect, onClose }: {
+  paramName: string
+  onSelect: (fullPath: string) => void
+  onClose: () => void
+}) {
+  const [datasets, setDatasets] = useState<DatasetEntry[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [expandedId, setExpandedId] = useState<string>('')
+  const [files, setFiles] = useState<Record<string, DataFile[]>>({})
+  const [loadingFiles, setLoadingFiles] = useState<string>('')
+  const [query, setQuery] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await dataApi.list()
+        if (!cancelled) setDatasets((res.datasets as unknown as DatasetEntry[]) || [])
+      } catch (e) {
+        if (!cancelled) setError(String(e))
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  const toggleDataset = async (ds: DatasetEntry) => {
+    if (expandedId === ds.id) { setExpandedId(''); return }
+    setExpandedId(ds.id)
+    if (files[ds.id]) return
+    setLoadingFiles(ds.id)
+    try {
+      const res = await dataApi.listFiles(ds.id)
+      setFiles((prev) => ({ ...prev, [ds.id]: res.files }))
+    } catch {
+      setFiles((prev) => ({ ...prev, [ds.id]: [] }))
+    } finally {
+      setLoadingFiles('')
+    }
+  }
+
+  const filtered = query.trim()
+    ? datasets.filter((d) => d.name.toLowerCase().includes(query.toLowerCase()) || d.id.toLowerCase().includes(query.toLowerCase()))
+    : datasets
+
+  return createPortal(
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div
+        className="w-[520px] max-h-[70vh] flex flex-col rounded-lg border border-maia-border bg-maia-surface shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* 头部 */}
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-maia-border shrink-0">
+          <div className="flex items-center gap-2">
+            <Database className="h-4 w-4 text-blue-500" />
+            <span className="text-sm font-semibold text-maia-text-heading tracking-wide">从数据空间选择文件</span>
+          </div>
+          <button onClick={onClose} className="text-maia-text-muted hover:text-maia-text"><X className="h-4 w-4" /></button>
+        </div>
+
+        {/* 参数名提示 + 搜索 */}
+        <div className="px-4 pt-2.5 pb-1.5 space-y-2 shrink-0">
+          <div className="text-[11px] text-maia-text-secondary">
+            为参数 <span className="font-mono text-maia-accent">{paramName}</span> 选择文件
+          </div>
+          <div className="relative">
+            <Search className="h-3.5 w-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-maia-text-muted" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="搜索数据集..."
+              className="w-full h-7 pl-7 pr-2 rounded border border-maia-border bg-maia-bg text-[11px] outline-none focus:border-maia-accent"
+            />
+          </div>
+        </div>
+
+        {/* 内容 */}
+        <div className="flex-1 min-h-0 overflow-auto px-2 py-2">
+          {loading && <div className="flex items-center gap-1.5 px-2 py-4 text-xs text-maia-text-muted"><Loader2 className="h-3 w-3 animate-spin" />加载数据集...</div>}
+          {error && <div className="px-2 py-4 text-xs text-maia-danger">{error}</div>}
+          {!loading && !error && filtered.length === 0 && <div className="px-2 py-4 text-xs text-maia-text-muted">暂无数据集</div>}
+
+          {!loading && !error && filtered.map((ds) => {
+            const isExpanded = expandedId === ds.id
+            const dsFiles = files[ds.id]
+            const isLoadingFiles = loadingFiles === ds.id
+            return (
+              <div key={ds.id} className="mb-0.5">
+                {/* 数据集行 */}
+                <div className="group flex items-center gap-1.5 rounded hover:bg-maia-sidebar-hover">
+                  <button
+                    onClick={() => toggleDataset(ds)}
+                    className="flex-1 min-w-0 flex items-center gap-1.5 px-2 py-1.5 text-left"
+                  >
+                    {isExpanded ? <ChevronDown className="h-3 w-3 text-maia-text-muted shrink-0" /> : <ChevronRight className="h-3 w-3 text-maia-text-muted shrink-0" />}
+                    <Folder className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                    <span className="flex-1 truncate text-[12px] text-maia-text">{ds.name}</span>
+                    <span className="text-[10px] text-maia-text-muted shrink-0">{ds.file_count ?? (dsFiles?.length ?? '')} 文件</span>
+                  </button>
+                  {ds.data_path && (
+                    <button
+                      onClick={() => onSelect(ds.data_path)}
+                      className="shrink-0 mr-1 px-1.5 py-0.5 rounded text-[10px] text-blue-500 bg-blue-500/10 hover:bg-blue-500/20 tracking-wide"
+                      title={`选择整个目录: ${ds.data_path}`}
+                    >选目录</button>
+                  )}
+                </div>
+
+                {/* 文件列表 */}
+                {isExpanded && (
+                  <div className="ml-4 pl-2 border-l border-maia-border">
+                    {isLoadingFiles && <div className="flex items-center gap-1.5 px-2 py-1.5 text-[11px] text-maia-text-muted"><Loader2 className="h-3 w-3 animate-spin" />加载文件...</div>}
+                    {!isLoadingFiles && dsFiles && dsFiles.length === 0 && <div className="px-2 py-1.5 text-[11px] text-maia-text-muted">无文件</div>}
+                    {!isLoadingFiles && dsFiles?.map((f) => {
+                      const fullPath = ds.data_path ? `${ds.data_path}/${f.path}` : f.path
+                      return (
+                        <button
+                          key={f.path}
+                          onClick={() => onSelect(fullPath)}
+                          className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded hover:bg-maia-accent/10 text-left group"
+                          title={fullPath}
+                        >
+                          <File className="h-3.5 w-3.5 text-maia-text-muted shrink-0" />
+                          <span className="flex-1 truncate text-[11px] font-mono text-maia-text-secondary group-hover:text-maia-accent">{f.name}</span>
+                          <span className="text-[10px] text-maia-text-muted shrink-0">{f.format}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>,
+    document.body,
   )
 }
 

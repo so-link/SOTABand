@@ -56,19 +56,28 @@ async def upload_file(file: UploadFile = File(...), subdir: str = Form("")):
 
 @router.post("/delete")
 async def delete_file(req: dict):
-    """删除指定路径的文件"""
+    """删除指定路径的文件（工作区文件删除）"""
     path = req.get("path", "")
     if not path:
         raise HTTPException(400, "缺少文件路径")
-    file_path = Path(path)
+
+    file_path = Path(path).expanduser().resolve()
     if not file_path.exists():
         raise HTTPException(404, "文件不存在")
-    # 安全检查：只允许删除 data/uploads/ 下的文件
-    if not str(file_path.resolve()).startswith(str(UPLOAD_ROOT.resolve())):
-        raise HTTPException(403, "不允许删除该目录外的文件")
+
+    # 安全检查：只允许删除「文件」，不允许删除目录或系统关键路径
+    if file_path.is_dir():
+        raise HTTPException(400, "请使用目录删除接口删除目录")
+    home = Path.home().resolve()
+    root = Path(file_path.anchor)
+    if file_path == home or file_path == root:
+        raise HTTPException(403, "不允许删除系统关键路径")
+
     try:
         file_path.unlink()
         return {"status": "ok", "message": "文件已删除"}
+    except PermissionError:
+        raise HTTPException(403, "无权限删除该文件")
     except Exception as e:
         raise HTTPException(500, f"删除失败: {str(e)}")
 
@@ -110,7 +119,8 @@ async def download_file(path: str):
     return _FileResponse(
         file_path,
         media_type=mime_type or "application/octet-stream",
-        headers={"Content-Disposition": f"inline; filename=\"{file_path.name}\""},
+        filename=file_path.name,
+        content_disposition_type="inline",
     )
 
 
@@ -149,3 +159,117 @@ async def list_files():
                     "size": f.stat().st_size,
                 })
     return {"files": files, "count": len(files)}
+
+
+@router.get("/scan-directory")
+async def scan_directory(path: str):
+    """扫描本地目录，返回目录树结构（用于工作区「打开目录」）。
+
+    Args:
+        path: 本地目录的绝对路径。
+    """
+    dir_path = Path(path).expanduser().resolve()
+    if not dir_path.exists():
+        raise HTTPException(404, f"目录不存在: {dir_path}")
+    if not dir_path.is_dir():
+        raise HTTPException(400, f"路径不是目录: {dir_path}")
+
+    def build_node(p: Path, depth: int = 0) -> dict:
+        """递归构建目录树节点，限制深度避免过深目录导致性能问题"""
+        if depth > 6:
+            return None
+        if p.is_dir():
+            children = []
+            try:
+                entries = sorted(p.iterdir(), key=lambda x: (x.is_file(), x.name.lower()))
+            except PermissionError:
+                entries = []
+            for child in entries:
+                node = build_node(child, depth + 1)
+                if node:
+                    children.append(node)
+                if len(children) >= 500:
+                    break
+            return {
+                "id": str(p),
+                "name": p.name or str(p),
+                "type": "directory",
+                "category": "folder",
+                "path": str(p),
+                "expanded": depth < 2,
+                "children": children,
+            }
+        # 文件
+        try:
+            size = p.stat().st_size
+        except OSError:
+            size = 0
+        return {
+            "id": str(p),
+            "name": p.name,
+            "type": "file",
+            "category": "unknown",
+            "path": str(p),
+            "format": p.suffix.lstrip(".").lower() or None,
+            "size": size,
+        }
+
+    root_node = build_node(dir_path)
+    if root_node is None:
+        raise HTTPException(500, "无法构建目录树")
+    # 根节点名称用目录名，展开
+    root_node["expanded"] = True
+    return {"root": root_node}
+
+
+@router.get("/browse-directory")
+async def browse_directory(path: str):
+    """列出指定目录下的子目录和文件（用于目录浏览器逐层浏览）。
+
+    Args:
+        path: 目录绝对路径。为空时返回根目录（/）。
+    """
+    import platform
+
+    if not path:
+        if platform.system() == "Windows":
+            current = Path("C:\\")
+        else:
+            current = Path("/")
+    else:
+        current = Path(path).expanduser()
+
+    if not current.exists():
+        raise HTTPException(404, f"目录不存在: {current}")
+    if not current.is_dir():
+        raise HTTPException(400, f"路径不是目录: {current}")
+
+    try:
+        entries = sorted(current.iterdir(), key=lambda x: (x.is_file(), x.name.lower()))
+    except PermissionError:
+        raise HTTPException(403, f"无权限访问目录: {current}")
+
+    subdirs = []
+    files = []
+    for e in entries:
+        try:
+            if e.is_dir():
+                subdirs.append({"name": e.name, "path": str(e)})
+            elif e.is_file():
+                files.append({
+                    "name": e.name,
+                    "path": str(e),
+                    "format": e.suffix.lstrip(".").lower() or None,
+                    "size": e.stat().st_size,
+                })
+        except (PermissionError, OSError):
+            continue
+
+    parent = str(current.parent) if current.parent != current else None
+
+    return {
+        "current": str(current),
+        "parent": parent,
+        "subdirs": subdirs,
+        "files": files,
+    }

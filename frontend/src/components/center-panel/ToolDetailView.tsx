@@ -2,12 +2,14 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Wrench, FileCode, FileText, X, Play, Loader2,
   CheckCheck, Save, Bot, Code, Pencil, Tag, Plus, Square,
+  FolderOpen, Folder, File, ChevronRight, ChevronDown,
 } from 'lucide-react'
 import { Highlight, themes } from 'prism-react-renderer'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardBody } from '@/components/ui/card'
 import { useResourceStore } from '@/stores/resource-store'
+import { useWorkspaceDatasetStore } from '@/stores/workspace-dataset-store'
 import { useUIStore } from '@/stores/ui-store'
 import { useToolEditorStore } from '@/stores/tool-editor-store'
 import type { ToolResource } from '@/types/resources'
@@ -15,6 +17,13 @@ import type { ToolResource } from '@/types/resources'
 const BASE_URL = ''
 
 interface InputField { name: string; type: string; required: boolean; default: string | null; desc: string }
+
+/** 判断参数是否为"文件路径"类（名称/类型/描述含 path/file/目录/路径 关键词，且类型不是数值/布尔/列表） */
+function isFilePathParam(f: InputField): boolean {
+  if (/(int|float|number|bool|list|array|json|dict)/i.test(f.type)) return false
+  const haystack = `${f.name} ${f.type} ${f.desc || ''}`.toLowerCase()
+  return /(path|file|dir|folder|目录|路径|文件)/.test(haystack)
+}
 
 function parseInputs(md: string): InputField[] {
   const fields: InputField[] = []
@@ -55,6 +64,7 @@ export function ToolDetailView() {
   const [referenceCode, setReferenceCode] = useState('')
   const [hasReference, setHasReference] = useState(false)
   const [formValues, setFormValues] = useState<Record<string, string>>({})
+  const [pickerFor, setPickerFor] = useState<string | null>(null)  // 正在选择文件的参数名
   const [output, setOutput] = useState<Record<string, unknown> | null>(null)
   const [isExecuting, setIsExecuting] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
@@ -444,9 +454,17 @@ export function ToolDetailView() {
                       <label className="text-[11px] font-medium text-maia-text-secondary tracking-wide">
                         {f.name}{f.required && <span className="text-maia-danger ml-0.5">*</span>}<span className="text-maia-text-muted font-normal ml-1">({f.type})</span></label>
                       {f.desc && <p className="text-[10px] text-maia-text-muted mb-1">{f.desc}</p>}
-                      <input type="text" value={formValues[f.name] || ''} onChange={(e) => setFormValues(p => ({ ...p, [f.name]: e.target.value }))}
-                        placeholder={f.required ? '必填' : f.default || '可选'}
-                        className="w-full h-8 rounded border border-maia-border bg-maia-surface px-3 text-[12px] text-maia-text outline-none focus:border-maia-accent/40" />
+                      <div className="flex items-center gap-1.5">
+                        <input type="text" value={formValues[f.name] || ''} onChange={(e) => setFormValues(p => ({ ...p, [f.name]: e.target.value }))}
+                          placeholder={f.required ? '必填' : f.default || '可选'}
+                          className="flex-1 min-w-0 h-8 rounded border border-maia-border bg-maia-surface px-3 text-[12px] text-maia-text outline-none focus:border-maia-accent/40" />
+                        {isFilePathParam(f) && (
+                          <button type="button" onClick={() => setPickerFor(f.name)} title="从工作区间选择数据文件"
+                            className="shrink-0 h-8 px-2 rounded border border-maia-border bg-maia-surface hover:border-maia-accent/50 hover:text-maia-accent text-maia-text-muted transition-colors">
+                            <FolderOpen className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </div>))}
                   </div>)}
                 {/* 提交测试按钮 */}
@@ -578,8 +596,16 @@ export function ToolDetailView() {
                 {inputs.map(f => (<div key={f.name}>
                   <label className="text-[11px] font-medium text-maia-text-secondary tracking-wide">{f.name}{f.required && <span className="text-maia-danger ml-0.5">*</span>}<span className="text-maia-text-muted font-normal ml-1">({f.type})</span></label>
                   {f.desc && <p className="text-[10px] text-maia-text-muted mb-1">{f.desc}</p>}
-                  <input type="text" value={formValues[f.name] || ''} onChange={(e) => setFormValues(p => ({ ...p, [f.name]: e.target.value }))}
-                    placeholder={f.required ? '必填' : f.default || '可选'} className="w-full h-8 rounded border border-maia-border bg-maia-surface px-3 text-[12px] text-maia-text outline-none focus:border-maia-accent/40" />
+                  <div className="flex items-center gap-1.5">
+                    <input type="text" value={formValues[f.name] || ''} onChange={(e) => setFormValues(p => ({ ...p, [f.name]: e.target.value }))}
+                      placeholder={f.required ? '必填' : f.default || '可选'} className="flex-1 min-w-0 h-8 rounded border border-maia-border bg-maia-surface px-3 text-[12px] text-maia-text outline-none focus:border-maia-accent/40" />
+                    {isFilePathParam(f) && (
+                      <button type="button" onClick={() => setPickerFor(f.name)} title="从工作区间选择数据文件"
+                        className="shrink-0 h-8 px-2 rounded border border-maia-border bg-maia-surface hover:border-maia-accent/50 hover:text-maia-accent text-maia-text-muted transition-colors">
+                        <FolderOpen className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>))}
               </div>)}
             {/* 提交测试按钮 */}
@@ -602,6 +628,139 @@ export function ToolDetailView() {
           </CardBody></Card>)}
           </div>
         )}
+      </div>
+      {/* 工作区间文件选择弹窗 */}
+      {pickerFor && (
+        <WorkspaceFilePicker
+          paramName={pickerFor}
+          currentValue={formValues[pickerFor] || ''}
+          onClose={() => setPickerFor(null)}
+          onSelect={(path) => {
+            setFormValues(p => ({ ...p, [pickerFor]: path }))
+            setPickerFor(null)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+/** 工作区间文件选择弹窗：列出已加载数据集及其内部文件，选中后返回完整路径 */
+function WorkspaceFilePicker({ paramName, currentValue, onClose, onSelect }: {
+  paramName: string
+  currentValue: string
+  onClose: () => void
+  onSelect: (path: string) => void
+}) {
+  const workspaceDatasets = useWorkspaceDatasetStore(s => s.datasets)
+  const dataResources = useResourceStore(s => s.dataResources)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [filesMap, setFilesMap] = useState<Record<string, { name: string; path: string; size?: number }[]>>({})
+  const [loadingFiles, setLoadingFiles] = useState<Record<string, boolean>>({})
+
+  // 解析工作区数据集的 data_path：优先从 dataResources 匹配，否则调用后端详情接口
+  const resolveDataPath = (id: string): string => {
+    const hit = dataResources.find(d => d.id === id)
+    return (hit && 'filePath' in hit && hit.filePath) ? hit.filePath : ''
+  }
+
+  const toggleFiles = async (id: string) => {
+    if (expandedId === id) { setExpandedId(null); return }
+    setExpandedId(id)
+    if (!filesMap[id]) {
+      setLoadingFiles(p => ({ ...p, [id]: true }))
+      try {
+        let dataPath = resolveDataPath(id)
+        if (!dataPath) {
+          const detail = await (await fetch(`/api/data/${id}`)).json()
+          dataPath = (detail && detail.data_path) || ''
+        }
+        const res = await fetch(`/api/data/${id}/files`)
+        const data = await res.json()
+        const files = (data.files || []).map((f: { name: string; path: string; size?: number }) => ({
+          ...f,
+          path: f.path.startsWith(dataPath) ? f.path : `${dataPath}/${f.path}`,
+        }))
+        setFilesMap(p => ({ ...p, [id]: files }))
+      } catch { setFilesMap(p => ({ ...p, [id]: [] })) }
+      setLoadingFiles(p => ({ ...p, [id]: false }))
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div className="w-[480px] max-h-[70vh] flex flex-col rounded-lg border border-maia-border bg-maia-bg shadow-xl overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-maia-border shrink-0">
+          <span className="text-sm font-semibold text-maia-text-heading flex items-center gap-1.5">
+            <FolderOpen className="h-4 w-4 text-maia-accent" />选择数据文件 — {paramName}
+          </span>
+          <button onClick={onClose} className="text-maia-text-muted hover:text-maia-text"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="flex-1 overflow-auto p-3 space-y-1.5">
+          {currentValue && (
+            <div className="mb-2 px-2 py-1 rounded bg-maia-surface border border-maia-border text-[11px] text-maia-text-muted">
+              当前值：<span className="text-maia-text font-mono">{currentValue}</span>
+            </div>
+          )}
+          {workspaceDatasets.length === 0 ? (
+            <div className="text-center py-10 text-xs text-maia-text-muted">
+              工作区间暂无数据文件<br />请先在数据空间加载数据集
+            </div>
+          ) : (
+            <>
+              <p className="text-[10px] text-maia-text-muted px-1">工作区间数据（点击展开查看文件）</p>
+              {workspaceDatasets.map(ds => {
+                const files = filesMap[ds.id] || []
+                const isExpanded = expandedId === ds.id
+                return (
+                  <div key={ds.id} className="rounded border border-maia-border bg-maia-surface overflow-hidden">
+                    <button
+                      className="w-full flex items-center gap-2 px-2.5 py-2 hover:bg-maia-bg transition-colors text-left"
+                      onClick={() => toggleFiles(ds.id)}
+                    >
+                      {loadingFiles[ds.id] ? <Loader2 className="h-3.5 w-3.5 animate-spin text-maia-accent shrink-0" />
+                        : isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-maia-text-muted shrink-0" />
+                        : <ChevronRight className="h-3.5 w-3.5 text-maia-text-muted shrink-0" />}
+                      <Folder className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                      <span className="text-[12px] text-maia-text truncate flex-1">{ds.name}</span>
+                      {resolveDataPath(ds.id) && <span className="text-[10px] text-maia-text-muted truncate max-w-[140px]">{resolveDataPath(ds.id)}</span>}
+                    </button>
+                    {isExpanded && (
+                      <div className="border-t border-maia-border max-h-[220px] overflow-auto">
+                        <button
+                          className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-maia-accent/10 text-left"
+                          onClick={() => onSelect(resolveDataPath(ds.id) || ds.name)}
+                          title="选择数据集根目录"
+                        >
+                          <Folder className="h-3 w-3 text-maia-accent shrink-0" />
+                          <span className="text-[11px] text-maia-text-secondary">使用数据集目录路径</span>
+                        </button>
+                        {files.length === 0 && !loadingFiles[ds.id] && (
+                          <div className="px-3 py-2 text-[10px] text-maia-text-muted">该数据集内没有文件</div>
+                        )}
+                        {files.map((f, i) => (
+                          <button
+                            key={i}
+                            className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-maia-accent/10 text-left"
+                            onClick={() => onSelect(f.path)}
+                            title={f.path}
+                          >
+                            <File className="h-3 w-3 text-maia-text-muted shrink-0" />
+                            <span className="text-[11px] text-maia-text truncate flex-1">{f.name}</span>
+                            {f.size != null && <span className="text-[10px] text-maia-text-muted shrink-0">{(f.size / 1024).toFixed(1)}KB</span>}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </>
+          )}
+        </div>
+        <div className="px-4 py-2 border-t border-maia-border text-[10px] text-maia-text-muted shrink-0">
+          点击文件填入完整路径；点击"使用数据集目录路径"填入数据集根目录
+        </div>
       </div>
     </div>
   )

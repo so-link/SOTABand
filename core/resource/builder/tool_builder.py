@@ -152,10 +152,10 @@ class ToolCodeBuilder(BaseBuilder):
 每个参数: name, type, required(true/false), default(null或值), desc, hints(示例输入数组)
 
 MD 文档:
-{spec_md[:3000]}
+{spec_md[:20000]}
 
 仅返回 JSON 数组:"""
-        response = await self.llm.chat(messages=[{"role":"user","content":prompt}], temperature=0.1, max_tokens=1000)
+        response = await self.llm.chat(messages=[{"role":"user","content":prompt}], temperature=0.1, max_tokens=100000)
         try:
             clean = response.strip()
             if clean.startswith("```"): clean = clean.split("\n",1)[1].rsplit("\n",1)[0]
@@ -225,11 +225,14 @@ MD 文档:
                                     if len(parts) >= 2 and parts[0]:
                                         name = parts[0]
                                         typ = parts[1] if len(parts) > 1 else "string"
-                                        desc = parts[3] if len(parts) > 3 else (parts[2] if len(parts) > 2 else "")
                                         if in_input:
+                                            # 输入规范表格：| 参数名 | 类型 | 必填 | 默认值 | 说明 |
                                             required = parts[2] if len(parts) > 2 else ""
+                                            desc = parts[4] if len(parts) > 4 else (parts[3] if len(parts) > 3 else "")
                                             param_descriptions[name] = {"type": typ, "required": "是" in required, "description": desc}
                                         elif in_output:
+                                            # 输出规范表格：| 字段 | 类型 | 说明 |
+                                            desc = parts[2] if len(parts) > 2 else ""
                                             output_descriptions[name] = {"type": typ, "description": desc}
 
                         # 2. 构造详细的输入参数信息
@@ -296,7 +299,8 @@ CRITICAL RULES:
 9. Tool calls: _call_tool("工具名称", param=value) — 系统自动通过 registry.json 查找工具ID和实现目录
 10. NEVER async/await
 11. NEVER use pip install, subprocess.run for package installation, or any runtime dependency installation — dependencies are managed by the system automatically
-12. Output ONLY Python code, no markdown, no explanation"""
+12. When calling LLM APIs (api-llm-chat / api-llm-chat-stream / any LLM call), ALWAYS set max_tokens=100000 (or a large value) to handle potentially large files — NEVER use a small default like 4096 or 1024.
+13. Output ONLY Python code, no markdown, no explanation"""
 
         response = await self.llm.chat(
             messages=[{"role":"user","content":prompt}],
@@ -378,9 +382,10 @@ CRITICAL RULES:
             return {"installed": [], "failed": [], "message": "无第三方依赖"}
         return await self.install_deps(tool_id, deps)
 
-    async def sandbox_execute(self, code: str, test_input: dict, tool_id: str = None, exec_timeout: float = 180.0) -> dict:
+    async def sandbox_execute(self, code: str, test_input: dict, tool_id: str = None, exec_timeout: float = None) -> dict:
         """沙箱执行：通过 ToolExecutor 统一执行。
         注意：依赖安装由 _auto_debug_loop 统一管理（带日志），此处不再重复安装。
+        exec_timeout=None 表示无超时限制（工具可能运行较长时间）。
         """
         import asyncio
 
@@ -389,15 +394,16 @@ CRITICAL RULES:
         from core.executor.tool_executor import ToolExecutor
 
         try:
-            result = await asyncio.wait_for(
-                ToolExecutor.execute(
-                    tool_id=tid,
-                    params=test_input,
-                    code=code,
-                    timeout=exec_timeout,
-                ),
-                timeout=exec_timeout + 10,
+            exec_coro = ToolExecutor.execute(
+                tool_id=tid,
+                params=test_input,
+                code=code,
+                timeout=exec_timeout,
             )
+            if exec_timeout is None:
+                result = await exec_coro
+            else:
+                result = await asyncio.wait_for(exec_coro, timeout=exec_timeout + 10)
         except asyncio.TimeoutError:
             result = {"status": "failed", "message": f"工具执行超时 ({exec_timeout}秒)", "error": "TimeoutError"}
 
@@ -853,14 +859,28 @@ stderr: {exec_result['stderr'][:1000]}
 === END RESULT ===
 {dep_feedback}
 
-Fix the code based on the error and the dependency feedback above.
-- If a dependency was installed successfully: keep the import, fix other code logic issues.
-- If a dependency failed to install: replace it with an alternative library or stdlib approach.
-- If the error is a code logic bug (not dependency-related): fix the bug.
+请分两部分输出，严格使用以下格式：
 
-Output the COMPLETE fixed Python file (including template header).
-INTERFACE RULES: execute(**kwargs)->dict, kwargs.get, {{status,output_format,message,data}}, try/except.
-Output ONLY Python code. NO pip install, NO subprocess, NO install directives, NO markdown."""
+<analysis>
+问题原因：（简要说明代码为什么失败，1-3 句话）
+修改计划：（列出打算如何修改，逐条说明）
+</analysis>
+
+<code>
+（完整修复后的 Python 代码，包括模板头部）
+</code>
+
+要求：
+1. <analysis> 和 <code> 标签必须完整、成对出现。
+2. <analysis> 内用中文简要说明问题原因和修改计划，不要超过 5 行。
+3. <code> 内只放完整 Python 代码。
+4. 修复规则：
+   - 依赖已成功安装：保留 import，修复其他代码逻辑问题。
+   - 依赖安装失败：用替代库或标准库方案替换。
+   - 代码逻辑 bug（非依赖）：修复 bug。
+5. INTERFACE RULES: execute(**kwargs)->dict, kwargs.get, {{status,output_format,message,data}}, try/except。
+6. 代码中不要出现 pip install、subprocess 安装指令或 markdown 围栏。
+7. 代码中调用大模型（api-llm-chat / api-llm-chat-stream 等）时，必须设置 max_tokens=100000（或更大），不要用 4096、1024 等小值。"""
 
             # 记录本轮日志条目
             log_entry = {
@@ -873,16 +893,23 @@ Output ONLY Python code. NO pip install, NO subprocess, NO install directives, N
 
             full_response = ""
             llm_task = None
+            llm_exception = None
             LLM_TIMEOUT = 120  # LLM 调用总超时（秒）
             try:
                 token_queue: list = []
 
                 async def _collect_tokens():
-                    async for token in self.llm.chat_stream(
-                        messages=[{"role":"user","content":fix_prompt}],
-                        temperature=0.2, max_tokens=100000,
-                    ):
-                        token_queue.append(token)
+                    nonlocal llm_exception
+                    try:
+                        async for token in self.llm.chat_stream(
+                            messages=[{"role":"user","content":fix_prompt}],
+                            temperature=0.2, max_tokens=100000,
+                        ):
+                            token_queue.append(token)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        llm_exception = exc
 
                 llm_task = asyncio.create_task(_collect_tokens())
 
@@ -924,6 +951,12 @@ Output ONLY Python code. NO pip install, NO subprocess, NO install directives, N
                     full_response += token
                     yield {"event": "thinking_stream", "round": round_num, "token": token}
 
+                # LLM 流式调用抛出异常（如 API 错误）时，明确反馈
+                if llm_exception is not None:
+                    yield {"event": "llm_error", "round": round_num, "message": f"LLM调用异常: {str(llm_exception)[:300]}"}
+                    if not full_response.strip():
+                        continue
+
             except asyncio.CancelledError:
                 # producer_task.cancel() 传播的 CancelledError — 立即退出
                 if llm_task and not llm_task.done():
@@ -935,30 +968,53 @@ Output ONLY Python code. NO pip install, NO subprocess, NO install directives, N
                 yield {"event": "llm_error", "round": round_num, "message": f"LLM调用异常: {str(e)[:200]}"}
                 continue
 
-            # ── ⑤ 解析 LLM 响应：只接受代码 ──
+            # ── ⑤ 解析 LLM 响应：切分「分析」与「代码」──
             log_entry["response"] = full_response
             debug_log_entries.append(log_entry)
 
-            new_code = full_response.strip()
-            # 清理 markdown 代码块标记（只处理开头和结尾，避免注释中的 ``` 截断代码）
-            if new_code.startswith("```python"):
-                new_code = new_code[len("```python"):]
-            elif new_code.startswith("```"):
-                new_code = new_code[3:]
-            if new_code.endswith("```"):
-                new_code = new_code[:-3]
-            new_code = new_code.strip()
-            # 仅当整个响应被一对 ``` 包裹时才做 split 提取
-            if new_code.startswith("```") and new_code.count("```") == 2:
-                parts = new_code.split("```")
-                new_code = parts[1].strip() if len(parts) >= 2 else new_code
+            # 切分 <analysis> 与 <code> 两部分
+            analysis_text = ""
+            code_text = ""
+            am = re.search(r"<analysis>(.*?)</analysis>", full_response, re.DOTALL)
+            if am:
+                analysis_text = am.group(1).strip()
+            cm = re.search(r"<code>(.*?)</code>", full_response, re.DOTALL)
+            if cm:
+                code_text = cm.group(1).strip()
+            else:
+                # 兜底：无 <code> 标记时，把 <analysis> 之后的全部内容视为代码
+                if am:
+                    code_text = full_response[am.end():].strip()
+                else:
+                    code_text = full_response.strip()
 
-            # 如果 LLM 返回的不是代码（太短、只有安装指令等），跳过本轮
-            if len(new_code) < 100:
-                yield {"event": "thinking", "round": round_num, "message": "LLM 返回内容过短，跳过本轮"}
+            # 清理 markdown 代码块围栏
+            if code_text.startswith("```python"):
+                code_text = code_text[len("```python"):]
+            elif code_text.startswith("```"):
+                code_text = code_text[3:]
+            if code_text.endswith("```"):
+                code_text = code_text[:-3]
+            code_text = code_text.strip()
+            if code_text.startswith("```") and code_text.count("```") == 2:
+                parts = code_text.split("```")
+                code_text = parts[1].strip() if len(parts) >= 2 else code_text
+
+            # 先发送分析结论（如果有）
+            if analysis_text:
+                yield {"event": "analysis_result", "round": round_num, "analysis": analysis_text}
+
+            # 如果代码过短，跳过本轮
+            if len(code_text) < 100:
+                llm_raw = (analysis_text or full_response.strip())[:2000] or "(空)"
+                yield {
+                    "event": "thinking",
+                    "round": round_num,
+                    "message": f"LLM 返回代码过短（{len(code_text)} 字符），跳过本轮。LLM 实际返回: {llm_raw}",
+                }
                 continue
 
-            current_code = new_code
+            current_code = code_text
             yield {"event": "code_updated", "round": round_num, "code": current_code}
 
             # ── ⑥ 系统自动安装新代码的依赖 ──

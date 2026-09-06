@@ -7,16 +7,27 @@ import { ApiChatService } from '@/services/api/chat'
 const useMock = import.meta.env.VITE_USE_MOCK === 'true'
 const chatService = useMock ? new MockChatService() : new ApiChatService()
 
+/** 路径引用：@文件名 占位符与完整路径的映射 */
+export interface PathRef {
+  name: string
+  path: string
+}
+
 interface ChatState {
   messages: Message[]
   isSending: boolean
   attachedFiles: FileAttachment[]
   inputText: string
+  /** 拖拽进来的文件/目录路径引用（@文件名 → 完整路径） */
+  pathRefs: PathRef[]
 
   setInputText: (text: string) => void
   addAttachment: (file: FileAttachment) => void
   removeAttachment: (id: string) => void
+  addPathRef: (ref: PathRef) => void
+  removePathRef: (name: string) => void
   sendMessage: () => Promise<void>
+  sendDirectMessage: (content: string) => Promise<void>
   stopMessage: () => void
   addMessage: (msg: Message) => void
   clearMessages: () => void
@@ -40,6 +51,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isSending: false,
   attachedFiles: [],
   inputText: '',
+  pathRefs: [],
 
   setInputText: (text) => set({ inputText: text }),
 
@@ -48,6 +60,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   removeAttachment: (id) =>
     set((s) => ({ attachedFiles: s.attachedFiles.filter((f) => f.id !== id) })),
+
+  addPathRef: (ref) =>
+    set((s) => ({ pathRefs: [...s.pathRefs, ref] })),
+
+  removePathRef: (name) =>
+    set((s) => ({
+      pathRefs: s.pathRefs.filter((r) => r.name !== name),
+    })),
 
   addMessage: (msg) =>
     set((s) => ({ messages: [...s.messages, msg] })),
@@ -69,17 +89,28 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ isSending: false })
   },
 
-  sendMessage: async () => {
-    const { inputText, attachedFiles } = get()
-    if (!inputText.trim() && attachedFiles.length === 0) return
+  sendDirectMessage: async (content) => {
+    // 直接发送一条消息（不走输入框）
+    if (!content.trim() || get().isSending) return
+    set({ inputText: content })
+    await get().sendMessage()
+  },
 
-    set({ isSending: true, inputText: '', attachedFiles: [] })
+  sendMessage: async () => {
+    const { inputText, attachedFiles, pathRefs } = get()
+    if (!inputText.trim() && attachedFiles.length === 0 && pathRefs.length === 0) return
+
+    // 把拖拽的文件/目录完整路径追加到文本末尾（作为路径参数提交）
+    const paths = pathRefs.map((r) => r.path).filter(Boolean)
+    const finalText = [inputText.trim(), ...paths].filter(Boolean).join(' ')
+
+    set({ isSending: true, inputText: '', attachedFiles: [], pathRefs: [] })
 
     // 添加用户消息
     const userMsg: Message = {
       id: genId(),
       role: 'user',
-      content: inputText,
+      content: finalText,
       timestamp: new Date().toISOString(),
       attachments: attachedFiles.length > 0 ? attachedFiles : undefined,
     }
@@ -102,14 +133,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const { useWorkspaceToolStore } = await import('@/stores/workspace-tool-store')
         workspaceToolIds = useWorkspaceToolStore.getState().tools.map(t => t.id)
       } catch { /* ignore */ }
-      const stream = chatService.sendMessage({ content: inputText, attachments: attachedFiles, workspaceToolIds })
+      const stream = chatService.sendMessage({ content: finalText, attachments: attachedFiles, workspaceToolIds })
 
       for await (const chunk of stream) {
         // 检查是否有新数据集注册，自动加入数据空间并刷新列表
         if (chunk.cards) {
           for (const card of chunk.cards) {
             const cardData = (card as Record<string, unknown>).data as Record<string, unknown> | undefined
-            if (cardData?.registered_dataset_id || cardData?._action === 'register_dataset') {
+            if (cardData?.registered_dataset_id || cardData?._action === 'register_dataset' || cardData?._action === 'register_model') {
               try {
                 const { useResourceStore } = await import('@/stores/resource-store')
                 useResourceStore.getState().fetchDatasetsFromApi()

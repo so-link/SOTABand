@@ -1,6 +1,7 @@
 """交互 Agent — 系统默认入口，开机自启，处理用户对话"""
 
 import json
+import re
 import time
 from typing import AsyncGenerator
 
@@ -26,13 +27,13 @@ SYSTEM_PROMPT = """你是 SOTABand Engine 的交互 Agent，一个多智能体�
 - 普通对话: 用自然语言回复
 - 简单数据处理需求: 分析需求 → 匹配工具 → 建议执行方案
 - 复杂任务: 分析步骤 → 建议使用编排模式
-- 无匹配工具: 回复以 **TOOL_NEEDED:** 开头，然后简要描述需要创建什么工具（中文描述），
+- 无匹配工具: 回复必须**以 TOOL_NEEDED: 开头**（不要有任何前缀文字），然后简要描述需要创建什么工具（中文描述），
   系统会自动跳转到工具编辑器并预填需求。例如: "TOOL_NEEDED: EEG带通滤波器，输入EDF文件，支持可配置的低频和高频截止频率"
 
 ## 注意事项
 - 回复简洁清晰，逐步引导用户
 - 如用户提及具体数据文件，引用文件名
-- 当用户描述数据处理需求但当前没有匹配工具时，必须使用 TOOL_NEEDED: 格式
+- 当用户描述数据处理需求但当前没有匹配工具时，必须使用 TOOL_NEEDED: 格式，且 TOOL_NEEDED: 必须在回复最开头
 - 保持友好、专业的语气"""
 
 
@@ -74,6 +75,7 @@ class InteractiveAgent(BaseAgent):
         self.llm = llm_client or create_llm_client()
         self._sessions: dict[str, list[dict]] = {}
         self._pending_calls: dict[str, dict] = {}
+        self._pending_confirm: dict[str, dict] = {}
 
     async def execute(
         self, ctx: AgentContext, **kwargs
@@ -110,6 +112,24 @@ class InteractiveAgent(BaseAgent):
 
         session_key = ctx.session_id or "default"
 
+        # 如果正在等待用户确认工具选择 → 识别用户的选择
+        pending_confirm = self._pending_confirm.get(session_key)
+        if pending_confirm:
+            selected = self._resolve_tool_selection(content, pending_confirm["candidates"])
+            if selected is None:
+                # 无法识别选择 → 重新列出候选，请用户明确选择
+                self._pending_confirm[session_key] = pending_confirm
+                yield {"event": "content", "data": {"text": "请回复编号或工具名称来选择要使用的工具。"}}
+                return
+            self._pending_confirm.pop(session_key, None)
+            # 选定工具 → 继续走参数引导
+            matched_tool = selected
+            skip_param_extract = {}
+            in_param_collection = False
+        else:
+            matched_tool = None
+            skip_param_extract = {}
+
         # 如果有 pending 的参数收集 → 只处理参数回答，不做工具匹配
         pending = self._pending_calls.get(session_key)
         in_param_collection = pending is not None
@@ -129,8 +149,10 @@ class InteractiveAgent(BaseAgent):
             matched_tool = {"id": pending["tool_id"], "name": pending["tool_name"]}
             skip_param_extract = pending["params"]
 
-        if not in_param_collection:
-            matched_tool = self._pre_match_tool(content, workspace_tool_ids or [])
+        need_create_tool_desc = None
+        matched_tools: list[dict] = []
+        if not in_param_collection and not matched_tool:
+            matched_tools, need_create_tool_desc = await self._pre_match_tool(content, workspace_tool_ids or [])
 
         history = self._sessions.get(session_key, [])
         if not history:
@@ -140,6 +162,54 @@ class InteractiveAgent(BaseAgent):
         # 如果预匹配到工具 → 先执行工具，用真实结果驱动 LLM 回复
         tool_result = None
         tool_failed = False
+
+        # 多个候选工具 → 请用户确认选择哪一个
+        if not matched_tool and len(matched_tools) > 1:
+            self._pending_confirm[session_key] = {"candidates": matched_tools}
+            # 构建候选列表展示
+            candidates_info = []
+            for i, t in enumerate(matched_tools, 1):
+                name = t.get("name", t.get("id", ""))
+                candidates_info.append({"id": t.get("id", ""), "name": name, "index": i})
+            # 发确认卡片
+            yield {
+                "event": "card",
+                "data": {
+                    "type": "tool-confirm",
+                    "title": "请确认要使用的工具",
+                    "summary": f"找到 {len(matched_tools)} 个可能匹配的工具，请选择其中一个",
+                    "data": {"candidates": candidates_info},
+                },
+            }
+            # 文本引导
+            options_text = "、".join(f"{i}.{t['name']}" for i, t in enumerate(matched_tools, 1))
+            yield {
+                "event": "content",
+                "data": {"text": f"检测到多个可能匹配的工具，请选择：{options_text}。回复编号或工具名称即可。"},
+            }
+            return
+
+        # 唯一候选 → 直接使用
+        if not matched_tool and len(matched_tools) == 1:
+            matched_tool = matched_tools[0]
+
+        # 需要创建新工具 → 直接发卡片，提供跳转入口
+        if not matched_tool and need_create_tool_desc:
+            yield {
+                "event": "card",
+                "data": {
+                    "type": "create-tool",
+                    "title": "需要创建新工具",
+                    "summary": need_create_tool_desc,
+                    "data": {"description": need_create_tool_desc},
+                },
+            }
+            # 同时用自然语言告知用户
+            yield {
+                "event": "content",
+                "data": {"text": f"当前工具空间中没有匹配的工具，我理解你需要创建一个新工具：{need_create_tool_desc}。点击下方卡片即可跳转到工具编辑器。"},
+            }
+            return
 
         if matched_tool:
             # 参数（pending 已收集或重新提取）
@@ -278,14 +348,15 @@ class InteractiveAgent(BaseAgent):
             async for token in self.llm.chat_stream(
                 messages=history,
                 temperature=0.1,
-                max_tokens=self.config.get("max_tokens", 4096),
+                max_tokens=self.config.get("max_tokens", 100000),
             ):
                 full_response += token
                 yield {"event": "content", "data": {"text": token}}
 
-            # 检查是否需要创建工具
-            if full_response.startswith("TOOL_NEEDED:"):
-                tool_desc = full_response[len("TOOL_NEEDED:"):].strip()
+            # 检查是否需要创建工具（宽松匹配，兼容前缀/中英文冒号）
+            m_tool_needed = re.search(r"TOOL_NEEDED[:：]\s*(.+)", full_response, re.DOTALL)
+            if m_tool_needed:
+                tool_desc = m_tool_needed.group(1).strip()
                 yield {
                     "event": "card",
                     "data": {
@@ -306,20 +377,264 @@ class InteractiveAgent(BaseAgent):
                 "data": {"code": "llm_error", "message": str(e)},
             }
 
-    def _pre_match_tool(self, query: str, workspace_tool_ids: list[str] = None) -> dict | None:
-        """预匹配：只在工具空间中的工具里做关键词匹配"""
+    async def _pre_match_tool(self, query: str, workspace_tool_ids: list[str] = None) -> tuple[list[dict], str | None]:
+        """预匹配：先用 LLM 语义匹配，失败时回退到关键词匹配。
+
+        返回 (匹配到的工具候选列表, 需要创建的工具描述 或 None)
+        """
+        # 0. 明确「创建工具」意图 → 直接进入创建流程，不做工具匹配
+        create_intent = self._detect_create_intent(query)
+        if create_intent:
+            return [], create_intent
+
+        # 收集活跃工具（限定工具空间范围）
         try:
             from core.resource.registry.tool_registry import ToolRegistry
             reg = ToolRegistry()
             tools = reg._read()
             active = [t for t in tools if t.get("status") == "active"]
-            # 如果指定了工具空间范围，只匹配工具空间中的工具
             if workspace_tool_ids:
                 ws_set = set(workspace_tool_ids)
                 active = [t for t in active if t.get("id") in ws_set]
-            query_lower = query.lower()
+        except Exception:
+            return [], None
 
-            # 按匹配度打分
+        # 工具空间为空 → 判断是否需要创建工具
+        if not active:
+            need_create = await self._llm_check_create_needed(query)
+            return [], need_create
+
+        # 1. 优先：LLM 语义匹配（返回多个候选，同时判断是否需创建新工具）
+        llm_candidates, llm_create = await self._llm_semantic_match(query, active)
+        if llm_candidates:
+            return llm_candidates, None
+        if llm_create:
+            return [], llm_create
+
+        # 2. 回退：关键词匹配（返回多个候选）
+        kw_candidates = self._keyword_match(query, active)
+        if kw_candidates:
+            return kw_candidates, None
+
+        return [], None
+
+    def _detect_create_intent(self, query: str) -> str | None:
+        """检测用户是否明确表达「创建工具」意图，返回工具描述（或 None）"""
+        # 明确创建意图的关键词
+        CREATE_KEYWORDS = [
+            "创建工具", "新建工具", "生成工具", "做一个工具", "做个工具",
+            "创建新工具", "新建一个工具", "开发一个工具", "开发个工具",
+            "帮我做工具", "帮我写工具", "我要工具", "写个工具", "写一个工具",
+            "create tool", "create a tool", "new tool", "make a tool",
+            "我要创建", "我想创建", "帮我创建",
+        ]
+        q = query.strip()
+        q_lower = q.lower()
+        has_create_intent = any(kw in q for kw in CREATE_KEYWORDS) or any(kw in q_lower for kw in CREATE_KEYWORDS)
+
+        if not has_create_intent:
+            return None
+
+        # 提取工具描述：去掉「创建工具」等意图词，剩下的作为描述
+        desc = q
+        for kw in CREATE_KEYWORDS:
+            desc = desc.replace(kw, " ")
+        # 清理标点和多余空格
+        desc = re.sub(r"[，。！？,.!?\s]+", " ", desc).strip()
+        # 如果去掉意图词后没有实质描述，用原始 query
+        if not desc or len(desc) < 2:
+            desc = q
+
+        return desc
+
+    def _resolve_tool_selection(self, answer: str, candidates: list[dict]) -> dict | None:
+        """识别用户对候选工具的选择（编号或名称），返回选中的工具或 None"""
+        if not candidates:
+            return None
+        a = answer.strip()
+        a_lower = a.lower()
+
+        # 1. 按编号选择：1 / 第1个 / 第一个 / 选项1
+        num_matches = re.findall(r"\d+", a)
+        if num_matches:
+            idx = int(num_matches[0])
+            if 1 <= idx <= len(candidates):
+                return candidates[idx - 1]
+
+        # 2. 按工具名 / id 匹配
+        for t in candidates:
+            name = t.get("name", "")
+            tid = t.get("id", "")
+            if name and name in a:
+                return t
+            if tid and tid.lower() in a_lower:
+                return t
+
+        # 3. 模糊：工具名的关键词出现在回答中
+        for t in candidates:
+            name = t.get("name", "")
+            for word in name:
+                if word and len(word) >= 1 and word in a and ('一' <= word <= '鿿' or word.isalnum()):
+                    # 单个字符太弱，跳过；用 2+ 字符匹配
+                    pass
+            # 提取 2+ 字符的片段做匹配
+            for i in range(len(name) - 1):
+                seg = name[i:i + 2]
+                if seg in a:
+                    return t
+
+        return None
+
+    async def _llm_semantic_match(self, query: str, tools: list[dict]) -> tuple[list[dict], str | None]:
+        """用 LLM 做语义匹配。
+
+        返回 (匹配到的工具候选列表, 需要创建的工具描述 或 None)
+        """
+        try:
+            # 构建工具候选列表（id + name + tags + 功能概述）
+            candidates = []
+            for t in tools:
+                overview = self._read_tool_overview(t)
+                info = f"- {t.get('id')}: {t.get('name', '')}"
+                if overview:
+                    info += f" — {overview}"
+                else:
+                    tags = t.get("tags", [])
+                    if tags:
+                        info += f" [标签: {', '.join(tags)}]"
+                candidates.append(info)
+            if not candidates:
+                return [], None
+
+            tools_text = "\n".join(candidates)
+            prompt = f"""你是工具匹配器。根据用户的需求，从以下工具列表中选择可能匹配的工具。
+
+用户需求：
+"{query}"
+
+可用工具列表：
+{tools_text}
+
+请判断：
+- 如果用户明确表示要「创建工具/新建工具/开发工具」，直接返回 need_new_tool=true，并给出新工具的简短中文描述（即使现有工具列表中可能有名称相近的工具，也不要去匹配）
+- 如果有一个或多个工具能匹配用户需求，返回 matched_tool_ids 列表（按匹配度从高到低，最多 3 个）
+- 如果没有任何工具匹配，且用户的需求是「数据处理/文件处理/计算/分析」类（需要用工具完成），返回 need_new_tool=true，并给出新工具的简短中文描述
+- 如果用户只是普通闲聊/咨询，不需要工具，返回 need_new_tool=false
+
+只返回 JSON，格式：
+- 匹配到工具：{{"matched_tool_ids": ["工具id1", "工具id2"]}}
+- 需要创建：{{"matched_tool_ids": [], "need_new_tool": true, "description": "新工具描述"}}
+- 不需要：{{"matched_tool_ids": [], "need_new_tool": false}}
+不要返回其他内容。"""
+
+            import asyncio
+            response = await asyncio.wait_for(
+                self.llm.chat(
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.0,
+                    max_tokens=400,
+                ),
+                timeout=10,
+            )
+            text = response.strip()
+            import json
+            m = re.search(r"\{[^{}]*\}", text)
+            if not m:
+                return [], None
+            data = json.loads(m.group(0))
+
+            # 多个候选
+            matched_ids = data.get("matched_tool_ids") or []
+            if matched_ids:
+                result = []
+                for tid in matched_ids:
+                    for t in tools:
+                        if t.get("id") == tid:
+                            result.append(t)
+                            break
+                if result:
+                    return result, None
+
+            # 兼容旧格式 tool_id 单值
+            tool_id = data.get("tool_id")
+            if tool_id:
+                for t in tools:
+                    if t.get("id") == tool_id:
+                        return [t], None
+                return [], None
+
+            # 无匹配 → 判断是否需要创建
+            if data.get("need_new_tool"):
+                desc = (data.get("description") or "").strip()
+                if desc:
+                    return [], desc
+            return [], None
+        except Exception:
+            return [], None
+
+    async def _llm_check_create_needed(self, query: str) -> str | None:
+        """工具空间为空时，判断用户需求是否需要创建工具，并生成工具描述"""
+        try:
+            import asyncio
+            prompt = f"""判断用户的需求是否需要创建一个数据处理工具。
+
+用户需求：
+"{query}"
+
+规则：
+- 如果用户的需求是「数据处理/文件处理/计算/分析/转换」类，需要用工具完成，返回 need_new_tool=true，并给出新工具的简短中文描述
+- 如果用户只是普通闲聊/咨询，返回 need_new_tool=false
+
+只返回 JSON：{{"need_new_tool": true, "description": "工具描述"}} 或 {{"need_new_tool": false}}
+不要返回其他内容。"""
+            response = await asyncio.wait_for(
+                self.llm.chat(
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.0,
+                    max_tokens=200,
+                ),
+                timeout=10,
+            )
+            text = response.strip()
+            import json
+            m = re.search(r"\{[^{}]*\}", text)
+            if not m:
+                return None
+            data = json.loads(m.group(0))
+            if data.get("need_new_tool"):
+                desc = (data.get("description") or "").strip()
+                if desc:
+                    return desc
+            return None
+        except Exception:
+            return None
+
+    def _read_tool_overview(self, tool: dict) -> str:
+        """读取工具 MD 定义文档的「功能概述」章节"""
+        try:
+            from pathlib import Path
+            spec_path = tool.get("spec_path", "")
+            if not spec_path:
+                return ""
+            project_root = Path(__file__).resolve().parent.parent.parent.parent.parent
+            md_file = project_root / "resources" / "tools" / spec_path
+            if not md_file.exists():
+                return ""
+            content = md_file.read_text(encoding="utf-8")
+            # 提取「功能概述」章节
+            m = re.search(r"功能概述\s*\n\s*(.+?)(?=\n##|\Z)", content, re.DOTALL)
+            if m:
+                overview = m.group(1).strip()
+                # 去掉首尾 markdown 围栏残留
+                return overview[:200]
+        except Exception:
+            pass
+        return ""
+
+    def _keyword_match(self, query: str, active: list[dict]) -> list[dict]:
+        """关键词匹配兜底，返回多个候选（top 3）"""
+        try:
+            query_lower = query.lower()
             scored = []
             for t in active:
                 score = 0
@@ -329,41 +644,32 @@ class InteractiveAgent(BaseAgent):
                 tid_tokens = set(tid.replace("-", " ").replace("_", " ").split())
                 all_text = f"{tid} {tname} {tags}"
 
-                # 工具名/ID 完全出现在查询中
                 if tid in query_lower or tname in query_lower:
                     score += 10
-
-                # 英文: 连字符拆分的 token 匹配
                 for qword in query_lower.split():
                     if len(qword) >= 2 and qword in tid_tokens:
                         score += 3
-
-                # 中文: 字符级匹配（工具名/标签中的汉字出现在查询中）
                 chinese_chars = [c for c in tname + tags if '一' <= c <= '鿿']
                 if chinese_chars:
                     matched = sum(1 for c in set(chinese_chars) if c in query_lower)
                     if matched >= 2:
-                        score += min(matched, 5)  # 最多+5
-
-                # 标签完全匹配
+                        score += min(matched, 5)
                 for tag in t.get("tags", []):
                     if tag.lower() in query_lower:
                         score += 3
-
-                # 单词匹配
                 for word in query_lower.split():
                     if len(word) >= 2 and word in all_text:
                         score += 1
-
                 if score > 0:
                     scored.append((score, t))
 
             scored.sort(key=lambda x: x[0], reverse=True)
-            if scored and scored[0][0] >= 2:
-                return scored[0][1]
+            # 返回 top 3 且分数 >= 2 的候选
+            result = [t for s, t in scored if s >= 2][:3]
+            return result
         except Exception:
             pass
-        return None
+        return []
 
     def _build_system_with_context(self, workspace_tool_ids: list[str] = None) -> str:
         """构建 system prompt，只注入工具空间中的工具"""

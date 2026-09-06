@@ -12,7 +12,7 @@ class ApiLlmChat:
         content = await client.chat(
             messages=kwargs.get("messages", []),
             temperature=kwargs.get("temperature", 0.7),
-            max_tokens=kwargs.get("max_tokens", 4096),
+            max_tokens=kwargs.get("max_tokens", 100000),
         )
         return {"content": content}
 
@@ -25,7 +25,7 @@ class ApiLlmChatStream:
         # 流式需要特殊处理，这里返回生成器标记
         return {"stream": True, "messages": kwargs.get("messages", []),
                 "temperature": kwargs.get("temperature", 0.7),
-                "max_tokens": kwargs.get("max_tokens", 4096)}
+                "max_tokens": kwargs.get("max_tokens", 100000)}
 
 
 class ApiLlmGetConfig:

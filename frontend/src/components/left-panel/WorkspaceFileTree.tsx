@@ -7,6 +7,7 @@ import {
   Search,
   Upload,
   FolderInput,
+  FolderOpen,
   Trash2,
   MoreVertical,
   Activity,
@@ -16,14 +17,17 @@ import {
   Box,
   Archive,
   FileOutput,
+  AlertTriangle,
+  Loader2,
 } from 'lucide-react'
 import { useFileTreeStore } from '@/stores/file-tree-store'
 import { useResourceStore } from '@/stores/resource-store'
-import { useChatStore } from '@/stores/chat-store'
+import { useUIStore } from '@/stores/ui-store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { DatasetImportDialog } from './DatasetImportDialog'
+import { OpenDirectoryDialog } from './OpenDirectoryDialog'
 import type { FileTreeNode, FileCategory } from '@/types/workspace'
 
 const FILE_ICONS: Record<FileCategory, typeof File> = {
@@ -50,7 +54,6 @@ export function WorkspaceFileTree() {
     getFilteredTree,
   } = useFileTreeStore()
   const selectResource = useResourceStore((s) => s.selectResource)
-  const addAttachment = useChatStore((s) => s.addAttachment)
   const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -66,10 +69,15 @@ export function WorkspaceFileTree() {
 
   const handleDragStart = (e: React.DragEvent, node: FileTreeNode) => {
     e.dataTransfer.setData('application/json', JSON.stringify(node))
+    // 同时设置 text/plain 类型（完整路径），提升跨组件拖拽兼容性
+    e.dataTransfer.setData('text/plain', node.path || '')
     e.dataTransfer.effectAllowed = 'copy'
   }
 
   const [showImport, setShowImport] = useState(false)
+  const [showOpenDir, setShowOpenDir] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<FileTreeNode | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   const handleImportDataset = (dsNode: FileTreeNode) => {
     const { root, persist } = useFileTreeStore.getState()
@@ -79,6 +87,16 @@ export function WorkspaceFileTree() {
       persist()
     }
     setShowImport(false)
+  }
+
+  const handleOpenDirectory = (dirNode: FileTreeNode) => {
+    const { root, persist } = useFileTreeStore.getState()
+    if (root) {
+      root.children = [...(root.children || []), dirNode]
+      useFileTreeStore.setState({ root: { ...root } })
+      persist()
+    }
+    setShowOpenDir(false)
   }
 
   const handleClear = () => {
@@ -92,14 +110,40 @@ export function WorkspaceFileTree() {
 
   const handleDoubleClick = (node: FileTreeNode) => {
     selectFile(node)
-    if (node.type === 'file') {
-      addAttachment({
-        id: node.id,
-        fileName: node.name,
-        filePath: node.path,
-        fileSize: node.size || 0,
-        format: node.format || 'unknown',
+    if (node.type !== 'file') return
+
+    // PDF 文件：直接用浏览器打开
+    const ext = (node.format || node.name.split('.').pop() || '').toLowerCase()
+    if (ext === 'pdf') {
+      window.open(`/api/file/download?path=${encodeURIComponent(node.path)}`, '_blank')
+      return
+    }
+
+    // 其他文件（图片/视频/MD/CSV 等）：切换到文件预览视图
+    useFileTreeStore.getState().setPreviewFile(node)
+    useUIStore.getState().setActiveView('file-preview')
+  }
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
+    try {
+      const res = await fetch('/api/file/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: deleteTarget.path }),
       })
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }))
+        throw new Error(detail.detail || `删除失败 (HTTP ${res.status})`)
+      }
+      // 从文件树中移除该节点
+      useFileTreeStore.getState().removeNode(deleteTarget.id)
+    } catch (e) {
+      alert(`删除失败: ${e}`)
+    } finally {
+      setDeleting(false)
+      setDeleteTarget(null)
     }
   }
 
@@ -139,6 +183,15 @@ export function WorkspaceFileTree() {
             <FolderInput className="h-3 w-3" />
             导入
           </Button>
+          <Button
+            variant="outline" size="sm"
+            className="flex-1 text-[11px] tracking-wider h-7 border-maia-border text-maia-text-secondary hover:bg-maia-sidebar-hover"
+            onClick={() => setShowOpenDir(true)}
+            title="打开本地目录"
+          >
+            <FolderOpen className="h-3 w-3" />
+            打开
+          </Button>
         </div>
         {root?.children && root.children.length > 0 && (
           <Button
@@ -169,6 +222,7 @@ export function WorkspaceFileTree() {
             }}
             onDoubleClick={handleDoubleClick}
             onDragStart={handleDragStart}
+            onDelete={setDeleteTarget}
           />
         ))}
         {displayTree?.children?.length === 0 && (
@@ -186,6 +240,41 @@ export function WorkspaceFileTree() {
           onClose={() => setShowImport(false)}
         />
       )}
+
+      {showOpenDir && (
+        <OpenDirectoryDialog
+          onOpen={handleOpenDirectory}
+          onClose={() => setShowOpenDir(false)}
+        />
+      )}
+
+      {/* 删除文件确认弹窗 */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40" onClick={() => !deleting && setDeleteTarget(null)}>
+          <div className="bg-maia-surface rounded-xl shadow-xl w-[400px] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-maia-border">
+              <Trash2 className="h-4 w-4 text-maia-danger" />
+              <span className="text-sm font-semibold text-maia-text-heading">删除文件</span>
+            </div>
+            <div className="px-4 py-4">
+              <p className="text-[13px] text-maia-text leading-relaxed">
+                确定要永久删除文件 <span className="font-semibold text-maia-danger">{deleteTarget.name}</span> 吗？
+              </p>
+              <p className="text-[11px] text-maia-text-muted mt-1.5 break-all font-mono">{deleteTarget.path}</p>
+              <p className="text-[11px] text-maia-text-muted mt-2 flex items-center gap-1">
+                <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                此操作将从文件系统中永久删除该文件，且无法恢复。
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-2 px-4 py-2.5 border-t border-maia-border bg-maia-bg/50">
+              <Button variant="outline" size="sm" onClick={() => setDeleteTarget(null)} disabled={deleting} className="text-[11px] h-7">取消</Button>
+              <Button variant="danger" size="sm" onClick={handleDelete} disabled={deleting} className="text-[11px] h-7">
+                {deleting ? <><Loader2 className="h-3 w-3 animate-spin" />删除中...</> : '确认删除'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -200,6 +289,7 @@ interface FileTreeItemProps {
   onSelect: (node: FileTreeNode) => void
   onDoubleClick: (node: FileTreeNode) => void
   onDragStart: (e: React.DragEvent, node: FileTreeNode) => void
+  onDelete: (node: FileTreeNode) => void
 }
 
 function FileTreeItem({
@@ -210,13 +300,14 @@ function FileTreeItem({
   onSelect,
   onDoubleClick,
   onDragStart,
+  onDelete,
 }: FileTreeItemProps) {
   const isSelected = selectedFile?.id === node.id
   const isDir = node.type === 'directory'
   const Icon = FILE_ICONS[node.category] || File
 
   return (
-    <div>
+    <div className="group/tree-item">
       <div
         draggable
         onDragStart={(e) => onDragStart(e, node)}
@@ -258,8 +349,18 @@ function FileTreeItem({
           </span>
         )}
 
-        {isSelected && (
-          <MoreVertical className="h-3 w-3 shrink-0 text-maia-text-muted" />
+        {/* 删除按钮（仅文件） */}
+        {node.type === 'file' && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onDelete(node)
+            }}
+            className="shrink-0 p-0.5 rounded text-maia-text-muted hover:text-maia-danger hover:bg-red-500/10 opacity-0 group-hover/tree-item:opacity-100 transition-opacity"
+            title="删除文件"
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
         )}
       </div>
 
@@ -276,6 +377,7 @@ function FileTreeItem({
               onSelect={onSelect}
               onDoubleClick={onDoubleClick}
               onDragStart={onDragStart}
+              onDelete={onDelete}
             />
           ))}
         </div>
