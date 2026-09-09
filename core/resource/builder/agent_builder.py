@@ -110,8 +110,8 @@ class {cls_name}(BaseAgent):
         """懒加载 LLM 客户端"""
         if self._llm is None:
             from config.settings import settings
-            from core.llm.client import DeepSeekClient
-            self._llm = DeepSeekClient(settings.llm)
+            from core.llm.client import create_llm_client
+            self._llm = create_llm_client(settings.llm)
         return self._llm
 
     def _log_step(self, step_name: str, action: str, input_data: dict = None, output_data: dict = None, error: str = None):

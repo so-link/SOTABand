@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Wrench, FileCode, FileText, X, Play, Loader2,
-  CheckCheck, Save, Bot, Code, Pencil, Tag, Plus, Square,
+  CheckCheck, Save, Bot, Code, Pencil, Plus, Square,
   FolderOpen, Folder, File, ChevronRight, ChevronDown,
 } from 'lucide-react'
 import { Highlight, themes } from 'prism-react-renderer'
@@ -12,6 +12,7 @@ import { useResourceStore } from '@/stores/resource-store'
 import { useWorkspaceDatasetStore } from '@/stores/workspace-dataset-store'
 import { useUIStore } from '@/stores/ui-store'
 import { useToolEditorStore } from '@/stores/tool-editor-store'
+import { useTabIndent } from '@/hooks/use-tab-indent'
 import type { ToolResource } from '@/types/resources'
 
 const BASE_URL = ''
@@ -51,6 +52,8 @@ export function ToolDetailView() {
   const cachedToolForDetail = useResourceStore((s) => s.cachedToolForDetail)
   const setActiveView = useUIStore((s) => s.setActiveView)
   const tool = selectedResource?.type === 'tool' ? (selectedResource as ToolResource) : cachedToolForDetail
+  // Python 代码用 4 空格缩进
+  const onCodeTabIndent = useTabIndent('    ')
 
   const [specMd, setSpecMd] = useState('')
   const [code, setCode] = useState('')
@@ -65,8 +68,8 @@ export function ToolDetailView() {
   const [hasReference, setHasReference] = useState(false)
   const [formValues, setFormValues] = useState<Record<string, string>>({})
   const [pickerFor, setPickerFor] = useState<string | null>(null)  // 正在选择文件的参数名
-  const [output, setOutput] = useState<Record<string, unknown> | null>(null)
-  const [isExecuting, setIsExecuting] = useState(false)
+  // output 只被渲染消费（沙箱执行走的是 modify-and-debug 流），不再有独立 setter
+  const [output] = useState<Record<string, unknown> | null>(null)
   const [isTesting, setIsTesting] = useState(false)
   const [isUpdating, setIsUpdating] = useState(false)
   const [rightPanelWidth, setRightPanelWidth] = useState(288)  // w-72 = 288px
@@ -103,12 +106,15 @@ export function ToolDetailView() {
         const init: Record<string, string> = {}
         fields.forEach(f => { init[f.name] = f.default || '' })
         setFormValues(init)
-        if (data.has_demand && data.demand_md) {
-          setDemandText(data.demand_md)
-        }
+        // 切换工具时必须无条件重置：若只在"有值"时 set，上一个工具的
+        // 需求描述/参考代码会残留到没有这些内容的工具上（内容错位）
+        setDemandText(data.has_demand && data.demand_md ? data.demand_md : '')
         if (data.has_reference && data.reference_code) {
           setReferenceCode(data.reference_code)
           setHasReference(true)
+        } else {
+          setReferenceCode('')
+          setHasReference(false)
         }
       })
       .catch(() => {})
@@ -173,30 +179,6 @@ export function ToolDetailView() {
       setTestResults(null)
     } catch (e) { setError(String(e)) }
     setIsUpdating(false)
-  }
-
-  const handleSubmit = async () => {
-    setIsExecuting(true)
-    setError(null)
-    setOutput(null)
-    try {
-      const params: Record<string, unknown> = {}
-      inputs.forEach(f => {
-        const val = formValues[f.name]
-        if (!val && f.required) return
-        if (f.type.includes('int')) params[f.name] = parseInt(val) || 0
-        else if (f.type.includes('float')) params[f.name] = parseFloat(val) || 0
-        else if (f.type.includes('list')) {
-          try { params[f.name] = JSON.parse(val) } catch { params[f.name] = val.split(',').map(s => s.trim()) }
-        } else params[f.name] = val
-      })
-      const res = await fetch(`${BASE_URL}/api/tool/${tool.id}/execute`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ params }),
-      })
-      setOutput(await res.json())
-    } catch (e) { setError(String(e)) }
-    setIsExecuting(false)
   }
 
   const passed = (testResults?.passed as string[]) || []
@@ -360,8 +342,24 @@ export function ToolDetailView() {
           </button>
           <button
             onClick={() => {
-              const desc = demandText || tool.name
-              useToolEditorStore.getState().prefill(desc, referenceCode)
+              // 编辑已有工具：带齐当前 MD/代码，从「审阅」步进入，
+              // 避免被迫从「重新描述需求」走一遍全流程。
+              const params = (inputs || []).map((f: { name: string; type?: string; required?: boolean; default?: string | null; desc?: string }) => ({
+                name: f.name,
+                type: f.type || 'string',
+                required: !!f.required,
+                default: f.default ?? null,
+                desc: f.desc || '',
+              }))
+              useToolEditorStore.getState().prefillFromTool({
+                toolId: tool.id,
+                toolName: tool.name,
+                description: demandText || tool.name,
+                specMd: specMd || '',
+                code: editedCode || code || '',
+                tags: (tool as { tags?: string[] }).tags || [],
+                params,
+              })
               setActiveView('tool-editor')
             }}
             className="flex items-center gap-1 text-[11px] text-amber-500 hover:underline ml-2"
@@ -393,6 +391,7 @@ export function ToolDetailView() {
                   </div>
                   {isEditing ? (
                     <textarea value={editedCode} onChange={(e) => handleCodeChange(e.target.value)}
+                      onKeyDown={onCodeTabIndent}
                       className="flex-1 min-h-0 rounded border border-maia-border bg-maia-bg px-3 py-2 text-[11px] font-mono leading-relaxed outline-none resize-none focus:border-maia-accent/40"
                       spellCheck={false} />
                   ) : (
@@ -467,21 +466,6 @@ export function ToolDetailView() {
                       </div>
                     </div>))}
                   </div>)}
-                {/* 提交测试按钮 */}
-                {inputs.length > 0 && (
-                  <div className="pt-2">
-                    <Button size="sm" onClick={handleSubmit} disabled={isExecuting}
-                      className="bg-maia-accent hover:bg-maia-accent/90 text-white h-7 text-[11px] w-full">
-                      {isExecuting ? <><Loader2 className="h-3 w-3 animate-spin" />执行中</> : <><Play className="h-3 w-3" />提交测试</>}
-                    </Button>
-                    {output && (
-                      <div className="mt-2 rounded border border-maia-border bg-maia-surface p-2 max-h-[200px] overflow-auto">
-                        <pre className="text-[10px] text-maia-text whitespace-pre-wrap font-mono">{JSON.stringify(output, null, 2)}</pre>
-                      </div>
-                    )}
-                    {error && <p className="text-[10px] text-maia-danger mt-1">{error}</p>}
-                  </div>
-                )}
               </div>
 
               {/* AI 辅助修改 */}
@@ -608,15 +592,6 @@ export function ToolDetailView() {
                   </div>
                 </div>))}
               </div>)}
-            {/* 提交测试按钮 */}
-            {inputs.length > 0 && (
-              <div className="pt-3">
-                <Button size="sm" onClick={handleSubmit} disabled={isExecuting}
-                  className="bg-maia-accent hover:bg-maia-accent/90 text-white h-8 text-[12px] w-full">
-                  {isExecuting ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />执行中</> : <><Play className="h-3.5 w-3.5" />提交测试</>}
-                </Button>
-              </div>
-            )}
           </div>
           {error && <div className="p-3 rounded-lg border border-red-200 bg-red-50 text-xs text-maia-danger">{error}</div>}
           {output && (<Card className="border-emerald-200 bg-emerald-50/30"><CardBody>
@@ -771,7 +746,7 @@ function ToolTagsEditor({ toolId, tags: initialTags }: { toolId: string; tags: s
   const [tags, setTags] = useState<string[]>(initialTags || [])
   const [editing, setEditing] = useState(false)
   const [newTag, setNewTag] = useState('')
-  const [saving, setSaving] = useState(false)
+  const [, setSaving] = useState(false)
 
   const saveTags = async (updated: string[]) => {
     setSaving(true)

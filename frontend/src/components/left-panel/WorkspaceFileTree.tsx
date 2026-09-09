@@ -9,7 +9,6 @@ import {
   FolderInput,
   FolderOpen,
   Trash2,
-  MoreVertical,
   Activity,
   Image,
   Table,
@@ -99,13 +98,9 @@ export function WorkspaceFileTree() {
     setShowOpenDir(false)
   }
 
-  const handleClear = () => {
-    const { root, persist } = useFileTreeStore.getState()
-    if (root) {
-      root.children = []
-      useFileTreeStore.setState({ root: { ...root } })
-      persist()
-    }
+  const handleClear = async () => {
+    // 走 store 的统一入口：清空文件的同时会把对话里残留的附件引用清掉
+    await useFileTreeStore.getState().clearWorkspace()
   }
 
   const handleDoubleClick = (node: FileTreeNode) => {
@@ -309,7 +304,7 @@ function FileTreeItem({
   return (
     <div className="group/tree-item">
       <div
-        draggable
+        draggable={!isDir}
         onDragStart={(e) => onDragStart(e, node)}
         onClick={() => {
           if (isDir) onToggle(node.id)

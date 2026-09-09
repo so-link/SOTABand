@@ -16,7 +16,7 @@ async def generate_tags(llm, tool: dict) -> list[str]:
     """为单个工具生成标签"""
     name = tool.get("name", tool.get("id", ""))
     spec_path = PROJECT_ROOT / "resources" / "tools" / tool.get("spec_path", "")
-    spec_md = spec_path.read_text()[:500] if spec_path.exists() else name
+    spec_md = spec_path.read_text(encoding="utf-8")[:500] if spec_path.exists() else name
 
     prompt = f"""根据以下工具信息，生成3-5个简短的中文标签（每个2-4字），用于工具分类和检索。
 
@@ -47,7 +47,7 @@ async def generate_tags(llm, tool: dict) -> list[str]:
 
 async def main():
     registry_path = PROJECT_ROOT / "resources" / "tools" / "registry.json"
-    with open(registry_path) as f:
+    with open(registry_path, encoding="utf-8") as f:
         tools = json.load(f)
 
     print(f"共 {len(tools)} 个工具")
@@ -70,7 +70,7 @@ async def main():
             updated += 1
             print(f"    → {tags}")
 
-    with open(registry_path, "w") as f:
+    with open(registry_path, "w", encoding="utf-8") as f:
         json.dump(tools, f, ensure_ascii=False, indent=2)
 
     print(f"\n完成！更新了 {updated} 个工具的标签")

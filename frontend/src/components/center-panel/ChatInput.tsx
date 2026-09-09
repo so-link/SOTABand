@@ -1,14 +1,24 @@
-import { useRef, useEffect, useState, type KeyboardEvent, type DragEvent } from 'react'
-import { Send, X, Paperclip, Square, Folder } from 'lucide-react'
+import { useRef, useEffect, useState, type DragEvent, type KeyboardEvent } from 'react'
+import { Send, X, Paperclip, Square, Folder, Loader2 } from 'lucide-react'
 import { useChatStore } from '@/stores/chat-store'
+import { useFileTreeStore } from '@/stores/file-tree-store'
 import { Button } from '@/components/ui/button'
 import type { FileTreeNode } from '@/types/workspace'
+
+/** 递归收集所有文件节点（用于 OS 拖入上传后的差集对比） */
+function collectFileNodes(node: FileTreeNode | null, out: FileTreeNode[] = []): FileTreeNode[] {
+  if (!node) return out
+  if (node.type === 'file') out.push(node)
+  node.children?.forEach((child) => collectFileNodes(child, out))
+  return out
+}
 
 export function ChatInput() {
   const { inputText, setInputText, attachedFiles, removeAttachment, pathRefs, addPathRef, removePathRef, sendMessage, stopMessage, isSending } =
     useChatStore()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [isDragOver, setIsDragOver] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
 
   // 回复完成后自动聚焦输入框，方便多轮对话
   const prevSendingRef = useRef(isSending)
@@ -48,6 +58,9 @@ export function ChatInput() {
     el.style.height = `${Math.min(el.scrollHeight, 150)}px`
   }
 
+  // ── 拖拽：采用导师版的路径映射方案（@文件名 → 提交时自动填入完整路径）──
+  // OS 文件拖入上传为本分支增量：先入库工作区间，再记录路径映射。
+
   // 从拖拽事件中解析文件/目录节点
   const extractDraggedNode = (e: DragEvent): FileTreeNode | null => {
     const jsonData = e.dataTransfer.getData('application/json')
@@ -61,31 +74,38 @@ export function ChatInput() {
     }
     // 兜底：尝试读取纯文本路径
     const textData = e.dataTransfer.getData('text/plain')
-    if (textData && /[\/\\]/.test(textData)) {
+    if (textData && /[\\/\\\\]/.test(textData)) {
       const p = textData.trim()
-      const name = p.split(/[\/\\]/).filter(Boolean).pop() || p
+      const name = p.split(/[\\/\\\\]/).filter(Boolean).pop() || p
       return { id: p, name, type: 'file', category: 'unknown', path: p }
     }
     return null
   }
 
-  // 拖入输入框：只记录路径映射（生成 tag），不在输入框内插入文本
   const handleDrop = (e: DragEvent) => {
     e.preventDefault()
     setIsDragOver(false)
     if (isSending) return
 
     const node = extractDraggedNode(e)
-    if (!node?.path) return
+    if (node?.path) {
+      // 后台记录映射（@文件名 → 完整路径）
+      addPathRef({ name: node.name, path: node.path })
+      textareaRef.current?.focus()
+      return
+    }
 
-    // 后台记录映射（@文件名 → 完整路径）
-    addPathRef({ name: node.name, path: node.path })
+    // OS 文件拖入（本分支增量）：上传到工作区间后记录路径映射
+    const files = e.dataTransfer.files
+    if (files && files.length > 0) {
+      void attachDroppedOsFiles(files)
+    }
   }
 
   const handleDragOver = (e: DragEvent) => {
     // 关键：dragover 必须 preventDefault，否则 drop 事件不会触发。
     // 注意：dragover 阶段浏览器禁止读取自定义 MIME 类型（如 application/json），
-    // 因此这里不能依赖 extractDraggedPath 来判断，而是无条件允许放置，
+    // 因此这里不能依赖 extractDraggedNode 来判断，而是无条件允许放置，
     // 路径解析统一放到 drop 阶段完成。
     e.preventDefault()
     e.dataTransfer.dropEffect = 'copy'
@@ -97,6 +117,23 @@ export function ChatInput() {
     const el = textareaRef.current
     if (el && e.relatedTarget && el.contains(e.relatedTarget as Node)) return
     setIsDragOver(false)
+  }
+
+  /** 从操作系统拖入的文件：先上传到工作区间，再记录路径映射 */
+  const attachDroppedOsFiles = async (files: FileList) => {
+    const beforeIds = new Set(collectFileNodes(useFileTreeStore.getState().root).map((n) => n.id))
+    setIsUploading(true)
+    try {
+      await useFileTreeStore.getState().uploadFiles(files)
+    } finally {
+      setIsUploading(false)
+    }
+    // uploadFiles 只负责入库不返回新节点，故用「上传前后的差集」取回新增项
+    const added = collectFileNodes(useFileTreeStore.getState().root).filter(
+      (n) => !beforeIds.has(n.id),
+    )
+    added.forEach((node) => addPathRef({ name: node.name, path: node.path }))
+    if (added.length > 0) textareaRef.current?.focus()
   }
 
   return (
@@ -182,8 +219,14 @@ export function ChatInput() {
         </div>
 
         <div className="flex items-center gap-3 mt-1.5 text-[10px] tracking-wide text-maia-text-muted">
-          <span>📎 从左侧拖拽文件到此处附加</span>
-          <span>🖱️ 拖拽文件/目录到输入框，提交时自动填入完整路径</span>
+          {isUploading ? (
+            <span className="flex items-center gap-1">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              正在上传...
+            </span>
+          ) : (
+            <span>🖱️ 拖拽文件/目录到输入框，提交时自动填入完整路径</span>
+          )}
           <span>@ 提及 Agent</span>
           <span>/ 命令</span>
         </div>

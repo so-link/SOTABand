@@ -46,7 +46,7 @@ class AgentFactory:
                 # 尝试自动修复
                 fixed = self._auto_fix_code(code)
                 if fixed != code:
-                    agent_file.write_text(fixed)
+                    agent_file.write_text(fixed, encoding="utf-8")
                     # 重新检查
                     remaining = self._check_agent_code(fixed)
                     if remaining:

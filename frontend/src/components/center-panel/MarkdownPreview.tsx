@@ -13,7 +13,7 @@ function renderMarkdown(md: string): string {
     .replace(/>/g, '&gt;')
 
   // 代码块 ```...```
-  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) =>
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, _lang, code) =>
     `<pre class="bg-maia-bg border border-maia-border rounded p-3 my-2 overflow-auto text-[11px] leading-relaxed"><code>${code.trim()}</code></pre>`
   )
 

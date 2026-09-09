@@ -45,7 +45,7 @@ function getExtension(name: string): string {
 function renderMarkdown(md: string): string {
   let html = md
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) =>
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, _lang, code) =>
     `<pre class="bg-maia-bg border border-maia-border rounded p-3 my-2 overflow-auto text-[11px] leading-relaxed"><code>${code.trim()}</code></pre>`
   )
   html = html.replace(/`([^`]+)`/g, '<code class="bg-maia-bg text-green-400 px-1 py-0.5 rounded text-[11px]">$1</code>')

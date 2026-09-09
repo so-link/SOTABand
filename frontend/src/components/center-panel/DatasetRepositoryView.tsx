@@ -191,7 +191,7 @@ export function DatasetRepositoryView() {
               const loaded = isLoaded(ds.id)
               const isDeleting = deleting === ds.id
               return (
-                <div key={ds.id}
+                <div key={ds.id || ds.name}
                   onClick={() => handleCardClick(ds)}
                   className="rounded-lg border border-maia-border bg-maia-surface hover:border-maia-accent/30 hover:shadow-sm transition-all flex flex-col cursor-pointer">
                   {/* 缩略图/预览文字/图标 + 名称 + 大文件警告 */}

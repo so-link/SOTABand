@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react'
-import { ArrowRight, ArrowLeft, CheckCircle2, XCircle, Loader2, Rocket, Database, File, Upload, X, Tag, Plus } from 'lucide-react'
+import { useRef } from 'react'
+import { ArrowRight, ArrowLeft, CheckCircle2, XCircle, Loader2, Rocket, Database, File, Upload, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardBody } from '@/components/ui/card'
@@ -125,54 +125,12 @@ function Step1() {
 }
 
 function Step2() {
-  const { generatedMd, setGeneratedMd, generatedTags, addTag, removeTag, register, setStep, isGenerating, error } = useDatasetEditorStore()
-  const [editing, setEditing] = useState(false)
-  const [newTag, setNewTag] = useState('')
-
-  const handleAddTag = () => {
-    const t = newTag.trim()
-    if (t) { addTag(t); setNewTag(''); setEditing(false) }
-  }
-
+  const { generatedMd, setGeneratedMd, register, setStep, isGenerating, error } = useDatasetEditorStore()
   return (
     <div className="max-w-3xl mx-auto">
       <h3 className="text-lg font-semibold text-maia-text-heading mb-2 tracking-wide">Step 2: 审阅 MD 规范文档</h3>
-      <p className="text-sm text-maia-text-secondary mb-3">以下是 AI 生成的数据集规范文档，你可以直接编辑修改。</p>
-
-      {/* 标签 — 与工具编辑器保持一致的内联风格 */}
-      <div className="flex items-center gap-1 mb-3">
-        <Tag className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-        {generatedTags.map(tag => (
-          <span key={tag} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] bg-amber-100 text-amber-700 border border-amber-300 font-medium">
-            {tag}
-            <button onClick={() => removeTag(tag)} className="hover:text-red-400"><X className="h-2.5 w-2.5" /></button>
-          </span>
-        ))}
-        {editing ? (
-          <form onSubmit={e => { e.preventDefault(); handleAddTag() }} className="inline-flex">
-            <input
-              value={newTag}
-              onChange={e => setNewTag(e.target.value)}
-              placeholder="+标签"
-              className="w-16 h-5 px-1 rounded border border-amber-300 bg-maia-bg text-[10px] text-maia-text outline-none"
-              autoFocus
-              onBlur={() => { if (!newTag.trim()) setEditing(false) }}
-            />
-          </form>
-        ) : (
-          <button
-            onClick={() => setEditing(true)}
-            className="inline-flex items-center justify-center h-5 w-5 rounded border border-dashed border-maia-border text-maia-text-muted hover:text-amber-500 hover:border-amber-400"
-            title="添加标签"
-          >
-            <Plus className="h-3 w-3" />
-          </button>
-        )}
-      </div>
-
       <textarea value={generatedMd} onChange={(e) => setGeneratedMd(e.target.value)} rows={18}
         className="w-full rounded-lg border border-maia-border bg-maia-bg/50 px-4 py-3 text-[12px] font-mono outline-none resize-y" spellCheck={false} />
-
       {error && <div className="flex items-center gap-1.5 mt-2 text-xs text-maia-danger"><XCircle className="h-3 w-3" />{error}</div>}
       <div className="flex justify-between mt-4">
         <Button variant="outline" onClick={() => setStep(1)}><ArrowLeft className="h-3.5 w-3.5" />返回</Button>

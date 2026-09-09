@@ -24,6 +24,20 @@ def _call_api(api_name: str, **params) -> dict:
     api = get_api(api_name)
     return api.call(**params)
 
+# ── LLM 调用辅助（统一走系统配置的 LLM_PROVIDER / LLM_API_KEY / LLM_MODEL） ──
+def _llm_chat(messages: list, **kwargs) -> str:
+    """同步调用系统统一大模型客户端，返回完整文本。"""
+    import asyncio
+    from core.llm.client import create_llm_client
+    client = create_llm_client()
+    loop = asyncio.new_event_loop()
+    try:
+        result = loop.run_until_complete(client.chat(messages, **kwargs))
+        loop.run_until_complete(client.aclose())
+        return result
+    finally:
+        loop.close()
+
 # ── 工具调用辅助 ──
 def _call_tool(tool_name: str, **params) -> dict:
     """调用已注册的工具"""
@@ -106,34 +120,7 @@ def execute(**kwargs) -> dict[str, Any]:
         if not full_text.strip():
             return {"status": "failed", "message": "PDF 文件内容为空或无法读取"}
 
-        # 3. 获取 DeepSeek API KEY 及配置
-        try:
-            api_config = _call_api("api-deepseek-get-key")
-        except Exception as e:
-            return {"status": "failed", "message": f"无法获取 DeepSeek API KEY: {str(e)}"}
-
-        api_key = api_config.get("api_key")
-        base_url = api_config.get("base_url", "")
-        model = api_config.get("model", "deepseek-chat")  # 回退默认模型
-
-        if not api_key:
-            return {"status": "failed", "message": "获取到的 API KEY 为空，请检查系统配置"}
-        if not base_url:
-            return {"status": "failed", "message": "未获取到 DeepSeek base_url"}
-
-        # 4. 构造 API 请求（OpenAI 兼容端点）
-        # 智能处理 base_url，兼容两种常见形式
-        base_url = base_url.rstrip("/")
-        if base_url.endswith("/v1"):
-            url = base_url + "/chat/completions"
-        else:
-            url = base_url + "/v1/chat/completions"
-
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
-
+        # 3. 调用系统统一 LLM 提取参考文献（跟随全局 LLM_PROVIDER / LLM_API_KEY / LLM_MODEL）
         prompt = (
             "你是一个专业的文献提取助手。请从以下论文文本中提取所有的参考文献条目。\n"
             "要求：\n"
@@ -141,42 +128,21 @@ def execute(**kwargs) -> dict[str, Any]:
             "2. 不要添加任何多余的解释、评论或额外文字。\n"
             "3. 如果原文没有参考文献，直接返回空内容。"
         )
+        messages = [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": f"论文全文如下：\n\n{full_text}"}
+        ]
 
-        payload = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": f"论文全文如下：\n\n{full_text}"}
-            ],
-            "temperature": 0,
-            "max_tokens": 4096
-        }
-
-        # 5. 调用大模型
+        # 4. 调用大模型
         try:
-            resp = requests.post(url, headers=headers, json=payload, timeout=120)
-            if resp.status_code != 200:
-                error_detail = resp.text[:500]
-                return {"status": "failed",
-                        "message": f"DeepSeek 模型调用失败 (HTTP {resp.status_code}): {error_detail}"}
-            resp_data = resp.json()
-        except requests.exceptions.Timeout:
-            return {"status": "failed", "message": "DeepSeek API 请求超时"}
-        except requests.exceptions.RequestException as e:
-            return {"status": "failed", "message": f"DeepSeek API 网络异常: {str(e)}"}
+            content = _llm_chat(messages, temperature=0, max_tokens=4096)
         except Exception as e:
-            return {"status": "failed", "message": f"解析 DeepSeek API 响应失败: {str(e)}"}
-
-        # 6. 提取模型返回的参考文献文本
-        try:
-            content = resp_data["choices"][0]["message"]["content"]
-        except (KeyError, IndexError) as e:
-            return {"status": "failed", "message": f"DeepSeek 返回数据结构异常: {str(e)}"}
+            return {"status": "failed", "message": f"LLM 模型调用失败: {str(e)}"}
 
         if not isinstance(content, str):
             content = str(content)
 
-        # 7. 解析每一条参考文献
+        # 5. 解析每一条参考文献
         raw_lines = [line.strip() for line in content.split("\n") if line.strip()]
         # 过滤掉明显不是参考文献的说明性文字（如模型有时会附加“参考文献列表：”之类的头）
         references = [line for line in raw_lines

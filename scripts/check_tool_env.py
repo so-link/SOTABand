@@ -62,6 +62,7 @@ PIP_NAME_MAP = {
     "volcenginesdkarkruntime": "volcengine-python-sdk[ark]",
     "yaml": "PyYAML",
     "dotenv": "python-dotenv",
+    "fitz": "PyMuPDF",
 }
 
 

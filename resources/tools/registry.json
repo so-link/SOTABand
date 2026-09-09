@@ -2050,5 +2050,117 @@
     ],
     "usage_count": 0,
     "created_at": "2026-09-06T03:40:25Z"
+  },
+  {
+    "id": "aerial-image-quality-batch-assessment",
+    "name": "航拍图片批量质量评估",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/aerial-image-quality-batch-assessment.md",
+    "impl_path": "implementations/aerial-image-quality-batch-assessment/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "dataset_name",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "数据集名称，通过【获取数据集信息】获取图片目录",
+        "hints": [
+          "航拍数据集-城市区域"
+        ]
+      },
+      {
+        "name": "concurrency",
+        "type": "integer",
+        "required": false,
+        "default": 8,
+        "desc": "并发线程数，控制同时调用大模型的数量。若传入值类型非整数或小于1，则使用默认值8。",
+        "hints": [
+          8
+        ]
+      }
+    ],
+    "tags": [],
+    "usage_count": 0,
+    "created_at": "2026-08-28T22:30:03Z",
+    "owner": "local-3697591d",
+    "visibility": "public"
+  },
+  {
+    "id": "custom-model-caller",
+    "name": "自定义模型调用器",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/custom-model-caller.md",
+    "impl_path": "implementations/custom-model-caller/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "prompt",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "要发送给模型的内容"
+      },
+      {
+        "name": "model",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "模型名称，如 doubao-vision-pro-32k"
+      },
+      {
+        "name": "api_key",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "该服务商的 API Key"
+      },
+      {
+        "name": "provider",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "服务商 id（doubao/openai/qwen/mimo 等），用于自动解析端点"
+      },
+      {
+        "name": "base_url",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "仅服务商不在目录中时才需要填"
+      },
+      {
+        "name": "image_path",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "可选，要分析的图片路径"
+      },
+      {
+        "name": "max_tokens",
+        "type": "integer",
+        "required": false,
+        "default": 4096,
+        "desc": "最大生成长度，推理模型建议 >= 1500"
+      }
+    ],
+    "tags": [
+      "LLM",
+      "多模态",
+      "自定义配置",
+      "AI"
+    ],
+    "usage_count": 0,
+    "created_at": "2026-08-30T07:10:41Z",
+    "owner": "local-3697591d",
+    "visibility": "public"
   }
 ]

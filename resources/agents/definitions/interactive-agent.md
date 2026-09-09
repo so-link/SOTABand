@@ -15,7 +15,7 @@ builtin: true
 负责与用户进行自然语言对话，理解用户意图，引导任务编排流程。
 是 SOTABand Engine 的主交互入口，所有用户请求首先经过此 Agent。
 
-系统启动时自动加载运行，等待用户输入，调用 DeepSeek v4 大模型
+系统启动时自动加载运行，等待用户输入，调用系统统一配置的大模型（LLM，跟随全局 `LLM_PROVIDER` / `LLM_API_KEY` / `LLM_MODEL`，通过 `create_llm_client()` 自动选择服务商）
 解析用户意图，并将结果以流式 SSE 返回前端界面。
 
 ## 2. 角色定位
@@ -48,7 +48,7 @@ builtin: true
 
 1. 接收用户输入（content + attachments）
 2. 构建 System Prompt（角色描述 + 可用工具列表）
-3. 调用 DeepSeek v4 API（流式）
+3. 调用系统统一 LLM（流式）
 4. 解析 LLM 响应中的结构化卡片数据
 5. 逐事件 SSE 返回给前端
 
@@ -59,7 +59,7 @@ builtin: true
 
 ### 5.3 超时与重试
 
-- DeepSeek v4 调用超时: 60s
+- LLM 调用超时: 60s
 - 最大重试次数: 2
 - 降级策略: 返回友好错误提示
 
@@ -69,7 +69,7 @@ builtin: true
 
 | 工具ID | 工具名称 | 用途 |
 |--------|---------|------|
-| tool-llm-client | DeepSeek v4 客户端 | 调用 DeepSeek v4 大模型接口 |
+| tool-llm-client | 统一 LLM 客户端 | 调用系统统一大模型接口（跟随全局 LLM_PROVIDER / LLM_API_KEY / LLM_MODEL） |
 
 ### 6.2 可选工具（条件触发）
 
@@ -89,9 +89,9 @@ builtin: true
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| llm_provider | deepseek | LLM 提供商 |
-| llm_model | deepseek-v4 | 使用的 LLM 模型 |
-| llm_base_url | https://api.deepseek.com/v1 | API 地址 |
+| llm_provider | auto（跟随全局 LLM_PROVIDER） | LLM 提供商 |
+| llm_model | auto（跟随全局 LLM_MODEL） | 使用的 LLM 模型 |
+| llm_base_url | auto（跟随全局 provider 预设） | API 地址 |
 | max_history | 20 | 最大会话历史轮数 |
 | temperature | 0.7 | LLM 温度参数 |
 | max_tokens | 4096 | 最大输出 token 数 |

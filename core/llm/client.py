@@ -1,4 +1,4 @@
-"""LLM 客户端 — 默认 DeepSeek v4，兼容 OpenAI 协议"""
+"""LLM 客户端 — 默认 DeepSeek v4，兼容任意 OpenAI 协议服务商"""
 
 from abc import ABC, abstractmethod
 from typing import AsyncGenerator
@@ -24,14 +24,23 @@ class LLMClient(ABC):
         ...
 
 
-class DeepSeekClient(LLMClient):
-    """DeepSeek v4 客户端（OpenAI 兼容协议）"""
+class OpenAICompatibleClient(LLMClient):
+    """OpenAI 兼容协议客户端
+
+    支持所有遵循 OpenAI /v1/chat/completions 协议的服务商：
+    DeepSeek / OpenAI / Kimi(Moonshot) / 智谱 GLM / 通义千问 /
+    硅基流动 / MiniMax / MiMo Coding Plan / 豆包(火山方舟) 等，
+    通过 base_url + api_key + model 即可接入。
+    """
 
     def __init__(self, config: LLMConfig = None):
         self._config = config
         # 若未显式传入 config，则每次调用动态读取 settings.llm，
         # 以便运行时更新 api_key / model 后立即生效
         self._dynamic = config is None
+        # 最近一次构建的客户端：客户端是按需构建的，需留下引用供 aclose() 关闭，
+        # 否则 httpx 连接池残留会在事件循环关闭时报错
+        self._last_client: AsyncOpenAI | None = None
 
     @property
     def config(self) -> LLMConfig:
@@ -39,15 +48,17 @@ class DeepSeekClient(LLMClient):
 
     def _build_client(self) -> AsyncOpenAI:
         cfg = self.config
-        return AsyncOpenAI(
+        client = AsyncOpenAI(
             base_url=cfg.base_url,
             api_key=cfg.api_key,
         )
+        self._last_client = client
+        return client
 
     async def chat_stream(
         self, messages: list[dict], **kwargs
     ) -> AsyncGenerator[str, None]:
-        """流式调用 DeepSeek v4"""
+        """流式对话"""
         client = self._build_client()
         cfg = self.config
         stream = await client.chat.completions.create(
@@ -61,8 +72,12 @@ class DeepSeekClient(LLMClient):
         )
         finish_reason = None
         async for chunk in stream:
+            # include_usage=True 时，流末尾会下发只含 usage 统计的 chunk，
+            # 其 choices 为空列表；部分服务商还会下发 delta 为 None 的空 chunk。
+            if not chunk.choices:
+                continue
             delta = chunk.choices[0].delta
-            if delta.content:
+            if delta is not None and delta.content:
                 yield delta.content
             if chunk.choices[0].finish_reason:
                 finish_reason = chunk.choices[0].finish_reason
@@ -70,8 +85,16 @@ class DeepSeekClient(LLMClient):
         if finish_reason == "length":
             yield "\n\n# [WARNING] Response truncated due to max_tokens limit"
 
+    async def aclose(self) -> None:
+        """关闭底层异步客户端（httpx 连接池），避免事件循环关闭时残留任务报错"""
+        try:
+            if self._last_client is not None:
+                await self._last_client.close()
+        except Exception:
+            pass
+
     async def chat(self, messages: list[dict], **kwargs) -> str:
-        """非流式调用 DeepSeek v4"""
+        """非流式对话，返回完整响应"""
         client = self._build_client()
         cfg = self.config
         response = await client.chat.completions.create(
@@ -80,7 +103,7 @@ class DeepSeekClient(LLMClient):
             stream=False,
             max_tokens=kwargs.get("max_tokens", cfg.max_tokens),
             temperature=kwargs.get("temperature", cfg.temperature),
-            timeout=cfg.timeout,
+            timeout=kwargs.get("timeout", cfg.timeout),
         )
         content = response.choices[0].message.content or ""
         if response.choices[0].finish_reason == "length":
@@ -88,10 +111,45 @@ class DeepSeekClient(LLMClient):
         return content
 
 
+# 向后兼容别名：历史生成的 Agent 代码可能直接引用 DeepSeekClient
+DeepSeekClient = OpenAICompatibleClient
+
+
+def create_llm_client_for(provider: str, model: str = None,
+                          **overrides) -> LLMClient:
+    """按 provider 创建客户端，key/端点/模型自动从 .env 解析。
+
+    工具作者的便捷入口——等价于
+    ``create_llm_client(LLMConfig(provider=provider, model=model, **overrides))``。
+    密钥来源是 .env 的 ``<PROVIDER>_API_KEY``（主 key 为 LLM_PROVIDER 指向的那家，
+    其余为副 key），调用方**不需要也无法接触到明文 key**。
+
+    用法（工具代码里切换副 key）::
+
+        client = create_llm_client_for("doubao")            # 用 .env 里的 DOUBAO_API_KEY
+        client = create_llm_client_for("mimo", model="mimo-v2.5-pro")
+
+    Raises:
+        ValueError: 该 provider 无预设且未提供 base_url，或 .env 中没有对应 key。
+    """
+    cfg = LLMConfig(provider=provider, model=model, **overrides)
+    if not cfg.api_key:
+        raise ValueError(
+            f".env 中没有 {provider.upper()}_API_KEY，"
+            f"请先在 .env 添加该条目（主 key 为 LLM_API_KEY）"
+        )
+    return create_llm_client(cfg)
+
+
 def create_llm_client(config: LLMConfig = None) -> LLMClient:
-    """工厂函数：根据配置创建对应的 LLM 客户端"""
+    """工厂函数：根据配置创建对应的 LLM 客户端
+
+    - 所有 OpenAI 兼容协议的服务商统一走 OpenAICompatibleClient
+      （provider 由 LLMConfig 携带，配置在 config/settings.py 的 PROVIDER_PRESETS）
+    - 未来接入 Anthropic Claude / Google Gemini 等非兼容协议时，
+      在此新增对应 Client 子类分支即可，调用方无需改动。
+    """
     cfg = config or settings.llm
-    if cfg.provider == "deepseek":
-        return DeepSeekClient(cfg)
-    # 其他 OpenAI 兼容提供商
-    return DeepSeekClient(cfg)
+    # if cfg.provider == "claude": return ClaudeClient(cfg)
+    # if cfg.provider == "gemini": return GeminiClient(cfg)
+    return OpenAICompatibleClient(cfg)

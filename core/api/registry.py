@@ -9,18 +9,24 @@ REGISTRY_FILE = API_DIR / "registry.json"
 
 
 class ApiRegistry:
-    """API 注册中心"""
+    """API 注册中心
+
+    所有文件 I/O 必须显式 encoding="utf-8"：
+    registry.json 含中文，Windows 默认 locale 是 GBK，省略 encoding 会导致
+    /api/apis/list 直接 UnicodeDecodeError → 500（0b4cc89 修复 GBK 问题时
+    漏掉了本文件，导致 Windows 使用者前端 @ 补全永远"加载中"而 $ 正常）。
+    """
 
     def __init__(self):
         if not REGISTRY_FILE.exists():
             self._write([])
 
     def _read(self) -> list[dict]:
-        with open(REGISTRY_FILE) as f:
+        with open(REGISTRY_FILE, encoding="utf-8") as f:
             return json.load(f)
 
     def _write(self, data: list[dict]):
-        with open(REGISTRY_FILE, "w") as f:
+        with open(REGISTRY_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
     async def register(self, resource: dict) -> str:
@@ -54,7 +60,7 @@ class ApiRegistry:
         if "raw_md" in resource:
             spec_path = API_DIR / "definitions" / f"{api_id}.md"
             spec_path.parent.mkdir(parents=True, exist_ok=True)
-            spec_path.write_text(resource["raw_md"])
+            spec_path.write_text(resource["raw_md"], encoding="utf-8")
 
         return api_id
 

@@ -24,6 +24,20 @@ def _call_api(api_name: str, **params) -> dict:
     api = get_api(api_name)
     return api.call(**params)
 
+# ── LLM 调用辅助（统一走系统配置的 LLM_PROVIDER / LLM_API_KEY / LLM_MODEL） ──
+def _llm_chat(messages: list, **kwargs) -> str:
+    """同步调用系统统一大模型客户端，返回完整文本。"""
+    import asyncio
+    from core.llm.client import create_llm_client
+    client = create_llm_client()
+    loop = asyncio.new_event_loop()
+    try:
+        result = loop.run_until_complete(client.chat(messages, **kwargs))
+        loop.run_until_complete(client.aclose())
+        return result
+    finally:
+        loop.close()
+
 # ── 工具调用辅助 ──
 def _call_tool(tool_name: str, **params) -> dict:
     """调用已注册的工具"""
@@ -51,7 +65,6 @@ def _resolve_path(path: str) -> str:
 
 # === 头部结束，以下由 LLM 生成 ===
 
-import openai
 from datetime import datetime
 
 # ── PDF 文本提取 ──
@@ -105,19 +118,7 @@ def execute(**kwargs) -> dict[str, Any]:
             "message": f"论文文件不存在: {pdf_path}"
         }
 
-    # ── 3. 获取 DeepSeek API KEY ──
-    try:
-        ds_config = _call_api("api-deepseek-get-key")
-        api_key = ds_config["api_key"]
-        base_url = ds_config["base_url"]
-        model = ds_config["model"]
-    except Exception as e:
-        return {
-            "status": "failed",
-            "message": f"获取DeepSeek API密钥失败: {str(e)}"
-        }
-
-    # ── 4. 提取 PDF 文本 ──
+    # ── 3. 提取 PDF 文本 ──
     pdf_text = _extract_pdf_text(str(pdf_path))
     if not pdf_text:
         # 如果提取失败，提示用户安装依赖或使用文本方式
@@ -129,10 +130,7 @@ def execute(**kwargs) -> dict[str, Any]:
             )
         }
 
-    # ── 5. 配置 OpenAI 兼容客户端 ──
-    client = openai.OpenAI(api_key=api_key, base_url=base_url, timeout=120)
-
-    # ── 6. 构造评审提示 ──
+    # ── 4. 构造评审提示 ──
     system_prompt = f"""你是一位经验丰富的{conf}会议审稿人。请对下面提供的论文内容进行详细、严格、建设性的评审。
 评审过程必须使用中文，并涵盖以下10个方面：
 
@@ -149,30 +147,23 @@ def execute(**kwargs) -> dict[str, Any]:
 
 请以Markdown格式输出完整的评审意见，包含清晰的标题、分段和评分信息。"""
 
-    # ── 7. 清理 PDF 文本中的 surrogate 字符，避免 JSON 序列化报错 ──
+    # ── 5. 清理 PDF 文本中的 surrogate 字符，避免 JSON 序列化报错 ──
     pdf_text = pdf_text.encode('utf-8', errors='replace').decode('utf-8')
 
-    # ── 8. 调用大模型生成评审意见 ──
+    # ── 6. 调用系统统一 LLM 生成评审意见（跟随全局 LLM_PROVIDER / LLM_API_KEY / LLM_MODEL） ──
     try:
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"以下是待审论文的文本内容：\n\n{pdf_text}"}
         ]
-
-        response = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=0.3,
-            max_tokens=16384
-        )
-        review_text = response.choices[0].message.content
+        review_text = _llm_chat(messages, temperature=0.3, max_tokens=16384)
     except Exception as e:
         return {
             "status": "failed",
-            "message": f"DeepSeek 调用失败: {str(e)}"
+            "message": f"LLM 调用失败: {str(e)}"
         }
 
-    # ── 9. 保存评审报告 ──
+    # ── 7. 保存评审报告 ──
     paper_stem = pdf_path.stem
     safe_stem = "".join(c if c.isalnum() or c in "._- " else "_" for c in paper_stem)
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -192,7 +183,7 @@ def execute(**kwargs) -> dict[str, Any]:
             "message": f"评审报告保存失败: {str(e)}"
         }
 
-    # ── 10. 数据集注册 ──
+    # ── 8. 数据集注册 ──
     reg_status_msg = ""
     try:
         get_result = _call_api("api-data-get", name=dataset_name)
@@ -223,7 +214,7 @@ def execute(**kwargs) -> dict[str, Any]:
     except Exception as e:
         reg_status_msg = f"数据集注册异常: {str(e)}"
 
-    # ── 11. 构造返回结果 ──
+    # ── 9. 构造返回结果 ──
     final_message = f"评审完成并保存至 {review_filepath}"
     if reg_status_msg:
         final_message += f"；{reg_status_msg}"

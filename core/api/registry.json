@@ -150,6 +150,103 @@
     "created_at": "2026-07-06T00:00:00Z"
   },
   {
+    "id": "api-llm-chat-with-config",
+    "name": "LLM自定义配置对话API",
+    "version": "1.0.0",
+    "category": "llm",
+    "status": "active",
+    "spec_path": "definitions/api-llm-chat-with-config.md",
+    "impl_module": "core.api.implementations.api_llm",
+    "impl_class": "ApiLlmChatWithConfig",
+    "impl_method": "call",
+    "is_async": true,
+    "input_schema": {
+      "messages": "list",
+      "api_key": "string",
+      "model": "string",
+      "base_url": "string",
+      "provider": "string",
+      "temperature": "float",
+      "max_tokens": "int"
+    },
+    "output_schema": {
+      "content": "string",
+      "api_key_masked": "string",
+      "model": "string",
+      "base_url": "string",
+      "error": "string"
+    },
+    "tags": [
+      "LLM",
+      "对话",
+      "多模态",
+      "自定义配置",
+      "AI"
+    ],
+    "created_at": "2026-08-29T06:40:00Z"
+  },
+  {
+    "id": "api-llm-test-config",
+    "name": "LLM配置验证API",
+    "version": "1.0.0",
+    "category": "llm",
+    "status": "active",
+    "spec_path": "definitions/api-llm-test-config.md",
+    "impl_module": "core.api.implementations.api_llm",
+    "impl_class": "ApiLlmTestConfig",
+    "impl_method": "call",
+    "is_async": true,
+    "input_schema": {
+      "provider": "string",
+      "base_url": "string",
+      "api_key": "string",
+      "model": "string"
+    },
+    "output_schema": {
+      "ok": "bool",
+      "models": "list",
+      "model_valid": "bool",
+      "suggestion": "string",
+      "error": "string"
+    },
+    "tags": [
+      "LLM",
+      "验证",
+      "连通性",
+      "模型列表",
+      "诊断"
+    ],
+    "created_at": "2026-08-29T06:54:32Z"
+  },
+  {
+    "id": "api-llm-list-providers",
+    "name": "服务商目录查询API",
+    "version": "1.0.0",
+    "category": "llm",
+    "status": "active",
+    "spec_path": "definitions/api-llm-list-providers.md",
+    "impl_module": "core.api.implementations.api_llm",
+    "impl_class": "ApiLlmListProviders",
+    "impl_method": "call",
+    "is_async": true,
+    "input_schema": {
+      "capability": "string",
+      "provider": "string"
+    },
+    "output_schema": {
+      "providers": "list",
+      "error": "string"
+    },
+    "tags": [
+      "LLM",
+      "服务商",
+      "模型",
+      "多模态",
+      "目录"
+    ],
+    "created_at": "2026-08-29T06:49:38Z"
+  },
+  {
     "id": "api-llm-chat-stream",
     "name": "LLM流式对话API",
     "version": "1.0.0",
@@ -300,6 +397,40 @@
       "配置"
     ],
     "created_at": "2026-07-26T00:00:00Z"
+  },
+  {
+    "id": "api-llm-test-connection",
+    "name": "LLM连接测试API",
+    "version": "1.0.0",
+    "category": "llm",
+    "status": "active",
+    "spec_path": "definitions/api-llm-test-connection.md",
+    "impl_module": "core.api.implementations.api_llm",
+    "impl_class": "ApiLlmTestConnection",
+    "impl_method": "call",
+    "is_async": true,
+    "input_schema": {
+      "provider": "string",
+      "api_key": "string",
+      "base_url": "string",
+      "model": "string"
+    },
+    "output_schema": {
+      "ok": "boolean",
+      "provider": "string",
+      "model": "string",
+      "base_url": "string",
+      "api_key_masked": "string",
+      "latency_ms": "int",
+      "message": "string"
+    },
+    "tags": [
+      "LLM",
+      "测试",
+      "连接",
+      "诊断"
+    ],
+    "created_at": "2026-08-28T00:00:00Z"
   },
   {
     "id": "api-data-get",

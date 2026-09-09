@@ -21,4 +21,4 @@
 | openai | >=1.0 | LLM 客户端 |
 
 ## 实现
-模块: `core.llm.client.DeepSeekClient.chat_stream`
+模块: `core.llm.client.OpenAICompatibleClient.chat_stream`（DeepSeekClient 为兼容别名）

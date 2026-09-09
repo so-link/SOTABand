@@ -1041,5 +1041,103 @@
     "quality_score": null,
     "created_at": "2026-09-03T02:11:09Z",
     "preview_tool": "file-visualizer"
+  },
+  {
+    "id": "",
+    "name": "大海",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/.md",
+    "data_path": "",
+    "file_count": 0,
+    "total_size": 0,
+    "formats": [],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-25T11:02:24Z",
+    "owner": null,
+    "visibility": "private",
+    "storage": "local"
+  },
+  {
+    "id": "kid_20260726_094756_798469",
+    "name": "kid",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/kid_20260726_094756_798469.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026 SOTABand/SOTABand/data/download/20260726_094756_798469",
+    "file_count": 1,
+    "total_size": 41163,
+    "formats": [
+      "jpg"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-26T01:48:00Z",
+    "visibility": "private",
+    "storage": "local"
+  },
+  {
+    "id": "LLM",
+    "name": "LLM",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/LLM.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026 SOTABand/SOTABand/data/downloads/20260726_110958",
+    "file_count": 2,
+    "total_size": 6757282,
+    "formats": [
+      "pdf",
+      "csv"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-07-26T03:16:25Z",
+    "visibility": "private",
+    "storage": "local"
+  },
+  {
+    "id": "无人机航拍初版_1787943139",
+    "name": "无人机航拍初版",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/无人机航拍初版_1787943139.md",
+    "data_path": "/Users/xuyi/Desktop/SOTABand-main/data/uploads/dataset_1787942962648",
+    "file_count": 894,
+    "total_size": 743390355,
+    "formats": [
+      "jpg"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-08-28T18:52:19Z",
+    "preview_tool": "file-visualizer",
+    "owner": "local-3697591d",
+    "visibility": "private",
+    "storage": "local"
+  },
+  {
+    "id": "无人机航拍-测试20_1787944947",
+    "name": "无人机航拍-测试20",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/无人机航拍-测试20_1787944947.md",
+    "data_path": "/Users/xuyi/Desktop/SOTABand-main/data/uploads/uav_test20",
+    "file_count": 20,
+    "total_size": 13752148,
+    "formats": [
+      "jpg"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-08-28T19:22:27Z",
+    "owner": "local-3697591d",
+    "visibility": "private",
+    "storage": "local"
   }
 ]

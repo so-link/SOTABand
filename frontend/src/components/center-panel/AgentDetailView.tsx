@@ -1,11 +1,15 @@
 import { useState, useEffect, useRef } from 'react'
 import {
-  Bot, Send, Play, Square, RefreshCw, Loader2, FileText, FileCode, X,
+  Bot, Send, Play, Square, RefreshCw, Loader2, FileText, FileCode, X, Pencil, Save,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardBody } from '@/components/ui/card'
 import { useResourceStore } from '@/stores/resource-store'
+import { useUIStore } from '@/stores/ui-store'
+import { useAgentEditorStore } from '@/stores/agent-editor-store'
+import { agentApi } from '@/services/api/agent'
+import { useTabIndent } from '@/hooks/use-tab-indent'
 import type { AgentResource } from '@/types/resources'
 
 const BASE_URL = ''
@@ -13,6 +17,8 @@ const BASE_URL = ''
 export function AgentDetailView() {
   const selectedResource = useResourceStore((s) => s.selectedResource)
   const agent = selectedResource as AgentResource | null
+  // Python 代码用 4 空格缩进
+  const onCodeTabIndent = useTabIndent('    ')
 
   // Agent runtime state
   const [running, setRunning] = useState(false)
@@ -30,6 +36,14 @@ export function AgentDetailView() {
   const [showSpec, setShowSpec] = useState(false)
   const [showCode, setShowCode] = useState(false)
   const [showDemand, setShowDemand] = useState(false)
+
+  // 代码手工微调
+  const [isEditingCode, setIsEditingCode] = useState(false)
+  const [draftCode, setDraftCode] = useState('')
+  const [isSaving, setIsSaving] = useState(false)
+  const [saveMsg, setSaveMsg] = useState('')
+
+  const setActiveView = useUIStore((s) => s.setActiveView)
 
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -63,8 +77,45 @@ export function AgentDetailView() {
 
   const togglePanel = (panel: 'spec' | 'code' | 'demand') => {
     if (panel === 'spec') { setShowSpec(!showSpec); setShowCode(false); setShowDemand(false) }
-    else if (panel === 'code') { setShowCode(!showCode); setShowSpec(false); setShowDemand(false) }
+    else if (panel === 'code') {
+      setShowCode(!showCode); setShowSpec(false); setShowDemand(false)
+      // 打开代码面板时重置草稿，避免沿用上一个 Agent 的内容
+      if (!showCode) { setDraftCode(code); setIsEditingCode(false); setSaveMsg('') }
+    }
     else { setShowDemand(!showDemand); setShowSpec(false); setShowCode(false) }
+  }
+
+  const codeDirty = draftCode.trim() !== code.trim()
+
+  const handleSaveCode = async () => {
+    if (!agent || !codeDirty) return
+    setIsSaving(true); setSaveMsg('')
+    try {
+      await agentApi.saveCode(agent.id, draftCode)
+      setCode(draftCode)          // 保存成功后更新基准，清除「已修改」标记
+      setIsEditingCode(false)
+      setSaveMsg('已保存')
+      // 若该 Agent 正在运行，提示需重启才生效
+      if (running) setSaveMsg('已保存，重启后生效')
+    } catch (e) {
+      setSaveMsg(`保存失败: ${String(e)}`)
+    } finally {
+      setIsSaving(false)
+      setTimeout(() => setSaveMsg(''), 3000)
+    }
+  }
+
+  const handleEditInEditor = () => {
+    if (!agent) return
+    // 带齐现有 MD/代码，从「审阅」步进入，避免被迫重走需求描述流程
+    useAgentEditorStore.getState().prefillFromAgent({
+      agentId: agent.id,
+      agentName: agent.name || agent.id,
+      description: demandMd || agent.name || agent.id,
+      specMd: specMd,
+      code: draftCode || code,
+    })
+    setActiveView('agent-editor')
   }
 
   const start = async () => {
@@ -233,6 +284,14 @@ export function AgentDetailView() {
             <FileCode className="h-3 w-3" />
             {showCode ? '收起代码' : '查看代码'}
           </button>
+          <button
+            onClick={handleEditInEditor}
+            className="flex items-center gap-1 text-[11px] text-amber-500 hover:underline ml-1"
+            title="带齐现有文档与代码，从审阅步进入编辑"
+          >
+            <Pencil className="h-3 w-3" />
+            编辑
+          </button>
 
           <div className="w-px h-5 bg-maia-border mx-1" />
 
@@ -296,12 +355,46 @@ export function AgentDetailView() {
             <Card className="border-maia-border">
               <CardBody>
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-medium text-maia-text-secondary tracking-wide">Agent 源代码</span>
-                  <button onClick={() => setShowCode(false)}><X className="h-3 w-3 text-maia-text-muted" /></button>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-maia-text-secondary tracking-wide">Agent 源代码</span>
+                    {codeDirty && <Badge variant="warning">已修改</Badge>}
+                    {saveMsg && (
+                      <span className={`text-[10px] ${saveMsg.startsWith('保存失败') ? 'text-maia-danger' : 'text-maia-success'}`}>
+                        {saveMsg}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => { if (isEditingCode) { setDraftCode(code); setIsEditingCode(false) } else { setDraftCode(code); setIsEditingCode(true) } }}
+                      className="flex items-center gap-1 text-[10px] text-maia-text-muted hover:text-maia-accent px-1.5 py-0.5 rounded border border-maia-border"
+                    >
+                      <Pencil className="h-2.5 w-2.5" />{isEditingCode ? '取消' : '手工微调'}
+                    </button>
+                    <button
+                      onClick={handleSaveCode}
+                      disabled={!codeDirty || isSaving}
+                      className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border border-maia-border text-maia-accent hover:bg-maia-accent/10 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      {isSaving ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Save className="h-2.5 w-2.5" />}
+                      保存代码
+                    </button>
+                    <button onClick={() => setShowCode(false)}><X className="h-3 w-3 text-maia-text-muted" /></button>
+                  </div>
                 </div>
-                <pre className="text-[11px] font-mono leading-relaxed text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto bg-maia-bg rounded p-3">
-                  {code || '加载中...'}
-                </pre>
+                {isEditingCode ? (
+                  <textarea
+                    value={draftCode}
+                    onChange={(e) => setDraftCode(e.target.value)}
+                    onKeyDown={onCodeTabIndent}
+                    spellCheck={false}
+                    className="w-full max-h-[400px] min-h-[240px] text-[11px] font-mono leading-relaxed text-maia-text bg-maia-bg rounded p-3 border border-maia-border outline-none resize-y focus:border-maia-accent/40"
+                  />
+                ) : (
+                  <pre className="text-[11px] font-mono leading-relaxed text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto bg-maia-bg rounded p-3">
+                    {code || '加载中...'}
+                  </pre>
+                )}
               </CardBody>
             </Card>
           )}

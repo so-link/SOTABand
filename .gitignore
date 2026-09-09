@@ -13,6 +13,7 @@ eggs/
 .venv/
 venv/
 env/
+.runtime/
 
 # IDE
 .vscode/
@@ -59,3 +60,20 @@ models/*.pt
 models/*_2026*.pkl
 models/random_forest_*.pkl
 models/linear_regression_*.pkl
+
+# Local runtime cache
+.cache/
+
+# Local runtime state
+storage/user.json
+storage/workspace_tools.json
+
+# Generated local assessment logs
+logs/aerial-image-quality-batch-assessment_*.md
+
+# 老师的功能规划表（内部资料，不入仓库）
+功能点开发参与.xlsx
+
+# 根目录只保留 README，其余 .md 文档不入仓库（子目录不受影响）
+/*.md
+!README.md
