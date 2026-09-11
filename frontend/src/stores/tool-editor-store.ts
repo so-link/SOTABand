@@ -23,7 +23,11 @@ interface ToolEditorState {
   generatedMd: string
   generatedCode: string
   tags: string[]
-  params: Array<{name: string; type: string; required: boolean; default?: string | null; desc: string}>
+  params: Array<{name: string; type: string; required: boolean; default?: string | null; desc: string; mode?: string}>
+  /** 多模式：模式列表 */
+  modes: Array<{id: string; name: string; desc?: string}>
+  /** 当前测试/调试选中的模式 id（单模式工具为空字符串） */
+  selectedMode: string
   testInputs: Record<string, string>
   testOutput: { stdout: string; stderr: string; exit_code: number; success: boolean } | null
   registeredId: string | null
@@ -58,6 +62,7 @@ interface ToolEditorState {
   addTag: (tag: string) => void
   removeTag: (tag: string) => void
   setTestInput: (key: string, value: string) => void
+  setSelectedMode: (mode: string) => void
   generateSpec: () => Promise<void>
   generateCode: () => Promise<void>
   runTest: (files?: File[]) => Promise<void>
@@ -92,7 +97,7 @@ interface ToolEditorState {
 
 export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
   step: 1, description: '', referenceCode: '', generatedMd: '', generatedCode: '', tags: [],
-  params: [], testInputs: {}, testOutput: null, registeredId: null,
+  params: [], modes: [], selectedMode: '', testInputs: {}, testOutput: null, registeredId: null,
   isGenerating: false, isTesting: false, isAutoDebugging: false, abortController: null, testAbortController: null, error: null,
   debugRounds: [], debugStream: '',
   editingToolId: null, editingToolName: '', baselineCode: '', baselineMd: '',
@@ -107,6 +112,7 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
   removeTag: (tag) => set((s) => ({ tags: s.tags.filter(t => t !== tag) })),
   setStep: (step) => set({ step }),
   setTestInput: (key, value) => set((s) => ({ testInputs: { ...s.testInputs, [key]: value } })),
+  setSelectedMode: (mode) => set({ selectedMode: mode }),
 
   // 手工微调代码后，让 AI 依据代码改动反向更新 MD 规范文档，
   // 实现「文档 → 代码 → 文档」的双向闭环。
@@ -195,7 +201,7 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
   prefill: (text: string, refCode?: string) => set({
     step: 1, description: text, referenceCode: refCode || '', generatedMd: '', generatedCode: '', tags: [],
     testInputs: {}, testOutput: null, registeredId: null, error: null,
-    debugRounds: [], debugStream: '', params: [],
+    debugRounds: [], debugStream: '', params: [], modes: [], selectedMode: '',
     editingToolId: null, editingToolName: '', baselineCode: '', baselineMd: '',
   saveState: 'idle', saveError: null,
   }),
@@ -233,7 +239,7 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
     step: 1, description: '', referenceCode: '', generatedMd: '', generatedCode: '', tags: [],
     testInputs: {}, testOutput: null, registeredId: null,
     isGenerating: false, isTesting: false, isAutoDebugging: false,
-    error: null, debugRounds: [], debugStream: '', params: [],
+    error: null, debugRounds: [], debugStream: '', params: [], modes: [], selectedMode: '',
     editingToolId: null, editingToolName: '', baselineCode: '', baselineMd: '',
   saveState: 'idle', saveError: null,
   }),
@@ -272,12 +278,14 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
       const result = await toolApi.generateCode(generatedMd)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const params: any[] = result.params || []
+      const modes = result.modes || []
       // 初始化测试输入
       const inputs: Record<string, string> = {}
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       params.forEach((p: any) => { inputs[p.name] = p.default || '' })
       set({
-        generatedCode: result.code, params, testInputs: inputs,
+        generatedCode: result.code, params, modes, selectedMode: modes.length ? modes[0].id : '',
+        testInputs: inputs,
         testOutput: null, step: 3, isGenerating: false,
         debugRounds: [], debugStream: '',
       })
@@ -285,12 +293,14 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
   },
 
   runTest: async (files?: File[]) => {
-    const { generatedMd, generatedCode, testInputs } = get()
+    const { generatedMd, generatedCode, testInputs, selectedMode } = get()
     if (!generatedCode.trim()) return
     const controller = new AbortController()
     set({ isTesting: true, testAbortController: controller, error: null, testOutput: null })
     try {
-      const result = await toolApi.testWithInput(generatedMd, generatedCode, testInputs, files, controller.signal)
+      // 多模式：把选中的 mode 合并进测试参数
+      const inputs = selectedMode ? { ...testInputs, mode: selectedMode } : testInputs
+      const result = await toolApi.testWithInput(generatedMd, generatedCode, inputs, files, controller.signal)
       set({ testOutput: result, isTesting: false, testAbortController: null })
     } catch (e) {
       if ((e as Error).name === 'AbortError') {
@@ -308,14 +318,16 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
   },
 
   autoDebug: async (files?: File[]) => {
-    const { generatedMd, generatedCode, testInputs } = get()
+    const { generatedMd, generatedCode, testInputs, selectedMode } = get()
     if (!generatedCode.trim()) return
 
     const controller = new AbortController()
     set({ isAutoDebugging: true, abortController: controller, error: null, debugRounds: [], debugStream: '' })
 
     try {
-      await toolApi.autoDebug(generatedMd, generatedCode, testInputs, files, (eventType, data) => {
+      // 多模式：把选中的 mode 合并进测试参数
+      const inputs = selectedMode ? { ...testInputs, mode: selectedMode } : testInputs
+      await toolApi.autoDebug(generatedMd, generatedCode, inputs, files, (eventType, data) => {
         switch (eventType) {
           case 'debug_start':
             set({ debugStream: `🚀 自动调试启动 (最多 ${data.max_rounds} 轮)\n` })

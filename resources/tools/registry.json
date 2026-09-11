@@ -2151,5 +2151,166 @@
     ],
     "usage_count": 0,
     "created_at": "2026-09-09T23:08:05Z"
+  },
+  {
+    "id": "digit-recognition",
+    "name": "数字识别",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/digit-recognition.md",
+    "impl_path": "implementations/digit-recognition/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "epoch",
+        "type": "int",
+        "required": true,
+        "default": null,
+        "desc": "训练轮次",
+        "hints": [
+          1,
+          5,
+          10
+        ],
+        "mode": "train"
+      },
+      {
+        "name": "n",
+        "type": "int",
+        "required": true,
+        "default": null,
+        "desc": "每层隐含节点的数目",
+        "hints": [
+          64,
+          128,
+          256
+        ],
+        "mode": "train"
+      },
+      {
+        "name": "file",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "待识别图片文件路径",
+        "hints": [
+          "/path/to/image.png",
+          "./test.png"
+        ],
+        "mode": "test"
+      }
+    ],
+    "modes": [
+      {
+        "id": "train",
+        "name": "训练模式",
+        "desc": "使用 MNIST 数据集训练三层卷积神经网络，保存模型并返回训练集、测试集准确率。"
+      },
+      {
+        "id": "test",
+        "name": "测试模式",
+        "desc": "对输入图片进行必要变换，加载训练模式保存的模型，输出识别到的数字。"
+      }
+    ],
+    "tags": [
+      "数字识别",
+      "图像识别",
+      "卷积网络",
+      "模型训练",
+      "GPU加速"
+    ],
+    "usage_count": 0,
+    "created_at": "2026-09-11T12:41:40Z",
+    "owner": "local-bf30593d",
+    "visibility": "public"
+  },
+  {
+    "id": "test-multi-mode",
+    "name": "测试多模式",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/test-multi-mode.md",
+    "impl_path": "implementations/test-multi-mode/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "x",
+        "type": "number",
+        "required": true,
+        "default": null,
+        "desc": "需要计算二次方的数值",
+        "hints": [
+          3,
+          -2,
+          0.5
+        ],
+        "mode": "square"
+      },
+      {
+        "name": "x",
+        "type": "number",
+        "required": true,
+        "default": null,
+        "desc": "用于计算 sin(x) 的数值",
+        "hints": [
+          1.57,
+          0
+        ],
+        "mode": "browse-file"
+      },
+      {
+        "name": "y",
+        "type": "number",
+        "required": true,
+        "default": null,
+        "desc": "用于计算 sin(y) 的数值",
+        "hints": [
+          2.71,
+          1
+        ],
+        "mode": "browse-file"
+      },
+      {
+        "name": "file_path",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "保存计算结果的文件路径",
+        "hints": [
+          "/tmp/result.txt",
+          "./output.csv"
+        ],
+        "mode": "browse-file"
+      }
+    ],
+    "modes": [
+      {
+        "id": "square",
+        "name": "2次方函数",
+        "desc": "接收一个数值 `x`，计算并返回 `x^2`。"
+      },
+      {
+        "id": "browse-file",
+        "name": "浏览文件",
+        "desc": "接收数值 `x`、`y` 和文件路径 `file_path`，计算 `sin(x) + sin(y)`，将结果写入文件，并返回计算结果与文件路径。"
+      }
+    ],
+    "tags": [
+      "数学计算",
+      "平方函数",
+      "正弦计算",
+      "文件写入",
+      "多模式"
+    ],
+    "usage_count": 0,
+    "created_at": "2026-09-11T12:09:43Z",
+    "owner": "local-bf30593d",
+    "visibility": "public"
   }
 ]

@@ -148,30 +148,142 @@ class ToolCodeBuilder(BaseBuilder):
 
     @staticmethod
     def _parse_spec_inputs(spec_md: str) -> list[dict]:
-        """从 MD 的输入规范表格解析参数"""
+        """从 MD 的输入规范表格解析参数（支持多模式：解析各模式下的输入规范，参数带 mode 字段）"""
         inputs = []
+        # 先解析模式列表，用于给参数打 mode 标签
+        modes = ToolCodeBuilder.parse_modes(spec_md)
+        current_mode = None  # 当前所在模式（单模式为 None）
+
         in_section = False
         for line in spec_md.split("\n"):
-            if "输入规范" in line:
+            stripped = line.strip()
+            # 检测模式标题，切换 current_mode
+            m = re.match(r"^#{2,3}\s*模式\s*\d*\s*[:：]\s*(.+)$", stripped)
+            if m:
+                title = m.group(1).strip()
+                pm = re.match(r"^([A-Za-z_][\w-]*)\s*[（(]", title)
+                pm2 = re.match(r"^(.+?)\s*[（(]\s*([A-Za-z_][\w-]*)\s*[)）]$", title)
+                if pm:
+                    current_mode = pm.group(1)
+                elif pm2:
+                    current_mode = pm2.group(2)
+                else:
+                    # 无法从标题提取 id，按顺序匹配 modes 列表
+                    pass
+                continue
+
+            if "输入规范" in stripped:
                 in_section = True
                 continue
-            if in_section and line.startswith("##") and "输入" not in line:
-                break
-            if in_section and line.startswith("|") and "参数名" not in line and "---" not in line:
+            # 遇到新的二级/三级标题且不是输入规范时，结束当前输入表格解析
+            if in_section and stripped.startswith("#") and "输入" not in stripped:
+                in_section = False
+                # 若是模式外的章节标题，退出当前模式上下文
+                if stripped.startswith("## ") and "模式" not in stripped:
+                    current_mode = None
+                continue
+            if in_section and stripped.startswith("|") and "参数名" not in stripped and "---" not in stripped:
                 parts = [p.strip() for p in line.split("|")[1:-1]]
                 if len(parts) >= 2 and parts[0]:
-                    inputs.append({
+                    required_raw = parts[2] if len(parts) > 2 else ""
+                    item = {
                         "name": parts[0], "type": parts[1] if len(parts) > 1 else "string",
-                        "required": "是" in parts[2] if len(parts) > 2 else True,
-                        "default": parts[3] if len(parts) > 3 and parts[3] not in ("-", "—", "") else None,
+                        "required": "是" in required_raw,
+                        "default": parts[3] if len(parts) > 3 and parts[3] not in ("-", "—", "", "无", "无默认值") else None,
                         "desc": parts[4] if len(parts) > 4 else "",
-                    })
+                    }
+                    # 条件必填：如「条件（模式2）」「仅模式2」→ 视为在该模式下必填
+                    cond_mode = None
+                    cm = re.search(r"条件\s*[（(]?\s*(?:模式\s*)?([0-9A-Za-z_\-]+)\s*[)）]?", required_raw)
+                    if cm and "条件" in required_raw:
+                        cond_mode = cm.group(1)
+                    elif "仅" in required_raw or "only" in required_raw.lower():
+                        cm2 = re.search(r"([0-9A-Za-z_\-]+)", required_raw)
+                        cond_mode = cm2.group(1) if cm2 else None
+                    if cond_mode:
+                        item["required"] = True
+                        item["mode"] = cond_mode
+                    elif current_mode:
+                        item["mode"] = current_mode
+                    inputs.append(item)
         return inputs
 
+    @staticmethod
+    def parse_modes(spec_md: str) -> list[dict]:
+        """从 MD 规范文档中解析多模式定义。
+
+        仅当 MD 含「模式定义」章节时返回非空列表；否则返回空列表（单模式工具）。
+        每个模式: {id, name, desc}
+        """
+        modes = []
+        # 检测是否存在「模式定义」章节
+        if "模式定义" not in spec_md and "模式：" not in spec_md:
+            return modes
+
+        # 逐行解析「### 模式 N：xxx（模式标识）」或「### 模式 N：xxx」
+        # 模式标识可能出现在标题末尾括号、或紧跟的「- 模式标识：」行
+        current = None
+        for line in spec_md.split("\n"):
+            stripped = line.strip()
+            # 匹配 "### 模式 N：名称" 或 "## 模式 N：名称"
+            m = re.match(r"^#{2,3}\s*模式\s*\d*\s*[:：]\s*(.+)$", stripped)
+            if m:
+                title = m.group(1).strip()
+                # 尝试从括号中提取模式标识，如 "train（训练模式）" 或 "训练模式（train）"
+                ident = None
+                name = title
+                pm = re.match(r"^([A-Za-z_][\w-]*)\s*[（(]\s*(.+?)\s*[)）]$", title)
+                if pm:
+                    ident, name = pm.group(1), pm.group(2)
+                else:
+                    pm2 = re.match(r"^(.+?)\s*[（(]\s*([A-Za-z_][\w-]*)\s*[)）]$", title)
+                    if pm2:
+                        name, ident = pm2.group(1), pm2.group(2)
+                current = {"id": ident or "", "name": name, "desc": ""}
+                modes.append(current)
+                continue
+            # 匹配 "- 模式标识：train" 补充 id
+            if current and not current["id"]:
+                im = re.match(r"^[-*]\s*模式标识\s*[:：]\s*([A-Za-z_][\w-]*)$", stripped)
+                if im:
+                    current["id"] = im.group(1)
+                    continue
+            # 匹配 "- 描述：xxx" 补充 desc
+            if current:
+                dm = re.match(r"^[-*]\s*描述\s*[:：]\s*(.+)$", stripped)
+                if dm:
+                    current["desc"] = dm.group(1).strip()
+                    continue
+            # 遇到新的非模式章节标题则结束
+            if current and re.match(r"^#{1,2}\s+", stripped) and "模式" not in stripped:
+                current = None
+
+        # 清理：丢弃无 id 的模式（视为解析失败），并生成兜底 id
+        result = []
+        for i, m in enumerate(modes, 1):
+            mid = m["id"] or f"mode{i}"
+            result.append({"id": mid, "name": m["name"] or mid, "desc": m["desc"]})
+        return result
+
     async def extract_param_metadata(self, spec_md: str) -> list[dict]:
-        """LLM 提取参数元数据"""
+        """LLM 提取参数元数据（支持多模式：每项含可选 mode 字段）"""
+        modes = self.parse_modes(spec_md)
+        mode_hint = ""
+        if modes:
+            mode_list = "、".join(f"{m['id']}({m['name']})" for m in modes)
+            mode_hint = (
+                f"\n该工具包含以下模式: {mode_list}。"
+                f"每个参数对象必须额外包含 \"mode\" 字段，值为该参数所属的模式 id"
+                f"（如 \"train\" 或 \"test\"）。"
+                f"重要：某模式真正需要的参数，其 required 必须为 true；"
+                f"不要因为参数在其它模式不需要就将其设为 false。"
+            )
+
         prompt = f"""从以下工具 MD 规范文档中提取输入参数列表，返回 JSON 数组。
-每个参数: name, type, required(true/false), default(null或值), desc, hints(示例输入数组)
+每个参数: name, type, required(true/false), default(null或值), desc, hints(示例输入数组){mode_hint}
+
+注意：若文档中某参数的「必填」列写的是「条件（模式X）」「仅模式X」等模糊表述，
+应理解为「该参数在模式X下必填」，将 required 设为 true，并给该参数附加 mode 字段值为 X。
 
 MD 文档:
 {spec_md[:20000]}
@@ -181,9 +293,51 @@ MD 文档:
         try:
             clean = response.strip()
             if clean.startswith("```"): clean = clean.split("\n",1)[1].rsplit("\n",1)[0]
-            return json.loads(clean)
+            params = json.loads(clean)
         except:
             return []
+        # 确定性后处理：修正「条件必填」语义（不依赖 LLM 是否遵守）
+        return self._normalize_conditional_params(params, spec_md)
+
+    @staticmethod
+    def _normalize_conditional_params(params: list[dict], spec_md: str) -> list[dict]:
+        """将「条件必填」参数修正为 required=true 并打上 mode 标签。
+
+        兜底处理 LLM 提取时未正确标记的情况：
+        - desc 含「条件必填」「仅模式X」「mode=X 时必填」等 → required=true
+        - 尝试从 desc / MD 中提取关联的模式标识
+        """
+        # 从 MD 提取 mode 参数的可选值（如 square/file_save），用于匹配条件
+        mode_values = []
+        for line in spec_md.split("\n"):
+            m = re.search(r"mode.*?(?:可选值|取值|支持)[：:]\s*([^\n]+)", line)
+            if m:
+                mode_values = re.findall(r"[A-Za-z_][\w-]*", m.group(1))
+                break
+
+        normalized = []
+        for p in params:
+            desc = (p.get("desc", "") or "")
+            name = (p.get("name", "") or "")
+            is_conditional = (
+                ("条件必填" in desc)
+                or ("条件" in desc and "必填" in desc)
+                or ("仅" in desc and "必填" in desc)
+                or re.search(r"mode\s*=\s*([A-Za-z_][\w-]*)\s*时", desc)
+            )
+            if is_conditional and not p.get("required"):
+                p["required"] = True
+                # 尝试提取关联模式
+                if not p.get("mode"):
+                    cm = re.search(r"mode\s*=\s*([A-Za-z_][\w-]*)", desc)
+                    if cm:
+                        p["mode"] = cm.group(1)
+                    elif "模式1" in desc:
+                        p["mode"] = mode_values[0] if mode_values else "1"
+                    elif "模式2" in desc:
+                        p["mode"] = mode_values[1] if len(mode_values) > 1 else "2"
+            normalized.append(p)
+        return normalized
 
     async def validate_spec(self, spec: dict) -> bool:
         md = spec.get("raw_md", "")
@@ -345,6 +499,33 @@ CRITICAL RULES:
 16. NEVER hardcode any API key, token, password, or secret in the generated code — not as a literal, not as a default value, not in a comment or docstring. Credentials MUST come from input params (kwargs.get("api_key")) or from @LLM自定义配置对话API. If a credential is needed, accept it as an input parameter named api_key and pass it straight through to the API call; never store it, never log it, never print it.
 17. NEVER print, log, or echo credential values (api_key/token/secret) to stdout/stderr or include them in the returned "message"/"data". Tool stdout is recorded into debug logs and may be sent to an LLM for auto-debugging; leaking a key there is irreversible.
 18. Output ONLY Python code, no markdown, no explanation"""
+
+        # 多模式规则：仅当 MD 声明了多个模式时注入
+        modes = self.parse_modes(spec_md)
+        if modes:
+            mode_entries = "\n".join(
+                f"   - mode id \"{m['id']}\" -> _mode_{m['id']}(kwargs)（{m['name']}）"
+                for m in modes
+            )
+            prompt += f"""
+
+MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
+1. execute(**kwargs) is the single entry that dispatches by mode:
+   def execute(**kwargs):
+       mode = kwargs.get("mode", "{modes[0]['id']}")
+       if mode == "{modes[0]['id']}":
+           return _mode_{modes[0]['id']}(kwargs)
+       elif mode == ...:
+           return _mode_xxx(kwargs)
+       else:
+           return {{"status":"failed","output_format":"text","message":f"未知模式: {{mode}}","data":{{}}}}
+   Mode list:
+{mode_entries}
+2. Each mode is a separate function named _mode_<id>(kwargs), using kwargs.get("param_name", default).
+3. Every mode function returns {{"status","output_format","message","data"}}.
+4. Modes may share module-level helpers/constants (e.g. model file path under _DATA_DIR).
+5. The train mode MUST save the model file to a stable path under _DATA_DIR; other modes load from that same path.
+"""
 
         response = await self.llm.chat(
             messages=[{"role":"user","content":prompt}],

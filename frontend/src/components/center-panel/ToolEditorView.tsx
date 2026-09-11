@@ -606,7 +606,7 @@ function Step2() {
 }
 
 function Step3() {
-  const { generatedCode, params, testInputs, testOutput, registerTool, runTest, stopTest, autoDebug, stopAutoDebug,
+  const { generatedCode, params, modes, selectedMode, setSelectedMode, testInputs, testOutput, registerTool, runTest, stopTest, autoDebug, stopAutoDebug,
           setStep, isGenerating, isTesting, isAutoDebugging, error, debugRounds, debugStream, setTestInput,
           setGeneratedCode, editingToolId, editingToolName, baselineCode, syncSpecFromCode } = useToolEditorStore()
   const logEndRef = useRef<HTMLDivElement>(null)
@@ -740,11 +740,30 @@ function Step3() {
               <span className="text-xs font-medium text-maia-text-secondary tracking-wide">沙箱测试</span>
             </div>
             <div className="flex-1 min-h-0 overflow-auto">
+              {/* 模式选择（多模式工具） */}
+              {modes.length > 0 && (
+                <div className="mb-2">
+                  <div className="text-[10px] text-maia-text-muted uppercase tracking-wider font-semibold mb-1">模式</div>
+                  <div className="relative">
+                    <select
+                      value={selectedMode}
+                      onChange={(e) => setSelectedMode(e.target.value)}
+                      className="h-7 w-full appearance-none rounded border border-maia-border bg-maia-surface px-2 pr-8 text-[11px] text-maia-text tracking-wide focus:outline-none focus:border-maia-accent cursor-pointer"
+                    >
+                      {modes.map((m) => (
+                        <option key={m.id} value={m.id}>{m.name}{m.desc ? ` - ${m.desc}` : ''}</option>
+                      ))}
+                    </select>
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-maia-text-muted text-xs">▾</span>
+                  </div>
+                </div>
+              )}
+
               {/* 测试输入表单 */}
               {params.length > 0 && (
                 <div className="mb-2 space-y-2">
                   <div className="text-[10px] text-maia-text-muted uppercase tracking-wider font-semibold">测试参数</div>
-                  {params.map((p) => (
+                  {params.filter((p) => !selectedMode || !p.mode || p.mode === selectedMode).map((p) => (
                     <div key={p.name}>
                       <div className="text-[10px] text-maia-text-muted mb-0.5 flex items-center gap-1">
                         {p.name} <span className="text-maia-accent/60">({p.type})</span>

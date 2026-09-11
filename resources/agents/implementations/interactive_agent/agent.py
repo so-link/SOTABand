@@ -76,6 +76,7 @@ class InteractiveAgent(BaseAgent):
         self._sessions: dict[str, list[dict]] = {}
         self._pending_calls: dict[str, dict] = {}
         self._pending_confirm: dict[str, dict] = {}
+        self._pending_modes: dict[str, dict] = {}
 
     async def execute(
         self, ctx: AgentContext, **kwargs
@@ -112,46 +113,75 @@ class InteractiveAgent(BaseAgent):
 
         session_key = ctx.session_id or "default"
 
-        # 如果正在等待用户确认工具选择 → 识别用户的选择
-        pending_confirm = self._pending_confirm.get(session_key)
-        if pending_confirm:
+        # 前置状态机：模式选择 / 工具确认 / 参数收集 三者互斥，同一时刻最多一个生效
+        selected_mode_id = None
+        matched_tool = None
+        skip_param_extract = {}
+
+        # ① 正在等待用户选择模式
+        pending_mode = self._pending_modes.get(session_key)
+        if pending_mode:
+            selected_mode = self._resolve_mode_selection(content, pending_mode["modes"])
+            if selected_mode is None:
+                self._pending_modes[session_key] = pending_mode
+                yield {"event": "content", "data": {"text": "请回复编号或模式名称来选择要使用的模式。"}}
+                return
+            self._pending_modes.pop(session_key, None)
+            matched_tool = {"id": pending_mode["tool_id"], "name": pending_mode["tool_name"]}
+            selected_mode_id = selected_mode["id"]
+            selected_mode_name = selected_mode["name"] or selected_mode_id
+            params = await self._extract_params_for_mode(
+                content, matched_tool["id"], selected_mode_id, dataset_paths
+            )
+            missing = await self._check_missing_params(matched_tool["id"], params, selected_mode_id)
+            if missing:
+                self._pending_calls[session_key] = {
+                    "tool_id": matched_tool["id"],
+                    "tool_name": matched_tool["name"],
+                    "mode": selected_mode_id,
+                    "mode_name": selected_mode_name,
+                    "params": params,
+                    "missing": missing,
+                }
+                p = missing[0]
+                yield {"event": "content", "data": {"text": f"要使用 **{matched_tool['name']} · {selected_mode_name}**，请提供以下参数:\n\n**{p['name']}** — {p.get('desc', '')}"}}
+                return
+            # 参数已齐 → 直接进入执行（selected_mode_id 已设置，matched_tool 已设置）
+            skip_param_extract = params
+
+        # ② 正在等待用户确认工具选择
+        elif self._pending_confirm.get(session_key):
+            pending_confirm = self._pending_confirm.pop(session_key)
             selected = self._resolve_tool_selection(content, pending_confirm["candidates"])
             if selected is None:
-                # 无法识别选择 → 重新列出候选，请用户明确选择
                 self._pending_confirm[session_key] = pending_confirm
                 yield {"event": "content", "data": {"text": "请回复编号或工具名称来选择要使用的工具。"}}
                 return
-            self._pending_confirm.pop(session_key, None)
-            # 选定工具 → 继续走参数引导
             matched_tool = selected
-            skip_param_extract = {}
-            in_param_collection = False
-        else:
-            matched_tool = None
-            skip_param_extract = {}
 
-        # 如果有 pending 的参数收集 → 只处理参数回答，不做工具匹配
-        pending = self._pending_calls.get(session_key)
-        in_param_collection = pending is not None
-        if pending:
-            # 用户的回应只用于填写参数，不触发新工具匹配
+        # ③ 正在收集参数
+        elif self._pending_calls.get(session_key):
+            pending = self._pending_calls[session_key]
             answer_params = await self._extract_answer_params(
                 content, pending["tool_id"], pending["missing"][0]
             )
             pending["params"].update(answer_params)
-            pending["missing"] = await self._check_missing_params(pending["tool_id"], pending["params"])
+            pending["missing"] = await self._check_missing_params(
+                pending["tool_id"], pending["params"], pending.get("mode")
+            )
             if pending["missing"]:
                 p = pending["missing"][0]
                 yield {"event": "content", "data": {"text": f"请提供 **{p['name']}** ({p.get('desc', '')}) 的值。"}}
                 return
-            # 参数齐备 → 执行之前匹配的工具
             self._pending_calls.pop(session_key, None)
             matched_tool = {"id": pending["tool_id"], "name": pending["tool_name"]}
+            selected_mode_id = pending.get("mode")
             skip_param_extract = pending["params"]
 
+        # ④ 无前置状态 → 正常匹配工具
         need_create_tool_desc = None
         matched_tools: list[dict] = []
-        if not in_param_collection and not matched_tool:
+        if not matched_tool:
             matched_tools, need_create_tool_desc = await self._pre_match_tool(content, workspace_tool_ids or [])
 
         history = self._sessions.get(session_key, [])
@@ -212,17 +242,40 @@ class InteractiveAgent(BaseAgent):
             return
 
         if matched_tool:
+            # 多模式工具且尚未选定模式 → 先引导用户选择模式
+            if selected_mode_id is None:
+                modes = self._get_tool_modes(matched_tool["id"])
+                if modes:
+                    # 检查用户当前消息是否已包含模式意图（如「训练」「测试模式」）
+                    hint_mode = self._resolve_mode_selection(content, modes)
+                    if hint_mode is None:
+                        self._pending_modes[session_key] = {
+                            "tool_id": matched_tool["id"],
+                            "tool_name": matched_tool["name"],
+                            "modes": modes,
+                        }
+                        options = "、".join(
+                            f"{i}.{m['name']}" + (f"（{m['desc']}）" if m.get('desc') else "")
+                            for i, m in enumerate(modes, 1)
+                        )
+                        yield {"event": "content", "data": {"text": f"「{matched_tool['name']}」支持以下模式：\n{options}\n请回复编号或模式名称选择。"}}
+                        return
+                    selected_mode_id = hint_mode["id"]
+
             # 参数（pending 已收集或重新提取）
-            if 'skip_param_extract' in dir() and skip_param_extract:
+            if skip_param_extract:
                 params = skip_param_extract
             else:
-                params = await self._extract_params(content, matched_tool["id"], dataset_paths)
-            missing = await self._check_missing_params(matched_tool["id"], params)
+                params = await self._extract_params_for_mode(
+                    content, matched_tool["id"], selected_mode_id, dataset_paths
+                )
+            missing = await self._check_missing_params(matched_tool["id"], params, selected_mode_id)
             if missing:
                 # 参数不足 → 逐一引导，存储 pending 状态
                 self._pending_calls[session_key] = {
                     "tool_id": matched_tool["id"],
                     "tool_name": matched_tool["name"],
+                    "mode": selected_mode_id,
                     "params": params,
                     "missing": missing,
                 }
@@ -238,6 +291,9 @@ class InteractiveAgent(BaseAgent):
             except Exception:
                 pass
 
+            # 多模式：把选定的 mode 合并进参数
+            if selected_mode_id:
+                params = {**params, "mode": selected_mode_id}
             tool_result = await self._execute_tool(matched_tool, content, dataset_paths, params)
             if tool_result:
                 # 检测工具执行过程中是否注册了新数据集
@@ -720,8 +776,8 @@ class InteractiveAgent(BaseAgent):
                 pass
         return {param["name"]: val}
 
-    async def _check_missing_params(self, tool_id: str, current_params: dict) -> list[str]:
-        """返回缺失的必填参数名列表"""
+    async def _check_missing_params(self, tool_id: str, current_params: dict, mode: str = None) -> list[str]:
+        """返回缺失的必填参数名列表（支持按 mode 过滤）"""
         try:
             from core.resource.registry.tool_registry import ToolRegistry
             reg = ToolRegistry()
@@ -731,11 +787,98 @@ class InteractiveAgent(BaseAgent):
             param_meta = entry.get("param_meta", [])
             missing = []
             for p in param_meta:
+                # 排除 "mode" 分发参数（由模式选择流程处理，不参与普通参数引导）
+                if p.get("name") == "mode":
+                    continue
+                # 多模式过滤：只检查属于当前 mode（或无 mode）的参数
+                p_mode = p.get("mode")
+                if mode and p_mode and p_mode != mode:
+                    continue
                 if p.get("required") and p.get("name") not in current_params:
                     missing.append(p)
             return missing
         except Exception:
             return []
+
+    def _get_tool_modes(self, tool_id: str) -> list[dict]:
+        """从 registry 读取工具的 modes 列表（空表示单模式工具）。
+
+        若 registry.modes 为空，但 param_meta 存在名为 "mode" 的参数（hints 含多值），
+        则自动从 mode 参数的 hints 推导出 modes（兼容「mode 参数分发」的老写法）。
+        """
+        try:
+            from core.resource.registry.tool_registry import ToolRegistry
+            reg = ToolRegistry()
+            entry = None
+            for e in reg._read():
+                if e.get("id") == tool_id:
+                    entry = e
+                    break
+            if not entry:
+                return []
+            modes = entry.get("modes", []) or []
+            if modes:
+                return modes
+
+            # 兜底：从 mode 参数推导
+            param_meta = entry.get("param_meta", []) or []
+            mode_param = next((p for p in param_meta if p.get("name") == "mode"), None)
+            if mode_param:
+                hints = mode_param.get("hints", []) or []
+                # 从 desc 或 hints 提取模式取值
+                values = [h for h in hints if isinstance(h, str)]
+                if len(values) >= 2:
+                    # 尝试从 desc 提取中文名
+                    return [{"id": v, "name": v, "desc": ""} for v in values]
+            return []
+        except Exception:
+            return []
+
+    def _resolve_mode_selection(self, answer: str, modes: list[dict]) -> dict | None:
+        """识别用户对模式的选择（编号或名称/id），返回选中的模式或 None"""
+        if not modes:
+            return None
+        a = answer.strip()
+        a_lower = a.lower()
+
+        # 1. 按编号选择：1 / 第1个 / 模式1
+        num_matches = re.findall(r"\d+", a)
+        if num_matches:
+            idx = int(num_matches[0])
+            if 1 <= idx <= len(modes):
+                return modes[idx - 1]
+
+        # 2. 按模式 id 精确匹配
+        for m in modes:
+            mid = m.get("id", "")
+            if mid and mid.lower() in a_lower:
+                return m
+
+        # 3. 按模式名匹配
+        for m in modes:
+            name = m.get("name", "")
+            if name and name in a:
+                return m
+
+        return None
+
+    async def _extract_params_for_mode(
+        self, query: str, tool_id: str, mode: str, dataset_paths: list[str] = None
+    ) -> dict:
+        """提取指定模式的参数：只自动填充该模式的路径参数，其余交由引导"""
+        from pathlib import Path as _Path
+
+        params = {}
+        if not mode:
+            return await self._extract_params(query, tool_id, dataset_paths)
+
+        # 只自动填充该模式下的文件/路径类参数（来自附件）
+        path_param_names = self._get_path_params(tool_id, mode)
+        if dataset_paths and path_param_names:
+            for i, param_name in enumerate(path_param_names):
+                if i < len(dataset_paths):
+                    params[param_name] = dataset_paths[i]
+        return params
 
     async def _extract_params(self, query: str, tool_id: str, dataset_paths: list[str] = None) -> dict:
         """只自动填充文件路径参数，其他参数不自动提取，交由后续引导流程让用户输入"""
@@ -754,8 +897,8 @@ class InteractiveAgent(BaseAgent):
         # 未填写的参数会触发 _check_missing_params → 引导用户逐一输入
         return params
 
-    def _get_path_params(self, tool_id: str) -> list[str]:
-        """通过 param_meta 的 desc 字段识别文件/路径类型参数"""
+    def _get_path_params(self, tool_id: str, mode: str = None) -> list[str]:
+        """通过 param_meta 的 desc 字段识别文件/路径类型参数（支持按 mode 过滤）"""
         try:
             import json
             from pathlib import Path
@@ -780,6 +923,10 @@ class InteractiveAgent(BaseAgent):
             ]
             path_params = []
             for p in param_meta:
+                # 多模式过滤：只处理属于当前 mode（或无 mode）的参数
+                p_mode = p.get("mode")
+                if mode and p_mode and p_mode != mode:
+                    continue
                 desc = (p.get("desc", "") or "").lower()
                 ptype = (p.get("type", "") or "").lower()
                 name = (p.get("name", "") or "").lower()

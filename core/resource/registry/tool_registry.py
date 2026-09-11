@@ -61,6 +61,8 @@ class ToolRegistry(BaseRegistry):
             "input_schema": resource.get("input_schema", {}),
             "output_schema": resource.get("output_schema", {}),
             "param_meta": resource.get("param_meta", []),
+            # 多模式支持：modes 列表（含 id/name/desc）；单模式工具为空或缺省
+            "modes": resource.get("modes", []),
             "tags": resource.get("tags", []),
             "usage_count": 0,
             "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),

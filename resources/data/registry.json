@@ -19,7 +19,10 @@
       "乡村"
     ],
     "quality_score": null,
-    "created_at": "2026-07-26T07:17:09Z"
+    "created_at": "2026-07-26T07:17:09Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "jimmy",
@@ -37,7 +40,10 @@
     ],
     "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-26T08:55:50Z"
+    "created_at": "2026-07-26T08:55:50Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "memmem",
@@ -61,7 +67,10 @@
       "机器学习"
     ],
     "quality_score": null,
-    "created_at": "2026-07-26T09:00:50Z"
+    "created_at": "2026-07-26T09:00:50Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "船舶",
@@ -83,7 +92,10 @@
       "海面视角"
     ],
     "quality_score": null,
-    "created_at": "2026-07-26T15:54:57Z"
+    "created_at": "2026-07-26T15:54:57Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "ships",
@@ -106,7 +118,10 @@
       "多船场景"
     ],
     "quality_score": null,
-    "created_at": "2026-07-26T15:56:58Z"
+    "created_at": "2026-07-26T15:56:58Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "nfar",
@@ -128,7 +143,10 @@
       "合成图片"
     ],
     "quality_score": null,
-    "created_at": "2026-07-26T16:07:52Z"
+    "created_at": "2026-07-26T16:07:52Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "船只图像",
@@ -150,7 +168,10 @@
       "AI合成"
     ],
     "quality_score": null,
-    "created_at": "2026-07-26T16:15:12Z"
+    "created_at": "2026-07-26T16:15:12Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "meeting",
@@ -173,7 +194,10 @@
       "室内实景"
     ],
     "quality_score": null,
-    "created_at": "2026-07-26T17:55:34Z"
+    "created_at": "2026-07-26T17:55:34Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "船只训练集",
@@ -195,7 +219,10 @@
       "训练集"
     ],
     "quality_score": null,
-    "created_at": "2026-07-27T04:53:05Z"
+    "created_at": "2026-07-27T04:53:05Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "LLM-Memory",
@@ -218,7 +245,10 @@
       "2026+"
     ],
     "quality_score": null,
-    "created_at": "2026-07-27T11:41:58Z"
+    "created_at": "2026-07-27T11:41:58Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "园区航拍",
@@ -236,7 +266,10 @@
     ],
     "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-28T06:13:33Z"
+    "created_at": "2026-07-28T06:13:33Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "食品配方_20260728_143922",
@@ -253,7 +286,10 @@
     ],
     "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-28T06:39:22Z"
+    "created_at": "2026-07-28T06:39:22Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "食品_20260728_144622",
@@ -274,7 +310,10 @@
       "感官评分"
     ],
     "quality_score": null,
-    "created_at": "2026-07-28T06:46:22Z"
+    "created_at": "2026-07-28T06:46:22Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "teacher",
@@ -296,7 +335,10 @@
       "高等教育"
     ],
     "quality_score": null,
-    "created_at": "2026-07-28T06:47:58Z"
+    "created_at": "2026-07-28T06:47:58Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "papers",
@@ -319,7 +361,10 @@
       "近期研究"
     ],
     "quality_score": null,
-    "created_at": "2026-07-28T06:49:23Z"
+    "created_at": "2026-07-28T06:49:23Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "farmfarm",
@@ -342,7 +387,10 @@
       "耕种"
     ],
     "quality_score": null,
-    "created_at": "2026-07-28T07:36:26Z"
+    "created_at": "2026-07-28T07:36:26Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "farm2",
@@ -366,7 +414,10 @@
       "田野"
     ],
     "quality_score": null,
-    "created_at": "2026-07-28T07:38:23Z"
+    "created_at": "2026-07-28T07:38:23Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "合成声音_1785255352",
@@ -389,7 +440,10 @@
     ],
     "quality_score": null,
     "created_at": "2026-07-28T16:15:52Z",
-    "preview_tool": "mel-spectrogram-generator"
+    "preview_tool": "mel-spectrogram-generator",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "配方_20260729_002100",
@@ -410,7 +464,10 @@
       "感官评分"
     ],
     "quality_score": null,
-    "created_at": "2026-07-28T16:21:00Z"
+    "created_at": "2026-07-28T16:21:00Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "papers-Mamba-full_20260729_163709",
@@ -432,7 +489,10 @@
       "学术会议"
     ],
     "quality_score": null,
-    "created_at": "2026-07-29T08:37:09Z"
+    "created_at": "2026-07-29T08:37:09Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "papers-EAAI-26-17134_reviewer_20260729_175043",
@@ -453,7 +513,10 @@
       "工程智能"
     ],
     "quality_score": null,
-    "created_at": "2026-07-29T09:50:43Z"
+    "created_at": "2026-07-29T09:50:43Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "papers-new1702_TopMamba_Topology_guided__20260730_122212",
@@ -475,7 +538,10 @@
       "修改建议"
     ],
     "quality_score": null,
-    "created_at": "2026-07-30T04:22:12Z"
+    "created_at": "2026-07-30T04:22:12Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "papers-new_FBD_CLIP_Discriminative_A_20260730_122528",
@@ -497,7 +563,10 @@
       "CLIP相关"
     ],
     "quality_score": null,
-    "created_at": "2026-07-30T04:25:28Z"
+    "created_at": "2026-07-30T04:25:28Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "lens-机器人A-20260730180848",
@@ -515,7 +584,10 @@
     ],
     "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-30T10:08:50Z"
+    "created_at": "2026-07-30T10:08:50Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "lens-面霜-20260731142555",
@@ -533,7 +605,10 @@
     ],
     "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-31T06:25:58Z"
+    "created_at": "2026-07-31T06:25:58Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "lens-面霜配方-20260731142804",
@@ -551,7 +626,10 @@
     ],
     "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-31T06:28:14Z"
+    "created_at": "2026-07-31T06:28:14Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "lens-面霜配方翻译-20260731142855",
@@ -575,7 +653,10 @@
       "中英互译"
     ],
     "quality_score": null,
-    "created_at": "2026-07-31T06:29:02Z"
+    "created_at": "2026-07-31T06:29:02Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "lens-face_cream-20260731143348",
@@ -593,7 +674,10 @@
     ],
     "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-31T06:33:51Z"
+    "created_at": "2026-07-31T06:33:51Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "lens-专利配方-20260731143524",
@@ -617,7 +701,10 @@
       "专利文献"
     ],
     "quality_score": null,
-    "created_at": "2026-07-31T06:35:27Z"
+    "created_at": "2026-07-31T06:35:27Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "lens-面霜配方专利-20260731175436",
@@ -635,7 +722,10 @@
     ],
     "tags": [],
     "quality_score": null,
-    "created_at": "2026-07-31T09:54:40Z"
+    "created_at": "2026-07-31T09:54:40Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "L1",
@@ -657,7 +747,10 @@
       "自然语言处理"
     ],
     "quality_score": null,
-    "created_at": "2026-08-01T07:53:33Z"
+    "created_at": "2026-08-01T07:53:33Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "配方_20260801_161606",
@@ -680,7 +773,10 @@
       "配方优化"
     ],
     "quality_score": null,
-    "created_at": "2026-08-01T08:16:06Z"
+    "created_at": "2026-08-01T08:16:06Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "meeting-face_20260801165913",
@@ -703,7 +799,10 @@
       "目标检测"
     ],
     "quality_score": null,
-    "created_at": "2026-08-01T09:00:04Z"
+    "created_at": "2026-08-01T09:00:04Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "egg",
@@ -725,7 +824,10 @@
       "豆包大模型"
     ],
     "quality_score": null,
-    "created_at": "2026-08-01T10:23:46Z"
+    "created_at": "2026-08-01T10:23:46Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "乖乖",
@@ -747,7 +849,10 @@
       "豆包模型"
     ],
     "quality_score": null,
-    "created_at": "2026-08-01T10:26:04Z"
+    "created_at": "2026-08-01T10:26:04Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "kkid",
@@ -769,7 +874,10 @@
       "图像数据"
     ],
     "quality_score": null,
-    "created_at": "2026-08-01T14:55:34Z"
+    "created_at": "2026-08-01T14:55:34Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "YiyangAAAI2027_merged.pdf_1785666027",
@@ -792,7 +900,10 @@
     ],
     "quality_score": null,
     "created_at": "2026-08-02T10:20:27Z",
-    "preview_tool": "file-visualizer"
+    "preview_tool": "file-visualizer",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "test-ds-api",
@@ -813,7 +924,9 @@
       "API示例"
     ],
     "quality_score": null,
-    "created_at": "2026-08-02T12:32:00Z"
+    "created_at": "2026-08-02T12:32:00Z",
+    "visibility": "private",
+    "storage": "local"
   },
   {
     "id": "变电站",
@@ -835,7 +948,10 @@
       "电力设施"
     ],
     "quality_score": null,
-    "created_at": "2026-08-02T16:25:59Z"
+    "created_at": "2026-08-02T16:25:59Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "无人机",
@@ -858,7 +974,10 @@
       "提示词"
     ],
     "quality_score": null,
-    "created_at": "2026-08-03T02:03:28Z"
+    "created_at": "2026-08-03T02:03:28Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "moon walker",
@@ -881,7 +1000,10 @@
       "AI生成"
     ],
     "quality_score": null,
-    "created_at": "2026-08-03T03:50:49Z"
+    "created_at": "2026-08-03T03:50:49Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "test_data_20260803115050",
@@ -903,7 +1025,10 @@
       "食品研发"
     ],
     "quality_score": null,
-    "created_at": "2026-08-03T03:50:50Z"
+    "created_at": "2026-08-03T03:50:50Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "sotaband",
@@ -925,7 +1050,10 @@
       "未来科技"
     ],
     "quality_score": null,
-    "created_at": "2026-08-03T08:40:33Z"
+    "created_at": "2026-08-03T08:40:33Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "奶昔配方实验数据_20260804113642",
@@ -946,7 +1074,10 @@
       "饮品研发"
     ],
     "quality_score": null,
-    "created_at": "2026-08-04T03:36:42Z"
+    "created_at": "2026-08-04T03:36:42Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "field",
@@ -969,7 +1100,10 @@
       "农田"
     ],
     "quality_score": null,
-    "created_at": "2026-09-09T06:36:30Z"
+    "created_at": "2026-09-09T06:36:30Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "电力数据_1786586722",
@@ -993,7 +1127,10 @@
     ],
     "quality_score": null,
     "created_at": "2026-08-13T02:05:22Z",
-    "preview_tool": "file-visualizer"
+    "preview_tool": "file-visualizer",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "安利原材料供应商评估_1788399791",
@@ -1016,7 +1153,10 @@
     ],
     "quality_score": null,
     "created_at": "2026-09-03T01:43:11Z",
-    "preview_tool": "file-visualizer"
+    "preview_tool": "file-visualizer",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "安利供应商材料_1788401469",
@@ -1040,7 +1180,10 @@
     ],
     "quality_score": null,
     "created_at": "2026-09-03T02:11:09Z",
-    "preview_tool": "file-visualizer"
+    "preview_tool": "file-visualizer",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "",
@@ -1160,7 +1303,10 @@
       "评审报告"
     ],
     "quality_score": null,
-    "created_at": "2026-09-07T03:12:28Z"
+    "created_at": "2026-09-07T03:12:28Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "animal",
@@ -1177,7 +1323,10 @@
     ],
     "tags": [],
     "quality_score": null,
-    "created_at": "2026-09-07T05:29:00Z"
+    "created_at": "2026-09-07T05:29:00Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "奶昔训练集_20260909144156",
@@ -1200,7 +1349,10 @@
       "配方优化"
     ],
     "quality_score": null,
-    "created_at": "2026-09-09T06:41:56Z"
+    "created_at": "2026-09-09T06:41:56Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "奶昔奶昔_20260909152849",
@@ -1222,7 +1374,10 @@
       "食品饮料"
     ],
     "quality_score": null,
-    "created_at": "2026-09-09T07:28:49Z"
+    "created_at": "2026-09-09T07:28:49Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
   },
   {
     "id": "test_20260910001952",
@@ -1244,6 +1399,29 @@
       "配方测试"
     ],
     "quality_score": null,
-    "created_at": "2026-09-09T16:19:52Z"
+    "created_at": "2026-09-09T16:19:52Z",
+    "visibility": "private",
+    "storage": "local",
+    "owner": "local-bf30593d"
+  },
+  {
+    "id": "digit",
+    "name": "digit",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/digit.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/1789130592820",
+    "file_count": 1,
+    "total_size": 104472,
+    "formats": [
+      "png"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-09-11T12:43:26Z",
+    "owner": "local-bf30593d",
+    "visibility": "private",
+    "storage": "local"
   }
 ]

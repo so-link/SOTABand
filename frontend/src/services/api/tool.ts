@@ -30,7 +30,7 @@ export const toolApi = {
       body: JSON.stringify({ specMd, toolId, toolName }),
     })
     if (!res.ok) { const err = await res.json().catch(() => ({ detail: res.statusText })); throw new Error(err.detail) }
-    return res.json() as Promise<{ code: string; params: Array<Record<string, unknown>> }>
+    return res.json() as Promise<{ code: string; params: Array<Record<string, unknown>>; modes?: Array<{ id: string; name: string; desc?: string }> }>
   },
 
   async testWithInput(specMd: string, code: string, testInputs: Record<string, string>, files?: File[], signal?: AbortSignal) {

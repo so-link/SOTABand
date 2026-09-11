@@ -98,13 +98,47 @@ created: {日期}
 |------|------|------|
 | 0.1.0 | {日期} | 初始版本 |
 
+多模式规则（重要）：
+当用户的描述中包含「模式1」「模式2」等多个模式（每个模式有独立的输入、输出和处理过程）时，
+不要用「mode 参数 + 条件必填」的方式来描述，而必须使用如下「模式定义」章节格式：
+
+## 2. 模式定义
+
+### 模式 1：<模式标识>（<模式中文名>）
+
+- 模式标识：<英文小写标识，如 train/test>
+- 描述：<该模式做什么>
+
+#### 输入规范
+| 参数名 | 类型 | 必填 | 默认值 | 说明 |
+|--------|------|------|--------|------|
+| <参数> | <类型> | 是 | 无 | <说明> |
+
+#### 输出规范
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| <字段> | <类型> | <说明> |
+
+#### 处理过程
+1. <步骤>
+
+### 模式 2：<模式标识>（<模式中文名>）
+...（同上）
+
+关键要求：
+- 每个模式下的「输入规范」中，该模式真正需要的参数「必填」列必须写「是」，
+  不要写「条件」「可选」等模糊词。
+- 模式之间共享的参数，在每个需要的模式里分别列出并标注「是」。
+- 单模式工具（只有一个功能）仍使用上面标准的「## 2. 输入规范」章节，不要用「模式定义」。
+
 规则：
 1. tool-id 使用小写字母+连字符
 2. type 根据描述推断：function / script / api-wrapper
 3. 合理推断输入参数和输出格式
 4. 建议合适的依赖库和版本
 5. 用户描述中的【xxx】表示系统API，【【xxx】】表示工具调用，原样保留
-6. 除非用户明确写了标记，否则不添加系统API或工具引用"""
+6. 除非用户明确写了标记，否则不添加系统API或工具引用
+7. 多模式工具的每个模式参数「必填」列必须明确写「是」或「否」，禁止使用「条件（模式X）」「仅模式X」等模糊表述"""
 
 UPLOAD_DIR = _Path("/tmp/sotaband-uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -177,7 +211,9 @@ async def generate_code(req: GenerateToolCodeRequest):
     code = await builder.build(spec)
     # 提取参数 schema 供前端生成输入表单
     params = builder._parse_spec_inputs(req.spec_md)
-    return {"code": code, "params": params}
+    # 提取模式列表（单模式工具为空）
+    modes = builder.parse_modes(req.spec_md)
+    return {"code": code, "params": params, "modes": modes}
 
 
 # ── 沙箱测试 v2 — 用户输入测试数据 ──
@@ -374,10 +410,14 @@ async def register_tool(req: RegisterToolRequest):
     if not param_meta:
         param_meta = builder._parse_spec_inputs(req.spec_md)
 
+    # 解析多模式（单模式工具返回空列表）
+    modes = builder.parse_modes(req.spec_md)
+
     resource = {
         "id": req.tool_id, "name": req.tool_name, "version": req.version,
         "raw_md": req.spec_md, "code": code, "tags": req.tags,
         "param_meta": param_meta,
+        "modes": modes,
     }
     tool_id = await registry.register(resource)
 
