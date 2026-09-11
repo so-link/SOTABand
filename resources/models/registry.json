@@ -488,5 +488,43 @@
     ],
     "associated_tool_id": "electricity-data-forecast-model-training",
     "created_at": "2026-08-13T07:01:01Z"
+  },
+  {
+    "id": "model-1788935887",
+    "name": "electricity_lstm_model.pt_20260909_143807_459",
+    "version": "0.1.0",
+    "type": "model",
+    "status": "registered",
+    "spec_path": "definitions/model-1788935887.md",
+    "framework": "PyTorch",
+    "model_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/models/electricity_lstm_model.pt",
+    "input_format": "csv",
+    "output_format": "table",
+    "tags": [
+      "electricity",
+      "lstm",
+      "time-series"
+    ],
+    "associated_tool_id": "electricity-data-forecast-model-training",
+    "created_at": "2026-09-09T06:38:07Z"
+  },
+  {
+    "id": "model-1788936169",
+    "name": "奶昔预测模型20260909144249_20260909_144249_616",
+    "version": "0.1.0",
+    "type": "model",
+    "status": "registered",
+    "spec_path": "definitions/model-1788936169.md",
+    "framework": "scikit-learn",
+    "model_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/model_20260909144249.pkl",
+    "input_format": "tabular",
+    "output_format": "scalar",
+    "tags": [
+      "regression",
+      "milkshake",
+      "prediction"
+    ],
+    "associated_tool_id": "milkshake-predictor-trainer",
+    "created_at": "2026-09-09T06:42:49Z"
   }
 ]

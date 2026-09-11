@@ -987,7 +987,7 @@ stderr: {_safe_stderr}
             full_response = ""
             llm_task = None
             llm_exception = None
-            LLM_TIMEOUT = int(_os.getenv("LLM_TIMEOUT", "120"))  # LLM 调用总超时（秒），跟随 .env 可调大
+            LLM_TIMEOUT = int(_os.getenv("LLM_TIMEOUT", "300"))  # LLM 调用总超时（秒），默认 300，跟随 .env 可调大
             try:
                 token_queue: list = []
 
@@ -996,7 +996,7 @@ stderr: {_safe_stderr}
                     try:
                         async for token in self.llm.chat_stream(
                             messages=[{"role":"user","content":fix_prompt}],
-                            temperature=0.2, max_tokens=100000,
+                            temperature=0.2, max_tokens=32000,
                         ):
                             token_queue.append(token)
                     except asyncio.CancelledError:

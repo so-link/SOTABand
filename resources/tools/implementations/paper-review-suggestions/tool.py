@@ -1,5 +1,5 @@
 # === SOTABand 工具标准模板 ===
-import os, sys, json, time, base64, uuid
+import os, sys, json, time
 from pathlib import Path
 from typing import Any
 import requests
@@ -24,28 +24,27 @@ def _call_api(api_name: str, **params) -> dict:
     api = get_api(api_name)
     return api.call(**params)
 
-# ── LLM 调用辅助（统一走系统配置的 LLM_PROVIDER / LLM_API_KEY / LLM_MODEL） ──
-def _llm_chat(messages: list, **kwargs) -> str:
-    """同步调用系统统一大模型客户端，返回完整文本。"""
-    import asyncio
-    from core.llm.client import create_llm_client
-    client = create_llm_client()
-    loop = asyncio.new_event_loop()
-    try:
-        result = loop.run_until_complete(client.chat(messages, **kwargs))
-        loop.run_until_complete(client.aclose())
-        return result
-    finally:
-        loop.close()
-
 # ── 工具调用辅助 ──
 def _call_tool(tool_name: str, **params) -> dict:
-    """调用已注册的工具"""
+    """调用已注册的工具（通过 registry.json 查找工具 ID 对应的实现目录）"""
     import subprocess as _sp
-    tool_dir = _PROJECT_ROOT / "resources" / "tools" / "implementations" / tool_name
+    # 从 registry.json 中查找工具 ID（目录名）
+    reg_path = _PROJECT_ROOT / "resources" / "tools" / "registry.json"
+    tool_id = tool_name  # 默认用名称作为 ID
+    if reg_path.exists():
+        try:
+            tools = json.loads(reg_path.read_text(encoding="utf-8"))
+            # 先精确匹配 id，再模糊匹配 name
+            for t in tools:
+                if t.get("id") == tool_name or t.get("name") == tool_name:
+                    tool_id = t["id"]
+                    break
+        except Exception:
+            pass
+    tool_dir = _PROJECT_ROOT / "resources" / "tools" / "implementations" / tool_id
     tool_file = tool_dir / "tool.py"
     if not tool_file.exists():
-        return {"status": "failed", "message": f"Tool '{tool_name}' not found"}
+        return {"status": "failed", "message": f"Tool '{tool_name}' (id={tool_id}) not found"}
     venv_py = tool_dir / ".venv" / "bin" / "python"
     py_exe = str(venv_py) if venv_py.exists() else sys.executable
     script = f"import json, sys; sys.path.insert(0, {str(_PROJECT_ROOT)!r}); exec(open({str(tool_file)!r}).read()); print(json.dumps(execute(**{params!r}), default=str, ensure_ascii=False))"
@@ -65,171 +64,277 @@ def _resolve_path(path: str) -> str:
 
 # === 头部结束，以下由 LLM 生成 ===
 
-from datetime import datetime
+import base64
 
-# ── PDF 文本提取 ──
-def _extract_pdf_text(filepath: str) -> str:
-    """尝试使用可用的库提取 PDF 文本内容"""
-    # 优先使用 PyPDF2
+
+def _extract_pdf_text(pdf_path: Path) -> str:
+    """尝试从 PDF 中提取文本，失败则返回空字符串"""
+    # 尝试 PyPDF2
     try:
         import PyPDF2
-        with open(filepath, 'rb') as f:
-            reader = PyPDF2.PdfReader(f)
-            texts = [page.extract_text() or '' for page in reader.pages]
-        return '\n'.join(texts)
-    except ImportError:
-        pass
+        reader = PyPDF2.PdfReader(str(pdf_path))
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        if text.strip():
+            return text
     except Exception:
         pass
 
-    # 其次尝试 pdfplumber
+    # 尝试 pypdf
+    try:
+        import pypdf
+        reader = pypdf.PdfReader(str(pdf_path))
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        if text.strip():
+            return text
+    except Exception:
+        pass
+
+    # 尝试 pdfplumber
     try:
         import pdfplumber
-        with pdfplumber.open(filepath) as pdf:
-            texts = [page.extract_text() or '' for page in pdf.pages]
-        return '\n'.join(texts)
-    except ImportError:
-        pass
+        with pdfplumber.open(str(pdf_path)) as pdf:
+            text = "\n".join(page.extract_text() or "" for page in pdf.pages)
+        if text.strip():
+            return text
     except Exception:
         pass
 
-    # 没有可用的 PDF 解析库
-    return None
+    return ""
 
 
-def execute(**kwargs) -> dict[str, Any]:
-    # ── 1. 获取参数 ──
-    path_input = kwargs.get("path", "")
-    conf = kwargs.get("conf", "")
-    dataset_name = kwargs.get("dataset", "")
-
-    if not path_input or not conf or not dataset_name:
-        return {
-            "status": "failed",
-            "message": "缺少必要参数: path, conf, dataset 均不能为空"
-        }
-
-    # ── 2. 解析并校验论文路径 ──
-    pdf_path_str = _resolve_path(path_input)
-    pdf_path = Path(pdf_path_str)
-    if not pdf_path.exists():
-        return {
-            "status": "failed",
-            "message": f"论文文件不存在: {pdf_path}"
-        }
-
-    # ── 3. 提取 PDF 文本 ──
-    pdf_text = _extract_pdf_text(str(pdf_path))
-    if not pdf_text:
-        # 如果提取失败，提示用户安装依赖或使用文本方式
-        return {
-            "status": "failed",
-            "message": (
-                "无法提取PDF文本，请安装 PyPDF2 或 pdfplumber 库，"
-                "或提供纯文本版本的论文。"
-            )
-        }
-
-    # ── 4. 构造评审提示 ──
-    system_prompt = f"""你是一位经验丰富的{conf}会议审稿人。请对下面提供的论文内容进行详细、严格、建设性的评审。
-评审过程必须使用中文，并涵盖以下10个方面：
-
-1. 总体创新性评估  
-2. 结构、形式与实验完整性评估  
-3. 摘要、引言与章节安排的一致性及衔接连贯性  
-4. 总体思路章节中的技术点与贡献、与后续章节的对应关系  
-5. 每个公式的目的说明与符号解释的清晰度  
-6. 消融实验完整性及核心参数敏感性分析  
-7. 实验对比baseline的先进性、完备性  
-8. 可读性与可复现性评估  
-9. 针对上述重点提供详细的修改建议和指引  
-10. 按照{conf}会议的评审标准进行最终综合评分，并给出判定（如强力接受、接受、弱接受、拒绝等）
-
-请以Markdown格式输出完整的评审意见，包含清晰的标题、分段和评分信息。"""
-
-    # ── 5. 清理 PDF 文本中的 surrogate 字符，避免 JSON 序列化报错 ──
-    pdf_text = pdf_text.encode('utf-8', errors='replace').decode('utf-8')
-
-    # ── 6. 调用系统统一 LLM 生成评审意见（跟随全局 LLM_PROVIDER / LLM_API_KEY / LLM_MODEL） ──
+def _call_deepseek_chat(base_url: str, api_key: str, model: str, system_prompt: str, user_prompt: str) -> str:
+    """调用 DeepSeek 兼容接口，优先使用 openai SDK，失败时回退 requests"""
+    # 优先尝试 openai SDK
     try:
-        messages = [
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key, base_url=base_url)
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=100000,
+            temperature=0.3
+        )
+        if resp and resp.choices and resp.choices[0].message:
+            content = resp.choices[0].message.content
+            if content:
+                return content
+    except Exception:
+        pass
+
+    # 回退到 requests 调用 OpenAI 兼容接口
+    url = base_url.rstrip("/")
+    if url.endswith("/chat/completions"):
+        url = url
+    elif url.endswith("/v1"):
+        url = url + "/chat/completions"
+    else:
+        url = url + "/v1/chat/completions"
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": model,
+        "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"以下是待审论文的文本内容：\n\n{pdf_text}"}
-        ]
-        review_text = _llm_chat(messages, temperature=0.3, max_tokens=16384)
-    except Exception as e:
-        return {
-            "status": "failed",
-            "message": f"LLM 调用失败: {str(e)}"
-        }
+            {"role": "user", "content": user_prompt}
+        ],
+        "max_tokens": 100000,
+        "temperature": 0.3
+    }
+    resp = requests.post(url, headers=headers, json=payload, timeout=180)
+    resp.raise_for_status()
+    data = resp.json()
+    return data["choices"][0]["message"]["content"]
 
-    # ── 7. 保存评审报告 ──
-    paper_stem = pdf_path.stem
-    safe_stem = "".join(c if c.isalnum() or c in "._- " else "_" for c in paper_stem)
-    timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-    dir_id = f"{safe_stem}_{timestamp_str}" if safe_stem else timestamp_str
-    report_dir = _DATA_DIR / "papers" / dir_id
-    report_dir.mkdir(parents=True, exist_ok=True)
 
-    review_filename = f"review_{timestamp_str}.md"
-    review_filepath = report_dir / review_filename
+def _get_deepseek_config() -> dict:
+    """获取 DeepSeek API 配置"""
+    result = _call_api("api-deepseek-get-key")
+    if not isinstance(result, dict):
+        return {}
 
-    try:
-        with open(review_filepath, "w", encoding="utf-8") as f:
-            f.write(review_text)
-    except Exception as e:
-        return {
-            "status": "failed",
-            "message": f"评审报告保存失败: {str(e)}"
-        }
+    if result.get("status") == "failed":
+        return {}
 
-    # ── 8. 数据集注册 ──
-    reg_status_msg = ""
-    try:
-        get_result = _call_api("api-data-get", name=dataset_name)
-        dataset_exists = bool(get_result.get("dataset"))
-        if not dataset_exists:
-            dataset_id = f"papers-{dir_id}"
-            data_path_abs = str(report_dir.resolve())
-            file_count = 1
-            total_size = os.path.getsize(review_filepath)
-            formats = ["md"]
-            raw_md = f"论文 `{pdf_path.name}` 的修改建议数据集，目标会议：{conf}"
-
-            register_result = _call_api("api-data-register",
-                id=dataset_id,
-                name=dataset_name,
-                raw_md=raw_md,
-                data_path=data_path_abs,
-                file_count=file_count,
-                total_size=total_size,
-                formats=formats
-            )
-            if not register_result.get("dataset_id"):
-                reg_status_msg = f"数据集注册失败：{register_result.get('message', '未知错误')}"
-            else:
-                reg_status_msg = "数据集注册成功"
-        else:
-            reg_status_msg = "数据集已存在，无需注册"
-    except Exception as e:
-        reg_status_msg = f"数据集注册异常: {str(e)}"
-
-    # ── 9. 构造返回结果 ──
-    final_message = f"评审完成并保存至 {review_filepath}"
-    if reg_status_msg:
-        final_message += f"；{reg_status_msg}"
+    # 兼容 result.data 嵌套与直接字段两种返回形式
+    data = result.get("data", result)
+    if not isinstance(data, dict):
+        data = result
 
     return {
-        "status": "success",
-        "message": final_message,
-        "output_format": "text",
-        "data": {
-            "text": review_text
-        }
+        "api_key": data.get("api_key"),
+        "base_url": data.get("base_url"),
+        "model": data.get("model")
     }
 
 
-# 仅用于本地测试
-if __name__ == "__main__":
-    res = execute(path="/path/to/paper.pdf", conf="NeurIPS", dataset="paper_reviews")
-    print(json.dumps(res, ensure_ascii=False, indent=2))
+def execute(**kwargs) -> dict[str, Any]:
+    try:
+        # 1. 读取输入
+        path = kwargs.get("path", "")
+        conf = kwargs.get("conf", "")
+
+        # 2. 参数校验
+        if not conf or not str(conf).strip():
+            return {
+                "status": "failed",
+                "output_format": "text",
+                "message": "请提供投稿会议名称",
+                "data": {}
+            }
+
+        path_str = str(path).strip() if path else ""
+        if not path_str:
+            return {
+                "status": "failed",
+                "output_format": "text",
+                "message": "论文文件不存在或路径无效",
+                "data": {}
+            }
+
+        pdf_path = Path(_resolve_path(path_str))
+        if not pdf_path.exists() or not pdf_path.is_file():
+            return {
+                "status": "failed",
+                "output_format": "text",
+                "message": "论文文件不存在或路径无效",
+                "data": {}
+            }
+
+        if pdf_path.suffix.lower() != ".pdf":
+            return {
+                "status": "failed",
+                "output_format": "text",
+                "message": "仅支持 PDF 格式论文",
+                "data": {}
+            }
+
+        # 3. 获取 DeepSeek API KEY
+        config = _get_deepseek_config()
+        api_key = config.get("api_key")
+        base_url = config.get("base_url") or "https://api.deepseek.com/v1"
+        model = config.get("model") or "deepseek-v4-pro"
+
+        if not api_key:
+            return {
+                "status": "failed",
+                "output_format": "text",
+                "message": "获取 DeepSeek API KEY 失败",
+                "data": {}
+            }
+
+        # 4. 尝试提取 PDF 文本；若失败则使用 Base64 编码作为论文内容
+        # 大模型单次请求的输入长度有限，对超大 PDF 做大小限制，避免触发 API 400 错误
+        MAX_PDF_BYTES = 5 * 1024 * 1024  # 5MB
+        MAX_CONTENT_CHARS = 400000  # 论文内容最大字符数（约 40 万字符，预留推理空间）
+
+        file_size = pdf_path.stat().st_size
+        paper_text = _extract_pdf_text(pdf_path)
+        if paper_text:
+            paper_content = paper_text
+        else:
+            # 无文本层（扫描版 PDF）→ 使用 Base64，但需限制大小
+            if file_size > MAX_PDF_BYTES:
+                return {
+                    "status": "failed",
+                    "output_format": "text",
+                    "message": (
+                        f"PDF 文件过大（{file_size / 1024 / 1024:.1f}MB），且无法提取文本层"
+                        f"（可能是扫描版 PDF）。请先通过 OCR 工具将 PDF 转为可提取文本的版本，"
+                        f"或压缩 PDF 后再试。"
+                    ),
+                    "data": {}
+                }
+            pdf_bytes = pdf_path.read_bytes()
+            pdf_b64 = base64.b64encode(pdf_bytes).decode("utf-8")
+            paper_content = (
+                f"[PDF 文件 {pdf_path.name} 的 Base64 编码如下，请解码后评审]\n"
+                f"{pdf_b64}"
+            )
+
+        # 文本内容过长时截断，避免超出模型上下文限制
+        if len(paper_content) > MAX_CONTENT_CHARS:
+            paper_content = paper_content[:MAX_CONTENT_CHARS] + "\n\n[内容过长，已截断]"
+
+        # 5. 构建提示词
+        system_prompt = (
+            "你是一位资深学术会议审稿专家和论文修改导师。"
+            "请使用中文，根据用户提供的投稿会议评审标准，对论文进行详细评审并给出修改建议。"
+        )
+
+        user_prompt = f"""
+投稿会议：{conf}
+
+请针对以下方面进行评审：
+1. 总体创新性评估
+2. 论文结构、形式、实验完整性评估
+3. 摘要、简介与章节安排的一致性、衔接与呼应
+4. 总体思路章节与贡献点、后续章节的对应关系
+5. 公式目的解释与符号说明的清晰度
+6. 消融实验完整性与核心参数敏感性分析
+7. 实验充分性、baseline 方法先进性与完备性
+8. 论文可读性与可复现性
+9. 针对上述评估重点给出详细批改建议和指引
+10. 按 {conf} 评审标准进行评议并给出最终打分判定
+
+请以结构化 Markdown 输出，包含每个方面的评分/评价、问题描述与具体修改建议，最后给出综合评分和是否建议接收。
+
+论文内容如下：
+{paper_content}
+"""
+
+        # 6. 调用模型
+        review_text = _call_deepseek_chat(
+            base_url=base_url,
+            api_key=api_key,
+            model=model,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt
+        )
+
+        if not review_text or not str(review_text).strip():
+            return {
+                "status": "failed",
+                "output_format": "text",
+                "message": "模型调用失败：返回内容为空",
+                "data": {}
+            }
+
+        # 7. 保存评审报告
+        report_path = pdf_path.with_name(f"{pdf_path.stem}_评审报告.md")
+        review_time = time.strftime("%Y-%m-%d %H:%M:%S")
+        report_content = f"""# 论文评审报告
+
+- **论文文件**：{pdf_path.name}
+- **投稿会议**：{conf}
+- **评审时间**：{review_time}
+
+## 评审意见
+
+{review_text}
+"""
+        report_path.write_text(report_content, encoding="utf-8")
+
+        # 8. 返回结果
+        return {
+            "status": "success",
+            "output_format": "text",
+            "message": f"评审完成，报告已保存至 {report_path}",
+            "data": {
+                "text": review_text,
+                "report_path": str(report_path)
+            }
+        }
+
+    except Exception as e:
+        return {
+            "status": "failed",
+            "output_format": "text",
+            "message": str(e),
+            "data": {}
+        }

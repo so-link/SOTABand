@@ -955,21 +955,21 @@
     "type": "generic",
     "status": "active",
     "spec_path": "definitions/field.md",
-    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/1786335679570",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/1788935772632",
     "file_count": 1,
-    "total_size": 1016623,
+    "total_size": 806875,
     "formats": [
       "png"
     ],
     "tags": [
-      "合成图片",
-      "农田场景",
-      "豆包生成",
-      "AI绘图",
-      "农业视觉"
+      "水稻田",
+      "播种机",
+      "农业",
+      "合成图像",
+      "农田"
     ],
     "quality_score": null,
-    "created_at": "2026-08-10T04:21:34Z"
+    "created_at": "2026-09-09T06:36:30Z"
   },
   {
     "id": "电力数据_1786586722",
@@ -1139,5 +1139,111 @@
     "owner": "local-3697591d",
     "visibility": "private",
     "storage": "local"
+  },
+  {
+    "id": "JEI",
+    "name": "JEI",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/JEI.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/papers/a5e2793b",
+    "file_count": 1,
+    "total_size": 17564,
+    "formats": [
+      "md"
+    ],
+    "tags": [
+      "论文评审",
+      "电子成像",
+      "学术期刊",
+      "评审报告"
+    ],
+    "quality_score": null,
+    "created_at": "2026-09-07T03:12:28Z"
+  },
+  {
+    "id": "animal",
+    "name": "animal",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/animal.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/1788758917450",
+    "file_count": 1,
+    "total_size": 487644,
+    "formats": [
+      "png"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-09-07T05:29:00Z"
+  },
+  {
+    "id": "奶昔训练集_20260909144156",
+    "name": "奶昔训练集",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/奶昔训练集_20260909144156.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/20260909144156",
+    "file_count": 1,
+    "total_size": 4780,
+    "formats": [
+      "csv"
+    ],
+    "tags": [
+      "奶昔配方",
+      "实验数据",
+      "饮品研发",
+      "训练集",
+      "配方优化"
+    ],
+    "quality_score": null,
+    "created_at": "2026-09-09T06:41:56Z"
+  },
+  {
+    "id": "奶昔奶昔_20260909152849",
+    "name": "奶昔奶昔",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/奶昔奶昔_20260909152849.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/20260909152849",
+    "file_count": 1,
+    "total_size": 4781,
+    "formats": [
+      "csv"
+    ],
+    "tags": [
+      "奶昔配方",
+      "实验数据",
+      "饮品研发",
+      "食品饮料"
+    ],
+    "quality_score": null,
+    "created_at": "2026-09-09T07:28:49Z"
+  },
+  {
+    "id": "test_20260910001952",
+    "name": "test",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/test_20260910001952.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/downloads/20260910001952",
+    "file_count": 1,
+    "total_size": 635,
+    "formats": [
+      "csv"
+    ],
+    "tags": [
+      "奶昔配方",
+      "实验数据",
+      "食品实验",
+      "配方测试"
+    ],
+    "quality_score": null,
+    "created_at": "2026-09-09T16:19:52Z"
   }
 ]

@@ -37,7 +37,7 @@ class LLMConfigUpdate(BaseModel):
     """更新 LLM 配置的请求体"""
 
     model: str   # 下拉选项的 value（<provider>:<默认模型>）
-    api_key: str
+    api_key: str = ""  # 为空表示保留现有 key，不更新
 
 
 def _mask_key(key: str) -> str:
@@ -168,17 +168,20 @@ async def update_llm_config(payload: LLMConfigUpdate):
     # 更新 .env 文件（主 key 三件套）
     env = _read_env()
     env["LLM_PROVIDER"] = provider
-    env["LLM_API_KEY"] = api_key
     env["LLM_MODEL"] = model_name
+    # api_key 为空时，保留原有 key（不覆盖）
+    if api_key:
+        env["LLM_API_KEY"] = api_key
     _write_env(env)
 
     # 动态刷新内存配置，使当前进程立即生效
-    _refresh_settings(provider, model_name, api_key)
+    final_key = env.get("LLM_API_KEY", "")
+    _refresh_settings(provider, model_name, final_key)
 
     return {
         "message": "配置已更新",
         "model": model_name,
         "provider": provider,
-        "api_key": _mask_key(api_key),
-        "has_api_key": bool(api_key),
+        "api_key": _mask_key(final_key),
+        "has_api_key": bool(final_key),
     }

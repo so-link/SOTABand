@@ -25,7 +25,8 @@ export function SettingsView() {
         if (cancelled) return
         setConfig(cfg)
         setModel(cfg.model)
-        setApiKey(cfg.api_key) // 脱敏后的 key，作为占位
+        // 不填入脱敏后的 key，保持空；placeholder 提示「已配置，输入新值以替换」
+        setApiKey('')
       } catch (e) {
         if (!cancelled) setError(String(e))
       } finally {
@@ -37,14 +38,15 @@ export function SettingsView() {
 
   const handleSave = async () => {
     if (!model) { setSaveError('请选择大模型类型'); return }
+    // 未输入新 key 且原本也没有 key 时，必须输入 key
     if (!apiKey.trim() && !config?.has_api_key) { setSaveError('请输入 API Key'); return }
     setSaving(true)
     setSaved(false)
     setSaveError('')
     try {
-      await configApi.updateLLM({ model, api_key: apiKey })
+      // api_key 为空表示保留现有 key（后端会跳过 key 更新）
+      await configApi.updateLLM({ model, api_key: apiKey.trim() })
       setSaved(true)
-      // 更新本地配置状态
       setConfig((prev) => prev ? { ...prev, model, has_api_key: true } : prev)
     } catch (e) {
       setSaveError(String(e))
@@ -122,7 +124,7 @@ export function SettingsView() {
                       type={showKey ? 'text' : 'password'}
                       value={apiKey}
                       onChange={(e) => setApiKey(e.target.value)}
-                      placeholder={config?.has_api_key ? '已配置（输入新值以替换）' : '请输入 DeepSeek API Key'}
+                      placeholder={config?.has_api_key ? '已配置（留空则保留原值，输入新值以替换）' : '请输入 DeepSeek API Key'}
                       className="pl-8 pr-9 font-mono"
                     />
                     <button

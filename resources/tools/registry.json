@@ -1383,10 +1383,10 @@
         "type": "string",
         "required": true,
         "default": null,
-        "desc": "待评审的 PDF 论文文件绝对或相对路径",
+        "desc": "PDF 论文文件路径",
         "hints": [
-          "/path/to/paper.pdf",
-          "C:\\papers\\paper.pdf"
+          "/home/user/paper.pdf",
+          "C:/papers/paper.pdf"
         ]
       },
       {
@@ -1394,33 +1394,23 @@
         "type": "string",
         "required": true,
         "default": null,
-        "desc": "投稿的会议名称（如 ACL、NeurIPS），用于匹配评审标准",
+        "desc": "投稿会议名称，用于依据该会议评审标准进行评议和打分",
         "hints": [
-          "ACL",
-          "NeurIPS",
-          "ICLR"
-        ]
-      },
-      {
-        "name": "dataset",
-        "type": "string",
-        "required": true,
-        "default": null,
-        "desc": "评审结果输出数据集的名称，用于数据集注册与存储",
-        "hints": [
-          "review_dataset",
-          "my_dataset"
+          "NeurIPS 2026",
+          "CVPR 2026",
+          "ICML 2026"
         ]
       }
     ],
     "tags": [
       "论文评审",
-      "审稿建议",
+      "修改建议",
+      "AI审稿",
       "学术写作",
       "PDF分析"
     ],
     "usage_count": 0,
-    "created_at": "2026-07-29T07:48:32Z"
+    "created_at": "2026-09-07T04:14:01Z"
   },
   {
     "id": "lens-patent-downloader",
@@ -1589,112 +1579,6 @@
     ],
     "usage_count": 0,
     "created_at": "2026-08-01T08:31:52Z"
-  },
-  {
-    "id": "paper-modification-suggestion-a",
-    "name": "论文修改建议A",
-    "version": "0.1.0",
-    "type": "function",
-    "language": "python",
-    "status": "active",
-    "spec_path": "definitions/paper-modification-suggestion-a.md",
-    "impl_path": "implementations/paper-modification-suggestion-a/",
-    "input_schema": {},
-    "output_schema": {},
-    "param_meta": [
-      {
-        "name": "path",
-        "type": "string",
-        "required": true,
-        "default": null,
-        "desc": "待评审PDF论文文件的本地路径",
-        "hints": [
-          "/home/user/paper.pdf",
-          "C:\\papers\\submission.pdf",
-          "./docs/my_paper.pdf"
-        ]
-      },
-      {
-        "name": "conf",
-        "type": "string",
-        "required": true,
-        "default": null,
-        "desc": "投稿的会议名称，用于匹配评审标准",
-        "hints": [
-          "NeurIPS 2026",
-          "ICML 2025",
-          "CVPR",
-          "ACL"
-        ]
-      },
-      {
-        "name": "dataset",
-        "type": "string",
-        "required": true,
-        "default": null,
-        "desc": "评审结果输出数据集名称，用于存储和管理评审报告",
-        "hints": [
-          "review_results_v1",
-          "paper_review_dataset",
-          "my_review_output"
-        ]
-      }
-    ],
-    "tags": [
-      "论文评审",
-      "大模型辅助",
-      "修改建议",
-      "学术写作"
-    ],
-    "usage_count": 0,
-    "created_at": "2026-08-01T09:30:44Z"
-  },
-  {
-    "id": "weather-forecast",
-    "name": "天气预报",
-    "version": "0.1.0",
-    "type": "function",
-    "language": "python",
-    "status": "active",
-    "spec_path": "definitions/weather-forecast.md",
-    "impl_path": "implementations/weather-forecast/",
-    "input_schema": {},
-    "output_schema": {},
-    "param_meta": [
-      {
-        "name": "city",
-        "type": "string",
-        "required": true,
-        "default": null,
-        "desc": "城市名称（中文或英文，需支持中文转拼音或用经纬度查询）",
-        "hints": [
-          "北京",
-          "上海",
-          "London"
-        ]
-      },
-      {
-        "name": "days",
-        "type": "integer",
-        "required": false,
-        "default": 3,
-        "desc": "未来查询天数，范围 1~16，默认 3 天",
-        "hints": [
-          3,
-          5,
-          1
-        ]
-      }
-    ],
-    "tags": [
-      "天气查询",
-      "气象预警",
-      "城市天气",
-      "未来预报",
-      "风速降雨"
-    ],
-    "usage_count": 0,
-    "created_at": "2026-08-01T12:33:28Z"
   },
   {
     "id": "generate-milk-shake-experiment-data",
@@ -2162,5 +2046,110 @@
     "created_at": "2026-08-30T07:10:41Z",
     "owner": "local-3697591d",
     "visibility": "public"
+  },
+  {
+    "id": "cvpr-paper-downloader",
+    "name": "CVPR顶会论文下载",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/cvpr-paper-downloader.md",
+    "impl_path": "implementations/cvpr-paper-downloader/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "req",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "用户需求或检索关键词",
+        "hints": [
+          "图像分割",
+          "目标检测",
+          "transformer"
+        ]
+      },
+      {
+        "name": "n",
+        "type": "int",
+        "required": true,
+        "default": null,
+        "desc": "需要下载的论文数量，按相关程度排序取前 n 篇",
+        "hints": [
+          5,
+          10,
+          20
+        ]
+      },
+      {
+        "name": "year",
+        "type": "int",
+        "required": true,
+        "default": null,
+        "desc": "发表年限阈值，仅下载 year 年及以后发表的论文",
+        "hints": [
+          2020,
+          2023,
+          2024
+        ]
+      },
+      {
+        "name": "data_path",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "论文保存目录，PDF 文件和 Markdown 汇总文件均保存到此目录",
+        "hints": [
+          "./papers",
+          "/data/papers",
+          "/tmp/cvpr"
+        ]
+      }
+    ],
+    "tags": [
+      "论文下载",
+      "顶会论文",
+      "视觉顶会",
+      "学术检索",
+      "文献整理"
+    ],
+    "usage_count": 0,
+    "created_at": "2026-09-08T06:15:16Z"
+  },
+  {
+    "id": "paper-summary",
+    "name": "论文摘要",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/paper-summary.md",
+    "impl_path": "implementations/paper-summary/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "dir_path",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "包含 PDF 论文的目录路径",
+        "hints": [
+          "/data/papers",
+          "./papers"
+        ]
+      }
+    ],
+    "tags": [
+      "论文摘要",
+      "文档解析",
+      "大模型",
+      "文献分析",
+      "报告生成"
+    ],
+    "usage_count": 0,
+    "created_at": "2026-09-09T23:08:05Z"
   }
 ]
