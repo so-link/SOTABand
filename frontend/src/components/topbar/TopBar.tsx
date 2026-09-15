@@ -9,9 +9,9 @@ export function TopBar() {
   const { leftPanelOpen, rightPanelOpen, toggleLeftPanel, toggleRightPanel, theme, toggleTheme, setActiveView } = useUIStore()
 
   return (
-    <header className="flex h-9 items-center justify-between px-3 shrink-0 select-none glass border-b border-white/[0.04] relative">
+    <header className="grid h-9 items-center grid-cols-[1fr_auto_1fr] px-3 shrink-0 select-none glass border-b border-white/[0.04] relative">
       <div className="absolute bottom-0 left-0 right-0 gradient-line" />
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 justify-self-start">
         <Tooltip content={leftPanelOpen ? '隐藏侧边栏' : '显示侧边栏'}>
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={toggleLeftPanel}>
             <PanelLeft className="h-3.5 w-3.5" />
@@ -34,14 +34,14 @@ export function TopBar() {
         <Badge variant="accent" className="text-[10px] ml-1 tracking-wider font-mono">v0.1</Badge>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 justify-self-center">
         <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded border border-maia-border-glow bg-maia-accent-light/30">
           <Activity className="h-3 w-3 text-maia-success" />
           <span className="text-[10px] text-maia-text-muted tracking-wider font-mono">SYS.ONLINE · GPU:0</span>
         </div>
       </div>
 
-      <div className="flex items-center gap-0.5">
+      <div className="flex items-center gap-0.5 justify-self-end">
         <Tooltip content={theme === 'dark' ? '浅色模式' : '深色模式'}>
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={toggleTheme}>
             {theme === 'dark' ? <Sun className="h-3.5 w-3.5 text-amber-400" /> : <Moon className="h-3.5 w-3.5 text-violet-400" />}
