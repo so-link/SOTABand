@@ -164,7 +164,7 @@ def execute(**kwargs) -> dict[str, Any]:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": full_user_message}
         ]
-        review_content = _llm_chat(messages, temperature=0.3, max_tokens=8000)
+        review_content = _llm_chat(messages, temperature=0.3, max_tokens=100000)
         if not review_content:
             raise Exception("评审内容为空")
     except Exception as e:

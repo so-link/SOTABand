@@ -1460,5 +1460,25 @@
     "owner": "local-bf30593d",
     "visibility": "private",
     "storage": "local"
+  },
+  {
+    "id": "review",
+    "name": "review",
+    "version": "0.1.0",
+    "type": "generic",
+    "status": "active",
+    "spec_path": "definitions/review.md",
+    "data_path": "/Users/leo/Documents/1重要备份/project/2026SOTABand/SOTABand/data/papers/ESWA-D-26-23857_reviewer_1790248649",
+    "file_count": 1,
+    "total_size": 3210,
+    "formats": [
+      ".md"
+    ],
+    "tags": [],
+    "quality_score": null,
+    "created_at": "2026-09-24T11:17:29Z",
+    "owner": "local-bf30593d",
+    "visibility": "private",
+    "storage": "local"
   }
 ]
