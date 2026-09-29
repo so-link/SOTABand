@@ -138,7 +138,7 @@ export function ChatInput() {
 
   return (
     <div className="border-t border-maia-border bg-maia-surface px-4 py-3">
-      <div className="max-w-3xl mx-auto">
+      <div className="w-full">
         {/* Attachment bar */}
         {(attachedFiles.length > 0 || pathRefs.length > 0) && (
           <div className="flex flex-wrap gap-1.5 mb-2">
@@ -195,7 +195,7 @@ export function ChatInput() {
             onDrop={handleDrop}
             placeholder={isSending ? '工具执行中...' : '输入你的需求... (Enter 发送，Shift+Enter 换行)'}
             rows={1}
-            className="flex-1 bg-transparent text-[13px] tracking-wide outline-none focus-visible:outline-none resize-none max-h-[150px] placeholder:text-maia-text-muted"
+            className="flex-1 bg-transparent text-[13px] tracking-wide leading-relaxed py-2 outline-none focus-visible:outline-none resize-none max-h-[150px] placeholder:text-maia-text-muted"
             disabled={isSending}
           />
           {isSending ? (
