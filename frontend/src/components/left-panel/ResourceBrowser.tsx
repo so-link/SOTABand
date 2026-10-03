@@ -18,6 +18,7 @@ import { useWorkspaceToolStore } from '@/stores/workspace-tool-store'
 import { useWorkspaceDatasetStore } from '@/stores/workspace-dataset-store'
 import { useUnsavedMarks } from '@/hooks/use-unsaved-marks'
 import { cn } from '@/lib/utils'
+import { DeviceSection } from '@/components/devices/DeviceSection'
 import type { Resource, ResourceType, ToolResource } from '@/types/resources'
 
 interface ResourceSectionDef {
@@ -328,6 +329,7 @@ export function ResourceBrowser() {
           </div>
         )
       })}
+      <DeviceSection />
     </div>
   )
 }

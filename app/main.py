@@ -17,6 +17,7 @@ from app.api.routes.model_routes import router as model_router
 from app.api.routes.config_routes import router as config_router
 from app.api.routes.api_routes import router as api_list_router
 from app.api.routes.llm_routes import router as llm_router
+from app.api.routes.device_routes import router as device_router
 
 
 @asynccontextmanager
@@ -32,6 +33,9 @@ async def lifespan(app: FastAPI):
     yield  # 应用运行中
 
     # 关闭时：清理
+    from core.scheduler.monitor import close_device_monitor
+
+    await close_device_monitor()
     print("[SOTABand] 服务关闭")
 
 
@@ -60,6 +64,7 @@ app.include_router(model_router, prefix="/api/model", tags=["model"])
 app.include_router(config_router, prefix="/api/config", tags=["config"])
 app.include_router(api_list_router, prefix="/api/apis", tags=["api"])
 app.include_router(llm_router, prefix="/api/llm", tags=["llm"])
+app.include_router(device_router, prefix="/api/devices", tags=["device"])
 
 
 @app.get("/")

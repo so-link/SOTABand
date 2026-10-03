@@ -44,7 +44,7 @@ interface UIState {
 
 export const useUIStore = create<UIState>((set) => ({
   leftPanelOpen: true,
-  rightPanelOpen: false,
+  rightPanelOpen: true, // 与 MainLayout 默认布局一致（右栏默认展开）
   activeView: 'chat',
   openViews: ['chat'],
   leftPanelTab: 'files',

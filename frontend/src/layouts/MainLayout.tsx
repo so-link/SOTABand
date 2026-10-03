@@ -51,24 +51,25 @@ export function MainLayout() {
   const collapseRight = useRef(false)
 
   useEffect(() => {
-    if (collapseLeft.current === leftPanelOpen) return
+    if (collapseLeft.current === !leftPanelOpen) return
     collapseLeft.current = !leftPanelOpen
     if (!leftPanelOpen) {
       leftRef.current?.resize(0)
     } else {
       const layout = loadLayout()
-      leftRef.current?.resize(layout?.[0] ?? DEFAULT_LAYOUT[0])
+      // resize() 的数字参数按像素解释，百分比须传字符串；折叠时保存的 0 不能用来展开
+      leftRef.current?.resize(`${layout?.[0] || DEFAULT_LAYOUT[0]}%`)
     }
   }, [leftPanelOpen, leftRef])
 
   useEffect(() => {
-    if (collapseRight.current === rightPanelOpen) return
+    if (collapseRight.current === !rightPanelOpen) return
     collapseRight.current = !rightPanelOpen
     if (!rightPanelOpen) {
       rightRef.current?.resize(0)
     } else {
       const layout = loadLayout()
-      rightRef.current?.resize(layout?.[2] ?? DEFAULT_LAYOUT[2])
+      rightRef.current?.resize(`${layout?.[2] || DEFAULT_LAYOUT[2]}%`)
     }
   }, [rightPanelOpen, rightRef])
 
