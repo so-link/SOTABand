@@ -15,6 +15,7 @@ import logging
 import threading
 import time
 from collections import deque
+from collections.abc import Callable
 from pathlib import Path
 
 from core.scheduler import sysinfo
@@ -39,6 +40,7 @@ class DeviceMonitor:
         self._latest: dict | None = None
         self._subscribers: set[asyncio.Queue] = set()
         self._task: asyncio.Task | None = None
+        self._allocations: Callable[[], list[dict]] = list
         # 采样可能同时来自后台循环线程与 REST / 调度器调用；psutil 的 cpu_percent
         # 基线与 Mock 的随机游走都是共享状态，需串行化
         self._lock = threading.Lock()
@@ -47,6 +49,10 @@ class DeviceMonitor:
     @property
     def gpu_provider(self) -> GpuProvider:
         return self._gpu
+
+    def attach_allocations(self, provider: Callable[[], list[dict]]) -> None:
+        """由资源分配器注册：快照中附带当前的调度预留（设备详情显示「调度任务」）"""
+        self._allocations = provider
 
     # ── 采样 ──
 
@@ -64,6 +70,7 @@ class DeviceMonitor:
                 "memory": sysinfo.memory_metrics(),
                 "disks": sysinfo.disk_metrics(self._project_root),
                 "gpus": gpus,
+                "allocations": self._allocations(),
             }
             self._latest = snap
             self._history.append(_to_point(snap))

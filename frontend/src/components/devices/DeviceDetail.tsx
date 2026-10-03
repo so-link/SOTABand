@@ -1,6 +1,6 @@
 import { Separator } from '@/components/ui/separator'
 import { useDeviceStore, type DeviceKey } from '@/stores/device-store'
-import type { DeviceSnapshot, GpuMetrics, HistoryPoint, HostInfo } from '@/services/api/device'
+import type { Allocation, DeviceSnapshot, GpuMetrics, HistoryPoint, HostInfo } from '@/services/api/device'
 import { Meter, Sparkline, type SeriesPoint } from './charts'
 import { formatBytes, formatPercent, formatUptime } from './format'
 
@@ -33,7 +33,8 @@ export function DeviceDetail({ device }: { device: DeviceKey }) {
         ) : device === 'disk' ? (
           <DiskDetail snap={latest} />
         ) : gpu ? (
-          <GpuDetail gpu={gpu} history={history} driverVersion={driverVersion} />
+          <GpuDetail gpu={gpu} history={history} driverVersion={driverVersion}
+            allocations={latest.allocations.filter((a) => a.gpu_index === gpu.index)} />
         ) : (
           <p className="text-xs text-maia-text-muted">该 GPU 已不可用</p>
         )}
@@ -51,6 +52,7 @@ function CpuDetail({ snap, history, host }: { snap: DeviceSnapshot; history: His
       <Usage label="使用率" value={cpu.usage} />
       <Sparkline label="CPU 使用率" points={series(history, (p) => p.cpu)} />
       <Property label="负载 (1 / 5 / 15 分钟)" value={`${cpu.load1} / ${cpu.load5} / ${cpu.load15}`} mono />
+      <ScheduledTasks label="调度任务（CPU）" allocations={snap.allocations.filter((a) => a.gpu_index === null)} />
       <div className="flex flex-col gap-1">
         <Label>各核使用率</Label>
         <div className="grid grid-cols-2 gap-x-3 gap-y-1">
@@ -123,7 +125,12 @@ function DiskDetail({ snap }: { snap: DeviceSnapshot }) {
   )
 }
 
-function GpuDetail({ gpu, history, driverVersion }: { gpu: GpuMetrics; history: HistoryPoint[]; driverVersion: string }) {
+function GpuDetail({ gpu, history, driverVersion, allocations }: {
+  gpu: GpuMetrics
+  history: HistoryPoint[]
+  driverVersion: string
+  allocations: Allocation[]
+}) {
   const memPct = gpu.memory_total ? (gpu.memory_used / gpu.memory_total) * 100 : null
   return (
     <>
@@ -141,6 +148,7 @@ function GpuDetail({ gpu, history, driverVersion }: { gpu: GpuMetrics; history: 
             : undefined}
         />
       </div>
+      <ScheduledTasks label="调度任务" allocations={allocations} />
       <div className="flex flex-col gap-1">
         <Label>占用进程</Label>
         {gpu.processes.length === 0 ? (
@@ -166,6 +174,41 @@ function GpuDetail({ gpu, history, driverVersion }: { gpu: GpuMetrics; history: 
       <Property label="UUID" value={gpu.uuid} mono />
       <Property label="驱动版本" value={driverVersion} mono />
     </>
+  )
+}
+
+const OWNER_KIND: Record<string, string> = { tool: '工具', agent: 'Agent' }
+
+/** 调度器分配到该设备、仍在运行的工具 / Agent */
+function ScheduledTasks({ label, allocations }: { label: string; allocations: Allocation[] }) {
+  const now = Date.now() / 1000
+  return (
+    <div className="flex flex-col gap-1">
+      <Label>{label}</Label>
+      {allocations.length === 0 ? (
+        <p className="text-xs text-maia-text-muted">无</p>
+      ) : (
+        allocations.map((a) => {
+          const [kind, ...rest] = a.owner.split(':')
+          const reserved = [
+            a.vram_bytes ? `显存 ${formatBytes(a.vram_bytes)}` : '',
+            a.ram_bytes ? `内存 ${formatBytes(a.ram_bytes)}` : '',
+            a.cpu_cores ? `${a.cpu_cores} 核` : '',
+          ].filter(Boolean).join(' · ')
+          return (
+            <div key={a.id} className="flex items-baseline justify-between gap-2 text-[11px]"
+              title={`资源需求来源：${a.requirements.source === 'declared' ? 'spec 声明' : a.requirements.reason}`}>
+              <span className="truncate text-maia-text-secondary">
+                <span className="text-maia-text-muted">{OWNER_KIND[kind] ?? kind}</span> {rest.join(':')}
+              </span>
+              <span className="shrink-0 text-[10px] text-maia-text-muted tabular-nums">
+                {reserved ? `预留 ${reserved} · ` : ''}{formatUptime(now - a.started_at)}
+              </span>
+            </div>
+          )
+        })
+      )}
+    </div>
   )
 }
 

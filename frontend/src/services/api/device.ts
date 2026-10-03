@@ -71,12 +71,35 @@ export interface GpuMetrics {
   processes: GpuProcess[]
 }
 
+/** 调度器的一条预留：正在运行的工具 / Agent 及其占用的设备（todo §12.2 / §12.3） */
+export interface Allocation {
+  id: number
+  owner: string // "tool:<id>" / "agent:<id>"
+  device: string // "cpu" / "gpu:N"
+  gpu_index: number | null
+  gpu_name: string
+  vram_bytes: number
+  ram_bytes: number
+  cpu_cores: number
+  requirements: {
+    gpu: 'none' | 'optional' | 'required'
+    min_vram_gb: number
+    min_ram_gb: number
+    cpu_cores: number
+    source: 'declared' | 'inferred' | 'default'
+    reason: string
+  }
+  started_at: number
+  pids: number[]
+}
+
 export interface DeviceSnapshot {
   ts: number
   cpu: CpuMetrics
   memory: MemoryMetrics
   disks: DiskMetrics[]
   gpus: GpuMetrics[]
+  allocations: Allocation[]
 }
 
 /** 曲线用的精简数据点（百分比） */

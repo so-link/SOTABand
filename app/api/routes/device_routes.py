@@ -2,14 +2,18 @@
 
 - GET  /api/devices     当前快照（调试 / 测试用）
 - WS   /api/devices/ws  首条 init（主机信息 + 历史曲线），之后每个采样周期推送 snapshot
+- GET  /api/devices/allocations                当前调度预留（正在运行的工具 / Agent）
+- GET  /api/devices/requirements/tool/{id}     工具的资源需求（声明值或推断值）
 """
 
 import asyncio
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
 from core.scheduler import sysinfo
+from core.scheduler.allocator import get_allocator
 from core.scheduler.monitor import get_device_monitor
+from core.scheduler.requirements import RequirementsError, resolve_tool_requirements
 
 router = APIRouter(tags=["device"])
 
@@ -24,6 +28,20 @@ async def get_devices():
         "host": sysinfo.host_info(),
         "latest": snap,
     }
+
+
+@router.get("/allocations")
+async def get_allocations():
+    return {"allocations": get_allocator().allocations()}
+
+
+@router.get("/requirements/tool/{tool_id}")
+async def get_tool_requirements(tool_id: str):
+    try:
+        req = await asyncio.to_thread(resolve_tool_requirements, tool_id)
+    except RequirementsError as e:
+        raise HTTPException(422, str(e)) from e
+    return {"tool_id": tool_id, "requirements": req.as_dict()}
 
 
 @router.websocket("/ws")

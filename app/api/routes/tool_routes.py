@@ -1860,6 +1860,7 @@ async def execute_tool(tool_id: str, req: ExecuteToolRequest):
         tool_id=tool_id,
         params=req.params,
         timeout=None,
+        device=req.device,
     )
     return {"status": "success", "result": result}
 

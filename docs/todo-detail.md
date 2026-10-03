@@ -479,8 +479,11 @@ GPU 采集抽象为 `GpuProvider`，当前实现 NVIDIA（NVML）；无驱动时
 只调度 `ToolExecutor` 这一执行入口；工具调用工具、智能体调用工具时子进程继承调用方的 `CUDA_VISIBLE_DEVICES`，即运行在调用方的设备上。
 
 **关联架构**：
-- 设备监控（12.1）：提供实时设备状态
-- 设备空间界面：GPU 详情中显示该卡上正在运行的调度任务
+- 设备监控（12.1）：提供实时设备状态；快照中附带当前预留（`allocations`）
+- 设备空间界面：GPU / CPU 详情中显示正在该设备上运行的调度任务
+- `GET /api/devices/allocations`：当前预留
+- `GET /api/devices/requirements/tool/{id}`：工具的资源需求（声明值或推断值及推断依据），用于排查「为什么被分到 CPU」
+- 工具编辑器的测试运行读取的是**已保存**的 spec；编辑器里尚未保存的 `resources:` 不会生效
 
 ### 12.3 智能体运行调度
 

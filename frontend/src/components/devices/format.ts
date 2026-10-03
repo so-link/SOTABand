@@ -22,7 +22,8 @@ export function formatUptime(seconds: number): string {
   const m = Math.floor((seconds % 3600) / 60)
   if (d > 0) return `${d} 天 ${h} 小时`
   if (h > 0) return `${h} 小时 ${m} 分`
-  return `${m} 分钟`
+  if (m > 0) return `${m} 分钟`
+  return `${Math.max(0, Math.floor(seconds))} 秒`
 }
 
 export function formatClock(ts: number): string {
