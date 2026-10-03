@@ -105,13 +105,22 @@ def parse_device(device: str | None) -> tuple[str, int | None] | None:
     return ("gpu", int(m.group(1)))
 
 
-def _proc_tree_rss(pids: set[int]) -> int:
+def _pid_tree(pids: set[int]) -> set[int]:
+    """登记的进程及其全部子孙进程（Agent 调用的工具、工具再起的子进程）"""
+    tree = set(pids)
+    for pid in pids:
+        try:
+            tree.update(c.pid for c in psutil.Process(pid).children(recursive=True))
+        except psutil.Error:
+            continue
+    return tree
+
+
+def _rss(pids: set[int]) -> int:
     total = 0
     for pid in pids:
         try:
-            p = psutil.Process(pid)
-            for q in [p, *p.children(recursive=True)]:
-                total += q.memory_info().rss
+            total += psutil.Process(pid).memory_info().rss
         except psutil.Error:
             continue
     return total
@@ -122,11 +131,13 @@ class ResourceAllocator:
         self,
         monitor: DeviceMonitor,
         cpu_count: int | None = None,
-        rss_probe: Callable[[set[int]], int] = _proc_tree_rss,
+        rss_probe: Callable[[set[int]], int] = _rss,
+        pid_tree: Callable[[set[int]], set[int]] = _pid_tree,
     ):
         self._monitor = monitor
         self._cpu_count = cpu_count or psutil.cpu_count(logical=True) or 1
         self._rss = rss_probe
+        self._pid_tree = pid_tree
         self._lock = threading.Lock()
         self._ids = itertools.count(1)
         self._active: dict[int, Allocation] = {}
@@ -207,9 +218,9 @@ class ResourceAllocator:
     def _effective_free(self, gpu: dict) -> int:
         used_by_pid = {p["pid"]: p["used_memory"] or 0 for p in gpu.get("processes", [])}
         outstanding = sum(
-            max(0, a.vram_bytes - sum(used_by_pid.get(pid, 0) for pid in a.pids))
+            max(0, a.vram_bytes - sum(used_by_pid.get(pid, 0) for pid in self._pid_tree(a.pids)))
             for a in self._active.values()
-            if a.gpu_index == gpu["index"]
+            if a.gpu_index == gpu["index"] and a.vram_bytes
         )
         return gpu["memory_free"] - outstanding
 
@@ -223,7 +234,11 @@ class ResourceAllocator:
         need = int(req.min_ram_gb * GB)
         if not need:
             return
-        outstanding = sum(max(0, a.ram_bytes - self._rss(a.pids)) for a in self._active.values() if a.ram_bytes)
+        outstanding = sum(
+            max(0, a.ram_bytes - self._rss(self._pid_tree(a.pids)))
+            for a in self._active.values()
+            if a.ram_bytes
+        )
         free = available - outstanding
         if free < need:
             held = f"（已扣除其他任务预留 {_gb(outstanding)}）" if outstanding else ""

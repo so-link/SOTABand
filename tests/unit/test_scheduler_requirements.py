@@ -129,3 +129,59 @@ def test_combine_takes_upper_bound():
     c = combine([a, b], reason="tools")
     assert (c.gpu, c.min_vram_gb, c.min_ram_gb, c.cpu_cores) == ("required", 4, 8, 2)
     assert combine([], reason="none").gpu == "none"
+
+
+# ── Agent ──
+
+AGENT_CALLING_TOOL = '''
+class A:
+    def _call_tool_trainer(self, **params):
+        impl_path = PROJECT_ROOT / "resources" / "tools" / "implementations" / "trainer" / "tool.py"
+'''
+
+
+@pytest.fixture
+def agents_dir(tmp_path, monkeypatch, tools_dir):
+    root = tmp_path / "agents"
+    (root / "definitions").mkdir(parents=True)
+    (root / "implementations" / "bot").mkdir(parents=True)
+    (root / "registry.json").write_text('[{"id": "bot", "tools": []}]', encoding="utf-8")
+    monkeypatch.setattr(rq, "AGENTS_DIR", root)
+    return root
+
+
+def _agent_code(agents_dir, code):
+    (agents_dir / "implementations" / "bot" / "agent.py").write_text(code, encoding="utf-8")
+
+
+def test_agent_declaration_wins(agents_dir):
+    (agents_dir / "definitions" / "bot.md").write_text(
+        "---\nresources:\n  gpu: required\n  min_vram_gb: 6\n---\n", encoding="utf-8")
+    _agent_code(agents_dir, AGENT_CALLING_TOOL)
+    req = rq.resolve_agent_requirements("bot")
+    assert req.source == "declared" and req.min_vram_gb == 6
+
+
+def test_agent_inherits_requirements_of_tools_referenced_in_code(agents_dir, tools_dir):
+    (tools_dir / "definitions" / "trainer.md").write_text(SPEC_WITH_RESOURCES, encoding="utf-8")
+    _agent_code(agents_dir, AGENT_CALLING_TOOL)
+    req = rq.resolve_agent_requirements("bot")
+    assert (req.gpu, req.min_vram_gb) == ("required", 12)
+    assert "trainer(required)" in req.reason
+
+
+def test_agent_inherits_tools_listed_in_registry(agents_dir):
+    (agents_dir / "registry.json").write_text('[{"id": "bot", "tools": ["trainer"]}]', encoding="utf-8")
+    _agent_code(agents_dir, "print('no tool helpers')\n")
+    assert rq.resolve_agent_requirements("bot").gpu == "optional"  # trainer 代码引用了 torch
+
+
+def test_agent_own_code_is_inferred(agents_dir):
+    _agent_code(agents_dir, "import transformers\n")
+    req = rq.resolve_agent_requirements("bot")
+    assert req.gpu == "optional" and "transformers" in req.reason
+
+
+def test_plain_agent_needs_nothing(agents_dir):
+    _agent_code(agents_dir, "import json\n")
+    assert rq.resolve_agent_requirements("bot").gpu == "none"

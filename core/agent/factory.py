@@ -5,11 +5,15 @@ from __future__ import annotations
 import ast
 import asyncio
 import json
+import os
 import re
 import sys
 import time
 from pathlib import Path
 from typing import AsyncGenerator
+
+from core.scheduler.allocator import Allocation, AllocationError, get_allocator
+from core.scheduler.requirements import RequirementsError, resolve_agent_requirements
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -19,9 +23,17 @@ class AgentFactory:
 
     def __init__(self):
         self._processes: dict[str, asyncio.subprocess.Process] = {}
+        # 设备调度（todo §12.3）：运行中 Agent 的设备预留、用户手动指定的设备（重启时沿用）
+        self._allocations: dict[str, Allocation] = {}
+        self._devices: dict[str, str | None] = {}
+        self._watchers: set[asyncio.Task] = set()
 
-    async def start(self, agent_id: str, impl_path: str = None) -> dict:
-        """启动 Agent 子进程。若代码缺失则尝试从 spec 自动重新生成。"""
+    async def start(self, agent_id: str, impl_path: str = None, device: str | None = None) -> dict:
+        """启动 Agent 子进程。若代码缺失则尝试从 spec 自动重新生成。
+
+        启动前按资源需求匹配设备（device 可手动指定 cpu / gpu / gpu:N），
+        预留从启动保持到进程退出（停止或崩溃）。
+        """
         if agent_id in self._processes and self._processes[agent_id].returncode is None:
             return {"agent_id": agent_id, "status": "already_running"}
 
@@ -60,6 +72,13 @@ class AgentFactory:
         entrypoint = str(PROJECT_ROOT / "core" / "agent" / "entrypoint.py")
 
         try:
+            req = await asyncio.to_thread(resolve_agent_requirements, agent_id)
+            alloc = await asyncio.to_thread(get_allocator().allocate, f"agent:{agent_id}", req, device)
+        except (RequirementsError, AllocationError) as e:
+            return {"agent_id": agent_id, "status": "failed", "error": str(e)}
+        self._devices[agent_id] = device
+
+        try:
             proc = await asyncio.create_subprocess_exec(
                 python, entrypoint,
                 "--agent-id", agent_id,
@@ -68,8 +87,14 @@ class AgentFactory:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(PROJECT_ROOT),
+                env=alloc.env(os.environ),
             )
+            alloc.attach_pid(proc.pid)
             self._processes[agent_id] = proc
+            self._allocations[agent_id] = alloc
+            watcher = asyncio.create_task(self._release_on_exit(agent_id, proc, alloc))
+            self._watchers.add(watcher)
+            watcher.add_done_callback(self._watchers.discard)
 
             # 等待子进程初始化
             await asyncio.sleep(1.0)
@@ -88,11 +113,30 @@ class AgentFactory:
                     err_text = ""
                 detail = (stderr_text + err_text)[:300].strip() or "进程异常退出"
                 self._processes.pop(agent_id, None)
+                self._release(agent_id, alloc)
                 return {"agent_id": agent_id, "status": "failed", "running": False, "error": detail}
 
-            return {"agent_id": agent_id, "status": "started", "running": True}
+            return {"agent_id": agent_id, "status": "started", "running": True, "device": alloc.device}
         except Exception as e:
+            self._release(agent_id, alloc)
             return {"agent_id": agent_id, "status": "failed", "error": str(e)}
+
+    async def _release_on_exit(self, agent_id: str, proc: asyncio.subprocess.Process, alloc: Allocation) -> None:
+        """进程以任何方式退出（停止 / 崩溃 / 被杀）后释放设备预留"""
+        try:
+            await proc.wait()
+        finally:
+            self._release(agent_id, alloc)
+
+    def _release(self, agent_id: str, alloc: Allocation) -> None:
+        get_allocator().release(alloc)  # 幂等
+        if self._allocations.get(agent_id) is alloc:
+            del self._allocations[agent_id]
+
+    def device_of(self, agent_id: str) -> str | None:
+        """运行中 Agent 被分配的设备（cpu / gpu:N）；未运行返回 None"""
+        alloc = self._allocations.get(agent_id)
+        return alloc.device if alloc and self.is_running(agent_id) else None
 
     @staticmethod
     def _check_agent_code(code: str) -> list[str]:
@@ -225,6 +269,10 @@ class AgentFactory:
                 await asyncio.wait_for(proc.wait(), timeout=3)
             except asyncio.TimeoutError:
                 proc.kill()
+        # 退出监听也会释放；这里同步释放，保证 stop 返回时预留已归还
+        alloc = self._allocations.get(agent_id)
+        if alloc is not None:
+            self._release(agent_id, alloc)
         return {"agent_id": agent_id, "status": "stopped"}
 
     async def restart(self, agent_id: str) -> dict:
@@ -234,7 +282,7 @@ class AgentFactory:
 
         # registry 中的 impl_path 相对于 resources/agents/，但 start() 需要相对于 PROJECT_ROOT
         impl_path = f"resources/agents/implementations/{agent_id}"
-        return await self.start(agent_id, impl_path)
+        return await self.start(agent_id, impl_path, device=self._devices.get(agent_id))
 
     async def execute(
         self, agent_id: str, content: str

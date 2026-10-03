@@ -24,9 +24,11 @@ class FakeMonitor:
         return {"gpus": self.gpus, "memory": {"available": self.available}}
 
 
-def make(gpus=(24, 16), ram=32, cpus=8, rss=lambda pids: 0):
+def make(gpus=(24, 16), ram=32, cpus=8, rss=lambda pids: 0, tree=None):
     mon = FakeMonitor(gpus, ram)
-    return ResourceAllocator(mon, cpu_count=cpus, rss_probe=rss), mon
+    # 默认不展开进程树：测试里的 pid 是虚构的，不能去读真实系统进程
+    tree = tree or (lambda pids: set(pids))
+    return ResourceAllocator(mon, cpu_count=cpus, rss_probe=rss, pid_tree=tree), mon
 
 
 def test_none_runs_on_cpu_with_gpus_hidden():
@@ -102,6 +104,16 @@ def test_actual_usage_is_not_counted_twice():
     assert alloc.allocate("tool:b", Req(gpu="required", min_vram_gb=4)).gpu_index == 0
     with pytest.raises(AllocationError):
         alloc.allocate("tool:c", Req(gpu="required", min_vram_gb=1))
+
+
+def test_child_process_usage_is_credited_to_parent():
+    # Agent（pid 100）调用的工具是它的子进程（pid 101），NVML 里显示的是子进程
+    alloc, mon = make(gpus=(24,), tree=lambda pids: set(pids) | ({101} if 100 in pids else set()))
+    a = alloc.allocate("agent:a", Req(gpu="required", min_vram_gb=20))
+    a.attach_pid(100)
+    mon.gpus[0]["memory_free"] = 6 * GB
+    mon.gpus[0]["processes"] = [{"pid": 101, "used_memory": 18 * GB}]
+    assert alloc.allocate("tool:b", Req(gpu="required", min_vram_gb=4)).gpu_index == 0
 
 
 def test_unknown_process_usage_keeps_full_reservation():

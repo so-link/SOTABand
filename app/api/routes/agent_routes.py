@@ -485,7 +485,7 @@ async def agent_status(agent_id: str):
     if not entry:
         raise HTTPException(404, f"Agent '{agent_id}' not found")
     running = agent_factory.is_running(agent_id)
-    return {**entry, "running": running}
+    return {**entry, "running": running, "device": agent_factory.device_of(agent_id)}
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -493,8 +493,8 @@ async def agent_status(agent_id: str):
 # ═══════════════════════════════════════════════════════════════
 
 @router.post("/{agent_id}/start")
-async def start_agent(agent_id: str):
-    """启动 Agent 子进程"""
+async def start_agent(agent_id: str, device: str | None = None):
+    """启动 Agent 子进程（device 可手动指定 cpu / gpu / gpu:N，默认按资源需求自动匹配）"""
     entry = await registry.get(agent_id)
     if not entry:
         raise HTTPException(404, f"Agent '{agent_id}' not found")
@@ -502,7 +502,7 @@ async def start_agent(agent_id: str):
     # registry 中 impl_path 是相对于 resources/agents/ 的路径
     # 实际实现在 core/agent/implementations/
     impl_path = f"resources/agents/implementations/{agent_id}"
-    return await agent_factory.start(agent_id, impl_path)
+    return await agent_factory.start(agent_id, impl_path, device=device)
 
 
 @router.post("/{agent_id}/execute")

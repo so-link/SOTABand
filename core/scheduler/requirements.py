@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import json
 import re
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -25,6 +26,11 @@ import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 TOOLS_DIR = PROJECT_ROOT / "resources" / "tools"
+AGENTS_DIR = PROJECT_ROOT / "resources" / "agents"
+
+# agent_builder 生成的工具调用辅助方法里，工具实现路径的固定写法：
+#   PROJECT_ROOT / "resources" / "tools" / "implementations" / "<tool_id>" / "tool.py"
+_AGENT_TOOL_REF = re.compile(r'"implementations"\s*/\s*"([^"]+)"\s*/\s*"tool\.py"')
 
 GPU_MODES = ("none", "optional", "required")
 
@@ -126,6 +132,42 @@ def resolve_tool_requirements(tool_id: str, code: str | None = None) -> Resource
             return ResourceRequirements(reason="未找到工具代码")
         code = impl.read_text(encoding="utf-8")
     return infer_from_code(code)
+
+
+def resolve_agent_requirements(agent_id: str) -> ResourceRequirements:
+    """Agent 的资源需求：spec 声明优先；否则取「自身代码推断」与「所调用工具的需求」的上界。
+
+    Agent 调用的工具以子进程运行并继承 Agent 的设备环境变量（CUDA_VISIBLE_DEVICES），
+    所以 Agent 的预留必须覆盖这些工具。所调用的工具取注册信息的 tools 列表与代码中
+    实际引用的工具之并集（现有注册信息的 tools 列表普遍为空）。
+    """
+    spec = AGENTS_DIR / "definitions" / f"{agent_id}.md"
+    if spec.is_file():
+        declared = read_declared(spec.read_text(encoding="utf-8"))
+        if declared is not None:
+            return declared
+
+    impl = AGENTS_DIR / "implementations" / agent_id / "agent.py"
+    code = impl.read_text(encoding="utf-8") if impl.is_file() else ""
+    own = infer_from_code(code) if code else ResourceRequirements(reason="未找到 Agent 代码")
+
+    tool_ids = sorted(set(_registry_tools(agent_id)) | set(_AGENT_TOOL_REF.findall(code)))
+    tools = {tid: resolve_tool_requirements(tid) for tid in tool_ids}
+    parts = [f"自身{'无 GPU 需求' if own.gpu == 'none' else '：' + own.reason}"]
+    if tools:
+        parts.append("调用工具 " + "、".join(f"{tid}({r.gpu})" for tid, r in tools.items()))
+    return combine([own, *tools.values()], reason="；".join(parts))
+
+
+def _registry_tools(agent_id: str) -> list[str]:
+    try:
+        entries = json.loads((AGENTS_DIR / "registry.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    for e in entries if isinstance(entries, list) else []:
+        if isinstance(e, dict) and e.get("id") == agent_id:
+            return [t for t in e.get("tools") or [] if isinstance(t, str)]
+    return []
 
 
 def combine(reqs: list[ResourceRequirements], reason: str) -> ResourceRequirements:
