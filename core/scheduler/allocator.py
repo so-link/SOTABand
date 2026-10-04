@@ -181,7 +181,7 @@ class ResourceAllocator:
             free = self._effective_free(gpu)
             if free < need:
                 raise AllocationError(
-                    f"指定的 GPU {idx} 显存不足：{what}需要 {_gb(need)}，剩余 {_gb(free)}"
+                    f"指定的 GPU {idx} 显存不足：{what}需要 {_gb(need)}，{self._describe_free(gpu, free)}"
                 )
             return gpu
 
@@ -198,7 +198,8 @@ class ResourceAllocator:
         if not must:
             return None  # optional：退回 CPU
         detail = "；".join(
-            f"GPU {g['index']} 剩余 {_gb(f)}（差 {_gb(need - f)}）" for f, g in sorted(ranked, key=lambda t: t[1]["index"])
+            f"GPU {g['index']} {self._describe_free(g, f)}（差 {_gb(need - max(f, 0))}）"
+            for f, g in sorted(ranked, key=lambda t: t[1]["index"])
         )
         raise AllocationError(f"{what}需要 {_gb(need)} 显存，没有满足条件的 GPU：{detail}")
 
@@ -210,6 +211,12 @@ class ResourceAllocator:
             if a.gpu_index == gpu["index"]
         )
         return gpu["memory_free"] - outstanding
+
+    def _describe_free(self, gpu: dict, free: int) -> str:
+        """「剩余 X GB」；有效剩余被运行中任务的预留压低时注明，避免误以为卡本身已满"""
+        held = gpu["memory_free"] - free
+        note = f"，已扣除运行中任务预留 {_gb(held)}" if held > 0 else ""
+        return f"剩余 {_gb(max(free, 0))}{note}"
 
     def _check_ram(self, req: ResourceRequirements, available: int) -> None:
         need = int(req.min_ram_gb * GB)

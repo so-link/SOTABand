@@ -81,6 +81,17 @@ def test_reservations_prevent_double_booking_until_released():
     assert [x["owner"] for x in alloc.allocations()] == ["tool:b", "tool:c"]
 
 
+def test_shortfall_message_explains_reservations_and_never_goes_negative():
+    alloc, mon = make(gpus=(24,))
+    alloc.allocate("tool:a", Req(gpu="required", min_vram_gb=20))
+    with pytest.raises(AllocationError, match=r"GPU 0 剩余 4.0 GB，已扣除运行中任务预留 20.0 GB（差 2.0 GB）"):
+        alloc.allocate("tool:b", Req(gpu="required", min_vram_gb=6))
+    # 任务实际占用无法按 pid 抵扣（如容器内）时有效剩余为负，显示为 0
+    mon.gpus[0]["memory_free"] = 6 * GB
+    with pytest.raises(AllocationError, match=r"指定的 GPU 0 显存不足：工具 b 需要 2.0 GB，剩余 0.0 GB，已扣除"):
+        alloc.allocate("tool:b", Req(gpu="required", min_vram_gb=2), device="gpu:0")
+
+
 def test_actual_usage_is_not_counted_twice():
     alloc, mon = make(gpus=(24,))
     a = alloc.allocate("tool:a", Req(gpu="required", min_vram_gb=20))
