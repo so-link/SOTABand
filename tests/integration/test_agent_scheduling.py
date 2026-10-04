@@ -90,3 +90,24 @@ async def test_restart_keeps_manually_chosen_device(env):
         assert [a["device"] for a in alloc.allocations()] == ["gpu:0"]
     finally:
         await factory.stop(AGENT)
+
+
+async def test_cancel_during_allocation_does_not_leak(env, monkeypatch):
+    import time
+
+    factory, alloc, _ = env
+    real = alloc.allocate
+
+    def slow_allocate(*args, **kwargs):
+        time.sleep(0.3)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(alloc, "allocate", slow_allocate)
+    task = asyncio.create_task(factory.start(AGENT))
+    await asyncio.sleep(0.1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    await asyncio.sleep(0.5)
+    assert alloc.allocations() == []
+    assert not factory.is_running(AGENT)

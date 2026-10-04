@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 from typing import AsyncGenerator
 
-from core.scheduler.allocator import Allocation, AllocationError, get_allocator
+from core.scheduler.allocator import Allocation, AllocationError, allocate_in_thread, get_allocator
 from core.scheduler.requirements import RequirementsError, resolve_agent_requirements
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -73,7 +73,7 @@ class AgentFactory:
 
         try:
             req = await asyncio.to_thread(resolve_agent_requirements, agent_id)
-            alloc = await asyncio.to_thread(get_allocator().allocate, f"agent:{agent_id}", req, device)
+            alloc = await allocate_in_thread(get_allocator(), f"agent:{agent_id}", req, device)
         except (RequirementsError, AllocationError) as e:
             return {"agent_id": agent_id, "status": "failed", "error": str(e)}
         self._devices[agent_id] = device
