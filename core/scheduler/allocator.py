@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import itertools
 import re
 import threading
@@ -236,6 +237,26 @@ class ResourceAllocator:
             raise AllocationError(
                 f"CPU 核数不足：需要 {req.cpu_cores} 核，已预留 {reserved}/{self._cpu_count} 核"
             )
+
+
+async def allocate_in_thread(
+    allocator: ResourceAllocator, owner: str, req: ResourceRequirements, device: str | None = None,
+) -> Allocation:
+    """在线程中执行 allocate（采样会读 /proc、NVML，不阻塞事件循环）。
+
+    等待期间若调用方被取消（如用户停止任务），线程里的分配仍会完成；
+    此时在完成后立即归还，避免这份预留无人释放、一直占着显卡。
+    """
+    fut = asyncio.ensure_future(asyncio.to_thread(allocator.allocate, owner, req, device))
+    try:
+        return await asyncio.shield(fut)
+    except asyncio.CancelledError:
+        def undo(f: asyncio.Future) -> None:
+            if not f.cancelled() and f.exception() is None:
+                allocator.release(f.result())
+
+        fut.add_done_callback(undo)
+        raise
 
 
 def _subject(owner: str) -> str:

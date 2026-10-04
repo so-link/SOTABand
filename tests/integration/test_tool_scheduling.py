@@ -1,5 +1,8 @@
 """工具执行 × 设备调度：真实子进程中拿到的设备环境变量、失败返回、预留释放"""
 
+import asyncio
+import time
+
 import pytest
 
 from core.executor import tool_executor
@@ -95,4 +98,22 @@ def test_sync_path_is_scheduled_too(allocator):
 async def test_reservation_released_when_tool_crashes(allocator):
     result = await ToolExecutor.execute("sched-probe", {}, code="import torch\ndef execute(**k):\n    raise RuntimeError('boom')\n")
     assert result["status"] == "failed"
+    assert allocator.allocations() == []
+
+
+async def test_cancel_during_allocation_does_not_leak(allocator, monkeypatch):
+    # 分配在线程里进行时调用方被取消（用户停止任务）：线程完成后预留必须归还
+    real = allocator.allocate
+
+    def slow_allocate(*args, **kwargs):
+        time.sleep(0.3)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(allocator, "allocate", slow_allocate)
+    task = asyncio.create_task(ToolExecutor.execute("sched-probe", {}, code=ECHO_ENV))
+    await asyncio.sleep(0.1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    await asyncio.sleep(0.5)
     assert allocator.allocations() == []

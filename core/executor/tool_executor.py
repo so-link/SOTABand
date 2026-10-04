@@ -17,7 +17,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from core.scheduler.allocator import Allocation, AllocationError, get_allocator
+from core.scheduler.allocator import Allocation, AllocationError, allocate_in_thread, get_allocator
 from core.scheduler.requirements import RequirementsError, resolve_tool_requirements
 
 
@@ -158,7 +158,8 @@ class ToolExecutor:
         script = cls._build_script(code, params, tool_dir, project_root)
 
         try:
-            alloc = await asyncio.to_thread(cls._allocate, tool_id, code, device)
+            req = await asyncio.to_thread(resolve_tool_requirements, tool_id, code)
+            alloc = await allocate_in_thread(get_allocator(), f"tool:{tool_id}", req, device)
         except (RequirementsError, AllocationError) as e:
             return cls._unschedulable(e)
 
