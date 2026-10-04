@@ -10,6 +10,12 @@ SOTABAND_MOCK_GPUS 格式：逗号分隔的显存大小（GB），可用 NxS 表
 
 每块卡统一输出为 dict（字段见 GpuProvider.list_gpus），显存单位为字节，
 与 sysinfo 的内存 / 外存口径一致。
+
+容器内的进程号：NVML 的数据来自宿主机内核里的 nvidia 驱动，返回的是宿主机 PID，
+而容器内看到的是容器 PID，两者无法直接互查。map_host_pids 利用两个事实推导映射：
+① /proc/<pid>/maps 中映射了 /dev/nvidia<minor> 的进程，就是在该卡上持有 CUDA 上下文的进程；
+② 内核创建进程时在各层 PID 命名空间同时分配编号，创建顺序在两边一致。
+按创建顺序一一配对后，再逐卡核对两边的进程集合，核对不上就放弃映射（保守处理）。
 """
 
 from __future__ import annotations
@@ -17,6 +23,7 @@ from __future__ import annotations
 import os
 import random
 import re
+from pathlib import Path
 
 import psutil
 from pynvml import NVMLError
@@ -36,7 +43,8 @@ class GpuProvider:
         index, uuid, name, utilization(%), memory_utilization(%),
         memory_total / memory_used / memory_free (bytes),
         temperature(°C|None), power_draw_w / power_limit_w (W|None),
-        processes: [{pid, name, used_memory(bytes|None)}]
+        processes: [{pid, host_pid, name, used_memory(bytes|None)}]
+            pid 为本机（容器内）进程号，无法映射时为 None；host_pid 为 NVML 原始进程号
         """
         return []
 
@@ -60,9 +68,13 @@ class NvmlGpuProvider(GpuProvider):
 
     def list_gpus(self) -> list[dict]:
         nv = self._nvml
+        handles = [nv.nvmlDeviceGetHandleByIndex(i) for i in range(nv.nvmlDeviceGetCount())]
+        raw = {i: self._query(nv.nvmlDeviceGetComputeRunningProcesses, h) or [] for i, h in enumerate(handles)}
+        minors = {i: self._query(nv.nvmlDeviceGetMinorNumber, h) for i, h in enumerate(handles)}
+        to_local = map_host_pids({i: {p.pid for p in ps} for i, ps in raw.items()}, minors)
+
         gpus = []
-        for i in range(nv.nvmlDeviceGetCount()):
-            h = nv.nvmlDeviceGetHandleByIndex(i)
+        for i, h in enumerate(handles):
             mem = nv.nvmlDeviceGetMemoryInfo(h)
             util = self._query(nv.nvmlDeviceGetUtilizationRates, h)
             power = self._query(nv.nvmlDeviceGetPowerUsage, h)
@@ -79,20 +91,9 @@ class NvmlGpuProvider(GpuProvider):
                 "temperature": self._query(nv.nvmlDeviceGetTemperature, h, nv.NVML_TEMPERATURE_GPU),
                 "power_draw_w": round(power / 1000, 1) if power is not None else None,
                 "power_limit_w": round(limit / 1000, 1) if limit is not None else None,
-                "processes": self._processes(h),
+                "processes": [_process_entry(p, to_local.get(p.pid)) for p in raw[i]],
             })
         return gpus
-
-    def _processes(self, handle) -> list[dict]:
-        procs = self._query(self._nvml.nvmlDeviceGetComputeRunningProcesses, handle) or []
-        out = []
-        for p in procs:
-            try:
-                name = psutil.Process(p.pid).name()
-            except (psutil.Error, OSError):
-                name = ""
-            out.append({"pid": p.pid, "name": name, "used_memory": p.usedGpuMemory})
-        return out
 
     def _query(self, fn, *args):
         """单项查询在部分卡 / 驱动 / WSL 上不支持，失败返回 None 而不是整卡丢失"""
@@ -139,6 +140,80 @@ class MockGpuProvider(GpuProvider):
                 "processes": [],
             })
         return gpus
+
+
+def _process_entry(proc, local_pid: int | None) -> dict:
+    name = ""
+    if local_pid is not None:
+        try:
+            name = psutil.Process(local_pid).name()
+        except (psutil.Error, OSError):
+            pass
+    return {"pid": local_pid, "host_pid": proc.pid, "name": name, "used_memory": proc.usedGpuMemory}
+
+
+_DEVICE_MAPPING = re.compile(rb"/dev/nvidia(\d+)$", re.MULTILINE)
+
+
+def _local_gpu_contexts(proc_root: Path) -> dict[int, set[int]]:
+    """本机（容器内）进程 → 其内存映射中出现的 GPU 设备次编号（即持有 CUDA 上下文的卡）"""
+    out: dict[int, set[int]] = {}
+    for d in proc_root.iterdir():
+        if not d.name.isdigit():
+            continue
+        try:
+            minors = {int(m) for m in _DEVICE_MAPPING.findall((d / "maps").read_bytes())}
+        except OSError:  # 进程已退出 / 无权限读取
+            continue
+        if minors:
+            out[int(d.name)] = minors
+    return out
+
+
+def _creation_key(proc_root: Path, pid: int) -> tuple[int, int]:
+    """本机进程的创建顺序：启动时刻（/proc/<pid>/stat 第 22 列），同一时刻按 pid"""
+    try:
+        stat = (proc_root / str(pid) / "stat").read_text()
+        return int(stat.rsplit(")", 1)[1].split()[19]), pid
+    except (OSError, ValueError, IndexError):
+        return 0, pid
+
+
+def map_host_pids(
+    nvml_pids: dict[int, set[int]],
+    minors: dict[int, int | None],
+    proc_root: Path | str = "/proc",
+) -> dict[int, int]:
+    """NVML 报告的进程号 → 本机进程号。
+
+    nvml_pids: GPU 序号 → NVML 列出的进程号；minors: GPU 序号 → 设备次编号（/dev/nvidia<minor>）。
+    能确定时返回完整映射；任何一处核对不上返回 {}，调用方按「未知进程」保守处理。
+    """
+    host_all = set().union(*nvml_pids.values()) if nvml_pids else set()
+    if not host_all:
+        return {}
+    proc_root = Path(proc_root)
+    local = _local_gpu_contexts(proc_root)
+    minor_to_gpu = {m: g for g, m in minors.items() if m is not None}
+    local_by_gpu = {g: {pid for pid, ms in local.items() if minors[g] in ms} for g in nvml_pids}
+
+    def consistent(mapping: dict[int, int]) -> bool:
+        return all({mapping.get(h) for h in hs} == local_by_gpu[g] for g, hs in nvml_pids.items())
+
+    # 物理机 / --pid=host：NVML 的进程号本来就是本机进程号
+    identity = {h: h for h in host_all}
+    if consistent(identity):
+        return identity
+
+    # 容器：按创建顺序配对。只统计映射了本机可见 GPU 的进程
+    local_ctx = sorted(
+        (pid for pid, ms in local.items() if ms & minor_to_gpu.keys()),
+        key=lambda pid: _creation_key(proc_root, pid),
+    )
+    if len(local_ctx) != len(host_all):
+        return {}
+    mapping = dict(zip(sorted(host_all), local_ctx))
+    return mapping if consistent(mapping) else {}
 
 
 def parse_mock_spec(spec: str) -> list[float]:

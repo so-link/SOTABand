@@ -48,7 +48,10 @@ export interface DiskMetrics {
 }
 
 export interface GpuProcess {
-  pid: number
+  /** 本机（容器内）进程号；容器内无法与宿主机进程号对应时为 null */
+  pid: number | null
+  /** NVML 原始进程号（容器部署时为宿主机进程号） */
+  host_pid: number
   name: string
   used_memory: number | null
 }

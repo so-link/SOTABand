@@ -149,8 +149,11 @@ function GpuDetail({ gpu, history, driverVersion }: { gpu: GpuMetrics; history: 
           <table className="w-full text-[11px]">
             <tbody>
               {gpu.processes.map((p) => (
-                <tr key={p.pid} className="border-t border-maia-border">
-                  <td className="font-mono text-maia-text-muted tabular-nums" style={CELL_STYLE}>{p.pid}</td>
+                <tr key={p.host_pid} className="border-t border-maia-border"
+                  title={p.pid === p.host_pid ? undefined : `宿主机进程号 ${p.host_pid}`}>
+                  <td className="font-mono text-maia-text-muted tabular-nums" style={CELL_STYLE}>
+                    {p.pid ?? `宿主 ${p.host_pid}`}
+                  </td>
                   <td className="truncate max-w-[8rem] text-maia-text-secondary" style={CELL_STYLE}>{p.name || '—'}</td>
                   <td className="text-right tabular-nums text-maia-text-secondary" style={CELL_STYLE}>{formatBytes(p.used_memory)}</td>
                 </tr>
