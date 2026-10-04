@@ -34,6 +34,7 @@ def fake_disks(monkeypatch):
 
     monkeypatch.setattr(sysinfo.psutil, "disk_partitions", lambda all: WSL_PARTITIONS)
     monkeypatch.setattr(sysinfo.psutil, "disk_usage", usage)
+    monkeypatch.setattr(sysinfo, "_is_dir", lambda m: True)
 
 
 def test_disks_keep_only_real_filesystems(fake_disks):
@@ -49,6 +50,34 @@ def test_project_partition_comes_first(fake_disks, monkeypatch):
     disks = sysinfo.disk_metrics("/mnt/d/work/SOTABand")
     assert [d["mount_point"] for d in disks] == ["/mnt/d", "/", "/mnt/c"]
     assert [d["is_project"] for d in disks] == [True, False, False]
+
+
+# 取自 AutoDL 容器（Docker）上 psutil.disk_partitions(all=True) 的真实输出（节选）
+AUTODL_PARTITIONS = [
+    _part("overlay", "/", "overlay"),
+    _part("/dev/md127", "/init", "xfs"),                 # 单文件 bind mount
+    _part("/dev/md127", "/etc/hostname", "xfs"),         # 单文件 bind mount
+    _part("AutoFS:fswestb1", "/root/autodl-pub", "fuse.autofs"),
+    _part("/dev/md127", "/root/autodl-tmp", "xfs"),
+    _part("/dev/sda2", "/etc/vulkan/icd.d/nvidia_icd.json", "ext4"),
+    _part("/dev/sda2", "/usr/bin/nvidia-smi", "ext4"),
+    _part("overlay", "/usr/lib/x86_64-linux-gnu/libcuda.so.520.61.05", "overlay"),
+]
+AUTODL_DIRS = {"/", "/root/autodl-pub", "/root/autodl-tmp"}
+
+
+def test_container_mounts(monkeypatch):
+    monkeypatch.setattr(sysinfo.psutil, "disk_partitions", lambda all: AUTODL_PARTITIONS)
+    monkeypatch.setattr(sysinfo.psutil, "disk_usage",
+                        lambda m: SimpleNamespace(total=1, used=0, free=1, percent=0.0))
+    monkeypatch.setattr(sysinfo, "_is_dir", lambda m: m in AUTODL_DIRS)
+    disks = sysinfo.disk_metrics("/root/autodl-tmp/SOTABand")
+    # 容器根目录 overlay 保留；单文件挂载、驱动库、autofs 共享盘被过滤；
+    # 同一设备 md127 保留项目所在的 /root/autodl-tmp，而不是更短的 /init
+    assert [(d["mount_point"], d["is_project"]) for d in disks] == [
+        ("/root/autodl-tmp", True),
+        ("/", False),
+    ]
 
 
 def test_containing_mount_respects_path_boundaries():

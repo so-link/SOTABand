@@ -89,18 +89,33 @@ def memory_metrics() -> dict:
 
 
 def disk_metrics(project_root: Path | str) -> list[dict]:
-    """真实文件系统的用量；同一设备只保留最短挂载点；项目所在分区排第一"""
-    by_device = {}  # device -> psutil 分区记录
+    """真实文件系统的用量；同一设备只保留一个挂载点；项目所在分区排第一
+
+    容器（Docker / AutoDL 等）里的挂载表需要特别处理：
+    - 根目录 / 是 overlay，但它就是容器的系统盘，保留；
+    - 宿主机会把单个文件 bind mount 进来（/init、/etc/hosts、NVIDIA 驱动库），不是目录的一律跳过；
+    - 同一设备有多个挂载点时，优先保留项目所在的那个，其次取最短路径。
+    """
+    candidates = []
     for p in psutil.disk_partitions(all=True):
-        if p.fstype.lower() not in REAL_FSTYPES:
+        is_root = p.mountpoint == "/"
+        fstype = p.fstype.lower()
+        if fstype not in REAL_FSTYPES and not (is_root and fstype == "overlay"):
             continue
-        if p.mountpoint != "/" and p.mountpoint.startswith(IGNORED_MOUNT_PREFIXES):
+        if not is_root and p.mountpoint.startswith(IGNORED_MOUNT_PREFIXES):
             continue
+        if not _is_dir(p.mountpoint):
+            continue
+        candidates.append(p)
+
+    project_mount = _containing_mount(str(project_root), [p.mountpoint for p in candidates])
+    by_device = {}  # device -> psutil 分区记录
+    for p in candidates:
+        rank = (p.mountpoint != project_mount, len(p.mountpoint))
         kept = by_device.get(p.device)
-        if kept is None or len(p.mountpoint) < len(kept.mountpoint):
+        if kept is None or rank < (kept.mountpoint != project_mount, len(kept.mountpoint)):
             by_device[p.device] = p
 
-    project_mount = _containing_mount(str(project_root), [p.mountpoint for p in by_device.values()])
     disks = []
     for p in by_device.values():
         try:
@@ -119,6 +134,10 @@ def disk_metrics(project_root: Path | str) -> list[dict]:
         })
     disks.sort(key=lambda d: (not d["is_project"], d["mount_point"]))
     return disks
+
+
+def _is_dir(path: str) -> bool:
+    return os.path.isdir(path)
 
 
 def _containing_mount(path: str, mounts: list[str]) -> str | None:
