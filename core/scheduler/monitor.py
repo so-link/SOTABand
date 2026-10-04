@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
 import time
 from collections import deque
@@ -20,6 +21,7 @@ from core.scheduler import sysinfo
 from core.scheduler.gpu import GpuProvider, get_gpu_provider
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+log = logging.getLogger("sotaband.devices")
 
 
 class DeviceMonitor:
@@ -51,12 +53,17 @@ class DeviceMonitor:
     def sample(self) -> dict:
         """立即采样一次（同步阻塞），并记入历史"""
         with self._lock:
+            try:
+                gpus = self._gpu.list_gpus()
+            except Exception:  # 显卡掉线 / 驱动异常：本轮 GPU 置空，CPU / 内存 / 外存照常
+                log.exception("GPU 采集失败")
+                gpus = []
             snap = {
                 "ts": time.time(),
                 "cpu": sysinfo.cpu_metrics(),
                 "memory": sysinfo.memory_metrics(),
                 "disks": sysinfo.disk_metrics(self._project_root),
-                "gpus": self._gpu.list_gpus(),
+                "gpus": gpus,
             }
             self._latest = snap
             self._history.append(_to_point(snap))
@@ -103,7 +110,12 @@ class DeviceMonitor:
 
     async def _run(self) -> None:
         while self._subscribers:
-            snap = await asyncio.to_thread(self.sample)
+            try:
+                snap = await asyncio.to_thread(self.sample)
+            except Exception:  # 单次采样失败不能让循环退出，否则所有已连接页面从此收不到数据
+                log.exception("设备采样失败")
+                await asyncio.sleep(self.interval)
+                continue
             # 不取 _history[-1]：REST / 调度器可能在另一线程中刚追加了别的采样
             msg = {"type": "snapshot", "data": snap, "point": _to_point(snap)}
             for q in list(self._subscribers):
