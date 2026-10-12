@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState, type DragEvent, type KeyboardEvent } from 'react'
-import { Send, X, Paperclip, Square, Folder, Loader2 } from 'lucide-react'
+import { Send, X, Paperclip, Square, Folder, FolderOpen, Loader2 } from 'lucide-react'
 import { useChatStore } from '@/stores/chat-store'
 import { useFileTreeStore } from '@/stores/file-tree-store'
 import { Button } from '@/components/ui/button'
@@ -17,6 +17,8 @@ export function ChatInput() {
   const { inputText, setInputText, attachedFiles, removeAttachment, pathRefs, addPathRef, removePathRef, sendMessage, stopMessage, isSending } =
     useChatStore()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const directoryInputRef = useRef<HTMLInputElement>(null)
   const [isDragOver, setIsDragOver] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
 
@@ -120,11 +122,21 @@ export function ChatInput() {
   }
 
   /** 从操作系统拖入的文件：先上传到工作区间，再记录路径映射 */
-  const attachDroppedOsFiles = async (files: FileList) => {
+  const attachDroppedOsFiles = async (files: FileList | File[]) => {
+    const selectedFiles = Array.from(files)
+    const hasWindowPair = selectedFiles.some((file) => file.name === 'window_features.pkl') &&
+      selectedFiles.some((file) => file.name === 'window_info.pkl')
+    // Directory selection may contain reports and unrelated files. Keep the
+    // required pair plus optional statistics so the uploaded batch is a valid
+    // five-channel dataset without filling the workspace with extra files.
+    const uploadFiles = hasWindowPair
+      ? selectedFiles.filter((file) => ['window_features.pkl', 'window_info.pkl', 'window_stats.json', 'dataset_manifest.json'].includes(file.name))
+      : selectedFiles
+    if (uploadFiles.length === 0) return
     const beforeIds = new Set(collectFileNodes(useFileTreeStore.getState().root).map((n) => n.id))
     setIsUploading(true)
     try {
-      await useFileTreeStore.getState().uploadFiles(files)
+      await useFileTreeStore.getState().uploadFiles(uploadFiles)
     } finally {
       setIsUploading(false)
     }
@@ -132,7 +144,13 @@ export function ChatInput() {
     const added = collectFileNodes(useFileTreeStore.getState().root).filter(
       (n) => !beforeIds.has(n.id),
     )
-    added.forEach((node) => addPathRef({ name: node.name, path: node.path }))
+    const names = new Set(added.map((node) => node.name))
+    if (names.has('window_features.pkl') && names.has('window_info.pkl')) {
+      const directory = added[0].path.replace(/[\\/][^\\/]+$/, '')
+      addPathRef({ name: '五通道窗口数据', path: directory })
+    } else {
+      added.forEach((node) => addPathRef({ name: node.name, path: node.path }))
+    }
     if (added.length > 0) textareaRef.current?.focus()
   }
 
@@ -182,6 +200,54 @@ export function ChatInput() {
             isDragOver ? 'border-maia-accent border-2' : 'border-maia-border/50'
           }`}
         >
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept=".pkl,.json,.csv,.zip"
+            className="hidden"
+            onChange={(event) => {
+              if (event.target.files?.length) void attachDroppedOsFiles(event.target.files)
+              event.target.value = ''
+            }}
+          />
+          <input
+            ref={directoryInputRef}
+            type="file"
+            multiple
+            // Chromium exposes directory selection through this non-standard
+            // attribute; the spread keeps TypeScript's DOM types portable.
+            {...({ webkitdirectory: '', directory: '' } as Record<string, string>)}
+            className="hidden"
+            onChange={(event) => {
+              if (event.target.files?.length) void attachDroppedOsFiles(event.target.files)
+              event.target.value = ''
+            }}
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            title="选择五通道数据目录"
+            aria-label="选择五通道数据目录"
+            disabled={isSending || isUploading}
+            onClick={() => directoryInputRef.current?.click()}
+            className="shrink-0 h-8 w-8"
+          >
+            <FolderOpen className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            title="选择本机数据文件"
+            aria-label="选择本机数据文件"
+            disabled={isSending || isUploading}
+            onClick={() => fileInputRef.current?.click()}
+            className="shrink-0 h-8 w-8"
+          >
+            <Paperclip className="h-4 w-4" />
+          </Button>
           <textarea
             ref={textareaRef}
             value={inputText}

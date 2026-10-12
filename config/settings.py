@@ -14,6 +14,8 @@ from typing import Optional
 
 # 自动加载项目根目录的 .env 文件
 def _load_dotenv():
+    if os.environ.get("SOTABAND_LOAD_DOTENV", "1") == "0":
+        return
     env_file = Path(__file__).resolve().parent.parent / ".env"
     if env_file.exists():
         with open(env_file, encoding='utf-8') as f:
@@ -400,7 +402,9 @@ class AppConfig:
     app_name: str = "SOTABand"
     debug: bool = False
     api_host: str = "0.0.0.0"
-    api_port: int = 8001
+    # The refactor checkout uses 8002 by default so it can run beside the
+    # baseline checkout, which keeps its historical 8001 port.
+    api_port: int = int(os.environ.get("SOTABAND_API_PORT", "8002"))
     cors_origins: list = field(default_factory=lambda: ["*"])
 
 

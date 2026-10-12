@@ -11,6 +11,13 @@ eggs/
 
 # Virtual environments
 .venv/
+.venv-*/
+*.pt
+*.pth
+*.ckpt
+*.npz
+*.npy
+/resources/tasks/registry.json
 venv/
 env/
 .runtime/
@@ -55,6 +62,11 @@ docker-compose.override.yml
 
 # 运行时产物（日志、训练生成的模型）
 logs/
+*.log
+*.out.log
+*.err.log
+/resources/agents/logs/
+/resources/tasks/runs/
 predict.pkl
 models/*.pt
 models/*_2026*.pkl
@@ -67,6 +79,8 @@ models/linear_regression_*.pkl
 # Local runtime state
 storage/user.json
 storage/workspace_tools.json
+storage/backend.log
+storage/backend-error.log
 
 # Generated local assessment logs
 logs/aerial-image-quality-batch-assessment_*.md
@@ -77,6 +91,3 @@ logs/aerial-image-quality-batch-assessment_*.md
 # 根目录只保留 README，其余 .md 文档不入仓库（子目录不受影响）
 /*.md
 !README.md
-
-# 根目录临时文件/目录（测试遗留）
-/FFF/

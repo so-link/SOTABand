@@ -502,7 +502,13 @@ async def start_agent(agent_id: str):
     # registry 中 impl_path 是相对于 resources/agents/ 的路径
     # 实际实现在 core/agent/implementations/
     impl_path = f"resources/agents/implementations/{agent_id}"
-    return await agent_factory.start(agent_id, impl_path)
+    result = await agent_factory.start(agent_id, impl_path)
+    if result.get("status") == "failed":
+        raise HTTPException(
+            status_code=500,
+            detail=result.get("error", "Agent 启动失败"),
+        )
+    return result
 
 
 @router.post("/{agent_id}/execute")
@@ -514,8 +520,11 @@ async def execute_agent(agent_id: str, req: AgentExecuteRequest):
     import json as _json
 
     async def event_gen():
+        done_sent = False
         try:
             async for event in agent_factory.execute(agent_id, req.content):
+                if event.get("event") == "done":
+                    done_sent = True
                 yield {
                     "event": event.get("event", "content"),
                     "data": _json.dumps(event.get("data", {}), ensure_ascii=False),
@@ -528,10 +537,11 @@ async def execute_agent(agent_id: str, req: AgentExecuteRequest):
                 "data": _json.dumps({"message": f"Agent 执行异常: {str(e)[:200]}"}, ensure_ascii=False),
             }
         finally:
-            yield {
-                "event": "done",
-                "data": _json.dumps({"messageId": f"msg-{int(time.time() * 1000)}"}, ensure_ascii=False),
-            }
+            if not done_sent:
+                yield {
+                    "event": "done",
+                    "data": _json.dumps({"messageId": f"msg-{int(time.time() * 1000)}"}, ensure_ascii=False),
+                }
 
     return EventSourceResponse(event_gen())
 
@@ -545,7 +555,13 @@ async def stop_agent(agent_id: str):
 @router.post("/{agent_id}/restart")
 async def restart_agent(agent_id: str):
     """重启 Agent 子进程"""
-    return await agent_factory.restart(agent_id)
+    result = await agent_factory.restart(agent_id)
+    if result.get("status") == "failed":
+        raise HTTPException(
+            status_code=500,
+            detail=result.get("error", "Agent 重启失败"),
+        )
+    return result
 
 
 @router.delete("/{agent_id}")

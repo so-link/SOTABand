@@ -3,14 +3,16 @@
 import os
 import shutil
 import time
+import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from core.runtime.paths import RUNTIME_ROOT
 
 router = APIRouter()
 
 # 上传文件存储根目录
-UPLOAD_ROOT = Path(__file__).resolve().parent.parent.parent.parent / "data" / "uploads"
+UPLOAD_ROOT = RUNTIME_ROOT / "uploads"
 UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
 
 
@@ -28,6 +30,8 @@ async def upload_file(file: UploadFile = File(...), subdir: str = Form("")):
     safe_name = Path(file.filename).name
     # 子目录：优先用传入的 subdir，否则按日期
     dir_name = subdir if subdir else time.strftime("%Y-%m-%d")
+    if Path(dir_name).name != dir_name or dir_name in {".", ".."}:
+        raise HTTPException(400, "上传子目录无效")
     dest_dir = UPLOAD_ROOT / dir_name
     dest_dir.mkdir(parents=True, exist_ok=True)
 
@@ -45,7 +49,7 @@ async def upload_file(file: UploadFile = File(...), subdir: str = Form("")):
     fmt = dest_path.suffix.lstrip(".").lower()
 
     return {
-        "id": f"file-{int(time.time())}",
+        "id": f"file-{uuid.uuid4().hex}",
         "fileName": dest_path.name,
         "filePath": str(dest_path),
         "fileSize": size,
@@ -120,7 +124,7 @@ async def download_file(path: str):
         file_path,
         media_type=mime_type or "application/octet-stream",
         filename=file_path.name,
-        content_disposition_type="inline",
+        content_disposition_type="attachment" if file_path.suffix.lower() == ".xlsx" else "inline",
     )
 
 

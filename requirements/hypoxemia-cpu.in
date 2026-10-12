@@ -1,0 +1,12 @@
+# Five-channel CPU computation, including all CPU catalogue models.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.5.1+cpu
+numpy==2.1.3
+pandas==2.2.3
+scikit-learn==1.5.2
+scipy==1.14.1
+einops==0.8.1
+reformer-pytorch==1.4.4
+PyWavelets==1.8.0
+matplotlib==3.9.2
+

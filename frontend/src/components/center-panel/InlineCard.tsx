@@ -16,6 +16,9 @@ import {
   Activity,
   Volume2,
   Download,
+  Clock3,
+  CircleStop,
+  AlertCircle,
 } from 'lucide-react'
 
 interface InlineCardProps {
@@ -33,6 +36,16 @@ export function InlineCard({ card }: InlineCardProps) {
       return <ToolMatchCard title={title} summary={summary} data={data} />
     case 'tool-confirm':
       return <ToolConfirmCard title={title} summary={summary} data={data} />
+    case 'model-confirm':
+      return <ModelConfirmCard title={title} summary={summary} data={data} />
+    case 'model-parameters':
+      return <ModelParametersCard title={title} summary={summary} data={data} />
+    case 'training-parameters':
+      return <TrainingParametersCard title={title} summary={summary} data={data} />
+    case 'raw-processing-parameters':
+      return <RawProcessingParametersCard title={title} summary={summary} data={data} />
+    case 'workflow-action':
+      return <WorkflowActionCard title={title} summary={summary} data={data} />
     case 'code-review':
       return <CodeReviewCard title={title} summary={summary} data={data} setActiveView={setActiveView} />
     case 'execution-progress':
@@ -43,6 +56,16 @@ export function InlineCard({ card }: InlineCardProps) {
       return <OrchestrationPreviewCard title={title} summary={summary} data={data} setActiveView={setActiveView} />
     case 'create-tool':
       return <CreateToolCard title={title} summary={summary} data={data} />
+    case 'dataset-summary':
+    case 'dataset-register':
+    case 'model-resource':
+      return <ResourceWorkflowCard type={type} title={title} summary={summary} data={data} />
+    case 'model-catalog':
+      return <ModelCatalogCard title={title} summary={summary} data={data} />
+    case 'task-progress':
+      return <TaskProgressCard title={title} summary={summary} data={data} />
+    case 'evaluation-result':
+      return <EvaluationResultCard title={title} summary={summary} data={data} />
     default:
       return null
   }
@@ -215,6 +238,271 @@ function ExecutionProgressCard({ title, summary }: { title: string; summary: str
       </CardBody>
     </Card>
   )
+}
+
+type TaskState = {
+  id: string
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+  progress: number
+  message: string
+  created_at?: string
+  started_at?: string
+  finished_at?: string
+  log_tail?: string
+  metadata?: Record<string, unknown>
+}
+
+function TaskProgressCard({ title, summary, data }: { title: string; summary: string; data: Record<string, unknown> }) {
+  const sendDirectMessage = useChatStore((s) => s.sendDirectMessage)
+  const initialTask = (data.task as TaskState | undefined)
+  const taskId = String(data.task_id || initialTask?.id || '')
+  const [task, setTask] = useState<TaskState | null>(initialTask || null)
+  const [pollError, setPollError] = useState('')
+
+  useEffect(() => {
+    if (!taskId) return
+    let cancelled = false
+    let timer: number | undefined
+    const poll = async () => {
+      try {
+        const response = await fetch(`/api/task/${encodeURIComponent(taskId)}`)
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        const payload = await response.json()
+        if (cancelled) return
+        const next = payload.task as TaskState
+        setTask(next)
+        setPollError('')
+        if (next.status === 'queued' || next.status === 'running') {
+          timer = window.setTimeout(poll, 1500)
+        }
+      } catch (error) {
+        if (cancelled) return
+        setPollError(error instanceof Error ? error.message : String(error))
+        timer = window.setTimeout(poll, 3000)
+      }
+    }
+    poll()
+    return () => {
+      cancelled = true
+      if (timer) window.clearTimeout(timer)
+    }
+  }, [taskId])
+
+  const stopTask = async () => {
+    if (!taskId) return
+    const response = await fetch(`/api/task/${encodeURIComponent(taskId)}/cancel`, { method: 'POST' })
+    if (response.ok) {
+      const payload = await response.json()
+      setTask(payload.task as TaskState)
+    }
+  }
+
+  const status = task?.status || 'queued'
+  const progress = Math.max(0, Math.min(100, Number(task?.progress || 0)))
+  const active = status === 'queued' || status === 'running'
+  const modelResourceId = String(task?.metadata?.model_resource_id || '')
+  const artifactPath = String(task?.metadata?.artifact_path || '')
+  // The task endpoint is authoritative after polling. The initial card data
+  // can contain a stale generic action from before the worker was submitted.
+  const nextAction = String(task?.metadata?.next_action || data.next_action || '继续')
+  const nextActionLabel = String(
+    task?.metadata?.next_action_label ||
+    data.next_action_label ||
+    (nextAction === '开始评测' ? '开始评测' : '扫描处理结果'),
+  )
+  const statusLabel: Record<TaskState['status'], string> = {
+    queued: '排队中', running: '运行中', completed: '已完成', failed: '失败', cancelled: '已取消',
+  }
+
+  return (
+    <Card className="border-maia-border bg-maia-surface">
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          {active ? <Activity className="h-4 w-4 text-blue-500 animate-pulse" /> :
+            status === 'completed' ? <CheckCircle2 className="h-4 w-4 text-maia-success" /> :
+              <AlertCircle className="h-4 w-4 text-maia-danger" />}
+          <span className="text-xs font-medium flex-1">{title}</span>
+          <Badge variant={status === 'completed' ? 'success' : 'default'}>{statusLabel[status]}</Badge>
+        </div>
+      </CardHeader>
+      <CardBody>
+        <p className="text-xs text-maia-text-secondary">{task?.message || summary}</p>
+        <div className="mt-2 h-1.5 bg-maia-border rounded-full overflow-hidden">
+          <div className="h-full bg-blue-500 transition-[width] duration-500" style={{ width: `${progress}%` }} />
+        </div>
+        <div className="mt-2 flex items-center gap-2 text-[10px] text-maia-text-muted">
+          <Clock3 className="h-3 w-3" />
+          <span>{progress}%</span>
+          <span className="font-mono truncate">{taskId}</span>
+          {active && (
+            <Button variant="ghost" size="sm" className="ml-auto h-6 text-[10px] text-maia-danger" onClick={stopTask}>
+              <CircleStop className="h-3 w-3" /> 停止
+            </Button>
+          )}
+        </div>
+        {pollError && <p className="mt-2 text-[10px] text-maia-danger">进度刷新失败: {pollError}</p>}
+        {status === 'completed' && (
+          modelResourceId && (
+            <p className="mt-2 text-[10px] text-maia-text-muted">
+              模型资源：{modelResourceId}
+              {artifactPath ? `；产物目录：${artifactPath}` : ''}
+            </p>
+          )
+        )}
+        {status === 'completed' && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-3 h-7 text-[11px]"
+            onClick={() => sendDirectMessage(nextAction)}
+          >
+            <ArrowRight className="h-3 w-3" />{nextActionLabel}
+          </Button>
+        )}
+        {task?.log_tail && (
+          <details className="mt-2">
+            <summary className="text-[10px] text-maia-text-muted cursor-pointer">查看最近日志</summary>
+            <pre className="mt-1 max-h-36 overflow-auto whitespace-pre-wrap text-[10px] bg-maia-bg p-2 border border-maia-border">{task.log_tail}</pre>
+          </details>
+        )}
+      </CardBody>
+    </Card>
+  )
+}
+
+function ResourceWorkflowCard({
+  type, title, summary, data,
+}: { type: string; title: string; summary: string; data: Record<string, unknown> }) {
+  const fields = type === 'model-resource'
+    ? ['model_id', 'model_name', 'model_type', 'threshold', 'artifact_path']
+    : ['dataset_id', 'dataset_name', 'source_path', 'generated_at', 'stats_status', 'sequence_length', 'window_seconds', 'sampling_hz', 'prediction_interval_seconds', 'window_count', 'hypoxemia_window_count', 'non_hypoxemia_window_count', 'hypoxemia_ratio', 'split_mode', 'group_key']
+  const labels: Record<string, string> = {
+    dataset_id: '数据集 ID', dataset_name: '数据集名称', source_path: '数据路径', generated_at: '生成时间',
+    sequence_length: '序列长度', window_seconds: '窗口长度（秒）', sampling_hz: '采样率（Hz）', stats_status: '窗口统计',
+    prediction_interval_seconds: '预测间隔（秒）', window_count: '窗口总数',
+    hypoxemia_window_count: '低氧窗口数', non_hypoxemia_window_count: '非低氧窗口数',
+    hypoxemia_ratio: '低氧窗口比例', split_mode: '划分方式', group_key: '分组键',
+  }
+  return (
+    <Card className="border-maia-card-blue bg-maia-card-blue">
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          {type === 'model-resource' ? <Activity className="h-4 w-4 text-blue-500" /> : <Database className="h-4 w-4 text-blue-500" />}
+          <span className="text-xs font-medium">{title}</span>
+          <Badge variant="success">就绪</Badge>
+        </div>
+      </CardHeader>
+      <CardBody>
+        <p className="text-xs text-maia-text-secondary mb-2">{summary}</p>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+          {fields.filter((key) => data[key] !== undefined && data[key] !== '' && data[key] !== null).map((key) => (
+            <div key={key} className="min-w-0">
+              <div className="text-[10px] text-maia-text-muted">{labels[key] || key}</div>
+              <div className="text-xs text-maia-text truncate" title={String(data[key])}>{String(data[key])}</div>
+            </div>
+          ))}
+        </div>
+      </CardBody>
+    </Card>
+  )
+}
+
+function ModelCatalogCard({ title, summary, data }: { title: string; summary: string; data: Record<string, unknown> }) {
+  const sendDirectMessage = useChatStore((s) => s.sendDirectMessage)
+  const models = (data.models as Array<{
+    model_name: string
+    label: string
+    available: boolean
+    verified_baseline: boolean
+  }>) || []
+  const available = models.filter((model) => model.available)
+
+  return (
+    <Card className="border-maia-card-blue bg-maia-card-blue">
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Activity className="h-4 w-4 text-blue-500" />
+          <span className="text-xs font-medium flex-1">{title}</span>
+          <Badge variant="success">{available.length} 可用</Badge>
+        </div>
+      </CardHeader>
+      <CardBody>
+        <p className="text-xs text-maia-text-secondary mb-2">{summary}</p>
+        <div className="max-h-64 overflow-auto border border-maia-border bg-maia-surface">
+          {available.map((model) => (
+            <button
+              key={model.model_name}
+              className="w-full flex items-center gap-2 px-3 py-2 text-left border-b border-maia-border-light last:border-b-0 hover:bg-maia-accent/10"
+              onClick={() => sendDirectMessage(`创建五通道 ${model.model_name} 模型资源`)}
+              title={`创建 ${model.model_name} 模型资源`}
+            >
+              <span className="min-w-0 flex-1 text-xs text-maia-text truncate">{model.model_name}</span>
+              {model.verified_baseline && <Badge variant="accent" className="text-[9px]">基线</Badge>}
+              <ArrowRight className="h-3 w-3 shrink-0 text-maia-text-muted" />
+            </button>
+          ))}
+        </div>
+      </CardBody>
+    </Card>
+  )
+}
+
+function EvaluationResultCard({ title, summary, data }: { title: string; summary: string; data: Record<string, unknown> }) {
+  const test = (data.test as Record<string, unknown>) || {}
+  const currentMetrics = (data.selected_metrics as Record<string, unknown>) || {}
+  const displayedMetrics = Object.keys(test).length ? test : currentMetrics
+  const currentCount = data.dataset_window_count
+  const metrics = ['auc', 'f1', 'accuracy', 'precision', 'recall']
+  return (
+    <Card className="border-maia-card-green bg-maia-card-green">
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <CheckCircle2 className="h-4 w-4 text-maia-success" />
+          <span className="text-xs font-medium flex-1">{title}</span>
+          <Badge variant="success">评测完成</Badge>
+        </div>
+      </CardHeader>
+      <CardBody>
+        <p className="text-xs text-maia-text-secondary mb-3">{summary}</p>
+        {currentCount !== undefined && (
+          <div className="mb-3 text-[11px] text-maia-text-secondary">
+            <p>本次评测数据：{String(currentCount)} 个验证集窗口（低氧 {String(data.dataset_positive_count ?? '-')}，非低氧 {String(data.dataset_negative_count ?? '-')}）</p>
+            <p className="mt-1 text-[10px] text-maia-text-muted">{String(data.evaluation_scope_label || '训练集用于训练，测试集保留作独立最终测评')}</p>
+            {data.source_dataset_window_count !== undefined && (
+              <p className="mt-1 text-[10px] text-maia-text-muted">输入数据集总窗口：{String(data.source_dataset_window_count)}</p>
+            )}
+          </div>
+        )}
+        <div className="grid grid-cols-3 gap-2">
+          <div className="border-r border-maia-border">
+            <div className="text-lg font-semibold text-maia-text">{formatMetric(data.threshold)}</div>
+            <div className="text-[10px] text-maia-text-muted">验证集阈值</div>
+          </div>
+          {metrics.filter((key) => displayedMetrics[key] !== undefined).map((key) => (
+            <div key={key}>
+              <div className="text-lg font-semibold text-maia-text">{formatMetric(displayedMetrics[key])}</div>
+              <div className="text-[10px] text-maia-text-muted">{Object.keys(test).length ? `test ${key}` : `本次数据 ${key}`}</div>
+            </div>
+          ))}
+        </div>
+        {typeof data.file_path === 'string' && (
+          <a
+            href={`/api/file/download?path=${encodeURIComponent(data.file_path)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-3 inline-flex items-center gap-1 text-xs text-maia-accent underline"
+          >
+            <Download className="h-3 w-3" />下载评测 Excel
+          </a>
+        )}
+        <p className="mt-3 text-[10px] text-maia-text-muted">研究用途，不用于临床诊断</p>
+      </CardBody>
+    </Card>
+  )
+}
+
+function formatMetric(value: unknown): string {
+  return typeof value === 'number' ? value.toFixed(4) : String(value ?? '-')
 }
 
 // ---- Result Summary Card ----
@@ -489,4 +777,175 @@ function ToolConfirmCard({ title, summary, data }: { title: string; summary: str
       </CardBody>
     </Card>
   )
+}
+
+function ModelConfirmCard({ title, summary, data }: { title: string; summary: string; data: Record<string, unknown> }) {
+  const sendDirectMessage = useChatStore((s) => s.sendDirectMessage)
+  const candidates = (data.candidates as Array<{ id: string; name: string; index: number }>) || []
+
+  const handleSelect = (candidate: { id: string; name: string; index: number }) => {
+    sendDirectMessage(`我选择：${candidate.name}`)
+  }
+
+  return (
+    <Card className="border-maia-card-blue bg-maia-card-blue">
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Activity className="h-4 w-4 text-blue-500" />
+          <span className="text-xs font-medium">{title}</span>
+          <Badge variant="default">{candidates.length} 个候选</Badge>
+        </div>
+      </CardHeader>
+      <CardBody>
+        <p className="text-xs text-maia-text-secondary mb-2">{summary}</p>
+        <div className="space-y-1.5 max-h-80 overflow-y-auto">
+          {candidates.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => handleSelect(c)}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded border border-maia-border bg-maia-surface hover:bg-maia-accent/10 hover:border-maia-accent/40 transition-colors text-left group"
+            >
+              <span className="flex items-center justify-center h-5 w-5 rounded-full bg-maia-bg text-[11px] font-medium text-maia-text-secondary shrink-0 group-hover:bg-maia-accent group-hover:text-white">
+                {c.index}
+              </span>
+              <span className="flex-1 truncate text-xs text-maia-text">{c.name}</span>
+              <ArrowRight className="h-3 w-3 text-maia-text-muted shrink-0 group-hover:text-maia-accent" />
+            </button>
+          ))}
+        </div>
+      </CardBody>
+    </Card>
+  )
+}
+
+function ModelParametersCard({ title, summary, data }: { title: string; summary: string; data: Record<string, unknown> }) {
+  const architecture = (data.architecture as Record<string, unknown>) || {}
+  const architectureGroups = (data.architecture_groups as Record<string, string[]>) || {}
+  const valueText = (value: unknown) => Array.isArray(value) ? JSON.stringify(value) : String(value ?? '-')
+  const renderGroups = (groups: Record<string, string[]>, source: Record<string, unknown>) =>
+    Object.entries(groups).map(([group, keys]) => (
+      <div key={group} className="rounded border border-maia-border bg-maia-surface p-2">
+        <div className="text-xs font-medium text-maia-text mb-1">{group}</div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1">
+          {keys.filter((key) => key in source).map((key) => <div key={key} className="text-[11px] text-maia-text-secondary break-all">
+            <span className="font-mono">{key}</span>: {valueText(source[key])}
+          </div>)}
+        </div>
+      </div>
+    ))
+
+  return <Card className="border-maia-card-blue bg-maia-card-blue">
+    <CardHeader><span className="text-xs font-medium">{title}</span></CardHeader>
+    <CardBody>
+      <p className="text-xs text-maia-text-secondary mb-2">{summary} 架构修改请用自然语言描述，系统会按当前模型的专属参数进行校验。</p>
+      <div className="max-h-96 overflow-y-auto space-y-2">
+        <div className="text-xs font-semibold">架构参数</div>
+        {renderGroups(architectureGroups, architecture)}
+      </div>
+    </CardBody>
+  </Card>
+}
+
+function TrainingParametersCard({ title, summary, data }: { title: string; summary: string; data: Record<string, unknown> }) {
+  const sendDirectMessage = useChatStore((s) => s.sendDirectMessage)
+  const training = (data.training as Record<string, unknown>) || {}
+  const groups = (data.training_groups as Record<string, string[]>) || {}
+  const specs = (data.parameter_specs as Record<string, { min?: number; max?: number; step?: number }>) || {}
+  const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(
+    Object.entries(training).map(([key, value]) => [key, Array.isArray(value) ? JSON.stringify(value) : String(value ?? '')]),
+  ))
+  const submit = () => {
+    const output: Record<string, unknown> = {}
+    for (const [key, original] of Object.entries(training)) {
+      const raw = (values[key] || '').trim()
+      if (!raw) continue
+      if (typeof original === 'boolean') output[key] = raw === 'true'
+      else if (typeof original === 'number') output[key] = Number(raw)
+      else output[key] = raw
+    }
+    sendDirectMessage(`训练参数：${JSON.stringify(output)}`)
+  }
+  return <Card className="border-maia-card-blue bg-maia-card-blue">
+    <CardHeader><span className="text-xs font-medium">{title}</span></CardHeader>
+    <CardBody>
+      <p className="text-xs text-maia-text-secondary mb-2">{summary} 清空字段将恢复默认值。</p>
+      <div className="max-h-96 overflow-y-auto space-y-2">
+        {Object.entries(groups).map(([group, keys]) => <div key={group} className="rounded border border-maia-border bg-maia-surface p-2">
+          <div className="text-xs font-medium text-maia-text mb-1">{group}</div>
+          <div className="grid grid-cols-1 gap-2">
+            {keys.filter((key) => key in training).map((key) => {
+              const original = training[key]
+              const spec = specs[key] || {}
+              const boolean = typeof original === 'boolean'
+              return <label key={key} className="grid grid-cols-[minmax(130px,1fr)_minmax(120px,1fr)] gap-2 items-center text-[11px]">
+                <span className="text-maia-text"><span className="font-medium">{key}</span><span className="block text-[10px] text-maia-text-muted">当前值：{String(original)}</span></span>
+                {boolean ? <input type="checkbox" checked={values[key] === 'true'} onChange={(event) => setValues((current) => ({ ...current, [key]: String(event.target.checked) }))} /> :
+                  <input value={values[key] || ''} type={typeof original === 'number' ? 'number' : 'text'} min={spec.min} max={spec.max} step={spec.step} onChange={(event) => setValues((current) => ({ ...current, [key]: event.target.value }))} className="h-7 rounded border border-maia-border bg-maia-bg px-2 text-[11px] text-maia-text" />}
+              </label>
+            })}
+          </div>
+        </div>)}
+      </div>
+      <Button variant="outline" size="sm" className="mt-3 h-7 text-[11px]" onClick={submit}>
+        <ArrowRight className="h-3 w-3" />提交训练参数
+      </Button>
+    </CardBody>
+  </Card>
+}
+
+function RawProcessingParametersCard({ title, summary, data }: { title: string; summary: string; data: Record<string, unknown> }) {
+  const sendDirectMessage = useChatStore((s) => s.sendDirectMessage)
+  const parameters = (data.parameters as Array<{ key: string; label: string; value: unknown; help?: string; min?: number; max?: number; step?: number }>) || []
+  const [values, setValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(parameters.map((item) => [item.key, Array.isArray(item.value) ? JSON.stringify(item.value) : String(item.value ?? '')]))
+  )
+  const submit = () => {
+    const payload: Record<string, string> = {}
+    for (const item of parameters) {
+      const value = (values[item.key] || '').trim()
+      if (value) payload[item.key] = value
+    }
+    sendDirectMessage(`原始处理参数：${JSON.stringify(payload)}`)
+  }
+  return <Card className="border-maia-card-blue bg-maia-card-blue">
+    <CardHeader><span className="text-xs font-medium">{title}</span></CardHeader>
+    <CardBody>
+      <p className="text-xs text-maia-text-secondary mb-2">{summary}</p>
+      <div className="max-h-96 overflow-y-auto space-y-2">
+        {parameters.map((item) => (
+          <label key={item.key} className="grid grid-cols-[minmax(150px,1fr)_minmax(120px,1fr)] gap-2 items-center text-[11px]">
+            <span className="text-maia-text"><span className="font-medium">{item.label}</span><span className="block font-mono text-[10px] text-maia-text-muted">{item.key}</span></span>
+            <input
+              value={values[item.key] || ''}
+              type={item.min !== undefined || item.max !== undefined ? 'number' : 'text'}
+              min={item.min}
+              max={item.max}
+              step={item.step}
+              onChange={(event) => setValues((current) => ({ ...current, [item.key]: event.target.value }))}
+              title={item.help}
+              className="h-7 rounded border border-maia-border bg-maia-bg px-2 text-[11px] text-maia-text"
+            />
+          </label>
+        ))}
+      </div>
+      <Button variant="outline" size="sm" className="mt-3 h-7 text-[11px]" onClick={submit}>
+        <ArrowRight className="h-3 w-3" />提交处理参数
+      </Button>
+    </CardBody>
+  </Card>
+}
+
+function WorkflowActionCard({ title, summary, data }: { title: string; summary: string; data: Record<string, unknown> }) {
+  const sendDirectMessage = useChatStore((s) => s.sendDirectMessage)
+  const action = String(data.action || '')
+  const label = String(data.label || action)
+  return <Card className="border-maia-card-blue bg-maia-card-blue">
+    <CardHeader><span className="text-xs font-medium">{title}</span></CardHeader>
+    <CardBody>
+      <p className="text-xs text-maia-text-secondary">{summary}</p>
+      <Button variant="outline" size="sm" className="mt-3 h-7 text-[11px]" onClick={() => sendDirectMessage(action)}>
+        <ArrowRight className="h-3 w-3" />{label}
+      </Button>
+    </CardBody>
+  </Card>
 }

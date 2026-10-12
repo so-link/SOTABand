@@ -1,11 +1,28 @@
 import { create } from 'zustand'
-import type { Resource, ResourceType, AgentResource, ToolResource, DataResource } from '@/types/resources'
+import type { Resource, ResourceType, AgentResource, ToolResource, DataResource, ModelResource, ModelGroup, ModelCategory } from '@/types/resources'
 import { MockResourceService } from '@/services/mock/resources'
 import { agentApi } from '@/services/api/agent'
 import { toolApi } from '@/services/api/tool'
 import { dataApi } from '@/services/api/data'
 
 const resourceService = new MockResourceService()
+
+function mapModelResource(m: Record<string, unknown>): ModelResource {
+  return {
+    id: m.id as string, name: (m.name as string) || (m.id as string), description: '',
+    type: 'model', version: (m.version as string) || '0.1.0', status: 'active',
+    createdAt: (m.created_at as string) || '', updatedAt: '',
+    tags: (m.tags as string[]) || [], framework: (m.framework as string) || '',
+    modelType: 'timeseries', weightPath: (m.model_path as string) || '',
+    inputFormat: m.input_format ? [String(m.input_format)] : [],
+    outputFormat: m.output_format ? [String(m.output_format)] : [],
+    deploymentStatus: 'registered', relatedToolId: (m.associated_tool_id as string) || '',
+    runtimeStatus: (m.runtime_status as string) || 'configured',
+    groupPath: (m.group_path as string) || '其它模型',
+    modelCategory: m.model_category === 'trained' ? 'trained' : 'architecture',
+    artifactAvailable: m.artifact_available === true,
+  }
+}
 
 interface ResourceState {
   selectedResource: Resource | null
@@ -14,6 +31,7 @@ interface ResourceState {
   dataResources: Resource[]
   toolResources: Resource[]
   modelResources: Resource[]
+  modelGroups: ModelGroup[]
   agentResources: Resource[]
   taskResources: Resource[]
   isLoading: boolean
@@ -26,6 +44,9 @@ interface ResourceState {
   fetchToolsFromApi: () => Promise<void>
   fetchDatasetsFromApi: () => Promise<void>
   fetchModelsFromApi: () => Promise<void>
+  fetchModelGroups: () => Promise<void>
+  createModelGroup: (name: string, category: ModelCategory) => Promise<boolean>
+  deleteModelGroup: (id: string) => Promise<string | null>
 }
 
 export const useResourceStore = create<ResourceState>((set, get) => ({
@@ -33,6 +54,7 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
   dataResources: [],
   toolResources: [],
   modelResources: [],
+  modelGroups: [],
   agentResources: [],
   taskResources: [],
   isLoading: false,
@@ -122,12 +144,7 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
     // 模型
     if (modelResult.status === 'fulfilled' && Array.isArray(modelResult.value?.models) && modelResult.value.models.length > 0) {
       set({
-        modelResources: modelResult.value.models.map((m: Record<string, unknown>) => ({
-          id: m.id as string, name: (m.name as string) || (m.id as string), description: '', type: 'model' as const,
-          version: (m.version as string) || '0.1.0', status: 'active' as const, createdAt: (m.created_at as string) || '',
-          updatedAt: '', tags: (m.tags as string[]) || [], format: (m.framework as string) || '',
-          filePath: (m.model_path as string) || '', fileSize: 0, source: 'upload' as const, lineage: [],
-        }))
+        modelResources: modelResult.value.models.map(mapModelResource)
       })
     }
 
@@ -203,15 +220,46 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
       const BASE_URL = ''
       const res = await fetch(`${BASE_URL}/api/model/list`)
       const data = await res.json()
-      if (Array.isArray(data.models) && data.models.length > 0) {
-        set({ modelResources: data.models.map((m: Record<string, unknown>) => ({
-          id: m.id as string, name: (m.name as string) || (m.id as string), description: '',
-          type: 'model' as const, version: (m.version as string) || '0.1.0', status: 'active' as const,
-          createdAt: (m.created_at as string) || '', updatedAt: '',
-          tags: (m.tags as string[]) || [], format: (m.framework as string) || '',
-          filePath: (m.model_path as string) || '', fileSize: 0, source: 'upload' as const, lineage: [],
-        })) })
+      if (Array.isArray(data.models)) {
+        set({ modelResources: data.models.map(mapModelResource) })
       }
     } catch { /* ignore */ }
+  },
+
+  fetchModelGroups: async () => {
+    try {
+      const res = await fetch('/api/model/groups')
+      const data = await res.json()
+      if (Array.isArray(data.groups)) set({ modelGroups: data.groups as ModelGroup[] })
+    } catch { /* ignore */ }
+  },
+
+  createModelGroup: async (name: string, category: ModelCategory) => {
+    try {
+      const res = await fetch('/api/model/groups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, category }),
+      })
+      if (!res.ok) return false
+      await get().fetchModelGroups()
+      return true
+    } catch {
+      return false
+    }
+  },
+
+  deleteModelGroup: async (id: string) => {
+    try {
+      const res = await fetch(`/api/model/groups/${encodeURIComponent(id)}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const data = await res.json()
+        return String(data.detail || '删除分组失败')
+      }
+      await get().fetchModelGroups()
+      return null
+    } catch {
+      return '删除分组失败'
+    }
   },
 }))

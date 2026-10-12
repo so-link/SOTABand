@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 
 from core.resource.registry.model_registry import ModelRegistry, MODEL_DIR
+from core.runtime.paths import model_registry_path
 
 
 async def _auto_generate_model_tags(model_id: str, name: str, spec_md: str):
@@ -46,9 +47,11 @@ class ApiModelRegister:
     @staticmethod
     async def call(**kwargs) -> dict:
         base_name = kwargs.get("name", "").strip()
-        # 自动在模型名称后追加时间戳（精确到毫秒），避免同名模型注册时冲突
+        # 普通资源追加时间戳；用户明确命名的自定义模型保留可识别名称。
         timestamp = time.strftime("%Y%m%d_%H%M%S", time.localtime()) + f"_{int(time.time() * 1000) % 1000:03d}"
-        if base_name:
+        if kwargs.get("preserve_name") and base_name:
+            model_name = base_name
+        elif base_name:
             model_name = f"{base_name}_{timestamp}"
         else:
             model_name = f"model_{timestamp}"
@@ -64,6 +67,22 @@ class ApiModelRegister:
             "version": kwargs.get("version", "0.1.0"),
             "tags": kwargs.get("tags", []),
             "associated_tool_id": kwargs.get("associated_tool_id", ""),
+            "dataset_id": kwargs.get("dataset_id", ""),
+            "model_name": kwargs.get("model_name", ""),
+            "model_type": kwargs.get("model_type", ""),
+            "config_path": kwargs.get("config_path", ""),
+            "scaler_path": kwargs.get("scaler_path", ""),
+            "metrics_path": kwargs.get("metrics_path", ""),
+            "threshold": kwargs.get("threshold"),
+            "task_id": kwargs.get("task_id", ""),
+            "runtime_status": kwargs.get("runtime_status", "configured"),
+            "training_config": kwargs.get("training_config", {}),
+            "config_schema": kwargs.get("config_schema", {}),
+            "catalog_model_id": kwargs.get("catalog_model_id", ""),
+            "creation_type": kwargs.get("creation_type", "catalog-model"),
+            "derived_from_model_id": kwargs.get("derived_from_model_id", ""),
+            "group_path": kwargs.get("group_path", ""),
+            "manifest_path": kwargs.get("manifest_path", ""),
         }
         model_id = await ApiModelRegister.registry.register(resource)
         # 如果没有标签，同步等待 LLM 生成标签
@@ -89,7 +108,7 @@ class ApiModelGet:
         if not name:
             return {"model": None, "message": "模型名称不能为空"}
 
-        reg_path = MODEL_DIR / "registry.json"
+        reg_path = model_registry_path()
         if not reg_path.exists():
             return {"model": None, "message": "模型注册表不存在"}
 

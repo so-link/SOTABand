@@ -27,6 +27,7 @@ export function AgentDetailView() {
   const [streaming, setStreaming] = useState('')
   const [isSending, setIsSending] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [runtimeError, setRuntimeError] = useState('')
 
   // Detail panels state
   const [specMd, setSpecMd] = useState('')
@@ -120,12 +121,20 @@ export function AgentDetailView() {
 
   const start = async () => {
     setLoading(true)
+    setRuntimeError('')
     try {
-      await fetch(`${BASE_URL}/api/agent/${agent.id}/start`, { method: 'POST' })
+      const res = await fetch(`${BASE_URL}/api/agent/${agent.id}/start`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || (data.status !== 'started' && data.status !== 'already_running')) {
+        throw new Error(data.detail || data.error || `HTTP ${res.status}`)
+      }
       setRunning(true)
       setMessages([])
       setStreaming('')
-    } catch { /* ignore */ }
+    } catch (e) {
+      setRunning(false)
+      setRuntimeError(`启动失败: ${e instanceof Error ? e.message : String(e)}`)
+    }
     setLoading(false)
   }
 
@@ -134,18 +143,27 @@ export function AgentDetailView() {
     try {
       await fetch(`${BASE_URL}/api/agent/${agent.id}/stop`, { method: 'POST' })
       setRunning(false)
+      setRuntimeError('')
     } catch { /* ignore */ }
     setLoading(false)
   }
 
   const restart = async () => {
     setLoading(true)
+    setRuntimeError('')
     try {
-      await fetch(`${BASE_URL}/api/agent/${agent.id}/restart`, { method: 'POST' })
+      const res = await fetch(`${BASE_URL}/api/agent/${agent.id}/restart`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || (data.status !== 'started' && data.status !== 'already_running')) {
+        throw new Error(data.detail || data.error || `HTTP ${res.status}`)
+      }
       setRunning(true)
       setMessages([])
       setStreaming('')
-    } catch { /* ignore */ }
+    } catch (e) {
+      setRunning(false)
+      setRuntimeError(`重启失败: ${e instanceof Error ? e.message : String(e)}`)
+    }
     setLoading(false)
   }
 
@@ -167,9 +185,13 @@ export function AgentDetailView() {
         body: JSON.stringify({ content: userInput }),
         signal: controller.signal,
       })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}))
+        throw new Error(errorData.detail || errorData.error || `HTTP ${res.status}`)
+      }
+      if (!res.body) throw new Error('Agent 未返回数据流')
 
-      const reader = res.body!.getReader()
+      const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let buf = ''
       let full = ''
@@ -185,13 +207,15 @@ export function AgentDetailView() {
         buf = lines.pop() || ''
 
         for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            eventType = line.slice(7).trim()
+          const normalizedLine = line.endsWith('\r') ? line.slice(0, -1) : line
+
+          if (normalizedLine.startsWith('event: ')) {
+            eventType = normalizedLine.slice(7).trim()
             continue
           }
-          if (line.startsWith('data: ')) {
+          if (normalizedLine.startsWith('data: ')) {
             try {
-              const payload = JSON.parse(line.slice(6))
+              const payload = JSON.parse(normalizedLine.slice(6))
               if (eventType === 'content' || !eventType) {
                 full += payload.text || ''
                 setStreaming(full)
@@ -216,7 +240,9 @@ export function AgentDetailView() {
                 }
                 setStreaming(full)
               } else if (eventType === 'done') {
-                setMessages((m) => [...m, { role: 'agent', content: full }])
+                if (full) {
+                  setMessages((m) => [...m, { role: 'agent', content: full }])
+                }
                 setStreaming('')
                 streamDone = true
               } else if (eventType === 'error') {
@@ -232,12 +258,14 @@ export function AgentDetailView() {
       if (!streamDone && full) {
         setMessages((m) => [...m, { role: 'agent', content: full }])
         setStreaming('')
+      } else if (!streamDone && !full) {
+        setMessages((m) => [...m, { role: 'system', content: 'Agent 未返回有效内容' }])
       }
     } catch (e: unknown) {
       if ((e as Error).name === 'AbortError') {
         setMessages((m) => [...m, { role: 'system', content: '⚠️ 请求超时，Agent 未在 2 分钟内响应' }])
       } else {
-        setMessages((m) => [...m, { role: 'system', content: '⚠️ 请求失败' }])
+        setMessages((m) => [...m, { role: 'system', content: `⚠️ ${e instanceof Error ? e.message : '请求失败'}` }])
       }
       setStreaming('')
     } finally {
@@ -319,6 +347,11 @@ export function AgentDetailView() {
       {/* Content area */}
       <div className="flex-1 min-h-0 overflow-auto p-4">
         <div className="max-w-2xl mx-auto space-y-4">
+          {runtimeError && (
+            <div className="rounded border border-maia-danger/40 bg-maia-danger/10 px-3 py-2 text-xs text-maia-danger break-words">
+              {runtimeError}
+            </div>
+          )}
 
           {/* MD Spec panel */}
           {showSpec && (

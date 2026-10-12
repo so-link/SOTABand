@@ -116,19 +116,86 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 // ---- Simple Markdown Rendering ----
 
 function renderMarkdown(text: string): string {
-  return text
+  const tables: string[] = []
+  const headings: string[] = []
+  const codeBlocks: string[] = []
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+
+  const withCodePlaceholders = escaped.replace(
+    /```[^\r\n]*\r?\n([\s\S]*?)```/g,
+    (_match, code: string) => {
+      const index = codeBlocks.length
+      codeBlocks.push(`<pre class="my-2 overflow-x-auto rounded bg-maia-sidebar-hover p-2 text-xs leading-relaxed"><code>${code.trim()}</code></pre>`)
+      return `\u0000CODE_${index}\u0000`
+    },
+  )
+
+  const withTablePlaceholders = withCodePlaceholders.replace(
+    /(^|\n)\|([^\n]+)\|\n\|[\s:|-]+\|\n((?:\|[^\n]+\|(?:\n|$))*)/g,
+    (_match, prefix: string, header: string, rows: string) => {
+      const index = tables.length
+      tables.push(renderTable(header, rows))
+      return `${prefix}\u0000TABLE_${index}\u0000`
+    },
+  )
+
+  const withBlockPlaceholders = withTablePlaceholders.replace(
+    /(?:^|\r?\n+)[ \t]*(#{1,4})[ \t]+([^\r\n]+)(?:\r?\n+|$)/g,
+    (_match, hashes: string, title: string) => {
+      const index = headings.length
+      headings.push(renderHeading(hashes.length, title.trim()))
+      return `\u0000HEADING_${index}\u0000`
+    },
+  )
+
+  const formatted = withBlockPlaceholders
     // Bold
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     // Italic
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     // Inline code
     .replace(/`([^`]+)`/g, '<code class="bg-maia-sidebar-hover text-maia-accent px-1 py-0.5 rounded text-xs font-mono">$1</code>')
-    // Line breaks → paragraphs
-    .replace(/\n\n/g, '</p><p>')
+    // Headings own their surrounding whitespace; plain text keeps lightweight flow.
+    .replace(/\n{2,}/g, '<div class="h-2"></div>')
     .replace(/\n/g, '<br/>')
+
+  return formatted
+    .replace(/\u0000TABLE_(\d+)\u0000/g, (_match, index: string) => tables[Number(index)])
+    .replace(/\u0000HEADING_(\d+)\u0000/g, (_match, index: string) => headings[Number(index)])
+    .replace(/\u0000CODE_(\d+)\u0000/g, (_match, index: string) => codeBlocks[Number(index)])
 }
 
 function formatHtml(text: string): string {
-  return `<p>${text}</p>`
+  return text
+}
+
+function renderTable(header: string, rows: string): string {
+  const cells = (line: string) => line.split('|').map((cell) => cell.trim()).filter(Boolean)
+  const headers = cells(header)
+  const bodyRows = rows.trim().split('\n').filter(Boolean).map(cells)
+
+  const head = headers.map((cell) =>
+    `<th class="border border-maia-border bg-maia-bg px-2 py-1.5 text-left text-[11px] font-medium text-maia-text-secondary">${cell}</th>`,
+  ).join('')
+  const body = bodyRows.map((row) =>
+    `<tr>${row.map((cell) =>
+      `<td class="border border-maia-border px-2 py-1.5 text-[11px] text-maia-text">${cell}</td>`,
+    ).join('')}</tr>`,
+  ).join('')
+
+  return `<div class="my-2 overflow-x-auto"><table class="w-full border-collapse text-[11px]"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`
+}
+
+function renderHeading(level: number, title: string): string {
+  const classes: Record<number, string> = {
+    1: 'mt-5 mb-2 text-lg font-semibold text-maia-text',
+    2: 'mt-4 mb-2 text-base font-semibold text-maia-text',
+    3: 'mt-4 mb-1 text-sm font-semibold text-maia-text',
+    4: 'mt-3 mb-1 text-[13px] font-semibold text-maia-text',
+  }
+  return `<div class="block ${classes[level]}">${title}</div>`
 }
 

@@ -276,14 +276,20 @@ class AgentFactory:
                 while b"\n" in buffer:
                     line, buffer = buffer.split(b"\n", 1)
                     try:
-                        event = json.loads(line.decode('utf-8'))
+                        # Agent 子进程统一使用 UTF-8；errors=replace 作为兜底，
+                        # 避免单个非 UTF-8 字节导致整条事件被静默丢弃。
+                        event = json.loads(line.decode("utf-8", errors="replace"))
                         yield event
-                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        if event.get("event") == "done":
+                            return
+                    except json.JSONDecodeError:
                         pass
             except asyncio.TimeoutError:
-                break
-            except Exception:
-                break
+                yield {"event": "error", "data": {"message": "Agent 执行等待响应超时"}}
+                return
+            except Exception as exc:
+                yield {"event": "error", "data": {"message": f"Agent 输出读取失败: {exc}"}}
+                return
 
     def is_running(self, agent_id: str) -> bool:
         proc = self._processes.get(agent_id)

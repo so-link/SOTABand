@@ -47,6 +47,14 @@ def load_agent(impl_path: Path, agent_id: str):
 
 
 async def main():
+    # Windows 的标准管道默认可能使用系统代码页（如 GBK）。
+    # 父进程按 UTF-8 传输 JSON，必须显式统一 stdin/stdout 编码。
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace", newline="\n")
+        except (AttributeError, ValueError):
+            pass
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--agent-id", required=True)
     parser.add_argument("--impl-path", required=True)
@@ -67,19 +75,16 @@ async def main():
         agent = None
         agent_loaded = False
 
-    # 通过 stdin/stdout JSON-line 协议通信
-    reader = asyncio.StreamReader()
-    protocol = asyncio.StreamReaderProtocol(reader)
-    await asyncio.get_event_loop().connect_read_pipe(lambda: protocol, sys.stdin)
-    w_transport, _ = await asyncio.get_event_loop().connect_write_pipe(
-        asyncio.streams.FlowControlMixin, sys.stdout
-    )
-    writer = asyncio.StreamWriter(w_transport, protocol, reader, asyncio.get_event_loop())
-
     def send_event(event: dict):
-        """发送 JSON 行到主进程"""
+        """发送 JSON 行到主进程。
+
+        Windows 的 ProactorEventLoop 不能可靠地把重定向后的标准输入输出
+        包装成 asyncio pipe transport，会在 connect_write_pipe() 处触发
+        WinError 6。Agent 输出很短，直接写入并 flush 更适合这个协议。
+        """
         line = json.dumps(event, ensure_ascii=False) + "\n"
-        writer.write(line.encode())
+        sys.stdout.write(line)
+        sys.stdout.flush()
 
     # 加载失败 → 通知主进程后退出
     if not agent_loaded:
@@ -89,11 +94,13 @@ async def main():
 
     while True:
         try:
-            line = await reader.readline()
+            # 在工作线程中阻塞读取，避免 Windows asyncio 对标准 pipe 的
+            # Proactor 兼容性问题，同时不阻塞 Agent 的事件循环。
+            line = await asyncio.to_thread(sys.stdin.readline)
             if not line:
                 break  # stdin closed → 主进程要求退出
 
-            task = json.loads(line.decode('utf-8').strip())
+            task = json.loads(line.strip())
 
             if task.get("action") == "stop":
                 break

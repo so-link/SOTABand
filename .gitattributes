@@ -1,0 +1,2 @@
+resources/workflows/hypoxemia/runtime/vendor/** text eol=lf
+requirements/*.lock text eol=lf

@@ -4,17 +4,17 @@ import json
 import time
 from pathlib import Path
 
+from core.resource.registry.json_store import update_json_list
 from core.resource.registry.registry_base import BaseRegistry
+from core.runtime.paths import DATA_DIR, DATA_REGISTRY_FILE, DATASETS_DIR, data_registry_path
 from core.user_context import (
-    get_current_user_id,
-    detect_storage,
-    get_visibility,
-    is_visible_to,
     VISIBILITY_PRIVATE,
+    detect_storage,
+    get_current_user_id,
+    is_visible_to,
 )
 
-DATA_DIR = Path(__file__).resolve().parent.parent.parent.parent / "resources" / "data"
-REGISTRY_FILE = DATA_DIR / "registry.json"
+REGISTRY_FILE = DATA_REGISTRY_FILE
 
 
 class DataRegistry(BaseRegistry):
@@ -22,6 +22,8 @@ class DataRegistry(BaseRegistry):
 
     def __init__(self):
         DATA_DIR.mkdir(parents=True, exist_ok=True)
+        DATASETS_DIR.mkdir(parents=True, exist_ok=True)
+        data_registry_path()
         if not REGISTRY_FILE.exists():
             self._write([])
         # 一次性迁移：把早期没有 owner 字段、但本机确实有数据的条目
@@ -56,7 +58,13 @@ class DataRegistry(BaseRegistry):
         if not data_path:
             return DATA_DIR
         p = Path(data_path)
-        return p if p.is_absolute() else DATA_DIR / p
+        if p.is_absolute():
+            return p
+        runtime_path = DATA_DIR / p
+        if runtime_path.exists():
+            return runtime_path
+        static_path = Path(__file__).resolve().parents[3] / "resources" / "data" / p
+        return static_path if static_path.exists() else runtime_path
 
     def check_availability(self, entry: dict) -> dict:
         """检查数据集在本机是否真的可用。
@@ -165,27 +173,22 @@ class DataRegistry(BaseRegistry):
         返回被认领的条目数。
         """
         uid = user_id or get_current_user_id()
-        data = self._read()
         claimed = 0
-        changed = False
-        for entry in data:
-            # 补全缺失的 visibility：数据集一律补 private
-            if not entry.get("visibility"):
-                entry["visibility"] = VISIBILITY_PRIVATE
-                changed = True
-            # 补全缺失的 storage
-            if not entry.get("storage"):
-                entry["storage"] = detect_storage(entry.get("data_path", ""))
-                changed = True
-            if not entry.get("owner") and self.is_present_locally(entry):
-                entry["owner"] = uid
-                claimed += 1
-                changed = True
-        if changed:
-            self._write(data)
+        def claim(data):
+            nonlocal claimed
+            for entry in data:
+                if not entry.get("visibility"):
+                    entry["visibility"] = VISIBILITY_PRIVATE
+                if not entry.get("storage"):
+                    entry["storage"] = detect_storage(entry.get("data_path", ""))
+                if not entry.get("owner") and self.is_present_locally(entry):
+                    entry["owner"] = uid
+                    claimed += 1
+
+        update_json_list(REGISTRY_FILE, claim)
         return claimed
 
-    async def register(self, resource: dict = None, **kwargs) -> str:
+    async def register(self, resource: dict | None = None, **kwargs) -> str:
         if resource is None:
             resource = kwargs
         ds_id = resource.get("id", f"dataset-{int(time.time())}")
@@ -212,15 +215,18 @@ class DataRegistry(BaseRegistry):
             # 存储位置：local / remote。上云后 data_path 会是远端地址，
             # 需要据此跳过本地文件校验，否则会被误判为"不可用"而过滤掉。
             "storage": detect_storage(resource.get("data_path", "")),
+            "group_path": resource.get("group_path", ""),
+            "manifest_path": resource.get("manifest_path", ""),
         }
 
-        data = self._read()
-        existing = [i for i, e in enumerate(data) if e["id"] == ds_id]
-        if existing:
-            data[existing[0]] = entry
-        else:
-            data.append(entry)
-        self._write(data)
+        def upsert(data):
+            existing = next((i for i, item in enumerate(data) if item["id"] == ds_id), None)
+            if existing is None:
+                data.append(entry)
+            else:
+                data[existing] = entry
+
+        update_json_list(REGISTRY_FILE, upsert)
 
         # 保存 MD 规范文档（中文内容，Windows 默认 GBK，必须显式 utf-8）
         if "raw_md" in resource:
@@ -231,9 +237,10 @@ class DataRegistry(BaseRegistry):
         return ds_id
 
     async def unregister(self, resource_id: str):
-        data = self._read()
-        data = [e for e in data if e["id"] != resource_id]
-        self._write(data)
+        def remove(data):
+            data[:] = [entry for entry in data if entry["id"] != resource_id]
+
+        update_json_list(REGISTRY_FILE, remove)
 
     async def get(self, resource_id: str) -> dict | None:
         for e in self._read():
@@ -255,8 +262,9 @@ class DataRegistry(BaseRegistry):
         return [e for e in data if self.is_visible(e, owner)]
 
     async def update(self, resource_id: str, updates: dict):
-        data = self._read()
-        for e in data:
-            if e["id"] == resource_id:
-                e.update(updates)
-        self._write(data)
+        def change(data):
+            for entry in data:
+                if entry["id"] == resource_id:
+                    entry.update(updates)
+
+        update_json_list(REGISTRY_FILE, change)

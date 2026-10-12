@@ -3,10 +3,12 @@
 import json
 import re
 import time
+from pathlib import Path
 from typing import AsyncGenerator
 
 from core.agent.base import BaseAgent, AgentContext, AgentSpec, AgentRole
 from core.llm.client import create_llm_client, LLMClient
+
 
 
 SYSTEM_PROMPT = """你是 SOTABand Engine 的交互 Agent，一个多智能体多模态智能处理引擎的对话入口。
@@ -77,6 +79,9 @@ class InteractiveAgent(BaseAgent):
         self._pending_calls: dict[str, dict] = {}
         self._pending_confirm: dict[str, dict] = {}
         self._pending_modes: dict[str, dict] = {}
+        self._pending_model_selection: dict[str, dict] = {}
+        from resources.workflows import create_workflow_registry
+        self.workflow_registry = create_workflow_registry(self)
 
     async def execute(
         self, ctx: AgentContext, **kwargs
@@ -104,9 +109,26 @@ class InteractiveAgent(BaseAgent):
                 "data": {"messageId": f"msg-{int(time.time() * 1000)}"},
             }
 
+
     async def _execute_impl(
         self, ctx: AgentContext, content: str, attachments: list, workspace_tool_ids: list[str] = None
     ) -> AsyncGenerator[dict, None]:
+
+        from core.workflow.base import WorkflowContext
+        context = WorkflowContext(ctx.session_id, getattr(ctx, "user_id", "default"), {
+            "attachments": attachments, "workspace_tool_ids": workspace_tool_ids or [],
+        })
+        workflow = self.workflow_registry.match(content, context)
+        if workflow:
+            self.clear_pending(ctx.session_id)
+            async for event in workflow.handle(content, context, {}):
+                yield event
+            if content.strip() in {"退出", "重置"}:
+                self.workflow_registry.release(ctx.session_id)
+                reset_session = getattr(workflow, "reset_session", None)
+                if reset_session:
+                    reset_session(ctx.session_id)
+            return
 
         # 解析附件中的数据集路径
         dataset_paths = self._resolve_dataset_paths(attachments)
@@ -158,6 +180,7 @@ class InteractiveAgent(BaseAgent):
                 yield {"event": "content", "data": {"text": "请回复编号或工具名称来选择要使用的工具。"}}
                 return
             matched_tool = selected
+            content = pending_confirm.get("query", content)
 
         # ③ 正在收集参数
         elif self._pending_calls.get(session_key):
@@ -195,7 +218,7 @@ class InteractiveAgent(BaseAgent):
 
         # 多个候选工具 → 请用户确认选择哪一个
         if not matched_tool and len(matched_tools) > 1:
-            self._pending_confirm[session_key] = {"candidates": matched_tools}
+            self._pending_confirm[session_key] = {"candidates": matched_tools, "query": content}
             # 构建候选列表展示
             candidates_info = []
             for i, t in enumerate(matched_tools, 1):
@@ -242,6 +265,13 @@ class InteractiveAgent(BaseAgent):
             return
 
         if matched_tool:
+            workflow = self.workflow_registry.for_tool(matched_tool["id"])
+            if workflow:
+                self.clear_pending(session_key)
+                self.workflow_registry.activate(session_key, workflow.workflow_id)
+                async for event in workflow.handle(content, context, {}):
+                    yield event
+                return
             # 多模式工具且尚未选定模式 → 先引导用户选择模式
             if selected_mode_id is None:
                 modes = self._get_tool_modes(matched_tool["id"])
@@ -296,6 +326,7 @@ class InteractiveAgent(BaseAgent):
                 params = {**params, "mode": selected_mode_id}
             tool_result = await self._execute_tool(matched_tool, content, dataset_paths, params)
             if tool_result:
+                tool_result = self.submit_task_result(tool_result, matched_tool)
                 # 检测工具执行过程中是否注册了新数据集
                 registered_dataset_id = None
                 try:
@@ -315,21 +346,17 @@ class InteractiveAgent(BaseAgent):
                 if not registered_dataset_id:
                     registered_dataset_id = tool_result.get("dataset_id") or tool_result.get("registered_dataset_id")
 
-                yield {
-                    "event": "card",
-                    "data": {
-                        "type": "result-summary",
-                        "title": f"工具执行: {matched_tool['name']}",
-                        "summary": tool_result.get("message", json.dumps(tool_result, ensure_ascii=False, default=str)[:200]),
-                        "data": {
-                            "tool_id": matched_tool["id"],
-                            "result": tool_result,
-                            "registered_dataset_id": registered_dataset_id,
-                        },
-                    },
-                }
+                card_type = tool_result.get("card_type", "result-summary")
+                card_data = {"tool_id": matched_tool["id"], "result": tool_result,
+                             "registered_dataset_id": registered_dataset_id}
+                if card_type != "result-summary" and isinstance(tool_result.get("data"), dict):
+                    card_data.update(tool_result["data"])
+                yield {"event": "card", "data": {
+                    "type": card_type, "title": f"工具执行: {matched_tool['name']}",
+                    "summary": tool_result.get("message", ""), "data": card_data,
+                }}
                 # 图片/表格/文件/失败 → 直接结束，不调 LLM（文件由前端渲染，如音频播放器、下载链接等）
-                if tool_result.get("output_format") in ("image", "table", "file") or tool_result.get("status") == "failed":
+                if tool_result.get("output_format") in ("image", "table", "file", "task") or tool_result.get("status") == "failed":
                     return
             else:
                 tool_failed = True
@@ -420,16 +447,14 @@ class InteractiveAgent(BaseAgent):
                 "data": {"code": "llm_error", "message": str(e)},
             }
 
-    async def _pre_match_tool(self, query: str, workspace_tool_ids: list[str] = None) -> tuple[list[dict], str | None]:
+
+    async def _pre_match_tool(
+        self, query: str, workspace_tool_ids: list[str] = None, session_key: str = ""
+    ) -> tuple[list[dict], str | None]:
         """预匹配：先用 LLM 语义匹配，失败时回退到关键词匹配。
 
         返回 (匹配到的工具候选列表, 需要创建的工具描述 或 None)
         """
-        # 0. 明确「创建工具」意图 → 直接进入创建流程，不做工具匹配
-        create_intent = self._detect_create_intent(query)
-        if create_intent:
-            return [], create_intent
-
         # 收集活跃工具（限定工具空间范围）
         try:
             from core.resource.registry.tool_registry import ToolRegistry
@@ -438,7 +463,10 @@ class InteractiveAgent(BaseAgent):
             active = [t for t in tools if t.get("status") == "active"]
             if workspace_tool_ids:
                 ws_set = set(workspace_tool_ids)
-                active = [t for t in active if t.get("id") in ws_set]
+                active = [
+                    t for t in active
+                    if t.get("id") in ws_set or t.get("always_available") is True
+                ]
         except Exception:
             return [], None
 
@@ -447,9 +475,16 @@ class InteractiveAgent(BaseAgent):
             need_create = await self._llm_check_create_needed(query)
             return [], need_create
 
+        create_intent = self._detect_create_intent(query)
+        if create_intent:
+            return [], create_intent
+
         # 1. 优先：LLM 语义匹配（返回多个候选，同时判断是否需创建新工具）
         llm_candidates, llm_create = await self._llm_semantic_match(query, active)
         if llm_candidates:
+            llm_candidates = self.workflow_registry.augment_candidates(
+                query, llm_candidates, active
+            )
             return llm_candidates, None
         if llm_create:
             return [], llm_create
@@ -457,9 +492,13 @@ class InteractiveAgent(BaseAgent):
         # 2. 回退：关键词匹配（返回多个候选）
         kw_candidates = self._keyword_match(query, active)
         if kw_candidates:
+            kw_candidates = self.workflow_registry.augment_candidates(
+                query, kw_candidates, active
+            )
             return kw_candidates, None
 
         return [], None
+
 
     def _detect_create_intent(self, query: str) -> str | None:
         """检测用户是否明确表达「创建工具」意图，返回工具描述（或 None）"""
@@ -490,6 +529,7 @@ class InteractiveAgent(BaseAgent):
 
         return desc
 
+
     def _resolve_tool_selection(self, answer: str, candidates: list[dict]) -> dict | None:
         """识别用户对候选工具的选择（编号或名称），返回选中的工具或 None"""
         if not candidates:
@@ -498,7 +538,9 @@ class InteractiveAgent(BaseAgent):
         a_lower = a.lower()
 
         # 1. 按编号选择：1 / 第1个 / 第一个 / 选项1
-        num_matches = re.findall(r"\d+", a)
+        num_matches = re.findall(r"\d+", a) if re.search(
+            r"^\s*\d+\s*$|第\s*\d+\s*个|选项\s*\d+|选择\s*第?\s*\d+", a
+        ) else []
         if num_matches:
             idx = int(num_matches[0])
             if 1 <= idx <= len(candidates):
@@ -527,6 +569,7 @@ class InteractiveAgent(BaseAgent):
                     return t
 
         return None
+
 
     async def _llm_semantic_match(self, query: str, tools: list[dict]) -> tuple[list[dict], str | None]:
         """用 LLM 做语义匹配。
@@ -615,6 +658,7 @@ class InteractiveAgent(BaseAgent):
         except Exception:
             return [], None
 
+
     async def _llm_check_create_needed(self, query: str) -> str | None:
         """工具空间为空时，判断用户需求是否需要创建工具，并生成工具描述"""
         try:
@@ -652,6 +696,7 @@ class InteractiveAgent(BaseAgent):
         except Exception:
             return None
 
+
     def _read_tool_overview(self, tool: dict) -> str:
         """读取工具 MD 定义文档的「功能概述」章节"""
         try:
@@ -673,6 +718,7 @@ class InteractiveAgent(BaseAgent):
         except Exception:
             pass
         return ""
+
 
     def _keyword_match(self, query: str, active: list[dict]) -> list[dict]:
         """关键词匹配兜底，返回多个候选（top 3）"""
@@ -714,6 +760,7 @@ class InteractiveAgent(BaseAgent):
             pass
         return []
 
+
     def _build_system_with_context(self, workspace_tool_ids: list[str] = None) -> str:
         """构建 system prompt，只注入工具空间中的工具"""
         base = SYSTEM_PROMPT
@@ -726,7 +773,10 @@ class InteractiveAgent(BaseAgent):
             active_tools = [t for t in tools if t.get("status") == "active"]
             if workspace_tool_ids:
                 ws_set = set(workspace_tool_ids)
-                active_tools = [t for t in active_tools if t.get("id") in ws_set]
+                active_tools = [
+                    t for t in active_tools
+                    if t.get("id") in ws_set or t.get("always_available") is True
+                ]
             if active_tools:
                 tool_lines = "\n".join(
                     f"- {t['id']}: {t['name']} (type: {t.get('type', 'function')})"
@@ -739,6 +789,7 @@ class InteractiveAgent(BaseAgent):
             pass
 
         return base
+
 
     async def _execute_tool(self, tool_info: dict, user_query: str, dataset_paths: list[str] = None, pre_params: dict = None) -> dict | None:
         """执行工具 — 通过 ToolExecutor 统一入口，与自动调试环境完全一致"""
@@ -759,6 +810,7 @@ class InteractiveAgent(BaseAgent):
         except Exception as e:
             return {"status": "failed", "message": f"工具执行异常: {str(e)[:300]}"}
 
+
     async def _extract_answer_params(self, answer: str, tool_id: str, param: dict) -> dict:
         """从用户回答中提取单个参数的值 — 直接使用用户输入作为参数值"""
         val = answer.strip()
@@ -775,6 +827,7 @@ class InteractiveAgent(BaseAgent):
             except (ValueError, TypeError):
                 pass
         return {param["name"]: val}
+
 
     async def _check_missing_params(self, tool_id: str, current_params: dict, mode: str = None) -> list[str]:
         """返回缺失的必填参数名列表（支持按 mode 过滤）"""
@@ -799,6 +852,7 @@ class InteractiveAgent(BaseAgent):
             return missing
         except Exception:
             return []
+
 
     def _get_tool_modes(self, tool_id: str) -> list[dict]:
         """从 registry 读取工具的 modes 列表（空表示单模式工具）。
@@ -834,6 +888,7 @@ class InteractiveAgent(BaseAgent):
         except Exception:
             return []
 
+
     def _resolve_mode_selection(self, answer: str, modes: list[dict]) -> dict | None:
         """识别用户对模式的选择（编号或名称/id），返回选中的模式或 None"""
         if not modes:
@@ -841,26 +896,48 @@ class InteractiveAgent(BaseAgent):
         a = answer.strip()
         a_lower = a.lower()
 
-        # 1. 按编号选择：1 / 第1个 / 模式1
-        num_matches = re.findall(r"\d+", a)
-        if num_matches:
-            idx = int(num_matches[0])
-            if 1 <= idx <= len(modes):
-                return modes[idx - 1]
-
-        # 2. 按模式 id 精确匹配
+        # 1. 按模式 id 匹配。先匹配文本，避免 V3、256 等业务数字被误判成选项编号。
         for m in modes:
             mid = m.get("id", "")
             if mid and mid.lower() in a_lower:
                 return m
 
-        # 3. 按模式名匹配
+        # 2. 按模式名匹配
         for m in modes:
             name = m.get("name", "")
             if name and name in a:
                 return m
 
+        # 3. 按模式名中的中文动作词匹配，例如“启动 V3 五通道训练”匹配“启动训练”。
+        scored = []
+        for m in modes:
+            name = m.get("name", "")
+            words = re.findall(r"[\u4e00-\u9fff]{2,}", name)
+            score = sum(len(word) for word in words if word in a)
+            # 长词可能被插入限定语拆开，补充常见双字动作词匹配。
+            score += sum(
+                2
+                for i in range(max(0, len(name) - 1))
+                if all("\u4e00" <= char <= "\u9fff" for char in name[i:i + 2])
+                and name[i:i + 2] in a
+            )
+            if score:
+                scored.append((score, m))
+        if scored:
+            scored.sort(key=lambda item: item[0], reverse=True)
+            return scored[0][1]
+
+        # 4. 只有明确回复编号时才按编号选择。
+        num_matches = re.findall(r"\d+", a) if re.search(
+            r"^\s*\d+\s*$|第\s*\d+\s*个|模式\s*\d+|选择\s*第?\s*\d+", a
+        ) else []
+        if num_matches:
+            idx = int(num_matches[0])
+            if 1 <= idx <= len(modes):
+                return modes[idx - 1]
+
         return None
+
 
     async def _extract_params_for_mode(
         self, query: str, tool_id: str, mode: str, dataset_paths: list[str] = None
@@ -896,6 +973,7 @@ class InteractiveAgent(BaseAgent):
         # 不再调用 LLM 自动提取其他参数
         # 未填写的参数会触发 _check_missing_params → 引导用户逐一输入
         return params
+
 
     def _get_path_params(self, tool_id: str, mode: str = None) -> list[str]:
         """通过 param_meta 的 desc 字段识别文件/路径类型参数（支持按 mode 过滤）"""
@@ -944,6 +1022,7 @@ class InteractiveAgent(BaseAgent):
         except Exception:
             return []
 
+
     def _resolve_dataset_paths(self, attachments: list) -> list[str]:
         """从附件中解析文件路径"""
         paths = []
@@ -989,6 +1068,7 @@ class InteractiveAgent(BaseAgent):
             pass
         return paths
 
+
     def _build_user_message(self, content: str, attachments: list, dataset_paths: list[str] = None) -> str:
         """构建带附件上下文的用户消息"""
         if not attachments:
@@ -1022,5 +1102,94 @@ class InteractiveAgent(BaseAgent):
         return "\n".join(parts)
 
 
-# 全局单例，开机时初始化
+    def clear_pending(self, session_id):
+        key = session_id or "default"
+        for mapping in (self._pending_calls, self._pending_modes, self._pending_confirm):
+            mapping.pop(key, None)
+
+    def submit_task_result(self, result, tool):
+        from core.workflow.execution import submit_task_result
+        return submit_task_result(result, tool)
+
+    async def respond(self, ctx, content, attachments, workspace_tool_ids=None, tool_result=None):
+        session_key = ctx.session_id or "default"
+        dataset_paths = self._resolve_dataset_paths(attachments)
+        history = self._sessions.get(session_key) or [{
+            "role": "system", "content": self._build_system_with_context(workspace_tool_ids or []),
+        }]
+        user_msg = self._build_user_message(content, attachments, dataset_paths)
+        # 工具结果作为上下文注入（包含 data 中的详细内容）
+        if tool_result:
+            # 提取 summary：优先 message → data.text → 其他关键字段
+            summary = tool_result.get("message", "") or tool_result.get("summary", "")
+            # 把 data 中的详细内容也合并进去
+            data = tool_result.get("data", {})
+            if isinstance(data, dict):
+                # 先提取 text/output 文本字段
+                data_text = data.get("text", "") or data.get("output", "")
+                if data_text:
+                    if summary:
+                        summary = f"{summary}\n\n{data_text}"
+                    else:
+                        summary = data_text
+                # 把其他结构化字段（area, volume 等）也追加到 summary
+                other_fields = {k: v for k, v in data.items() if k not in ("text", "output")}
+                if other_fields:
+                    fields_str = json.dumps(other_fields, ensure_ascii=False)
+                    if summary:
+                        summary = f"{summary}\n\n详细数据: {fields_str}"
+                    else:
+                        summary = fields_str
+            if not summary:
+                # 兜底：提取不含 image_path/data 的关键信息
+                info = {k: v for k, v in tool_result.items() if k not in ("data", "image_path", "output_format")}
+                summary = json.dumps(info, ensure_ascii=False, default=str)[:300]
+            user_msg += (
+                f"\n\n[系统提示: 工具 {tool_result.get('tool_id', 'workflow')} 已自动执行。"
+                f"结果: {summary}。"
+                f"请基于此真实结果回复用户，不要自行推测或计算。]"
+            )
+        history.append({"role": "user", "content": user_msg})
+
+        # 裁剪历史
+        max_history = self.config.get("max_history", 20)
+        if len(history) > max_history * 2 + 1:
+            history = [history[0]] + history[-(max_history * 2):]
+
+        try:
+            full_response = ""
+            async for token in self.llm.chat_stream(
+                messages=history,
+                temperature=0.1,
+                max_tokens=self.config.get("max_tokens", 100000),
+            ):
+                full_response += token
+                yield {"event": "content", "data": {"text": token}}
+
+            # 检查是否需要创建工具（宽松匹配，兼容前缀/中英文冒号）
+            m_tool_needed = re.search(r"TOOL_NEEDED[:：]\s*(.+)", full_response, re.DOTALL)
+            if m_tool_needed:
+                tool_desc = m_tool_needed.group(1).strip()
+                yield {
+                    "event": "card",
+                    "data": {
+                        "type": "create-tool",
+                        "title": "需要创建新工具",
+                        "summary": tool_desc,
+                        "data": {"description": tool_desc},
+                    },
+                }
+
+            # 保存对话历史
+            history.append({"role": "assistant", "content": full_response})
+            self._sessions[session_key] = history
+
+        except Exception as e:
+            yield {
+                "event": "error",
+                "data": {"code": "llm_error", "message": str(e)},
+            }
+
+
+
 interactive_agent = InteractiveAgent()

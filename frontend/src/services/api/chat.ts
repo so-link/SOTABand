@@ -33,7 +33,8 @@ export class ApiChatService implements IChatService {
     })
 
     if (!response.ok) {
-      throw new Error(`API error: ${response.status} ${response.statusText}`)
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(errorData.detail || errorData.error || `API error: ${response.status} ${response.statusText}`)
     }
 
     const reader = response.body?.getReader()
@@ -43,6 +44,7 @@ export class ApiChatService implements IChatService {
     let buffer = ''
     let fullContent = ''
     let pendingCards: InlineCard[] = []
+    let currentEvent = ''
 
     try {
       while (true) {
@@ -55,22 +57,22 @@ export class ApiChatService implements IChatService {
         const parts = buffer.split('\n')
         buffer = parts.pop() || ''
 
-        let currentEvent = ''
-
         for (const line of parts) {
-          if (line === '') {
+          const normalizedLine = line.endsWith('\r') ? line.slice(0, -1) : line
+
+          if (normalizedLine === '') {
             currentEvent = ''
             continue
           }
 
-          if (line.startsWith('event: ')) {
-            currentEvent = line.slice(7).trim()
+          if (normalizedLine.startsWith('event: ')) {
+            currentEvent = normalizedLine.slice(7).trim()
             continue
           }
 
-          if (line.startsWith('data: ')) {
+          if (normalizedLine.startsWith('data: ')) {
             try {
-              const payload = JSON.parse(line.slice(6))
+              const payload = JSON.parse(normalizedLine.slice(6))
               const eventType = currentEvent || 'content'
 
               switch (eventType) {

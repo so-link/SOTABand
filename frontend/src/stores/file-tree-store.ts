@@ -82,7 +82,7 @@ interface FileTreeState {
   selectFile: (node: FileTreeNode | null) => void
   setPreviewFile: (node: FileTreeNode | null) => void
   toggleExpand: (nodeId: string) => void
-  uploadFiles: (files: FileList) => Promise<void>
+  uploadFiles: (files: FileList | File[]) => Promise<void>
   removeNode: (nodeId: string) => void
   setSearchQuery: (query: string) => void
   getFilteredTree: () => FileTreeNode | null
@@ -131,15 +131,17 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => ({
     persistTree(newRoot)
   },
 
-  uploadFiles: async (files: FileList) => {
+  uploadFiles: async (files: FileList | File[]) => {
     const BASE_URL = ''
     let { root } = get()
     if (!root) root = emptyTree()
+    const uploadSubdir = `batch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
     for (const file of Array.from(files)) {
       try {
         const formData = new FormData()
         formData.append('file', file)
+        formData.append('subdir', uploadSubdir)
         const res = await fetch(`${BASE_URL}/api/file/upload`, { method: 'POST', body: formData })
         if (!res.ok) continue
         const uploaded = await res.json()
