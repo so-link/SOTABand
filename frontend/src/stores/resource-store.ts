@@ -1,11 +1,14 @@
 import { create } from 'zustand'
-import type { Resource, ResourceType, AgentResource, ToolResource, DataResource } from '@/types/resources'
-import { MockResourceService } from '@/services/mock/resources'
-import { agentApi } from '@/services/api/agent'
-import { toolApi } from '@/services/api/tool'
-import { dataApi } from '@/services/api/data'
+import type { Resource, ResourceType, AgentResource, ToolResource, DataResource, ModelResource } from '@/types/resources'
+import { useWorkspaceToolStore } from '@/stores/workspace-tool-store'
 
-const resourceService = new MockResourceService()
+async function fetchList(url: string, key: string): Promise<Array<Record<string, unknown>>> {
+  const res = await fetch(url, { cache: 'no-store' })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const data = await res.json()
+  if (!Array.isArray(data[key])) throw new Error('后端返回的资源列表格式错误')
+  return data[key]
+}
 
 interface ResourceState {
   selectedResource: Resource | null
@@ -17,6 +20,7 @@ interface ResourceState {
   agentResources: Resource[]
   taskResources: Resource[]
   isLoading: boolean
+  loadErrors: Partial<Record<ResourceType, string>>
 
   selectResource: (resource: Resource | null) => void
   setCachedToolForDetail: (tool: ToolResource | null) => void
@@ -36,6 +40,7 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
   agentResources: [],
   taskResources: [],
   isLoading: false,
+  loadErrors: {},
   cachedToolForDetail: null,
   cachedDatasetForDetail: null,
 
@@ -52,140 +57,95 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
   setCachedToolForDetail: (tool) => set({ cachedToolForDetail: tool }),
 
   fetchResources: async (type) => {
-    set({ isLoading: true })
-    const resources = await resourceService.list(type)
-    const key = type === 'data' ? 'dataResources'
-      : type === 'tool' ? 'toolResources'
-      : type === 'model' ? 'modelResources'
-      : type === 'agent' ? 'agentResources'
-      : type === 'task' ? 'taskResources'
-      : 'dataResources'
-    set({ [key]: resources, isLoading: false } as Partial<ResourceState>)
+    const state = get()
+    if (type === 'tool') await state.fetchToolsFromApi()
+    else if (type === 'agent') await state.fetchAgentsFromApi()
+    else if (type === 'data') await state.fetchDatasetsFromApi()
+    else if (type === 'model') await state.fetchModelsFromApi()
+    else if (type === 'task') set({ taskResources: [] })
   },
 
   fetchAllResources: async () => {
-    set({ isLoading: true })
+    if (get().isLoading) return
+    // 当前后端没有任务历史列表接口，重新加载时不填入演示记录。
+    set({ isLoading: true, taskResources: [] })
+    try {
+      const state = get()
+      await Promise.all([
+        state.fetchToolsFromApi(),
+        state.fetchAgentsFromApi(),
+        state.fetchDatasetsFromApi(),
+        state.fetchModelsFromApi(),
+      ])
+      await useWorkspaceToolStore.getState().fetchFromApi(get().toolResources)
 
-    // 优先从真实 API 加载
-    const BASE_URL = ''
-    const apiResults = await Promise.allSettled([
-      toolApi.list(),
-      agentApi.list(),
-      dataApi.list(true),   // 只加载本机有数据的数据集
-      fetch(`${BASE_URL}/api/model/list`).then(r => r.json()),
-    ])
-    const [toolResult, agentResult, dataResult, modelResult] = apiResults
-
-    // 工具
-    if (toolResult.status === 'fulfilled' && Array.isArray(toolResult.value?.tools) && toolResult.value.tools.length > 0) {
-      set({
-        toolResources: toolResult.value.tools.map((t: Record<string, unknown>) => ({
-          id: t.id as string, name: (t.name as string) || (t.id as string), description: '', type: 'tool' as const,
-          category: ((t.type as string) === 'api-wrapper' ? 'model-wrapper' : 'builtin') as ToolResource['category'],
-          version: (t.version as string) || '0.1.0', status: 'active' as const, createdAt: (t.created_at as string) || '',
-          updatedAt: '', tags: (t.tags as string[]) || [], inputSpec: { formats: [] }, outputSpec: { formats: [] },
-          dependencies: [], runtimeEnv: 'python' as const, usageCount: (t.usage_count as number) || 0,
-          // 后端按 owner 字段判定：内置示例工具无 owner → 非本地生成
-          isUserGenerated: Boolean(t.is_user_generated),
-        }))
-      })
+      const current = get()
+      const selected = current.selectedResource
+      if (selected && ![
+        ...current.toolResources, ...current.agentResources,
+        ...current.dataResources, ...current.modelResources,
+      ].some(r => r.id === selected.id && r.type === selected.type)) {
+        set({ selectedResource: null, cachedToolForDetail: null, cachedDatasetForDetail: null })
+      }
+    } finally {
+      set({ isLoading: false })
     }
-
-    // Agent
-    if (agentResult.status === 'fulfilled' && Array.isArray(agentResult.value?.agents) && agentResult.value.agents.length > 0) {
-      set({
-        agentResources: agentResult.value.agents.map((a: Record<string, unknown>) => ({
-          id: a.id as string, name: (a.name as string) || (a.id as string), description: '', type: 'agent' as const,
-          version: (a.version as string) || '0.1.0', status: 'active' as const, createdAt: (a.created_at as string) || '',
-          updatedAt: '', tags: (a.tags as string[]) || [], role: (a.role as AgentResource['role']) || 'task',
-          capabilities: '', requiredTools: (a.tools as string[]) || [], inputFormat: 'text', outputFormat: 'text',
-          collaborationProtocol: 'pub-sub', healthStatus: (a.health as AgentResource['healthStatus']) || 'healthy',
-        }))
-      })
-    }
-
-    // 数据集
-    if (dataResult.status === 'fulfilled' && Array.isArray(dataResult.value?.datasets) && dataResult.value.datasets.length > 0) {
-      set({
-        dataResources: dataResult.value.datasets.map((d: Record<string, unknown>) => ({
-          id: d.id as string, name: (d.name as string) || (d.id as string), description: '', type: 'data' as const,
-          version: (d.version as string) || '0.1.0', status: 'active' as const, createdAt: (d.created_at as string) || '',
-          updatedAt: '', tags: (d.tags as string[]) || [], format: ((d.formats as string[])?.[0]) || 'unknown',
-          filePath: (d.data_path as string) || '', fileSize: (d.total_size as number) || 0, source: 'upload' as const, lineage: [],
-          available: d.available as boolean | undefined,
-          dataPathAbs: d.data_path_abs as string | undefined,
-          fileCountActual: d.file_count_actual as number | undefined,
-        }))
-      })
-    }
-
-    // 模型
-    if (modelResult.status === 'fulfilled' && Array.isArray(modelResult.value?.models) && modelResult.value.models.length > 0) {
-      set({
-        modelResources: modelResult.value.models.map((m: Record<string, unknown>) => ({
-          id: m.id as string, name: (m.name as string) || (m.id as string), description: '', type: 'model' as const,
-          version: (m.version as string) || '0.1.0', status: 'active' as const, createdAt: (m.created_at as string) || '',
-          updatedAt: '', tags: (m.tags as string[]) || [], format: (m.framework as string) || '',
-          filePath: (m.model_path as string) || '', fileSize: 0, source: 'upload' as const, lineage: [],
-        }))
-      })
-    }
-
-    // Mock 兜底：空的类型用 Mock 数据填充
-    const s = get()
-    const types: ResourceType[] = ['task']
-    if (s.modelResources.length === 0) types.push('model')
-    if (s.toolResources.length === 0) types.push('tool')
-    if (s.agentResources.length === 0) types.push('agent')
-    if (s.dataResources.length === 0) types.push('data')
-
-    const mockResults = await Promise.all(types.map((t) => resourceService.list(t)))
-    const updates: Partial<ResourceState> = {}
-    types.forEach((t, i) => {
-      const key = t === 'data' ? 'dataResources' : t === 'tool' ? 'toolResources' : t === 'model' ? 'modelResources' : t === 'agent' ? 'agentResources' : 'taskResources'
-      updates[key as keyof ResourceState] = mockResults[i] as never
-    })
-    set({ ...updates, isLoading: false } as Partial<ResourceState>)
   },
 
   fetchAgentsFromApi: async () => {
     try {
-      const result = await agentApi.list()
-      if (Array.isArray(result.agents) && result.agents.length > 0) {
-        set({ agentResources: result.agents.map((a: Record<string, unknown>) => ({
+      const agents = await fetchList('/api/agent/list', 'agents')
+      const statuses = await Promise.allSettled(agents.map(async a => {
+        const res = await fetch(`/api/agent/${encodeURIComponent(a.id as string)}/status`, { cache: 'no-store' })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.json() as Promise<{ running?: boolean }>
+      }))
+      set(state => ({
+        loadErrors: { ...state.loadErrors, agent: undefined },
+        agentResources: agents.map((a: Record<string, unknown>, index) => ({
           id: a.id as string, name: (a.name as string) || (a.id as string), description: '', type: 'agent' as const,
           version: (a.version as string) || '0.1.0', status: 'active' as const, createdAt: (a.created_at as string) || '',
           updatedAt: '', tags: (a.tags as string[]) || [], role: (a.role as AgentResource['role']) || 'task',
           capabilities: '', requiredTools: (a.tools as string[]) || [], inputFormat: 'text', outputFormat: 'text',
-          collaborationProtocol: 'pub-sub', healthStatus: (a.health as AgentResource['healthStatus']) || 'healthy',
-        })) })
-      }
-    } catch { /* ignore */ }
+          collaborationProtocol: 'pub-sub',
+          healthStatus: statuses[index].status === 'fulfilled'
+            ? (statuses[index].value.running === true ? 'healthy' as const
+              : statuses[index].value.running === false ? 'offline' as const : 'degraded' as const)
+            : 'degraded' as const,
+        })),
+      }))
+    } catch (error) {
+      set(state => ({ agentResources: [], loadErrors: { ...state.loadErrors, agent: `Agent 加载失败：${String(error)}` } }))
+    }
   },
 
   fetchToolsFromApi: async () => {
     try {
-      const result = await toolApi.list()
-      if (Array.isArray(result.tools) && result.tools.length > 0) {
-        set({ toolResources: result.tools.map((t: Record<string, unknown>) => ({
+      const tools = await fetchList('/api/tool/list', 'tools')
+      set(state => ({
+        loadErrors: { ...state.loadErrors, tool: undefined },
+        toolResources: tools.map((t: Record<string, unknown>) => ({
           id: t.id as string, name: (t.name as string) || (t.id as string), description: '', type: 'tool' as const,
           category: ((t.type as string) === 'api-wrapper' ? 'model-wrapper' : 'builtin') as ToolResource['category'],
           version: (t.version as string) || '0.1.0', status: 'active' as const, createdAt: (t.created_at as string) || '',
           updatedAt: '', tags: (t.tags as string[]) || [], inputSpec: { formats: [] }, outputSpec: { formats: [] },
           dependencies: [], runtimeEnv: 'python' as const, usageCount: (t.usage_count as number) || 0,
           isUserGenerated: Boolean(t.is_user_generated),
-        })) })
-      }
-    } catch { /* ignore */ }
+        })),
+      }))
+    } catch (error) {
+      set(state => ({ toolResources: [], loadErrors: { ...state.loadErrors, tool: `工具加载失败：${String(error)}` } }))
+    }
   },
 
   fetchDatasetsFromApi: async () => {
     try {
       // 默认只取本机可用的数据集：注册表里他人环境的条目（data_path 指向
       // 对方机器）本机没有数据，展示出来会造成"能选中但跑不了"的误导。
-      const result = await dataApi.list(true)
-      if (Array.isArray(result.datasets) && result.datasets.length > 0) {
-        set({ dataResources: result.datasets.map((d: Record<string, unknown>) => ({
+      const datasets = await fetchList('/api/data/list?available_only=true', 'datasets')
+      set(state => ({
+        loadErrors: { ...state.loadErrors, data: undefined },
+        dataResources: datasets.map((d: Record<string, unknown>) => ({
           id: d.id as string, name: (d.name as string) || (d.id as string), description: '', type: 'data' as const,
           version: (d.version as string) || '0.1.0', status: 'active' as const, createdAt: (d.created_at as string) || '',
           updatedAt: '', tags: (d.tags as string[]) || [], format: ((d.formats as string[])?.[0]) || 'unknown',
@@ -193,25 +153,34 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
           available: d.available as boolean | undefined,
           dataPathAbs: d.data_path_abs as string | undefined,
           fileCountActual: d.file_count_actual as number | undefined,
-        })) })
-      }
-    } catch { /* ignore */ }
+        })),
+      }))
+    } catch (error) {
+      set(state => ({ dataResources: [], loadErrors: { ...state.loadErrors, data: `数据集加载失败：${String(error)}` } }))
+    }
   },
 
   fetchModelsFromApi: async () => {
     try {
-      const BASE_URL = ''
-      const res = await fetch(`${BASE_URL}/api/model/list`)
-      const data = await res.json()
-      if (Array.isArray(data.models) && data.models.length > 0) {
-        set({ modelResources: data.models.map((m: Record<string, unknown>) => ({
+      const models = await fetchList('/api/model/list', 'models')
+      set(state => ({
+        loadErrors: { ...state.loadErrors, model: undefined },
+        modelResources: models.map((m: Record<string, unknown>) => ({
           id: m.id as string, name: (m.name as string) || (m.id as string), description: '',
           type: 'model' as const, version: (m.version as string) || '0.1.0', status: 'active' as const,
           createdAt: (m.created_at as string) || '', updatedAt: '',
-          tags: (m.tags as string[]) || [], format: (m.framework as string) || '',
-          filePath: (m.model_path as string) || '', fileSize: 0, source: 'upload' as const, lineage: [],
-        })) })
-      }
-    } catch { /* ignore */ }
+          tags: (m.tags as string[]) || [], framework: (m.framework as string) || '',
+          modelType: m.model_type as ModelResource['modelType'],
+          weightPath: (m.model_path as string) || '',
+          inputFormat: Array.isArray(m.input_format) ? m.input_format as string[]
+            : m.input_format ? [m.input_format as string] : [],
+          outputFormat: Array.isArray(m.output_format) ? m.output_format as string[]
+            : m.output_format ? [m.output_format as string] : [],
+          deploymentStatus: (m.deployment_status as ModelResource['deploymentStatus']) || 'registered' as const,
+        })),
+      }))
+    } catch (error) {
+      set(state => ({ modelResources: [], loadErrors: { ...state.loadErrors, model: `模型加载失败：${String(error)}` } }))
+    }
   },
 }))

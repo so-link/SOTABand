@@ -123,20 +123,14 @@ class ToolRuntime:
             return [_P(__file__).resolve().parent.parent.parent / "resources" / "tools"]
 
     def _python_exe(self, tool_id: str) -> str:
-        """选择执行工具的 Python：优先工具独立 venv，否则当前解释器。"""
-        for space in self._tool_space_dirs():
-            venv_py = space / "implementations" / tool_id / ".venv" / "bin" / "python"
-            if venv_py.exists():
-                return str(venv_py)
-        return sys.executable
+        """常驻 Worker 与一次性执行、依赖检查使用相同 Python。"""
+        from core.executor.tool_environment import resolve_tool_python
+        return resolve_tool_python(tool_id)
 
     def _tool_dir(self, tool_id: str) -> Path:
         """在「内置 + 私有」资源根中定位工具实现目录。"""
-        for space in self._tool_space_dirs():
-            d = space / "implementations" / tool_id
-            if (d / "tool.py").exists():
-                return d
-        return self._tool_space_dirs()[0] / "implementations" / tool_id
+        from core.executor.tool_environment import resolve_tool_dir
+        return resolve_tool_dir(tool_id)
 
     def _has_worker_script(self, tool_id: str) -> bool:
         return (self._tool_dir(tool_id) / "tool.py").exists()
@@ -165,6 +159,7 @@ class ToolRuntime:
                     SOTABAND_ROOT=str(self.project_root),
                     TOOL_DIR=tool_dir,
                     PYTHONUNBUFFERED="1",
+                    PYTHONIOENCODING="utf-8",
                     PYTHONPATH=str(self.project_root),
                 )
                 proc = await asyncio.create_subprocess_exec(

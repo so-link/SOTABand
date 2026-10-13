@@ -52,7 +52,7 @@ def load_agent(impl_path: Path, agent_id: str):
             _def_dirs = [r / "agents" / "definitions" for r in _paths.resource_roots()]
         except Exception:
             _def_dirs = [PROJECT_ROOT / "resources" / "agents" / "definitions"]
-        for _d in _def_dirs:
+        for _d in reversed(_def_dirs):
             _f = _d / f"{agent_id}.md"
             if _f.exists():
                 raw_md = _f.read_text(encoding='utf-8')
@@ -114,34 +114,32 @@ async def main():
         agent_loaded = False
 
     # 通过 stdin/stdout JSON-line 协议通信
-    reader = asyncio.StreamReader()
-    protocol = asyncio.StreamReaderProtocol(reader)
-    await asyncio.get_event_loop().connect_read_pipe(lambda: protocol, sys.stdin)
-    w_transport, _ = await asyncio.get_event_loop().connect_write_pipe(
-        asyncio.streams.FlowControlMixin, sys.stdout
-    )
-    writer = asyncio.StreamWriter(w_transport, protocol, reader, asyncio.get_event_loop())
+    # 普通 Windows stdin/stdout 管道不支持 connect_read/write_pipe。
+    # 阻塞 I/O 放在线程中，保留异步执行和逐行 UTF-8 协议。
+    write_lock = asyncio.Lock()
 
     async def send_event(event: dict):
         """发送 JSON 行到主进程。
 
-        注意：必须显式 await drain()。asyncio.StreamWriter.write() 仅把数据放入
-        缓冲区，不保证立即送出；若不 drain，事件会滞留在缓冲区，导致主进程读取端
-        「一直转圈」等待——每次用户输入都要等缓冲区满或进程结束才能真正收到。
-        这正是「交互 Agent 每步输入都要等很久」的根因。
+        每个事件立即 flush，避免用户等待缓冲区满或进程退出才收到响应。
         """
         line = json.dumps(event, ensure_ascii=False) + "\n"
-        writer.write(line.encode())
-        try:
-            await writer.drain()
-        except Exception:
-            pass
+        def write_line():
+            sys.stdout.buffer.write(line.encode("utf-8"))
+            sys.stdout.buffer.flush()
+
+        async with write_lock:
+            await asyncio.to_thread(write_line)
 
     # 加载失败 → 通知主进程后退出
     if not agent_loaded:
         await send_event({"event": "error", "data": {"message": load_error[:500]}})
         await send_event({"event": "done", "data": {"messageId": "fatal"}})
         return
+
+    await send_event({"event": "agent_ready", "data": {
+        "agent_id": args.agent_id, "role": agent.role.value,
+    }})
 
     # ── Web 服务式：加载成功后自动启动 HTTP 服务 ──
     _web_host = None
@@ -180,7 +178,7 @@ async def main():
     try:
         while True:
             try:
-                line = await reader.readline()
+                line = await asyncio.to_thread(sys.stdin.buffer.readline)
                 if not line:
                     break  # stdin closed → 主进程要求退出
 

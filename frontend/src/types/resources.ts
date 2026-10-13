@@ -63,7 +63,7 @@ export interface ToolResource extends BaseResource {
 export interface ModelResource extends BaseResource {
   type: 'model'
   framework: string        // PyTorch, ONNX, TensorFlow, etc.
-  modelType: 'llm' | 'vision' | 'timeseries' | 'audio' | 'multimodal'
+  modelType?: 'llm' | 'vision' | 'timeseries' | 'audio' | 'multimodal'
   paramCount?: number
   weightPath: string
   inputFormat: string[]

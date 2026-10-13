@@ -11,6 +11,8 @@ import time
 from pathlib import Path
 from typing import AsyncGenerator
 
+from core.agent.implementations import BUILTIN_AGENT_PATHS
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
@@ -26,11 +28,13 @@ class AgentFactory:
     def _resolve_impl_path(agent_id: str) -> str | None:
         """在「内置 + 私有」资源根中定位 Agent 实现目录（相对 PROJECT_ROOT 的路径）。
 
-        返回第一个含 agent.py 的实现目录；均不存在时返回 None。
+        系统 Agent 使用核心源码；用户资源同 ID 时私有目录优先。
         """
         from core.resource import paths as _paths
 
-        for root in _paths.resource_roots():
+        if agent_id in BUILTIN_AGENT_PATHS:
+            return BUILTIN_AGENT_PATHS[agent_id]
+        for root in reversed(_paths.resource_roots()):
             impl_dir = root / "agents" / "implementations" / agent_id
             if (impl_dir / "agent.py").exists():
                 try:
@@ -45,7 +49,9 @@ class AgentFactory:
         if agent_id in self._processes and self._processes[agent_id].returncode is None:
             return {"agent_id": agent_id, "status": "already_running"}
 
-        if impl_path is None:
+        if agent_id in BUILTIN_AGENT_PATHS:
+            impl_path = BUILTIN_AGENT_PATHS[agent_id]
+        elif impl_path is None:
             # 在内置 + 私有资源根中检索实现目录
             impl_path = self._resolve_impl_path(agent_id) or f"resources/agents/implementations/{agent_id}"
 
@@ -53,11 +59,19 @@ class AgentFactory:
         agent_file = PROJECT_ROOT / impl_path / "agent.py"
 
         if not agent_file.exists():
+            if agent_id in BUILTIN_AGENT_PATHS:
+                return {"agent_id": agent_id, "status": "failed", "running": False,
+                        "error": f"系统 Agent 源码缺失，请检查项目安装: {agent_file}"}
             # 尝试从 MD 规范文档重新生成代码
             rebuilt = await self._try_rebuild(agent_id)
             if not rebuilt:
                 return {"agent_id": agent_id, "status": "failed",
                         "error": f"Agent 代码不存在且无法从 spec 重新生成: {agent_file}"}
+            # 重建写入私有目录，需要重新定位，而不是继续使用原来的缺失路径。
+            impl_path = self._resolve_impl_path(agent_id)
+            if impl_path is None:
+                return {"agent_id": agent_id, "status": "failed", "error": "重建后未找到 Agent 实现"}
+            agent_file = PROJECT_ROOT / impl_path / "agent.py"
 
         # 预检查：验证代码质量
         if agent_file.exists():
@@ -92,24 +106,12 @@ class AgentFactory:
             )
             self._processes[agent_id] = proc
 
-            # 等待子进程初始化
-            await asyncio.sleep(1.0)
-
-            if proc.returncode is not None:
-                # 进程已退出 → 读取 stderr 获取错误信息
-                try:
-                    stderr_data = await proc.stdout.read(4096)  # 可能包含 error 事件
-                    stderr_text = stderr_data.decode(errors="replace") if stderr_data else ""
-                except Exception:
-                    stderr_text = ""
-                try:
-                    err_data = await proc.stderr.read(4096)
-                    err_text = err_data.decode(errors="replace") if err_data else ""
-                except Exception:
-                    err_text = ""
-                detail = (stderr_text + err_text)[:300].strip() or "进程异常退出"
-                self._processes.pop(agent_id, None)
-                return {"agent_id": agent_id, "status": "failed", "running": False, "error": detail}
+            # 只消费启动握手；后续对话事件仍由 execute_stream 单独读取。
+            startup_error = await self._wait_ready(proc)
+            if startup_error:
+                await self.stop(agent_id)
+                return {"agent_id": agent_id, "status": "failed", "running": False,
+                        "error": startup_error}
 
             # 仅对 web-service 类型尝试捕获 service_ready 事件。
             # 其他类型（interactive/task）不应在此读取 stdout——那会与后续
@@ -123,7 +125,33 @@ class AgentFactory:
                 result["service"] = self._services[agent_id]
             return result
         except Exception as e:
+            if agent_id in self._processes:
+                await self.stop(agent_id)
             return {"agent_id": agent_id, "status": "failed", "error": str(e)}
+
+    @staticmethod
+    async def _wait_ready(proc, timeout: float = 30.0) -> str | None:
+        """等到入口完成 load/on_start，避免把仍在加载或加载失败的进程报为就绪。"""
+        deadline = asyncio.get_running_loop().time() + timeout
+        try:
+            while True:
+                remaining = deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    return "Agent 启动超时（未收到就绪确认）"
+                line = await asyncio.wait_for(proc.stdout.readline(), timeout=remaining)
+                if not line:
+                    error = await asyncio.wait_for(proc.stderr.read(4096), timeout=1)
+                    return error.decode("utf-8", "replace").strip() or "Agent 进程在就绪前退出"
+                try:
+                    event = json.loads(line)
+                except (ValueError, UnicodeDecodeError):
+                    continue
+                if event.get("event") == "agent_ready":
+                    return None
+                if event.get("event") == "error":
+                    return event.get("data", {}).get("message") or "Agent 加载失败"
+        except asyncio.TimeoutError:
+            return "Agent 启动超时（未收到就绪确认）"
 
     def _is_web_service(self, agent_id: str, impl_path: str | None = None) -> bool:
         """判断该 Agent 是否为 web-service 类型（读取其实现代码中的 role 声明）。"""
@@ -181,11 +209,11 @@ class AgentFactory:
         if re.search(r'from base_agent import|import base_agent', code):
             issues.append("错误的导入: 应使用 'from core.agent.base import BaseAgent, AgentContext'")
         # 缺失必需的 import
-        if 'from pathlib import Path' not in code:
+        if re.search(r'\bPath\s*\(', code) and 'from pathlib import Path' not in code:
             issues.append("缺少 'from pathlib import Path'")
-        if 'import json' not in code:
+        if re.search(r'\bjson\.', code) and 'import json' not in code:
             issues.append("缺少 'import json'")
-        if 'import sys' not in code:
+        if re.search(r'\bsys\.', code) and 'import sys' not in code:
             issues.append("缺少 'import sys'")
         # 错误的方法调用
         if 'ctx.get_input(' in code:
@@ -269,7 +297,7 @@ class AgentFactory:
         from core.resource import paths as _paths
 
         spec_file = None
-        for root in _paths.resource_roots():
+        for root in reversed(_paths.resource_roots()):
             cand = root / "agents" / "definitions" / f"{agent_id}.md"
             if cand.exists():
                 spec_file = cand

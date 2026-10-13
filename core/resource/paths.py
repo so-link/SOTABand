@@ -9,8 +9,8 @@ SOTABand 的资源分为两类：
 平台加载时**同时读取**两个目录下的同类资源（后者覆盖 / 追加），
 而**新建的资源一律写入私有目录**——这样「公共模板」与「个人资产」自然隔离。
 
-目录位置：私有目录位于项目根目录的同级位置（与 resources/ 平级），
-默认路径为 ``<项目根>/resources-private``，可通过环境变量
+目录位置：私有目录位于项目根目录的同级位置，
+默认路径为 ``<项目根父目录>/resources-private``，可通过环境变量
 ``SOTABAND_PRIVATE_RESOURCES`` 覆盖。
 """
 
@@ -32,8 +32,7 @@ _PRIVATE_ENV = os.environ.get("SOTABAND_PRIVATE_RESOURCES", "").strip()
 
 
 def _default_private_root() -> Path:
-    # 优先：<项目根>/resources-private（若存在或可创建）
-    # 备选：<项目根父目录>/resources-private（按用户指定的“SOTABand 目录下”）
+    # 项目同级目录；保持私有资源目录设计原有的默认位置。
     return PROJECT_ROOT.parent / "resources-private"
 
 

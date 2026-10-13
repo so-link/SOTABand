@@ -28,10 +28,8 @@ import time as _time
 from pathlib import Path
 from typing import AsyncGenerator
 
-# 项目根目录
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+# 引擎入口已把核心模块加入 sys.path；私有目录可以位于项目之外。
+from core.resource.paths import PROJECT_ROOT
 
 from core.agent.base import BaseAgent, AgentContext
 '''
@@ -43,47 +41,8 @@ from core.agent.base import BaseAgent, AgentContext
 TOOL_HELPER_TEMPLATE = '''
     def _call_tool_{tool_id_safe}(self, **params) -> dict:
         """调用工具: {tool_name} (tool_id: {tool_id})"""
-        # 在「内置 + 私有」资源根中定位工具实现
-        _tool_base = None
-        for _root in (PROJECT_ROOT / "resources", PROJECT_ROOT.parent / "resources-private"):
-            _cand = _root / "tools" / "implementations" / "{tool_id}"
-            if (_cand / "tool.py").exists():
-                _tool_base = _cand
-                break
-        if _tool_base is None:
-            return {{"status": "failed", "message": f"工具不存在: {tool_id}"}}
-        impl_path = _tool_base / "tool.py"
-
-        code = impl_path.read_text(encoding='utf-8')
-        venv_python = _tool_base / ".venv" / "bin" / "python"
-        python_exe = str(venv_python) if venv_python.exists() else sys.executable
-
-        def _safe_dumps(obj):
-            return json.dumps(obj, ensure_ascii=False).encode('utf-8', errors='replace').decode('utf-8')
-
-        test_script = (
-            f"import json, sys\\n"
-            f"sys.path.insert(0, {{_safe_dumps(str(PROJECT_ROOT))}})\\n"
-            f"code = {{_safe_dumps(code)}}\\n"
-            f"exec(code)\\n"
-            f"result = execute(**{{_safe_dumps(params)}})\\n"
-            f"print(json.dumps(result, default=str))\\n"
-        )
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-            f.write(test_script)
-            tmp_path = f.name
-        try:
-            proc = subprocess.run(
-                [python_exe, tmp_path],
-                capture_output=True, text=True,
-                env={{**os.environ, "TOOL_DIR": str(impl_path.parent), "_PROJECT_ROOT": str(PROJECT_ROOT)}},
-            )
-            if proc.returncode == 0:
-                return json.loads(proc.stdout.strip())
-            else:
-                return {{"status": "failed", "message": proc.stderr[:300]}}
-        finally:
-            os.unlink(tmp_path)
+        from core.executor.tool_executor import ToolExecutor
+        return ToolExecutor.execute_sync("{tool_id}", params, timeout=None)
 '''
 
 # ═══════════════════════════════════════════════════════════════════
@@ -229,13 +188,11 @@ class AgentCodeBuilder(BaseBuilder):
 
     @staticmethod
     def _lookup_tool(name: str) -> dict:
-        tools_dir = Path(__file__).resolve().parent.parent.parent.parent / "resources" / "tools"
-        registry_file = tools_dir / "registry.json"
         try:
-            if registry_file.exists():
-                for t in json.loads(registry_file.read_text(encoding='utf-8')):
-                    if t.get("name") == name:
-                        return {"id": t["id"], "params": t.get("param_meta", [])}
+            from core.resource.registry.tool_registry import ToolRegistry
+            for t in ToolRegistry()._read():
+                if t.get("id") == name or t.get("name") == name:
+                    return {"id": t["id"], "params": t.get("param_meta", [])}
         except Exception:
             pass
         return {"id": name, "params": []}
