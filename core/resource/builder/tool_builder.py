@@ -50,14 +50,8 @@ from pathlib import Path
 from typing import Any
 import requests
 
-# ── 项目根路径 ──
-_tool_dir = os.environ.get("TOOL_DIR", "")
-if _tool_dir:
-    _PROJECT_ROOT = Path(_tool_dir).resolve().parent.parent.parent.parent
-else:
-    _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
+# ── 引擎根路径：不从可自定义的私有工具目录推算 ──
+from core.resource.paths import PROJECT_ROOT as _PROJECT_ROOT
 
 # ── 数据目录 ──
 _DATA_DIR = _PROJECT_ROOT / "data"
@@ -92,41 +86,15 @@ def _llm_chat(messages: list, **kwargs) -> str:
 # ── 工具调用辅助 ──
 def _call_tool(tool_name: str, **params) -> dict:
     """调用已注册的工具（通过 registry.json 查找工具 ID 对应的实现目录）"""
-    import subprocess as _sp
     # 从 registry.json 中查找工具 ID（目录名）
-    reg_path = _PROJECT_ROOT / "resources" / "tools" / "registry.json"
     tool_id = tool_name  # 默认用名称作为 ID
-    if reg_path.exists():
-        try:
-            tools = json.loads(reg_path.read_text(encoding="utf-8"))
-            # 先精确匹配 id，再模糊匹配 name
-            for t in tools:
-                if t.get("id") == tool_name or t.get("name") == tool_name:
-                    tool_id = t["id"]
-                    break
-        except Exception:
-            pass
-    # 在「内置 + 私有」资源根中定位工具实现
-    tool_dir = None
-    for _root in (_PROJECT_ROOT / "resources", _PROJECT_ROOT.parent / "resources-private"):
-        _cand = _root / "tools" / "implementations" / tool_id
-        if (_cand / "tool.py").exists():
-            tool_dir = _cand
+    from core.resource.registry.tool_registry import ToolRegistry
+    from core.executor.tool_executor import ToolExecutor
+    for t in ToolRegistry()._read():
+        if t.get("id") == tool_name or t.get("name") == tool_name:
+            tool_id = t["id"]
             break
-    if tool_dir is None:
-        return {"status": "failed", "message": f"Tool '{tool_name}' (id={tool_id}) not found"}
-    tool_file = tool_dir / "tool.py"
-    venv_py = tool_dir / ".venv" / "bin" / "python"
-    py_exe = str(venv_py) if venv_py.exists() else sys.executable
-    script = f"import json, sys; sys.path.insert(0, {str(_PROJECT_ROOT)!r}); exec(open({str(tool_file)!r}, encoding='utf-8').read()); print(json.dumps(execute(**{params!r}), default=str, ensure_ascii=False))"
-    # encoding/errors 必须显式：工具输出是含中文的 UTF-8 JSON，
-    # Windows 下 text=True 默认按 GBK 解码会直接 UnicodeDecodeError
-    proc = _sp.run([py_exe, "-c", script], capture_output=True, text=True,
-                   encoding="utf-8", errors="replace", timeout=30)
-    try:
-        return json.loads(proc.stdout.strip())
-    except:
-        return {"status": "failed", "message": proc.stderr[:500]}
+    return ToolExecutor.execute_sync(tool_id, params, timeout=30)
 
 # ── 文件路径辅助 ──
 def _resolve_path(path: str) -> str:
@@ -691,41 +659,12 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
         from core.executor.tool_executor import ToolExecutor
         return ToolExecutor._get_python_exe(tool_id)
 
-    def _get_exec_pip(self, tool_id: str) -> str:
+    def _get_exec_pip(self, tool_id: str) -> list[str]:
         """获取 pip 安装命令。
         
-        工具独立 .venv → 用 .venv/bin/pip（如果可用）
-        项目 venv → 用 python -m pip（避免 shebang 空格路径问题）
+        使用实际执行工具的解释器 -m pip，兼容 Windows 和包含空格的路径。
         """
-        python_exe = self._get_exec_python(tool_id)
-        py_dir = Path(python_exe).parent
-        is_tool_venv = "resources/tools/implementations" in str(py_dir)
-
-        if is_tool_venv:
-            pip = str(py_dir / "pip")
-            if Path(pip).exists():
-                return pip
-            pip3 = str(py_dir / "pip3")
-            if Path(pip3).exists():
-                return pip3
-
-        # 项目 venv 或回退：统一用 python -m pip（安全可靠）
-        return f"{python_exe} -m pip"
-
-    def _get_install_target(self) -> str:
-        """获取 pip install --target 的目标目录：项目 venv 的 site-packages"""
-        project_root = Path(__file__).resolve().parent.parent.parent.parent
-        site_packages = project_root / "venv" / "lib" / "python3.12" / "site-packages"
-        if site_packages.exists():
-            return str(site_packages)
-        # 尝试其他 Python 版本
-        venv_lib = project_root / "venv" / "lib"
-        if venv_lib.exists():
-            for d in sorted(venv_lib.iterdir(), reverse=True):
-                sp = d / "site-packages"
-                if sp.exists():
-                    return str(sp)
-        return ""
+        return [self._get_exec_python(tool_id), "-m", "pip"]
 
     async def install_deps_stream(self, tool_id: str, dependencies: list[str], stop_event=None):
         """流式安装依赖：实时输出 pip 日志，失败时用 LLM 分析原因并调整命令重试。
@@ -738,7 +677,7 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
         
         安装目标：
         - 工具独立 .venv → 安装到工具自己的 .venv
-        - 否则 → 安装到项目 venv 的 site-packages
+        - 否则 → 项目 venv/.venv，或当前运行平台的 Python 环境
         """
         import asyncio, threading
 
@@ -747,8 +686,7 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
         is_local = ".venv" in exec_python
         env_label = "local" if is_local else "project_venv"
 
-        # 如果不是工具独立 venv，安装到项目 venv 的 site-packages
-        install_target = "" if is_local else self._get_install_target()
+        # python -m pip 已选中实际执行环境，无需猜测 site-packages 或跨环境 --target。
 
         yield {"event": "deps_start", "deps": list(dependencies), "env": env_label}
 
@@ -759,11 +697,9 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
             )
             return proc.returncode == 0
 
-        def _pip_worker(pip_cmd: str, dep: str, target: str, output_queue: asyncio.Queue):
+        def _pip_worker(pip_cmd: list[str], dep: str, output_queue: asyncio.Queue):
             """在线程中执行 pip install，逐行推入 queue"""
-            parts = pip_cmd.split() + ["install", dep]
-            if target:
-                parts += ["--target", target]
+            parts = list(pip_cmd) + ["install", dep]
             try:
                 proc = subprocess.Popen(
                     parts,
@@ -801,7 +737,7 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
             for attempt in range(max_retries + 1):
                 q = asyncio.Queue()
                 all_output = ""
-                thread = threading.Thread(target=_pip_worker, args=(exec_pip, current_dep, install_target, q), daemon=True)
+                thread = threading.Thread(target=_pip_worker, args=(exec_pip, current_dep, q), daemon=True)
                 thread.start()
 
                 # 从 queue 读取输出，短超时轮询 + 停止检查

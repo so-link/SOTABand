@@ -11,19 +11,11 @@ export interface WorkspaceTool {
 
 interface WorkspaceToolState {
   tools: WorkspaceTool[]
-  fetchFromApi: () => Promise<void>
+  loadError: string | null
+  fetchFromApi: (availableTools?: ReadonlyArray<{ id: string; name: string; tags: string[] }>) => Promise<void>
   addTool: (tool: WorkspaceTool) => void
   removeTool: (id: string) => void
   isLoaded: (id: string) => boolean
-}
-
-// localStorage 仅作降级缓存。真实状态源是后端 storage/workspace_tools.json：
-// 以前清单只存 localStorage，换浏览器 / 无痕窗口 / 清缓存后工具空间就全空了。
-function loadFromStorage(): WorkspaceTool[] {
-  try {
-    const data = localStorage.getItem(STORAGE_KEY)
-    return data ? JSON.parse(data) : []
-  } catch { return [] }
 }
 
 function saveToStorage(tools: WorkspaceTool[]) {
@@ -31,37 +23,37 @@ function saveToStorage(tools: WorkspaceTool[]) {
 }
 
 export const useWorkspaceToolStore = create<WorkspaceToolState>((set, get) => ({
-  tools: loadFromStorage(),
+  tools: [],
+  loadError: null,
 
-  // 启动时以后端为准（无痕窗口 / 换浏览器等 localStorage 为空的场景也能拉到真实清单）
-  fetchFromApi: async () => {
+  // 重新加载只读取当前后端，且加载清单中的工具必须仍在真实工具库中。
+  fetchFromApi: async (availableTools) => {
     try {
-      const res = await fetch('/api/tool/workspace')
+      const res = await fetch('/api/tool/workspace', { cache: 'no-store' })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
-      if (Array.isArray(data.tools) && data.tools.length > 0) {
-        set({ tools: data.tools })
-        saveToStorage(data.tools)
-        return
+      if (!Array.isArray(data.tools)) throw new Error('后端返回的工具加载清单格式错误')
+      let registered = availableTools
+      if (!registered) {
+        const registryRes = await fetch('/api/tool/list', { cache: 'no-store' })
+        if (!registryRes.ok) throw new Error(`HTTP ${registryRes.status}`)
+        const registryData = await registryRes.json()
+        if (!Array.isArray(registryData.tools)) throw new Error('后端返回的工具列表格式错误')
+        registered = registryData.tools.map((t: Record<string, unknown>) => ({
+          id: t.id as string, name: (t.name as string) || (t.id as string), tags: (t.tags as string[]) || [],
+        }))
       }
-      // 一次性迁移：后端清单为空而本地 localStorage 有旧数据（升级前只存
-      // localStorage），先把本地清单上传到后端，再拉回对齐。
-      const local = loadFromStorage()
-      if (local.length > 0) {
-        for (const t of local) {
-          await fetch('/api/tool/workspace', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: t.id, name: t.name, tags: t.tags }),
-          }).catch(() => { /* ignore */ })
-        }
-        const r2 = await fetch('/api/tool/workspace')
-        const d2 = await r2.json()
-        if (Array.isArray(d2.tools) && d2.tools.length > 0) {
-          set({ tools: d2.tools })
-          saveToStorage(d2.tools)
-        }
-      }
-    } catch { /* 后端不可达时保留 localStorage 数据 */ }
+      const byId = new Map(registered!.map(t => [t.id, t]))
+      const tools = (data.tools as WorkspaceTool[]).flatMap(t => {
+        const actual = byId.get(t.id)
+        return actual ? [{ ...t, name: actual.name, tags: actual.tags }] : []
+      })
+      set({ tools, loadError: null })
+      saveToStorage(tools)
+    } catch (error) {
+      set({ tools: [], loadError: `工具加载清单获取失败：${String(error)}` })
+      saveToStorage([])
+    }
   },
 
   addTool: (tool) => {

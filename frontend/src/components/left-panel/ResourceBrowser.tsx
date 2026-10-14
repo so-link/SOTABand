@@ -11,6 +11,7 @@ import {
   Plus,
   Minus,
   Package,
+  RefreshCw,
 } from 'lucide-react'
 import { useResourceStore } from '@/stores/resource-store'
 import { useUIStore } from '@/stores/ui-store'
@@ -18,7 +19,7 @@ import { useWorkspaceToolStore } from '@/stores/workspace-tool-store'
 import { useWorkspaceDatasetStore } from '@/stores/workspace-dataset-store'
 import { useUnsavedMarks } from '@/hooks/use-unsaved-marks'
 import { cn } from '@/lib/utils'
-import type { Resource, ResourceType, ToolResource } from '@/types/resources'
+import type { Resource, ResourceType, ToolResource, AgentResource } from '@/types/resources'
 
 interface ResourceSectionDef {
   type: ResourceType
@@ -45,9 +46,10 @@ export function ResourceBrowser() {
     selectedResource,
     selectResource,
     fetchAgentsFromApi,
-    fetchToolsFromApi,
-    fetchDatasetsFromApi,
     fetchModelsFromApi,
+    fetchAllResources,
+    isLoading,
+    loadErrors,
   } = useResourceStore()
   const { rightPanelOpen, toggleRightPanel, setActiveView } = useUIStore()
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
@@ -56,15 +58,10 @@ export function ResourceBrowser() {
   // 各编辑器中的未保存改动，用于在资源树上打标记
   const unsaved = useUnsavedMarks()
 
-  // 启动时确保从 API 加载（仅一次，MainLayout 的 fetchAllResources 已经调过）
+  // 页面打开与手动重新加载使用同一套后端数据同步逻辑。
   useEffect(() => {
-    fetchAgentsFromApi()
-    fetchToolsFromApi()
-    fetchDatasetsFromApi()
-    fetchModelsFromApi()
-    // 工具空间清单以后端为准（无痕窗口 / 换浏览器时 localStorage 是空的）
-    useWorkspaceToolStore.getState().fetchFromApi()
-  }, []) // 空依赖，只执行一次
+    void fetchAllResources()
+  }, [fetchAllResources])
 
   const toggleSection = (type: string) => {
     setExpandedSections((prev) => {
@@ -77,6 +74,7 @@ export function ResourceBrowser() {
 
   // 工具空间：从 workspace store 读取已加载的工具
   const workspaceTools = useWorkspaceToolStore((s) => s.tools)
+  const workspaceLoadError = useWorkspaceToolStore((s) => s.loadError)
   const workspaceRemoveTool = useWorkspaceToolStore((s) => s.removeTool)
   const workspaceRemoveDataset = useWorkspaceDatasetStore((s) => s.removeDataset)
 
@@ -88,7 +86,7 @@ export function ResourceBrowser() {
         // isUserGenerated 不能硬编码为 true —— workspace 只是"加载清单"，
         // 里面既有内置示例也有用户本地生成的工具。
         // 真实判定要查工具仓库（toolResources，后端按 owner 字段标注）。
-        return workspaceTools.map(t => {
+        return workspaceTools.filter(t => toolResources.some(r => r.id === t.id)).map(t => {
           // 用类型谓词收窄：仓库里混着各类型资源，只有 tool 才有 isUserGenerated
           const repoTool = toolResources.find(
             (r): r is ToolResource => r.type === 'tool' && r.id === t.id,
@@ -167,8 +165,26 @@ export function ResourceBrowser() {
 
   return (
     <div className="flex flex-col py-1.5 px-1 gap-0">
+      <div className="flex justify-end px-2 pb-1">
+        <button
+          type="button"
+          onClick={() => void fetchAllResources()}
+          disabled={isLoading}
+          title="从当前后端重新加载资源"
+          className="flex items-center gap-1 rounded px-1.5 py-1 text-[11px] text-maia-text-muted hover:text-maia-accent disabled:opacity-50"
+        >
+          <RefreshCw className={cn('h-3 w-3', isLoading && 'animate-spin')} />
+          {isLoading ? '正在加载' : '重新加载'}
+        </button>
+      </div>
+      {(Object.values(loadErrors).some(Boolean) || workspaceLoadError) && (
+        <p role="alert" className="px-2 pb-2 text-[11px] text-maia-danger">
+          部分资源加载失败，请检查后端后重新加载。
+        </p>
+      )}
       {SECTIONS.map((section) => {
         const resources = getResources(section.type)
+        const loadError = loadErrors[section.type] || (section.type === 'tool' ? workspaceLoadError : null)
         const isExpanded = expandedSections.has(section.type)
         const Icon = section.icon
 
@@ -302,7 +318,12 @@ export function ResourceBrowser() {
                         </span>
                       )}
                     {resource.type === 'agent' && (
-                      <span className="h-1.5 w-1.5 rounded-full shrink-0 bg-maia-success" />
+                      <span
+                        title={(resource as AgentResource).healthStatus === 'healthy' ? '正在运行'
+                          : (resource as AgentResource).healthStatus === 'offline' ? '未运行' : '运行状态未知'}
+                        className={cn('h-1.5 w-1.5 rounded-full shrink-0',
+                          (resource as AgentResource).healthStatus === 'healthy' ? 'bg-maia-success' : 'bg-maia-text-muted')}
+                      />
                     )}
                     {resource.type === 'task' && (
                       <span className="text-[10px] text-maia-text-muted shrink-0 tracking-tight">
@@ -320,8 +341,8 @@ export function ResourceBrowser() {
                   </div>
                 ))}
                 {resources.length === 0 && (
-                  <p className="text-[10px] text-maia-text-muted py-1 px-1.5 tracking-wide">
-                    暂无资源
+                  <p title={loadError || undefined} className={cn('text-[10px] py-1 px-1.5 tracking-wide', loadError ? 'text-maia-danger' : 'text-maia-text-muted')}>
+                    {loadError ? '加载失败，请重新加载' : isLoading ? '正在加载…' : '暂无资源'}
                   </p>
                 )}
               </div>

@@ -1,295 +1,196 @@
 #!/usr/bin/env python3
-"""自动检查所有工具运行环境，安装缺失的 Python 包。
+"""检查已有工具的 Python 依赖；空资源库正常跳过，不负责安装平台本身。"""
 
-用法:
-    python scripts/check_tool_env.py            # 检查并交互式安装
-    python scripts/check_tool_env.py --auto     # 自动安装所有缺失包
-    python scripts/check_tool_env.py --dry-run  # 仅检查，不安装
-"""
-
+import argparse
 import ast
+import json
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
 
-# ── 标准库列表（Python 3.12）──
-STD_LIBS = {
-    "abc", "aifc", "argparse", "array", "ast", "asynchat", "asyncio",
-    "asyncore", "atexit", "audioop", "base64", "bdb", "binascii", "bisect",
-    "builtins", "bz2", "calendar", "cgi", "cgitb", "chunk", "cmath", "cmd",
-    "code", "codecs", "codeop", "collections", "colorsys", "compileall",
-    "concurrent", "configparser", "contextlib", "contextvars", "copy",
-    "copyreg", "cProfile", "crypt", "csv", "ctypes", "curses", "dataclasses",
-    "datetime", "dbm", "decimal", "difflib", "dis", "distutils", "doctest",
-    "email", "encodings", "enum", "errno", "faulthandler", "fcntl",
-    "filecmp", "fileinput", "fnmatch", "formatter", "fractions", "ftplib",
-    "functools", "gc", "getopt", "getpass", "gettext", "glob", "graphlib",
-    "grp", "gzip", "hashlib", "heapq", "hmac", "html", "http", "idlelib",
-    "imaplib", "imghdr", "imp", "importlib", "inspect", "io", "ipaddress",
-    "itertools", "json", "keyword", "lib2to3", "linecache", "locale",
-    "logging", "lzma", "mailbox", "mailcap", "marshal", "math", "mimetypes",
-    "mmap", "modulefinder", "multiprocessing", "netrc", "nis", "nntplib",
-    "numbers", "operator", "optparse", "os", "ossaudiodev", "parser",
-    "pathlib", "pdb", "pickle", "pickletools", "pipes", "pkgutil",
-    "platform", "plistlib", "poplib", "posix", "posixpath", "pprint",
-    "profile", "pstats", "pty", "pwd", "py_compile", "pyclbr",
-    "pydoc", "queue", "quopri", "random", "re", "readline", "reprlib",
-    "resource", "rlcompleter", "runpy", "sched", "secrets", "select",
-    "selectors", "shelve", "shlex", "shutil", "signal", "site", "smtpd",
-    "smtplib", "sndhdr", "socket", "socketserver", "sqlite3", "ssl",
-    "stat", "statistics", "string", "stringprep", "struct", "subprocess",
-    "sunau", "symtable", "sys", "sysconfig", "syslog", "tabnanny",
-    "tarfile", "telnetlib", "tempfile", "termios", "test", "textwrap",
-    "threading", "time", "timeit", "tkinter", "token", "tokenize",
-    "tomllib", "trace", "traceback", "tracemalloc", "tty", "turtle",
-    "turtledemo", "types", "typing", "unicodedata", "unittest", "urllib",
-    "uu", "uuid", "venv", "warnings", "wave", "weakref", "webbrowser",
-    "winreg", "winsound", "wsgiref", "xdrlib", "xml", "xmlrpc",
-    "zipapp", "zipfile", "zipimport", "zlib",
-    # 内置模块
-    "_thread", "_io", "_collections_abc", "__future__",
-}
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+# 与后端一致，先读取 .env，再解析 SOTABAND_PRIVATE_RESOURCES。
+import config.settings  # noqa: E402,F401
+from core.executor.tool_environment import discover_tools, implementation_dirs, resolve_python  # noqa: E402
 
-# ── pip 包名映射（import 名 → pip 包名）──
 PIP_NAME_MAP = {
-    "cv2": "opencv-python-headless",
-    "PIL": "Pillow",
-    "sklearn": "scikit-learn",
+    "cv2": "opencv-python-headless", "PIL": "Pillow", "sklearn": "scikit-learn",
     "bing_image_downloader": "bing-image-downloader",
-    "volcenginesdkarkruntime": "volcengine-python-sdk[ark]",
-    "yaml": "PyYAML",
-    "dotenv": "python-dotenv",
-    "fitz": "PyMuPDF",
+    "volcenginesdkarkruntime": "volcengine-python-sdk[ark]", "yaml": "PyYAML",
+    "dotenv": "python-dotenv", "fitz": "PyMuPDF",
 }
+PROJECT_MODULES = {"app", "core", "resources", "storage", "config"}
 
 
-def get_project_root() -> Path:
-    """获取项目根目录"""
-    return Path(__file__).resolve().parent.parent
+def _run(python_exe: str, args: list[str], *, timeout: int = 30):
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+    return subprocess.run(
+        [python_exe, *args], capture_output=True, text=True,
+        encoding="utf-8", errors="replace", timeout=timeout,
+        cwd=PROJECT_ROOT, env=env,
+    )
 
 
-def get_tool_dir() -> Path:
-    """获取工具实现目录"""
-    return get_project_root() / "resources" / "tools" / "implementations"
+def get_std_libs(python_exe: str) -> set[str]:
+    """按工具实际 Python 版本识别标准库，避免把旧版清单写死。"""
+    result = _run(python_exe, ["-c", (
+        "import sys,json; print(json.dumps(sorted(set(sys.stdlib_module_names)"
+        " | set(sys.builtin_module_names))))"
+    )])
+    if result.returncode:
+        raise RuntimeError(result.stderr.strip() or "Python 环境无法启动")
+    return set(json.loads(result.stdout.strip()))
 
 
-def get_python_exe() -> str:
-    """获取 Python 解释器路径"""
-    # 优先用全局 venv
-    venv_py = get_project_root() / "venv" / "bin" / "python"
-    if venv_py.exists():
-        return str(venv_py)
-    return sys.executable
-
-
-def extract_imports(file_path: Path) -> List[str]:
-    """从 Python 文件中提取所有顶层 import 的模块名"""
-    try:
-        tree = ast.parse(file_path.read_text(encoding='utf-8'))
-    except SyntaxError:
-        return []
-
-    imports = []
+def extract_imports(file_path: Path) -> list[str]:
+    """提取绝对 import；语法错误向上传递，不能当作无依赖。"""
+    tree = ast.parse(file_path.read_text(encoding="utf-8-sig"), filename=str(file_path))
+    imports = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            for alias in node.names:
-                # 取顶层模块名
-                top = alias.name.split(".")[0]
-                imports.append(top)
-        elif isinstance(node, ast.ImportFrom):
-            if node.module:
-                top = node.module.split(".")[0]
-                imports.append(top)
-    return imports
+            imports.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            imports.add(node.module.split(".")[0])
+    return sorted(imports)
 
 
-def is_std_lib(module_name: str) -> bool:
-    """判断是否为标准库"""
-    return module_name in STD_LIBS
+def collect_dependencies(tool_dir: Path, std_libs: set[str]) -> set[str]:
+    """本地辅助模块无需 pip，但其自身的第三方 import 仍需检查。"""
+    dependencies = set()
+    files = [tool_dir / "tool.py"]
+    visited = set()
+    while files:
+        file_path = files.pop()
+        if file_path in visited:
+            continue
+        visited.add(file_path)
+        for module in extract_imports(file_path):
+            local_file = tool_dir / f"{module}.py"
+            local_package = tool_dir / module
+            if local_file.is_file():
+                files.append(local_file)
+            elif local_package.is_dir():
+                files.extend(local_package.rglob("*.py"))
+            elif module not in std_libs and module not in PROJECT_MODULES:
+                dependencies.add(module)
+    return dependencies
 
 
-def is_project_module(module_name: str) -> bool:
-    """判断是否为项目内部模块"""
-    project_modules = {"app", "core", "resources", "storage", "config"}
-    return module_name in project_modules
-
-
-def check_module_installed(module_name: str, python_exe: str) -> bool:
-    """检查模块是否已安装"""
+def check_module(module_name: str, python_exe: str) -> tuple[str, str]:
+    """区分未安装与已安装但无法导入；后者不能误报为安装成功。"""
+    probe = """import importlib,json,sys
+try:
+    importlib.import_module(sys.argv[1])
+    result = {"status": "ready", "error": ""}
+except ModuleNotFoundError as exc:
+    status = "missing" if exc.name == sys.argv[1] else "broken"
+    result = {"status": status, "error": str(exc)}
+except Exception as exc:
+    result = {"status": "broken", "error": str(exc)}
+print(json.dumps(result, ensure_ascii=False))
+"""
     try:
-        result = subprocess.run(
-            [python_exe, "-c", f"import {module_name}"],
-            capture_output=True, text=True, timeout=10,
-        )
-        return result.returncode == 0
-    except Exception:
-        return False
+        result = _run(python_exe, ["-c", probe, module_name])
+        if result.returncode:
+            return "broken", result.stderr.strip() or "导入进程异常退出"
+        data = json.loads(result.stdout.strip().splitlines()[-1])
+        return data["status"], data["error"]
+    except (OSError, subprocess.TimeoutExpired, ValueError, IndexError) as exc:
+        return "broken", str(exc)
 
 
 def get_pip_name(import_name: str) -> str:
-    """将 import 名转换为 pip 包名"""
     return PIP_NAME_MAP.get(import_name, import_name)
 
 
-def install_package(pip_name: str, python_exe: str) -> Tuple[bool, str]:
-    """安装 Python 包"""
-    print(f"  📦 安装 {pip_name} ...", end=" ", flush=True)
+def install_package(pip_name: str, python_exe: str) -> tuple[bool, str]:
+    print(f"  安装 {pip_name} ...", flush=True)
     try:
-        result = subprocess.run(
-            [python_exe, "-m", "pip", "install", pip_name],
-            capture_output=True, text=True, timeout=300,
-        )
+        result = _run(python_exe, ["-m", "pip", "install", pip_name], timeout=300)
         if result.returncode == 0:
-            print("✅")
             return True, ""
-        else:
-            # 提取最后一行错误
-            lines = result.stderr.strip().split("\n")
-            err = lines[-1] if lines else result.stderr[:200]
-            print(f"❌ {err}")
-            return False, err
-    except subprocess.TimeoutExpired:
-        print("❌ 超时")
-        return False, "安装超时"
-    except Exception as e:
-        print(f"❌ {e}")
-        return False, str(e)
+        return False, (result.stderr.strip() or result.stdout.strip())[-1000:]
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return False, str(exc)
 
 
-def check_and_install(
-    auto: bool = False,
-    dry_run: bool = False,
-) -> Dict[str, List[str]]:
-    """检查所有工具并安装缺失的包"""
-    tool_dir = get_tool_dir()
-    python_exe = get_python_exe()
+def check_and_install(auto: bool = False, dry_run: bool = False) -> dict[str, list[str]]:
+    results = {"success": [], "failed": [], "missing": []}
+    print("检查已有工具的 Python 运行环境")
+    for directory in implementation_dirs():
+        print(f"  扫描目录: {directory}")
+    tools = discover_tools()
+    if not tools:
+        print("尚无工具，跳过工具依赖检查。平台依赖请使用 python -m pip install -e . 安装。")
+        return results
 
-    if not tool_dir.exists():
-        print(f"❌ 工具目录不存在: {tool_dir}")
-        sys.exit(1)
+    environments: dict[str, set[str]] = {}
+    stdlib_cache: dict[str, set[str]] = {}
+    for tool_id, directory in sorted(tools.items()):
+        python = resolve_python(directory)
+        print(f"\n工具: {tool_id}\n  实现: {directory}\n  Python: {python}")
+        try:
+            if python not in stdlib_cache:
+                stdlib_cache[python] = get_std_libs(python)
+            deps = collect_dependencies(directory, stdlib_cache[python])
+            environments.setdefault(python, set()).update(deps)
+            print(f"  第三方依赖: {', '.join(sorted(deps)) or '(无)'}")
+        except (OSError, ValueError, SyntaxError, RuntimeError, subprocess.TimeoutExpired) as exc:
+            message = f"{tool_id}: {exc}"
+            results["failed"].append(message)
+            print(f"  检查失败: {message}")
 
-    print(f"🔍 检查工具运行环境")
-    print(f"   项目根目录: {get_project_root()}")
-    print(f"   Python:     {python_exe}")
-    print(f"   工具目录:   {tool_dir}")
-    print()
-
-    # 收集所有工具及其依赖
-    tool_deps: Dict[str, List[str]] = {}
-    all_external_deps: Set[str] = set()
-
-    for tool_path in sorted(tool_dir.iterdir()):
-        if not tool_path.is_dir():
+    for python, deps in environments.items():
+        print(f"\n检查环境: {python}")
+        missing = []
+        for dep in sorted(deps):
+            status, error = check_module(dep, python)
+            print(f"  {dep}: {status}" + (f" — {error}" if error else ""))
+            if status == "missing":
+                missing.append(dep)
+            elif status != "ready":
+                results["failed"].append(f"{python}: {dep}: {error}")
+        if not missing:
             continue
-        tool_file = tool_path / "tool.py"
-        if not tool_file.exists():
-            continue
+        install = auto and not dry_run
+        if not auto and not dry_run:
+            try:
+                install = input("是否向上述环境安装缺失包？[Y/n] ").strip().lower() in ("", "y")
+            except EOFError:
+                install = False
+        for dep in missing:
+            label = f"{python}: {dep}"
+            if not install:
+                results["missing"].append(label)
+                continue
+            ok, error = install_package(get_pip_name(dep), python)
+            if ok:
+                status, error = check_module(dep, python)
+                ok = status == "ready"
+            if ok:
+                results["success"].append(label)
+                print(f"  {dep}: 安装后导入验证通过")
+            else:
+                results["failed"].append(f"{label}: {error}")
+                print(f"  {dep}: 修复失败 — {error}")
 
-        imports = extract_imports(tool_file)
-        external = []
-        for imp in imports:
-            if not is_std_lib(imp) and not is_project_module(imp):
-                external.append(imp)
-                all_external_deps.add(imp)
-
-        tool_deps[tool_path.name] = external
-
-    # 显示每个工具的依赖
-    print("=" * 60)
-    print(f"{'工具名称':<40} {'外部依赖'}")
-    print("=" * 60)
-
-    for tool_name in sorted(tool_deps):
-        deps = tool_deps[tool_name]
-        deps_str = ", ".join(deps) if deps else "(无)"
-        print(f"{tool_name:<40} {deps_str}")
-
-    print()
-
-    # 检查哪些已安装、哪些缺失
-    print("=" * 60)
-    print(f"{'模块名':<30} {'状态':<10} {'pip包名'}")
-    print("=" * 60)
-
-    missing: Set[str] = set()
-    installed: Set[str] = set()
-
-    for dep in sorted(all_external_deps):
-        ok = check_module_installed(dep, python_exe)
-        pip_name = get_pip_name(dep)
-        if ok:
-            print(f"{dep:<30} {'✅ 已安装':<10} {pip_name}")
-            installed.add(dep)
-        else:
-            print(f"{dep:<30} {'❌ 缺失':<10} {pip_name}")
-            missing.add(dep)
-
-    print()
-
-    if not missing:
-        print("🎉 所有工具依赖已就绪！")
-        return {}
-
-    # 安装缺失的包
-    print(f"📋 共 {len(missing)} 个包需要安装")
-    print()
-
-    if dry_run:
-        print("🔍 仅检查模式，跳过安装。")
-        return {}
-
-    if not auto:
-        answer = input("是否安装以上缺失的包？[Y/n] ").strip().lower()
-        if answer and answer != "y":
-            print("已取消。")
-            return {}
-
-    print()
-    print("─" * 60)
-    results = {"success": [], "failed": []}
-
-    for dep in sorted(missing):
-        pip_name = get_pip_name(dep)
-        ok, err = install_package(pip_name, python_exe)
-        if ok:
-            results["success"].append(pip_name)
-        else:
-            results["failed"].append(pip_name)
-
-    print()
-    print("=" * 60)
-    print("📊 安装结果")
-    print(f"   成功: {len(results['success'])} 个")
-    if results["failed"]:
-        print(f"   失败: {len(results['failed'])} 个")
-        for pkg in results["failed"]:
-            print(f"     ❌ {pkg}")
-
-    if not results["failed"]:
-        print("🎉 所有缺失包安装完成！")
-
+    if results["failed"] or results["missing"]:
+        print(f"\n环境未就绪：失败 {len(results['failed'])} 项，未安装 {len(results['missing'])} 项。")
+    else:
+        print("\n工具的 Python 依赖已就绪。")
     return results
 
 
-def main():
-    import argparse
-
-    parser = argparse.ArgumentParser(description="检查并修复工具运行环境")
-    parser.add_argument(
-        "--auto", action="store_true",
-        help="自动安装所有缺失包，无需确认",
-    )
-    parser.add_argument(
-        "--dry-run", action="store_true",
-        help="仅检查，不安装",
-    )
-    args = parser.parse_args()
-
-    check_and_install(auto=args.auto, dry_run=args.dry_run)
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--auto", action="store_true", help="自动安装缺失的包")
+    parser.add_argument("--dry-run", action="store_true", help="只检查；缺失或损坏时返回非零退出码")
+    args = parser.parse_args(argv)
+    results = check_and_install(auto=args.auto, dry_run=args.dry_run)
+    return 1 if results["failed"] or results["missing"] else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

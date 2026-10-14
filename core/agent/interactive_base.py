@@ -136,7 +136,7 @@ class InteractiveAgentBase(BaseAgent):
                 _def_dirs = [r / "tools" / "definitions" for r in _paths.resource_roots()]
             except Exception:
                 _def_dirs = [root / "resources" / "tools" / "definitions"]
-            for _d in _def_dirs:
+            for _d in reversed(_def_dirs):
                 for _name in (Path(spec_path).name, f"{tool.get('id')}.md"):
                     _cand = _d / _name
                     if _cand.exists():

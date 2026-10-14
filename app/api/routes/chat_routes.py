@@ -17,11 +17,12 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.api.schemas.chat_schemas import ChatRequest
 from core.agent.factory import agent_factory
+from core.agent.implementations import (
+    DEFAULT_INTERACTIVE_AGENT_ID, DEFAULT_INTERACTIVE_IMPL_PATH,
+)
 
 # ── 系统默认交互 Agent 的标识 ──
 # 它是系统默认入口：引擎启动时自动拉起；用户自定义交互 Agent 则需手动启动。
-DEFAULT_INTERACTIVE_AGENT_ID = "interactive-agent"
-DEFAULT_INTERACTIVE_IMPL_PATH = "resources/agents/implementations/interactive_agent"
 
 router = APIRouter()
 
@@ -76,8 +77,11 @@ async def chat_send(request: ChatRequest):
     session_id = request.session_id or "default"
 
     # 交互 Agent 未运行时，自动拉起（保证开箱可用；亦可被用户手动关闭）
+    startup_error = None
     if not agent_factory.is_running(DEFAULT_INTERACTIVE_AGENT_ID):
-        await ensure_default_interactive_agent()
+        result = await ensure_default_interactive_agent()
+        if result.get("status") not in {"started", "already_running"}:
+            startup_error = result.get("error") or "Agent 启动失败"
 
     # 构建附件列表（兼容 camelCase 和 snake_case）
     attachments = [
@@ -94,6 +98,16 @@ async def chat_send(request: ChatRequest):
 
     async def event_generator():
         try:
+            if startup_error:
+                yield {
+                    "event": "error",
+                    "data": json.dumps({
+                        "code": "agent_start_failed",
+                        "message": f"交互 Agent 启动失败：{startup_error}",
+                    }, ensure_ascii=False),
+                }
+                yield {"event": "done", "data": json.dumps({"messageId": "startup-failed"})}
+                return
             async for event in agent_factory.execute_stream(
                 DEFAULT_INTERACTIVE_AGENT_ID,
                 params={

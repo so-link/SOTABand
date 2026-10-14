@@ -34,6 +34,9 @@ dev = [
 [tool.setuptools.packages.find]
 include = ["app*", "core*", "resources*", "storage*", "config*"]
 
+[tool.setuptools.package-data]
+"core.agent.implementations.interactive_agent" = ["spec.md"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"

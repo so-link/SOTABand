@@ -87,9 +87,9 @@ source venv/bin/activate
 # Windows
 venv\Scripts\activate
 
-pip install -e ".[dev]"
+python -m pip install -e ".[dev]"
 
-# 3. 检查并修复工具运行环境（自动安装所有工具所需的依赖）
+# 3. 可选：检查已有工具的 Python 依赖（首次拉取没有工具时会正常跳过）
 python scripts/check_tool_env.py --auto
 
 # 4. 启动后端（端口 8001）
@@ -107,7 +107,7 @@ cd frontend && npm install && npm run dev
 
 ### 工具环境检查脚本
 
-`scripts/check_tool_env.py` 用于自动检查所有工具的运行环境，确保依赖库完整。
+`scripts/check_tool_env.py` 检查本机已有工具的 Python 依赖。平台自身的依赖由上面的 `python -m pip install -e ".[dev]"` 安装；首次拉取没有工具时，这一步可跳过，执行也会正常结束。
 
 ```bash
 # 仅检查，不安装
@@ -120,7 +120,17 @@ python scripts/check_tool_env.py
 python scripts/check_tool_env.py --auto
 ```
 
-脚本会扫描 `resources/tools/implementations/` 下所有工具的 `tool.py`，提取外部依赖，检查安装状态，并自动安装缺失的 Python 包。
+脚本与后端共用资源目录配置：读取项目内 `resources/tools/implementations/` 和私有目录下的 `tools/implementations/`。私有目录默认是项目父目录中的 `resources-private/`，可在 `.env` 或环境变量中设置 `SOTABAND_PRIVATE_RESOURCES`。同 ID 工具采用私有实现，新增工具仍写入私有目录。检查不会为了消除提示而创建空资源目录。
+
+每个工具使用与实际执行相同的解释器：工具自己的 `.venv` → 项目的 `venv` / `.venv` → 当前 Python。Windows 识别 `Scripts/python.exe`，macOS/Linux 识别 `bin/python`。脚本显示工具路径和解释器，按环境检查依赖，使用该解释器的 `-m pip` 安装，并在安装后再次验证导入。它不会扫描整台电脑的 Python 环境。
+
+没有工具、依赖已就绪或修复成功时退出码为 `0`；语法错误、导入错误、安装失败、仍有未安装依赖时为 `1`（包括 `--dry-run` 发现缺失依赖）。脚本根据静态 `import` 检查 Python 包；动态导入、外部程序、模型权重、数据文件和 API Key 仍需按对应工具说明配置。
+
+### 系统默认对话入口
+
+默认交互 Agent 的代码随核心模块分发，位于 `core/agent/implementations/interactive_agent/`，由 `AgentFactory` 启动独立进程。它不依赖个人 `resources/agents/` 文件，也不通过大模型临时生成自身实现。对话仍需先配置有效的 LLM API Key；用户工具与自定义 Agent 仍通过资源注册、构建流程保存到私有目录。
+
+后端只有收到 Agent 加载完成的确认才显示“已就绪”；启动失败时，日志和对话接口会提供具体原因。更新代码后需重启后端以加载新实现。
 
 
 

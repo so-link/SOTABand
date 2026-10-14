@@ -32,7 +32,10 @@ async def lifespan(app: FastAPI):
     # 注意：它同样支持被用户手动关闭 / 重启（见 agent_routes 的 start/stop）。
     result = await ensure_default_interactive_agent()
     status = result.get("status", "unknown")
-    print(f"[SOTABand] 交互Agent 已就绪 (id={DEFAULT_INTERACTIVE_AGENT_ID}, {status})")
+    if status in {"started", "already_running"}:
+        print(f"[SOTABand] 交互Agent 已就绪 (id={DEFAULT_INTERACTIVE_AGENT_ID}, {status})")
+    else:
+        print(f"[SOTABand] 交互Agent 启动失败: {result.get('error', status)}")
     print(f"[SOTABand] LLM: {settings.llm.provider}/{settings.llm.model}")
     print(f"[SOTABand] API: http://{settings.app.api_host}:{settings.app.api_port}")
 

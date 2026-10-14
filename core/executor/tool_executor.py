@@ -34,15 +34,11 @@ class ToolExecutor:
     def _resolve_impl_dir(cls, tool_id: str) -> Path:
         """在「内置 + 私有」资源根中定位工具实现目录。
 
-        返回第一个含 tool.py 的实现目录；均不存在时返回内置默认路径
+        同 ID 私有实现优先；均不存在时返回内置默认路径
         （便于上层给出明确的“工具不存在”错误）。
         """
-        for space in cls._tool_space_dirs():
-            d = space / "implementations" / tool_id
-            if (d / "tool.py").exists():
-                return d
-        # 兜底：返回内置默认路径
-        return cls._project_root() / "resources" / "tools" / "implementations" / tool_id
+        from core.executor.tool_environment import resolve_tool_dir
+        return resolve_tool_dir(tool_id)
 
     @staticmethod
     def _tool_space_dirs() -> list[Path]:
@@ -58,21 +54,10 @@ class ToolExecutor:
     def _get_python_exe(cls, tool_id: str) -> str:
         """获取工具执行所用的 Python 解释器。
 
-        优先级：
-        1. 工具独立 .venv/bin/python（在内置/私有目录中查找）
-        2. 项目 venv/bin/python（避免污染系统全局 Python）
-        3. 当前进程的 sys.executable
+        与依赖检查、安装、常驻执行共用定位逻辑，支持 Windows Scripts 路径。
         """
-        for space in cls._tool_space_dirs():
-            venv_py = space / "implementations" / tool_id / ".venv" / "bin" / "python"
-            if venv_py.exists():
-                return str(venv_py)
-
-        project_venv_py = cls._project_root() / "venv" / "bin" / "python"
-        if project_venv_py.exists():
-            return str(project_venv_py)
-
-        return sys.executable
+        from core.executor.tool_environment import resolve_tool_python
+        return resolve_tool_python(tool_id)
 
     @classmethod
     def _build_script(cls, code: str, params: dict, tool_dir: str, project_root: str) -> str:
@@ -92,6 +77,7 @@ class ToolExecutor:
             f"sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')\n"
             f"sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')\n"
             f"os.environ['TOOL_DIR'] = {_safe_dumps(tool_dir)}\n"
+            f"sys.path.insert(0, {_safe_dumps(tool_dir)})\n"
             f"sys.path.insert(0, {_safe_dumps(project_root)})\n"
             f"# 屏蔽 sys.argv 防止代码中误用 argparse 等 CLI 参数\n"
             f"sys.argv = [sys.argv[0]]\n"
