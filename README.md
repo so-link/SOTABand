@@ -68,59 +68,81 @@ sotaband-engine/
 
 ### 环境要求
 
-- **Python >= 3.12**（推荐 3.12）
+- **Python >= 3.11**（推荐 3.12）
 - **Node.js >= 18**
-- **macOS / Linux / Windows**（Windows 推荐使用 WSL2）
+- **macOS / Linux / Windows** 全平台支持（Windows 用 `python` 命令代替 `python3`）
 
-### 安装与启动
+### 一键启动
 
 ```bash
-# 1. 创建 .env 并填入 API Key
-cp .env.example .env
-# 编辑 .env，填写 DEEPSEEK_API_KEY
+# 1. 创建 .env 并填入 LLM 配置（首次）
+cp .env.example .env      # Windows: copy .env.example .env
+# 编辑 .env，填写 LLM_PROVIDER 及对应 API Key
 
-# 2. 创建虚拟环境并安装 Python 依赖
-python3.12 -m venv venv
-
-# macOS / Linux
-source venv/bin/activate
-# Windows
-venv\Scripts\activate
-
-pip install -e ".[dev]"
-
-# 3. 检查并修复工具运行环境（自动安装所有工具所需的依赖）
-python scripts/check_tool_env.py --auto
-
-# 4. 启动后端（端口 8001）
-uvicorn app.main:app --host 0.0.0.0 --port 8001
-
-# 5. 新终端，激活 venv 后安装前端依赖并启动
-cd frontend && npm install && npm run dev
+# 2. 一条命令完成安装并启动（自动建 venv、装全部依赖、拉起前后端）
+python scripts/serve.py dev        # 开发模式：前端热更新
+python scripts/serve.py start      # 部署模式：前端静态构建，暴露面更小，适合长期运行
 ```
 
-> **注意**：macOS 用户如果系统自带 Python 3.6，需使用 Homebrew 安装 Python 3.12：
-> ```bash
-> brew install python@3.12
-> ```
-> 然后用 `/opt/homebrew/bin/python3.12` 替代 `python3.12`。
+`serve.py` 是幂等的：环境已装好的部分自动跳过，重复执行无副作用；Ctrl+C 一次停止前后端。Windows / macOS / Linux 命令相同。
+
+常用变体：
+
+```bash
+python scripts/serve.py setup                  # 只装环境，不启动
+python scripts/serve.py start --skip-tools     # 跳过工具大包依赖（torch 等），加快启动
+python scripts/serve.py start --rebuild-frontend  # 改了前端代码后强制重建
+python scripts/serve.py stop                   # 停止 serve.py 启动的服务
+```
+
+<details>
+<summary>国内网络访问 PyPI 慢或超时？</summary>
+
+给 venv 配置 pip 镜像源（只影响本项目 venv，不动全局配置）：
+
+```bash
+python scripts/serve.py dev --mirror https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+</details>
+
+### 端口与监听地址配置
+
+全部在 `.env` 中配置，前后端共同读取（无需改任何代码/配置文件）：
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `SOTABAND_API_HOST` | `0.0.0.0` | 后端监听地址。配反向代理/隧道时建议 `127.0.0.1` |
+| `SOTABAND_API_PORT` | `8001` | 后端端口 |
+| `SOTABAND_WEB_PORT` | `5173` | 前端端口（dev 与 preview 共用） |
+
+前端 `/api` 请求自动代理到 `127.0.0.1:<SOTABAND_API_PORT>`，改端口后重启即生效。端口被占用时 `serve.py` 会启动前预检并给出明确提示。
+
+### 通过反向代理对外提供服务
+
+后端只监听 `127.0.0.1` 时，用 nginx 等反代 + 域名访问前端。若前端使用 `serve.py dev`（Vite dev server），需确保 Vite 允许该域名：当前 `vite.config.ts` 已设 `allowedHosts: true`；生产建议改为白名单数组（如 `['sotaband.example.com']`）或改用 `serve.py start`。nginx 需为 `/api` 和 WebSocket 透传 `Upgrade`/`Connection` 头。
 
 ### 工具环境检查脚本
 
-`scripts/check_tool_env.py` 用于自动检查所有工具的运行环境，确保依赖库完整。
+`scripts/check_tool_env.py` 被 `serve.py` 自动调用，也可单独运行：
 
 ```bash
-# 仅检查，不安装
-python scripts/check_tool_env.py --dry-run
-
-# 交互模式，确认后安装缺失的包
-python scripts/check_tool_env.py
-
-# 自动安装所有缺失包，无需确认
-python scripts/check_tool_env.py --auto
+python scripts/check_tool_env.py --dry-run   # 仅检查，不安装
+python scripts/check_tool_env.py             # 交互模式，确认后安装缺失的包
+python scripts/check_tool_env.py --auto      # 自动安装所有缺失包，无需确认
 ```
 
 脚本会扫描 `resources/tools/implementations/` 下所有工具的 `tool.py`，提取外部依赖，检查安装状态，并自动安装缺失的 Python 包。
+
+### 常见问题
+
+| 症状 | 原因与处理 |
+|---|---|
+| `pip install` 报 `Network is unreachable` / 超时 | 直连 PyPI 不通，加 `--mirror https://pypi.tuna.tsinghua.edu.cn/simple` 重跑 |
+| `Blocked request. This host (...) is not allowed` | dev 模式下 Vite Host 校验拦截，见上文「反向代理」一节 |
+| 改了 `.env` 端口不生效 | 确认改的是仓库根目录 `.env`，且通过 `serve.py` 启动（手动 uvicorn + vite 需自己传 `--port`） |
+| 改了前端代码页面不变（`start` 模式） | preview 伺服的是构建产物，重跑 `serve.py start --rebuild-frontend` |
+| macOS 提示 Python 版本过低 | `brew install python@3.12` 后用 `python3.12 scripts/serve.py dev` |
 
 
 
