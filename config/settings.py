@@ -395,12 +395,13 @@ class ObservabilityConfig:
 
 @dataclass
 class AppConfig:
-    """应用配置"""
+    """应用配置（由模块顶部 _load_dotenv 预加载的 .env 环境变量驱动）"""
 
     app_name: str = "SOTABand"
-    debug: bool = False
-    api_host: str = "0.0.0.0"
-    api_port: int = 8001
+    debug: bool = field(default_factory=lambda: os.getenv("SOTABAND_DEBUG", "").lower() in ("1", "true", "yes"))
+    api_host: str = field(default_factory=lambda: os.getenv("SOTABAND_API_HOST", "0.0.0.0"))
+    api_port: int = field(default_factory=lambda: int(os.getenv("SOTABAND_API_PORT", "8001")))
+    web_port: int = field(default_factory=lambda: int(os.getenv("SOTABAND_WEB_PORT", "5173")))
     cors_origins: list = field(default_factory=lambda: ["*"])
 
 
