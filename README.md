@@ -122,26 +122,19 @@ python scripts/serve.py dev --mirror https://pypi.tuna.tsinghua.edu.cn/simple
 
 后端只监听 `127.0.0.1` 时，用 nginx 等反代 + 域名访问前端。若前端使用 `serve.py dev`（Vite dev server），需确保 Vite 允许该域名：当前 `vite.config.ts` 已设 `allowedHosts: true`；生产建议改为白名单数组（如 `['sotaband.example.com']`）或改用 `serve.py start`。nginx 需为 `/api` 和 WebSocket 透传 `Upgrade`/`Connection` 头。
 
-### 工具环境检查脚本
+### 进阶（可选）
 
-`scripts/check_tool_env.py` 被 `serve.py` 自动调用，也可单独运行：
-
-```bash
-python scripts/check_tool_env.py --dry-run   # 仅检查，不安装
-python scripts/check_tool_env.py             # 交互模式，确认后安装缺失的包
-python scripts/check_tool_env.py --auto      # 自动安装所有缺失包，无需确认
-```
-
-脚本会扫描 `resources/tools/implementations/` 下所有工具的 `tool.py`，提取外部依赖，检查安装状态，并自动安装缺失的 Python 包。
+- **工具依赖单独检查**：`serve.py` 启动时已自动检查并安装工具依赖（扫描 `resources/tools/implementations/` 下各工具的外部依赖）。如需单独排查，运行 `python scripts/check_tool_env.py --dry-run`。
+- **绕过 serve.py 手动启动**：`venv/bin/python -m uvicorn app.main:app --host <API_HOST> --port <API_PORT>` + `cd frontend && npm run dev|preview`（需自行保证端口与 `.env` 一致）。
 
 ### 常见问题
 
 | 症状 | 原因与处理 |
 |---|---|
-| `pip install` 报 `Network is unreachable` / 超时 | 直连 PyPI 不通，加 `--mirror https://pypi.tuna.tsinghua.edu.cn/simple` 重跑 |
+| 安装阶段报 `Network is unreachable` / 超时 | 直连 PyPI 不通，加 `--mirror https://pypi.tuna.tsinghua.edu.cn/simple` 重跑 |
 | `Blocked request. This host (...) is not allowed` | dev 模式下 Vite Host 校验拦截，见上文「反向代理」一节 |
-| 改了 `.env` 端口不生效 | 确认改的是仓库根目录 `.env`，且通过 `serve.py` 启动（手动 uvicorn + vite 需自己传 `--port`） |
-| 改了前端代码页面不变（`start` 模式） | preview 伺服的是构建产物，重跑 `serve.py start --rebuild-frontend` |
+| 改了 `.env` 端口不生效 | 确认改的是仓库根目录 `.env`，并重启 `serve.py`（手动启动则不受 `.env` 控制） |
+| 改了前端代码页面不变（`start` 模式） | preview 伺服的是构建产物，重跑 `serve.py start --rebuild-frontend`（日常开发用 `dev` 模式自带热更新） |
 | macOS 提示 Python 版本过低 | `brew install python@3.12` 后用 `python3.12 scripts/serve.py dev` |
 
 
