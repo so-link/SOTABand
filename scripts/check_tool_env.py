@@ -78,10 +78,12 @@ def get_tool_dir() -> Path:
 
 def get_python_exe() -> str:
     """获取 Python 解释器路径"""
-    # 优先用全局 venv
-    venv_py = get_project_root() / "venv" / "bin" / "python"
-    if venv_py.exists():
-        return str(venv_py)
+    # 优先用全局 venv（兼容 Windows 的 Scripts\python.exe 与 Unix 的 bin/python）
+    root = get_project_root()
+    for rel in ("Scripts/python.exe", "bin/python"):
+        venv_py = root / "venv" / rel
+        if venv_py.exists():
+            return str(venv_py)
     return sys.executable
 
 
