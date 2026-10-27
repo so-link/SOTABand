@@ -1,4 +1,16 @@
-.PHONY: help install dev-install test lint format clean
+.PHONY: help install dev-install test lint format clean run run-prod setup stop
+
+setup:  ## 一键安装环境（venv + Python/工具/前端依赖，跨平台）
+	python scripts/serve.py setup
+
+run:  ## 一键开发模式启动（安装+热更新前后端，Ctrl+C 停止）
+	python scripts/serve.py dev
+
+run-prod:  ## 一键部署模式启动（安装+构建前端+预览模式，无热更新）
+	python scripts/serve.py start
+
+stop:  ## 停止由 serve.py 启动的服务
+	python scripts/serve.py stop
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \

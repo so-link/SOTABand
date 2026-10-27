@@ -104,3 +104,6 @@ logs/aerial-image-quality-batch-assessment_*.md
 
 # 根目录临时文件/目录（测试遗留）
 /FFF/
+
+# serve.py 运行时状态（pids / 服务日志）
+.run/
