@@ -234,7 +234,8 @@ async def test_tool(
     test_input = _json.loads(test_input_json)
     for f in files:
         if f.filename:
-            save_path = UPLOAD_DIR / f.filename
+            # 只取文件名部分，防止 ../ 穿越出上传目录
+            save_path = UPLOAD_DIR / _Path(f.filename).name
             content = await f.read()
             save_path.write_bytes(content)
             for key in test_input:
@@ -295,10 +296,12 @@ async def test_tool(
 @router.post("/upload-test-file")
 async def upload_test_file(file: UploadFile = File(...)):
     """上传测试文件，返回临时路径"""
-    save_path = UPLOAD_DIR / file.filename
+    # 只取文件名部分，防止 ../ 穿越出上传目录
+    save_name = _Path(file.filename or "upload.bin").name
+    save_path = UPLOAD_DIR / save_name
     content = await file.read()
     save_path.write_bytes(content)
-    return {"file_path": str(save_path), "file_name": file.filename}
+    return {"file_path": str(save_path), "file_name": save_name}
 
 
 # ── 依赖安装 ──
@@ -396,7 +399,8 @@ async def auto_debug(
     test_input = _json.loads(test_input_json)
     for f in files:
         if f.filename:
-            save_path = UPLOAD_DIR / f.filename
+            # 只取文件名部分，防止 ../ 穿越出上传目录
+            save_path = UPLOAD_DIR / _Path(f.filename).name
             content = await f.read()
             save_path.write_bytes(content)
             for key in list(test_input.keys()):
