@@ -25,19 +25,8 @@ def _load_visible_datasets() -> tuple[list, list, str]:
         - visible: 属于当前用户的数据集
         - all_entries: 全部条目（仅用于生成更友好的错误提示）
     """
-    import json
-    from pathlib import Path as _Path
-
-    reg_path = _Path(__file__).resolve().parent.parent.parent.parent / "resources" / "data" / "registry.json"
-    if not reg_path.exists():
-        return [], [], get_current_user_id()
-
-    try:
-        all_entries = json.loads(reg_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return [], [], get_current_user_id()
-
     registry = DataRegistry()
+    all_entries = registry._read()
     me = get_current_user_id()
     visible = [d for d in all_entries if registry.belongs_to(d, me)]
     return visible, all_entries, me

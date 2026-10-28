@@ -93,19 +93,23 @@ def _llm_chat(messages: list, **kwargs) -> str:
 def _call_tool(tool_name: str, **params) -> dict:
     """调用已注册的工具（通过 registry.json 查找工具 ID 对应的实现目录）"""
     import subprocess as _sp
-    # 从 registry.json 中查找工具 ID（目录名）
-    reg_path = _PROJECT_ROOT / "resources" / "tools" / "registry.json"
+    # 从「内置 + 私有」两个资源根的 registry.json 中查找工具 ID（目录名），
+    # 新注册的工具只写私有根，只读内置根会查不到
     tool_id = tool_name  # 默认用名称作为 ID
-    if reg_path.exists():
+    for _root in reversed((_PROJECT_ROOT / "resources", _PROJECT_ROOT.parent / "resources-private")):
+        reg_path = _root / "tools" / "registry.json"
+        if not reg_path.exists():
+            continue
         try:
             tools = json.loads(reg_path.read_text(encoding="utf-8"))
-            # 先精确匹配 id，再模糊匹配 name
-            for t in tools:
-                if t.get("id") == tool_name or t.get("name") == tool_name:
-                    tool_id = t["id"]
-                    break
         except Exception:
-            pass
+            continue
+        # 先精确匹配 id，再匹配 name；私有根先查，优先级更高
+        for t in tools:
+            if t.get("id") == tool_name or t.get("name") == tool_name:
+                tool_id = t["id"]
+        if tool_id != tool_name:
+            break
     # 在「内置 + 私有」资源根中定位工具实现
     tool_dir = None
     for _root in (_PROJECT_ROOT / "resources", _PROJECT_ROOT.parent / "resources-private"):

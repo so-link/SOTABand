@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 
 from core.resource.builder.builder_base import BaseBuilder
+from core.resource import paths
 from core.llm.client import create_llm_client
 
 # ═══════════════════════════════════════════════════════════════════
@@ -229,15 +230,16 @@ class AgentCodeBuilder(BaseBuilder):
 
     @staticmethod
     def _lookup_tool(name: str) -> dict:
-        tools_dir = Path(__file__).resolve().parent.parent.parent.parent / "resources" / "tools"
-        registry_file = tools_dir / "registry.json"
-        try:
-            if registry_file.exists():
-                for t in json.loads(registry_file.read_text(encoding='utf-8')):
-                    if t.get("name") == name:
-                        return {"id": t["id"], "params": t.get("param_meta", [])}
-        except Exception:
-            pass
+        # 合并「内置 + 私有」两个资源根（私有优先），新注册的工具只写私有根
+        for root in reversed(paths.resource_roots()):
+            registry_file = root / "tools" / "registry.json"
+            try:
+                if registry_file.exists():
+                    for t in json.loads(registry_file.read_text(encoding='utf-8')):
+                        if t.get("name") == name:
+                            return {"id": t["id"], "params": t.get("param_meta", [])}
+            except Exception:
+                continue
         return {"id": name, "params": []}
 
     @staticmethod

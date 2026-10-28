@@ -1,10 +1,8 @@
 """模型相关 API 实现"""
 
-import json
 import time
-from pathlib import Path
 
-from core.resource.registry.model_registry import ModelRegistry, MODEL_DIR
+from core.resource.registry.model_registry import ModelRegistry
 
 
 async def _auto_generate_model_tags(model_id: str, name: str, spec_md: str):
@@ -89,14 +87,9 @@ class ApiModelGet:
         if not name:
             return {"model": None, "message": "模型名称不能为空"}
 
-        reg_path = MODEL_DIR / "registry.json"
-        if not reg_path.exists():
-            return {"model": None, "message": "模型注册表不存在"}
-
-        try:
-            models = json.loads(reg_path.read_text(encoding='utf-8'))
-        except (json.JSONDecodeError, FileNotFoundError):
-            return {"model": None, "message": "无法读取模型注册表"}
+        # 合并「内置 + 私有」两个资源根（私有同 id 覆盖内置），
+        # 与 ApiModelRegister 的写私有根行为保持一致，避免注册后立刻查不到
+        models = ModelRegistry()._read()
 
         # 精确匹配
         for m in models:
