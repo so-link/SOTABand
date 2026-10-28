@@ -1347,7 +1347,9 @@ async def modify_and_debug(tool_id: str, req: "ModifyAndDebugRequest"):
     """AI 辅助修改 + 自动调试（SSE 流式）"""
     from app.api.schemas.tool_schemas import ModifyAndDebugRequest
     from sse_starlette.sse import EventSourceResponse
-    from core.executor.tool_executor import ToolExecutor
+    from core.resource.builder.tool_builder import (
+        is_debug_running, set_debug_running, set_debug_stopped,
+    )
 
     entry = await registry.get(tool_id)
     if not entry:
@@ -1361,7 +1363,6 @@ async def modify_and_debug(tool_id: str, req: "ModifyAndDebugRequest"):
     spec_md = req.spec_md or ""
     test_params = req.test_params or {}
     max_rounds = 50
-    stop_key = f"modify_debug_{tool_id}"
 
     builder = ToolCodeBuilder()
     project_root = str(_Path(__file__).resolve().parent.parent.parent.parent)
@@ -1404,9 +1405,9 @@ async def modify_and_debug(tool_id: str, req: "ModifyAndDebugRequest"):
 
         code = current_code
         for round_num in range(1, max_rounds + 1):
-            # 检查停止标志
-            if hasattr(ToolExecutor, '_debug_states') and ToolExecutor._debug_states.get(stop_key, False):
-                ToolExecutor._debug_states.pop(stop_key, None)
+            # 检查停止标志（与 auto-debug 共用同一套状态，
+            # POST /auto-debug/stop 即可停止本流）
+            if not is_debug_running(tool_id):
                 yield {"event": "stopped", "data": _json.dumps({"code": code})}
                 return
 
@@ -1529,7 +1530,16 @@ stderr: {stderr[:500]}
             lf.write(f"⚠ 达到最大轮次 {max_rounds}，调试未通过\n")
         yield {"event": "done", "data": _json.dumps({"code": code, "rounds": max_rounds, "success": False})}
 
-    return EventSourceResponse(event_generator())
+    async def _managed_generator():
+        # 注册运行状态，结束时清理；/auto-debug/stop 通过该状态中断本流
+        set_debug_running(tool_id)
+        try:
+            async for ev in event_generator():
+                yield ev
+        finally:
+            set_debug_stopped(tool_id)
+
+    return EventSourceResponse(_managed_generator())
 
 
 def _build_refine_prompt(outline, node, feedback: str,
