@@ -1,6 +1,7 @@
 """数据管理路由 — 扫描、规格生成、注册、预览、处理"""
 
 import os
+import re
 import time
 import json as _json
 from pathlib import Path
