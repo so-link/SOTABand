@@ -1,5 +1,13 @@
 # 专利搜索工具 — 需求分析与设计
 
+> 状态：本需求已通过工具 **`lens-patent-downloader`（Lens专利检索与注册工具）** 落地（另有关联工具 `patent-translation-tool` 专利检索与翻译工具），实际实现与本设计存在以下差异：
+> 1. **输入参数**为 `req`（关键词/自然语言描述）、`n`（数量）、`year`（公开年份下限）、`dataset`（数据集名）四个必填参数；发明人、申请人、IPC 分类号、日期范围筛选**尚未实现**，为后续扩展方向；
+> 2. **输出**不只是一份 CSV：每篇专利经 `_llm_chat` 翻译成中文后保存为独立 Markdown 文件（标题/摘要/权利要求/说明书），并汇总生成 `patents_info.csv`（字段：专利号、标题、公开日期、发明人、摘要）；设计中的**被引用次数、法律状态字段未包含**；
+> 3. **输出目录**为 `data/download/`（而非 `./data/patents/`），随后通过 `api-data-register` 注册为数据集；
+> 4. **Token 获取**：系统 API 中**没有**「获取 Lens API KEY」接口（现有密钥类 API 仅覆盖豆包/DeepSeek）；Token 通过环境变量 `LENS_API_KEY`（在 `.env` 中配置）注入，工具内置的历史兜底值应尽快到 Lens.org 轮换。
+>
+> 以下保留原始需求分析与设计作为扩展方向参考。
+
 ## 需求描述
 
 输入：搜索关键词{query}，最大数量{n}，数据集名称{dataset}
@@ -44,7 +52,7 @@
 - 覆盖全球 1.4 亿+ 专利文献
 - 免费注册即用，每日 5000 次请求
 - 注册地址：https://www.lens.org/lens/user/subscriptions
-- API Token 通过【获取Lens API KEY】接口获取
+- API Token 目前没有对应的「获取 Lens API KEY」系统 API，需在工具运行环境（如 `.env` / 环境变量）中配置（现有密钥类系统 API 仅 `api-doubao-get-key` / `api-deepseek-get-key`）
 
 ## 实现要点
 
