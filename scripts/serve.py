@@ -151,6 +151,8 @@ def step_python_deps(py: Path, skip_tools: bool):
     if skip_tools:
         info("已跳过工具依赖检查（--skip-tools）")
         return
+    if not shutil.which("uv") and not (Path.home() / ".local/bin/uv").exists():
+        info("提示: 未检测到 uv，工具依赖将安装到共享项目 venv；安装 uv 后工具将自动获得独立环境（pip install uv 或 curl -LsSf https://astral.sh/uv/install.sh | sh）")
     info("检查工具运行环境（torch/opencv 等大包，首次较久）...")
     code = run([py, "scripts/check_tool_env.py", "--auto"], cwd=ROOT, check=False)
     if code != 0:

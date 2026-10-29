@@ -76,6 +76,57 @@ def get_tool_dir() -> Path:
     return get_project_root() / "resources" / "tools" / "implementations"
 
 
+def tool_impl_dirs() -> List[Path]:
+    """内置 + 私有两个资源根下的工具实现目录"""
+    dirs = []
+    try:
+        sys.path.insert(0, str(get_project_root()))
+        from core.resource import paths as _paths
+        for space in _paths.space_dirs("tools"):
+            d = space / "implementations"
+            if d.exists():
+                dirs.append(d)
+    except Exception:
+        d = get_tool_dir()
+        if d.exists():
+            dirs.append(d)
+    return dirs
+
+
+def rebuild_tool_venvs() -> Tuple[int, int]:
+    """requirements.txt 存在但 .venv 缺失的工具，用 uv 秒级重建（硬链接缓存）。
+
+    返回 (重建数, 失败数)。uv 不可用时静默跳过。
+    """
+    try:
+        sys.path.insert(0, str(get_project_root()))
+        from core.resource import deps as _deps
+    except Exception:
+        return 0, 0
+    if not _deps.uv_available():
+        return 0, 0
+    ok = failed = 0
+    for impl_root in tool_impl_dirs():
+        for tool_path in sorted(impl_root.iterdir()):
+            if not tool_path.is_dir():
+                continue
+            if not _deps.requirements_file(tool_path).exists():
+                continue
+            if _deps.venv_exists(tool_path):
+                continue
+            print(f"  🔧 重建工具环境 {tool_path.name} ...", end=" ", flush=True)
+            try:
+                _deps.create_tool_venv(tool_path, requirements=True)
+                print("✅")
+                ok += 1
+            except Exception as e:
+                print(f"❌ {e}")
+                failed += 1
+    if ok or failed:
+        print()
+    return ok, failed
+
+
 def get_python_exe() -> str:
     """获取 Python 解释器路径"""
     # 优先用全局 venv（兼容 Windows 的 Scripts\python.exe 与 Unix 的 bin/python）
@@ -186,6 +237,10 @@ def check_and_install(
     print(f"   Python:     {python_exe}")
     print(f"   工具目录:   {tool_dir}")
     print()
+
+    # 有 requirements.txt 但 .venv 被删/换机器 → uv 秒级重建工具独立环境
+    if not dry_run:
+        rebuild_tool_venvs()
 
     # 收集所有工具及其依赖
     tool_deps: Dict[str, List[str]] = {}
