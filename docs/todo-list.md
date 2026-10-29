@@ -10,7 +10,7 @@
 ## 2. 工具全生命周期
 
 - 2.1 工具导出和导入
-- 2.2 工具跨平台稳定运行
+- 2.2 🔶 工具跨平台稳定运行（依赖环境已由 uv 按工具独立管理并 pin 到 requirements.txt，跨机可精确重建；路径/系统调用的平台边界仍待加强）
 - 2.3 自动调试的效率提高
 
 ## 3. 安全性
@@ -94,9 +94,9 @@
 
 - 11.3.1 github代码查找
 - 11.3.2 代码复现
-- 11.3.3 顶会顶刊论文跟踪
+- 11.3.3 ✅ 顶会顶刊论文跟踪（arxiv-paper-downloader / cvpr-paper-downloader）
 - 11.3.4 论文撰写
-- 11.3.5 引文检查
-- 11.3.6 AI评审
-- 11.3.7 专利查重
-- 11.3.8 专利撰写
+- 11.3.5 ✅ 引文检查（pdf-reference-verifier / extract-references-from-pdf）
+- 11.3.6 ✅ AI评审（paper-review / paper-review-suggestions / paper-summary）
+- 11.3.7 ✅ 专利查重（lens-patent-downloader；发明人/申请人/IPC/日期筛选未实现）
+- 11.3.8 🔶 专利撰写（patent-translation-tool 提供翻译辅助，撰写未实现）
