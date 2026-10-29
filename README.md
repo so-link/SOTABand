@@ -98,7 +98,7 @@ python scripts/serve.py stop                   # 停止 serve.py 启动的服务
 <details>
 <summary>国内网络访问 PyPI 慢或超时？</summary>
 
-给 venv 配置 pip 镜像源（只影响本项目 venv，不动全局配置）：
+一条 `--mirror` 参数覆盖全部安装链路：写入本项目 venv 的 pip 配置、uv 引导安装，以及 uv 为后端和工具装包时的默认索引（uv 侧经环境变量注入，不写全局配置）。直连 PyPI 不通的机器建议始终带上：
 
 ```bash
 python scripts/serve.py dev --mirror https://pypi.tuna.tsinghua.edu.cn/simple
