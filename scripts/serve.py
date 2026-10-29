@@ -119,6 +119,8 @@ def step_venv() -> Path:
 
 
 def step_pip_config(py: Path, mirror: str | None):
+    # 镜像源兜底：uv 侧由 core.resource.deps.uv_env() 注入 UV_DEFAULT_INDEX，
+    # 这里保证用户手动使用 venv 内 pip 时同样走镜像
     # venv 内 pip 配置路径: Windows 为 venv\pip.ini，Unix 为 venv/pip.conf
     target = VENV / ("pip.ini" if IS_WIN else "pip.conf")
     if target.exists():
@@ -138,26 +140,33 @@ def step_pip_config(py: Path, mirror: str | None):
             info("⚠ 无法访问 pypi.org，若安装失败请重跑并加: --mirror https://pypi.tuna.tsinghua.edu.cn/simple")
 
 
+def deps_installed(py: Path) -> bool:
+    """用目标解释器探测后端依赖是否已装（存在性探测，不真实 import）"""
+    code = (
+        "import importlib.util, sys; "
+        "sys.exit(0 if all(importlib.util.find_spec(m) for m in ('fastapi', 'uvicorn', 'openai')) else 1)"
+    )
+    try:
+        return subprocess.run([str(py), "-c", code], capture_output=True, timeout=30).returncode == 0
+    except Exception:
+        return False
+
+
 def step_python_deps(py: Path, skip_tools: bool, mirror: str = ""):
-    site = py.parent / ("Lib/site-packages" if IS_WIN else f"lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages")
-    fastapi_ok = any(site.glob("fastapi*")) if site.exists() else False
-    if fastapi_ok:
-        ok("Python 依赖已安装（跳过 pip install -e）")
+    # uv 是唯一的包管理面：缺失时先 venv 内 pip 引导，之后全部安装经 uv
+    sys.path.insert(0, str(ROOT))
+    from core.resource.deps import ensure_uv, uv_env
+    uv = ensure_uv(str(py), mirror=mirror or "")
+    ok(f"uv 就绪: {uv}")
+    if deps_installed(py):
+        ok("Python 依赖已安装（跳过安装）")
     else:
-        info("安装 Python 依赖（pip install -e '.[dev]'，首次约 1-3 分钟）...")
-        run([py, "-m", "pip", "install", "--upgrade", "pip"], quiet=True)
-        run([py, "-m", "pip", "install", "-e", ".[dev]"], cwd=ROOT)
+        info("安装 Python 依赖（uv pip install -e '.[dev]'）...")
+        run([uv, "pip", "install", "-e", ".[dev]", "--python", str(py)], cwd=ROOT, env=uv_env())
         ok("Python 依赖安装完成")
     if skip_tools:
         info("已跳过工具环境检查（--skip-tools）")
         return
-    try:
-        sys.path.insert(0, str(ROOT))
-        from core.resource.deps import ensure_uv
-        uv = ensure_uv(str(py), mirror=mirror or "")
-        ok(f"uv 就绪: {uv}")
-    except Exception as e:
-        info(f"⚠ {e}")
     info("检查工具运行环境（uv 初始化各工具独立 .venv，首次较久）...")
     code = run([py, "scripts/check_tool_env.py", "--auto"], cwd=ROOT, check=False)
     if code != 0:
