@@ -136,7 +136,7 @@ class ApiXxx:
 6. 调用 `impl_method`（即 `call(**kwargs)`）→
 7. 返回结果 dict
 
-`BaseApi.call` 支持同步/异步双模式：实现为协程时（`is_async`，默认 true），若调用方已有事件循环则用 `run_coroutine_threadsafe` 桥接（等待上限 60s），否则 `asyncio.run`；因此同步的工具子进程代码可以直接调用异步实现。`get_api` 每次调用都会重新读取 `registry.json`，注册新 API 后无需重启即可生效（HTTP 侧另有 `/api/apis` 路由提供列表查询）。
+`BaseApi.call` 支持同步/异步双模式：实现为协程时（`is_async`，默认 true），若调用方已有事件循环则用 `run_coroutine_threadsafe` 桥接（等待上限 60s），否则 `asyncio.run`；因此同步的工具子进程代码可以直接调用异步实现。`get_api` 每次调用都会重新读取 `registry.json`，注册新 API 后无需重启即可生效（HTTP 侧另有 `GET /api/apis/list` 路由提供列表查询）。
 
 ### 4.1 工具代码中的调用方式
 
