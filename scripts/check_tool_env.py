@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""自动检查所有工具运行环境，安装缺失的 Python 包。
+"""检查所有工具运行环境，用 uv 初始化/重建工具独立 .venv。
+
+每个工具的第三方依赖装在实现目录的 .venv 里（uv 全局缓存硬链接去重），
+依赖清单固化在 requirements.txt；无第三方依赖或共享环境已满足的工具不动。
 
 用法:
-    python scripts/check_tool_env.py            # 检查并交互式安装
-    python scripts/check_tool_env.py --auto     # 自动安装所有缺失包
-    python scripts/check_tool_env.py --dry-run  # 仅检查，不安装
+    python scripts/check_tool_env.py            # 检查并交互式处理
+    python scripts/check_tool_env.py --auto     # 自动初始化/重建全部缺失环境
+    python scripts/check_tool_env.py --dry-run  # 仅检查，不改动
 """
 
 import ast
@@ -53,18 +56,6 @@ STD_LIBS = {
     "_thread", "_io", "_collections_abc", "__future__",
 }
 
-# ── pip 包名映射（import 名 → pip 包名）──
-PIP_NAME_MAP = {
-    "cv2": "opencv-python-headless",
-    "PIL": "Pillow",
-    "sklearn": "scikit-learn",
-    "bing_image_downloader": "bing-image-downloader",
-    "volcenginesdkarkruntime": "volcengine-python-sdk[ark]",
-    "yaml": "PyYAML",
-    "dotenv": "python-dotenv",
-    "fitz": "PyMuPDF",
-}
-
 
 def get_project_root() -> Path:
     """获取项目根目录"""
@@ -91,40 +82,6 @@ def tool_impl_dirs() -> List[Path]:
         if d.exists():
             dirs.append(d)
     return dirs
-
-
-def rebuild_tool_venvs() -> Tuple[int, int]:
-    """requirements.txt 存在但 .venv 缺失的工具，用 uv 秒级重建（硬链接缓存）。
-
-    返回 (重建数, 失败数)。uv 不可用时静默跳过。
-    """
-    try:
-        sys.path.insert(0, str(get_project_root()))
-        from core.resource import deps as _deps
-    except Exception:
-        return 0, 0
-    if not _deps.uv_available():
-        return 0, 0
-    ok = failed = 0
-    for impl_root in tool_impl_dirs():
-        for tool_path in sorted(impl_root.iterdir()):
-            if not tool_path.is_dir():
-                continue
-            if not _deps.requirements_file(tool_path).exists():
-                continue
-            if _deps.venv_exists(tool_path):
-                continue
-            print(f"  🔧 重建工具环境 {tool_path.name} ...", end=" ", flush=True)
-            try:
-                _deps.create_tool_venv(tool_path, requirements=True)
-                print("✅")
-                ok += 1
-            except Exception as e:
-                print(f"❌ {e}")
-                failed += 1
-    if ok or failed:
-        print()
-    return ok, failed
 
 
 def get_python_exe() -> str:
@@ -190,170 +147,127 @@ def check_module_installed(module_name: str, python_exe: str) -> bool:
         return False
 
 
-def get_pip_name(import_name: str) -> str:
-    """将 import 名转换为 pip 包名"""
-    return PIP_NAME_MAP.get(import_name, import_name)
+def check_and_install(dry_run: bool = False) -> Dict[str, List[str]]:
+    """检查所有工具的运行环境，必要时用 uv 初始化/重建工具独立 .venv。
 
+    单一方案：环境操作全部经 uv。已有 requirements.txt 的工具据此重建；
+    无 requirements.txt 但缺依赖的历史工具，引导创建独立 .venv 并装入
+    全部第三方依赖，随后 freeze 固化。依赖已齐备的工具（独立 .venv 或
+    共享项目 venv 均可运行）不做任何改动。
+    """
+    root = get_project_root()
+    sys.path.insert(0, str(root))
+    from core.resource import deps as _deps
 
-def install_package(pip_name: str, python_exe: str) -> Tuple[bool, str]:
-    """安装 Python 包"""
-    print(f"  📦 安装 {pip_name} ...", end=" ", flush=True)
-    try:
-        result = subprocess.run(
-            [python_exe, "-m", "pip", "install", pip_name],
-            capture_output=True, text=True, timeout=300,
-        )
-        if result.returncode == 0:
-            print("✅")
-            return True, ""
-        else:
-            # 提取最后一行错误
-            lines = result.stderr.strip().split("\n")
-            err = lines[-1] if lines else result.stderr[:200]
-            print(f"❌ {err}")
-            return False, err
-    except subprocess.TimeoutExpired:
-        print("❌ 超时")
-        return False, "安装超时"
-    except Exception as e:
-        print(f"❌ {e}")
-        return False, str(e)
-
-
-def check_and_install(
-    auto: bool = False,
-    dry_run: bool = False,
-) -> Dict[str, List[str]]:
-    """检查所有工具并安装缺失的包"""
-    tool_dir = get_tool_dir()
     python_exe = get_python_exe()
-
-    if not tool_dir.exists():
-        print(f"❌ 工具目录不存在: {tool_dir}")
+    impl_dirs = tool_impl_dirs()
+    if not impl_dirs:
+        print(f"❌ 工具实现目录不存在")
         sys.exit(1)
 
-    print(f"🔍 检查工具运行环境")
-    print(f"   项目根目录: {get_project_root()}")
-    print(f"   Python:     {python_exe}")
-    print(f"   工具目录:   {tool_dir}")
+    print("🔍 检查工具运行环境（uv 管理的工具独立 .venv）")
+    print(f"   项目根目录: {root}")
+    print(f"   共享回退解释器: {python_exe}")
     print()
 
-    # 有 requirements.txt 但 .venv 被删/换机器 → uv 秒级重建工具独立环境
-    if not dry_run:
-        rebuild_tool_venvs()
+    rows: List[Tuple[str, str, str]] = []   # (工具, 状态, 环境)
+    failed: List[str] = []
+    pending: List[Tuple[Path, str, List[str]]] = []  # (目录, 动作, specs)
 
-    # 收集所有工具及其依赖
-    tool_deps: Dict[str, List[str]] = {}
-    all_external_deps: Set[str] = set()
+    for impl_root in impl_dirs:
+        for tool_path in sorted(impl_root.iterdir()):
+            if not tool_path.is_dir() or not (tool_path / "tool.py").exists():
+                continue
+            req = _deps.read_requirements(tool_path)
+            has_venv = _deps.venv_exists(tool_path)
 
-    for tool_path in sorted(tool_dir.iterdir()):
-        if not tool_path.is_dir():
-            continue
-        tool_file = tool_path / "tool.py"
-        if not tool_file.exists():
-            continue
+            if req:
+                if not has_venv:
+                    pending.append((tool_path, "按 requirements.txt 重建", []))
+                    continue
+                if dry_run:
+                    rows.append((tool_path.name, "✅ 依赖就绪", "独立 .venv"))
+                    continue
+                uv = _deps.uv_bin()
+                venv_py = str(_deps.venv_python_path(tool_path))
+                r = subprocess.run(
+                    [uv, "pip", "install", "-r", str(_deps.requirements_file(tool_path)),
+                     "--python", venv_py],
+                    capture_output=True, text=True, encoding="utf-8", errors="replace",
+                    env=_deps.uv_env(), timeout=1800,
+                )
+                if r.returncode == 0:
+                    rows.append((tool_path.name, "✅ 依赖就绪", "独立 .venv"))
+                else:
+                    rows.append((tool_path.name, "❌ 依赖不满足", "独立 .venv"))
+                    failed.append(tool_path.name)
+                continue
 
-        imports = extract_imports(tool_file)
-        external = []
-        for imp in imports:
-            if not is_std_lib(imp) and not is_project_module(imp):
-                external.append(imp)
-                all_external_deps.add(imp)
+            imports = extract_imports(tool_path / "tool.py")
+            ext = sorted({i for i in imports if not is_std_lib(i) and not is_project_module(i)})
+            if not ext:
+                rows.append((tool_path.name, "✅ 无第三方依赖", "-"))
+                continue
+            probe_py = str(_deps.venv_python_path(tool_path)) if has_venv else python_exe
+            missing = [m for m in ext if not check_module_installed(m, probe_py)]
+            if not missing:
+                rows.append((tool_path.name, "✅ 依赖就绪", "独立 .venv" if has_venv else "共享环境"))
+            else:
+                pending.append((tool_path, "初始化独立 .venv",
+                                sorted({_deps.pip_name(m) for m in ext})))
 
-        tool_deps[tool_path.name] = external
-
-    # 显示每个工具的依赖
-    print("=" * 60)
-    print(f"{'工具名称':<40} {'外部依赖'}")
-    print("=" * 60)
-
-    for tool_name in sorted(tool_deps):
-        deps = tool_deps[tool_name]
-        deps_str = ", ".join(deps) if deps else "(无)"
-        print(f"{tool_name:<40} {deps_str}")
-
+    print("=" * 72)
+    print(f"{'工具名称':<40} {'状态':<14} 环境")
+    print("=" * 72)
+    for name, status, env in rows:
+        print(f"{name:<40} {status:<14} {env}")
     print()
 
-    # 检查哪些已安装、哪些缺失
-    print("=" * 60)
-    print(f"{'模块名':<30} {'状态':<10} {'pip包名'}")
-    print("=" * 60)
-
-    missing: Set[str] = set()
-    installed: Set[str] = set()
-
-    for dep in sorted(all_external_deps):
-        ok = check_module_installed(dep, python_exe)
-        pip_name = get_pip_name(dep)
-        if ok:
-            print(f"{dep:<30} {'✅ 已安装':<10} {pip_name}")
-            installed.add(dep)
+    if pending:
+        if dry_run:
+            print(f"🔍 以下 {len(pending)} 个工具需要 uv 初始化/重建（--auto 执行）:")
+            for tool_path, action, _ in pending:
+                print(f"   • {tool_path.name}: {action}")
+            print()
         else:
-            print(f"{dep:<30} {'❌ 缺失':<10} {pip_name}")
-            missing.add(dep)
+            print(f"📋 初始化/重建 {len(pending)} 个工具的独立环境")
+            print("─" * 72)
+            for tool_path, action, specs in pending:
+                print(f"  🔧 {tool_path.name}（{action}）...", end=" ", flush=True)
+                try:
+                    _deps.create_tool_venv(tool_path, specs=specs or None,
+                                           requirements=not specs)
+                    _deps.freeze_requirements(tool_path)
+                    print("✅")
+                    rows.append((tool_path.name, "✅ 依赖就绪", "独立 .venv"))
+                except Exception as e:
+                    print(f"❌ {e}")
+                    failed.append(tool_path.name)
+            print()
 
-    print()
+    if failed:
+        print(f"⚠ {len(failed)} 个工具环境处理失败: {', '.join(failed)}")
+        return {"success": [], "failed": failed}
 
-    if not missing:
-        print("🎉 所有工具依赖已就绪！")
-        return {}
-
-    # 安装缺失的包
-    print(f"📋 共 {len(missing)} 个包需要安装")
-    print()
-
-    if dry_run:
-        print("🔍 仅检查模式，跳过安装。")
-        return {}
-
-    if not auto:
-        answer = input("是否安装以上缺失的包？[Y/n] ").strip().lower()
-        if answer and answer != "y":
-            print("已取消。")
-            return {}
-
-    print()
-    print("─" * 60)
-    results = {"success": [], "failed": []}
-
-    for dep in sorted(missing):
-        pip_name = get_pip_name(dep)
-        ok, err = install_package(pip_name, python_exe)
-        if ok:
-            results["success"].append(pip_name)
-        else:
-            results["failed"].append(pip_name)
-
-    print()
-    print("=" * 60)
-    print("📊 安装结果")
-    print(f"   成功: {len(results['success'])} 个")
-    if results["failed"]:
-        print(f"   失败: {len(results['failed'])} 个")
-        for pkg in results["failed"]:
-            print(f"     ❌ {pkg}")
-
-    if not results["failed"]:
-        print("🎉 所有缺失包安装完成！")
-
-    return results
+    print("🎉 所有工具运行环境就绪！")
+    return {}
 
 
 def main():
     import argparse
 
-    parser = argparse.ArgumentParser(description="检查并修复工具运行环境")
+    parser = argparse.ArgumentParser(description="检查并用 uv 修复工具运行环境")
     parser.add_argument(
         "--auto", action="store_true",
-        help="自动安装所有缺失包，无需确认",
+        help="初始化/重建缺失的工具环境（默认行为，保留兼容）",
     )
     parser.add_argument(
         "--dry-run", action="store_true",
-        help="仅检查，不安装",
+        help="仅检查，不改动环境",
     )
     args = parser.parse_args()
 
-    check_and_install(auto=args.auto, dry_run=args.dry_run)
+    check_and_install(dry_run=args.dry_run)
 
 
 if __name__ == "__main__":

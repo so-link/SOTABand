@@ -138,7 +138,7 @@ def step_pip_config(py: Path, mirror: str | None):
             info("⚠ 无法访问 pypi.org，若安装失败请重跑并加: --mirror https://pypi.tuna.tsinghua.edu.cn/simple")
 
 
-def step_python_deps(py: Path, skip_tools: bool):
+def step_python_deps(py: Path, skip_tools: bool, mirror: str = ""):
     site = py.parent / ("Lib/site-packages" if IS_WIN else f"lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages")
     fastapi_ok = any(site.glob("fastapi*")) if site.exists() else False
     if fastapi_ok:
@@ -149,11 +149,16 @@ def step_python_deps(py: Path, skip_tools: bool):
         run([py, "-m", "pip", "install", "-e", ".[dev]"], cwd=ROOT)
         ok("Python 依赖安装完成")
     if skip_tools:
-        info("已跳过工具依赖检查（--skip-tools）")
+        info("已跳过工具环境检查（--skip-tools）")
         return
-    if not shutil.which("uv") and not (Path.home() / ".local/bin/uv").exists():
-        info("提示: 未检测到 uv，工具依赖将安装到共享项目 venv；安装 uv 后工具将自动获得独立环境（pip install uv 或 curl -LsSf https://astral.sh/uv/install.sh | sh）")
-    info("检查工具运行环境（torch/opencv 等大包，首次较久）...")
+    try:
+        sys.path.insert(0, str(ROOT))
+        from core.resource.deps import ensure_uv
+        uv = ensure_uv(str(py), mirror=mirror or "")
+        ok(f"uv 就绪: {uv}")
+    except Exception as e:
+        info(f"⚠ {e}")
+    info("检查工具运行环境（uv 初始化各工具独立 .venv，首次较久）...")
     code = run([py, "scripts/check_tool_env.py", "--auto"], cwd=ROOT, check=False)
     if code != 0:
         info("⚠ 部分工具依赖安装失败，可稍后手动重试: python scripts/check_tool_env.py --auto")
@@ -243,7 +248,7 @@ def serve(mode: str, skip_tools: bool, rebuild_frontend: bool, mirror: str | Non
 
     py = step_venv()
     step_pip_config(py, mirror)
-    step_python_deps(py, skip_tools)
+    step_python_deps(py, skip_tools, mirror)
     if mode == "start":
         step_frontend_build(rebuild_frontend)
 
@@ -318,7 +323,7 @@ def main():
     elif a.command == "setup":
         py = step_venv()
         step_pip_config(py, a.mirror)
-        step_python_deps(py, a.skip_tools)
+        step_python_deps(py, a.skip_tools, a.mirror)
         step_frontend_build(False)
         ok("环境安装完成。下一步: python scripts/serve.py dev（开发）或 start（部署）")
     else:

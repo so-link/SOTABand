@@ -695,42 +695,6 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
         from core.executor.tool_executor import ToolExecutor
         return ToolExecutor._get_python_exe(tool_id)
 
-    def _get_exec_pip(self, tool_id: str) -> str:
-        """获取 pip 安装命令。
-        
-        工具独立 .venv → 用 .venv/bin/pip（如果可用）
-        项目 venv → 用 python -m pip（避免 shebang 空格路径问题）
-        """
-        python_exe = self._get_exec_python(tool_id)
-        py_dir = Path(python_exe).parent
-        is_tool_venv = "resources/tools/implementations" in str(py_dir)
-
-        if is_tool_venv:
-            pip = str(py_dir / "pip")
-            if Path(pip).exists():
-                return pip
-            pip3 = str(py_dir / "pip3")
-            if Path(pip3).exists():
-                return pip3
-
-        # 项目 venv 或回退：统一用 python -m pip（安全可靠）
-        return f"{python_exe} -m pip"
-
-    def _get_install_target(self) -> str:
-        """获取 pip install --target 的目标目录：项目 venv 的 site-packages"""
-        project_root = Path(__file__).resolve().parent.parent.parent.parent
-        site_packages = project_root / "venv" / "lib" / "python3.12" / "site-packages"
-        if site_packages.exists():
-            return str(site_packages)
-        # 尝试其他 Python 版本
-        venv_lib = project_root / "venv" / "lib"
-        if venv_lib.exists():
-            for d in sorted(venv_lib.iterdir(), reverse=True):
-                sp = d / "site-packages"
-                if sp.exists():
-                    return str(sp)
-        return ""
-
     def _is_installed(self, python_exe: str, module_name: str) -> bool:
         """模块存在性探测：find_spec 不执行模块代码，避免大包冷启动超时误判"""
         probe = (
@@ -752,65 +716,58 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
         - 失败时自动调用 LLM 分析并重试
         - 支持 stop_event 和全局调试标志双重停止
 
-        安装目标：
-        - uv 可用 → 引导工具独立 .venv（uv 硬链接缓存，多 venv 近乎零磁盘增量），
-          装入全部第三方依赖，完成后 freeze 出 requirements.txt
-        - uv 不可用 → 工具已有 .venv 时装入 .venv，否则回退 pip --target 项目 venv
+        安装目标永远是工具独立 `.venv`（uv 管理，硬链接缓存去重）：
+        缺失时先引导创建并一次性装入工具全部第三方依赖——干净 venv 只装
+        缺失项会导致 requests 等公共包反而不可见——完成后 freeze 出
+        requirements.txt。uv 缺失或引导失败时明确报错，不静默改装别处。
         """
         import asyncio, threading
 
         from core.resource import deps as _deps
 
-        exec_python = self._get_exec_python(tool_id)
-        exec_pip = self._get_exec_pip(tool_id)
-        is_local = ".venv" in exec_python
-        env_label = "local" if is_local else "project_venv"
+        tool_dir = _deps.resolve_tool_dir(tool_id)
+        env_label = "tool_venv"
+        exec_python = str(_deps.venv_python_path(tool_dir))
 
-        # uv 路径：为工具引导独立 .venv（一次性装入全部第三方依赖，
-        # 干净 venv 只装缺失项会导致 requests 等公共包反而不可见）
-        tool_dir = None
-        if not is_local:
-            uv = _deps.uv_available()
-            if uv:
-                tool_dir = _deps.resolve_tool_dir(tool_id)
+        bootstrap_error = ""
+        try:
+            uv = _deps.uv_bin()
+            if not _deps.venv_exists(tool_dir):
+                tool_py = tool_dir / "tool.py"
+                code_text = tool_py.read_text(encoding="utf-8") if tool_py.exists() else ""
+                all_mods = self._extract_imports(code_text) if code_text else []
+                req_specs = _deps.read_requirements(tool_dir)
+                if req_specs:
+                    exec_python = _deps.create_tool_venv(tool_dir, requirements=True)
+                else:
+                    specs = sorted({_deps.pip_name(m) for m in all_mods} | {
+                        _deps.pip_name(d.split("==")[0].split(">=")[0].split("<=")[0].strip())
+                        for d in dependencies if d.strip()
+                    })
+                    exec_python = _deps.create_tool_venv(tool_dir, specs=specs) if specs else _deps.create_tool_venv(tool_dir)
                 try:
-                    tool_py = tool_dir / "tool.py"
-                    code_text = tool_py.read_text(encoding="utf-8") if tool_py.exists() else ""
-                    all_mods = self._extract_imports(code_text) if code_text else []
-                    req_specs = _deps.read_requirements(tool_dir)
-                    if req_specs:
-                        new_py = _deps.create_tool_venv(tool_dir, requirements=True)
-                    else:
-                        specs = sorted({_deps.pip_name(m) for m in all_mods} | {
-                            _deps.pip_name(d.split("==")[0].split(">=")[0].split("<=")[0].strip())
-                            for d in dependencies if d.strip()
-                        })
-                        new_py = _deps.create_tool_venv(tool_dir, specs=specs) if specs else _deps.create_tool_venv(tool_dir)
-                    exec_python = new_py
-                    is_local = True
-                    env_label = "tool_venv"
-                    try:
-                        _deps.freeze_requirements(tool_dir)
-                    except Exception:
-                        pass
-                except Exception as e:
-                    yield {"event": "pip_output", "dep": ".venv",
-                           "line": f"[回退] uv 引导工具环境失败（{e}），改用项目 venv 安装"}
-
-        # 如果不是工具独立 venv，安装到项目 venv 的 site-packages
-        install_target = "" if is_local else self._get_install_target()
+                    _deps.freeze_requirements(tool_dir)
+                except Exception:
+                    pass
+        except Exception as e:
+            bootstrap_error = str(e)
 
         yield {"event": "deps_start", "deps": list(dependencies), "env": env_label}
 
-        def _pip_worker(pip_cmd: str, dep: str, target: str, output_queue: asyncio.Queue):
-            """在线程中执行 pip/uv 安装，逐行推入 queue"""
-            uv = _deps.uv_available() if is_local else None
-            if uv:
-                parts = _deps.uv_pip_install_argv(uv, exec_python, dep)
-            else:
-                parts = pip_cmd.split() + ["install", dep]
-                if target:
-                    parts += ["--target", target]
+        if bootstrap_error:
+            yield {"event": "pip_output", "dep": ".venv", "line": f"[错误] {bootstrap_error}"}
+            results = [
+                {"dep": d, "success": False, "env": env_label, "reason": bootstrap_error}
+                for d in dependencies if d.strip()
+            ]
+            for r in results:
+                yield {"event": "dep_failed", "dep": r["dep"], "env": env_label, "reason": bootstrap_error}
+            yield {"event": "deps_done", "data": {"python": exec_python, "results": results}}
+            return
+
+        def _pip_worker(dep: str, output_queue: asyncio.Queue):
+            """在线程中执行 uv 安装，逐行推入 queue"""
+            parts = _deps.uv_pip_install_argv(uv, exec_python, dep)
             try:
                 proc = subprocess.Popen(
                     parts,
@@ -848,7 +805,7 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
             for attempt in range(max_retries + 1):
                 q = asyncio.Queue()
                 all_output = ""
-                thread = threading.Thread(target=_pip_worker, args=(exec_pip, current_dep, install_target, q), daemon=True)
+                thread = threading.Thread(target=_pip_worker, args=(current_dep, q), daemon=True)
                 thread.start()
 
                 # 从 queue 读取输出，短超时轮询 + 停止检查
@@ -909,11 +866,10 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
             # 汇总结果
             if retcode == 0:
                 results.append({"dep": dep, "success": True, "env": env_label})
-                if tool_dir is not None:
-                    try:
-                        _deps.freeze_requirements(tool_dir)
-                    except Exception:
-                        pass
+                try:
+                    _deps.freeze_requirements(tool_dir)
+                except Exception:
+                    pass
                 yield {"event": "dep_installed", "dep": dep, "env": env_label}
             else:
                 results.append({"dep": dep, "success": False, "env": env_label, "reason": all_output[-300:]})

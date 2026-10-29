@@ -369,7 +369,7 @@ async def check_deps(tool_id: str):
 
 @router.post("/{tool_id}/install-deps")
 async def install_deps(tool_id: str, req: dict):
-    """安装依赖到工具独立 .venv（uv 可用时自动引导；否则装入项目 venv）"""
+    """安装依赖到工具独立 .venv（uv 管理，缺失时自动引导创建）"""
     deps = req.get("dependencies", [])
     if not deps:
         raise HTTPException(400, "dependencies 不能为空")

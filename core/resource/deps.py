@@ -1,12 +1,12 @@
-"""工具依赖环境管理 — uv 优先的 per-tool venv 方案
+"""工具依赖环境管理 — uv 管理的 per-tool venv
 
-每个工具可以在自己的实现目录下拥有独立 ``.venv``（用 uv 创建；uv 的全局
-内容寻址缓存让多个 venv 之间以硬链接共享同一份包文件，磁盘几乎零增量），
+每个工具在自己的实现目录下拥有独立 ``.venv``（uv 创建；uv 的全局内容
+寻址缓存让多个 venv 之间以硬链接共享同一份包文件，磁盘几乎零增量），
 依赖声明固化在同目录 ``requirements.txt``（``uv pip freeze`` 精确 pin，
-迁移机器或误删后可秒级重建）。
+迁移机器或误删后秒级重建）。
 
-uv 不可用时（如未安装的 Windows 机器），调用方回退到既有
-pip --target 安装到项目 venv 的行为，功能不劣化。
+uv 是必需依赖：``serve.py`` 启动时自动安装（缺失则 pip install uv），
+运行期任何环境操作都经 ``uv_bin()`` 解析，找不到即明确报错。
 """
 
 from __future__ import annotations
@@ -46,15 +46,24 @@ def pip_name(import_name: str) -> str:
     return PIP_NAME_MAP.get(import_name, import_name)
 
 
-def uv_available() -> str | None:
-    """返回 uv 可执行文件路径；不可用时返回 None。
+UV_INSTALL_HINT = (
+    "未找到 uv。uv 是工具依赖管理的必需组件，请先安装：\n"
+    "  pip install uv\n"
+    "  # 或: curl -LsSf https://astral.sh/uv/install.sh | sh"
+)
+
+
+def uv_bin() -> str:
+    """返回 uv 可执行文件路径；未安装时抛 RuntimeError（附安装指引）。
 
     支持 ``SOTABAND_UV`` 环境变量显式指定路径；服务进程 PATH 不含
     ``~/.local/bin`` 时按常规安装位置兜底探测。
     """
     override = os.environ.get("SOTABAND_UV", "").strip()
     if override:
-        return override if Path(override).exists() else None
+        if Path(override).exists():
+            return override
+        raise RuntimeError(f"SOTABAND_UV 指定的路径不存在: {override}")
     found = shutil.which("uv")
     if found:
         return found
@@ -63,7 +72,30 @@ def uv_available() -> str | None:
         cand = local / name
         if cand.exists():
             return str(cand)
-    return None
+    raise RuntimeError(UV_INSTALL_HINT)
+
+
+def ensure_uv(python_exe: str, mirror: str = "") -> str:
+    """确保 uv 可用；缺失时用给定解释器 pip 安装后再解析。serve.py 启动调用。"""
+    try:
+        return uv_bin()
+    except RuntimeError:
+        pass
+    argv = [python_exe, "-m", "pip", "install", "uv"]
+    if mirror:
+        argv += ["-i", mirror]
+    r = subprocess.run(argv, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", timeout=600)
+    if r.returncode != 0:
+        tail = (r.stderr or r.stdout or "").strip().splitlines()
+        raise RuntimeError(
+            "自动安装 uv 失败：" + (tail[-1] if tail else "未知错误")
+            + "\n请手动安装后重试: pip install uv")
+    # pip 可能刚把 uv 装进用户/venv 的 bin 目录，刷新 PATH 再找一次
+    for cand in (Path(python_exe).parent / ("uv.exe" if os.name == "nt" else "uv"),):
+        if cand.exists():
+            return str(cand)
+    return uv_bin()
 
 
 def uv_env() -> dict:
@@ -128,9 +160,7 @@ def create_tool_venv(tool_dir: Path, specs: list[str] | None = None,
     requirements=True 时从 requirements.txt 安装（重建场景），否则安装 specs。
     返回 venv python 路径；失败抛 RuntimeError（附 uv 输出尾部）。
     """
-    uv = uv_available()
-    if not uv:
-        raise RuntimeError("uv 不可用")
+    uv = uv_bin()
 
     tmp = tool_dir / ".venv.tmp"
     final = tool_dir / ".venv"
@@ -176,10 +206,10 @@ def uv_pip_install_argv(uv: str, venv_python: str, spec: str) -> list[str]:
 
 def freeze_requirements(tool_dir: Path) -> None:
     """把工具 .venv 的已安装包精确 pin 写入 requirements.txt"""
-    uv = uv_available()
     venv_py = venv_python_path(tool_dir)
-    if not uv or not venv_py.exists():
+    if not venv_py.exists():
         return
+    uv = uv_bin()
     try:
         r = subprocess.run(
             [uv, "pip", "freeze", "--python", str(venv_py)],
