@@ -175,16 +175,20 @@ def step_python_deps(py: Path, skip_tools: bool, mirror: str = ""):
         ok("工具运行环境就绪")
 
 
-def step_frontend_build(rebuild: bool):
+def step_frontend_install():
     frontend = ROOT / "frontend"
-    nm = frontend / "node_modules"
-    dist = frontend / "dist"
-    if nm.exists():
+    if (frontend / "node_modules").exists():
         ok("前端依赖已安装（跳过 npm install）")
     else:
         info("安装前端依赖（npm install）...")
         run([npm_exe(), "install"], cwd=frontend)
         ok("前端依赖安装完成")
+
+
+def step_frontend_build(rebuild: bool):
+    step_frontend_install()
+    frontend = ROOT / "frontend"
+    dist = frontend / "dist"
     if rebuild or not dist.exists():
         info("构建前端（npm run build）...")
         run([npm_exe(), "run", "build"], cwd=frontend)
@@ -260,6 +264,8 @@ def serve(mode: str, skip_tools: bool, rebuild_frontend: bool, mirror: str | Non
     step_python_deps(py, skip_tools, mirror)
     if mode == "start":
         step_frontend_build(rebuild_frontend)
+    else:
+        step_frontend_install()
 
     if not port_free(host, api_port):
         fail(f"后端端口 {host}:{api_port} 已被占用。请修改 .env 的 SOTABAND_API_PORT，或先用 `python scripts/serve.py stop` / 手动结束占用进程")
