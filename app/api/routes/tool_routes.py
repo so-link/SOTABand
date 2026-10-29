@@ -328,6 +328,7 @@ async def check_deps(tool_id: str):
     deps = builder._extract_imports(code)
 
     from core.executor.tool_executor import ToolExecutor
+    from core.resource import deps as _deps
     import subprocess as _sp
 
     python_exe = ToolExecutor._get_python_exe(tool_id)
@@ -335,23 +336,19 @@ async def check_deps(tool_id: str):
         "project_venv" if "/venv/" in python_exe else "system"
     )
 
-    # import 名 → pip 包名 的常见映射。
-    # 检测用 import 名（如 PIL），安装却必须用 pip 包名（pillow），
-    # 否则 pip install PIL 会失败。
-    _PIP_NAME = {
-        "PIL": "pillow", "cv2": "opencv-python", "sklearn": "scikit-learn",
-        "skimage": "scikit-image", "yaml": "pyyaml", "dotenv": "python-dotenv",
-        "bs4": "beautifulsoup4", "fit_zoo": "scipy", "dateutil": "python-dateutil",
-        "serial": "pyserial", "OpenSSL": "pyopenssl", "jwt": "pyjwt",
-        "win32com": "pywin32", "soundfile": "soundfile", "pkg_resources": "setuptools",
-    }
+    # find_spec 只探测存在性、不执行模块代码：torch 等大包冷启动 import
+    # 可能超时，真实 import 探测会把已安装的包误报为缺失
+    _probe = (
+        "import importlib.util, sys; "
+        "sys.exit(0 if importlib.util.find_spec(sys.argv[1]) else 1)"
+    )
 
     missing: list[str] = []
     for mod in deps:
         try:
             proc = _sp.run(
-                [python_exe, "-c", f"import {mod}"],
-                capture_output=True, text=True, timeout=15,
+                [python_exe, "-c", _probe, mod],
+                capture_output=True, text=True, timeout=30,
             )
             if proc.returncode != 0:
                 missing.append(mod)
@@ -364,7 +361,7 @@ async def check_deps(tool_id: str):
         "deps": deps,
         "missing": missing,
         # 安装时使用的 pip 包名（与 missing 一一对应）
-        "install": [_PIP_NAME.get(m, m) for m in missing],
+        "install": [_deps.pip_name(m) for m in missing],
         "python": python_exe,
         "env": env_label,
     }
@@ -372,7 +369,7 @@ async def check_deps(tool_id: str):
 
 @router.post("/{tool_id}/install-deps")
 async def install_deps(tool_id: str, req: dict):
-    """安装依赖到工具本地 .venv（无则装到项目 venv）"""
+    """安装依赖到工具独立 .venv（uv 可用时自动引导；否则装入项目 venv）"""
     deps = req.get("dependencies", [])
     if not deps:
         raise HTTPException(400, "dependencies 不能为空")
