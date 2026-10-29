@@ -120,11 +120,19 @@ def is_project_module(module_name: str) -> bool:
 
 
 def check_module_installed(module_name: str, python_exe: str) -> bool:
-    """检查模块是否已安装"""
+    """检查模块是否已安装（仅探测存在性，不执行模块代码）。
+
+    用 importlib.util.find_spec 代替真实 import：torch 等大包冷启动
+    import 可能超过超时时间，导致已安装的包被误判为缺失而重复安装。
+    """
+    code = (
+        "import importlib.util, sys; "
+        "sys.exit(0 if importlib.util.find_spec(sys.argv[1]) else 1)"
+    )
     try:
         result = subprocess.run(
-            [python_exe, "-c", f"import {module_name}"],
-            capture_output=True, text=True, timeout=10,
+            [python_exe, "-c", code, module_name],
+            capture_output=True, text=True, timeout=30,
         )
         return result.returncode == 0
     except Exception:
