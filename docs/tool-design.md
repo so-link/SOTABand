@@ -235,8 +235,9 @@ def _call_api(api_name: str, **params) -> dict: ...
 # 禁止 LLM 生成的代码硬编码服务商端点/模型名或调用 get-key 类 API
 def _llm_chat(messages, **kwargs) -> str: ...
 
-# 工具间调用：从内置根 registry.json 查 id/name，在「内置+私有」双资源根
-# 中定位 tool.py，用「工具 .venv → 当前解释器」的子进程执行，固定 30s 超时
+# 工具间调用：在「内置+私有」双资源根的 registry.json 中查 id/name
+# （私有根优先），双根中定位 tool.py，用「工具 .venv → 当前解释器」的
+# 子进程执行，固定 30s 超时
 def _call_tool(tool_name: str, **params) -> dict: ...
 
 # 路径辅助
@@ -399,7 +400,7 @@ resources/tools/                      # 内置根（随仓库分发，含预置�
     └── requirements.txt                # uv freeze 的精确依赖 pin（存在即可重建 .venv）
 ```
 
-读取（发现、执行、代码查看）合并两个根，同 id 以私有为准；写入只进私有根。执行器与 `_call_tool` 都在双根中定位 `tool.py`；但 `_call_tool` 只从**内置根**的 registry.json 查 id（已知局限）。
+读取（发现、执行、代码查看）合并两个根，同 id 以私有为准；写入只进私有根。执行器与 `_call_tool` 都在双根中定位 `tool.py`，`_call_tool` 查 id 时同样双根都查、私有根优先。
 
 ---
 
