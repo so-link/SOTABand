@@ -125,6 +125,7 @@ python scripts/serve.py dev --mirror https://pypi.tuna.tsinghua.edu.cn/simple
 ### 进阶（可选）
 
 - **工具依赖单独检查**：`serve.py` 启动时已自动检查并安装工具依赖（扫描 `resources/tools/implementations/` 下各工具的外部依赖）。如需单独排查，运行 `python scripts/check_tool_env.py --dry-run`。
+- **工具独立环境（uv）**：安装了 [uv](https://docs.astral.sh/uv/)（`pip install uv`）后，工具装依赖时会自动获得各自独立的 `.venv`（依赖清单固化工具目录下的 `requirements.txt`，uv 全局缓存硬链接共享，几乎不占额外磁盘），互不冲突；未安装 uv 时回退为装入共享项目 venv 的旧行为。换机器或误删 `.venv` 后，启动检查会按 `requirements.txt` 秒级重建。
 - **绕过 serve.py 手动启动**：`venv/bin/python -m uvicorn app.main:app --host <API_HOST> --port <API_PORT>` + `cd frontend && npm run dev|preview`（需自行保证端口与 `.env` 一致）。
 
 ### 常见问题
