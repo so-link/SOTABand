@@ -5,8 +5,8 @@
 > 状态：**已实现**（`api-model-register` / `api-model-get` 已登记到 `core/api/registry.json`，实现见 `core/api/implementations/api_model.py`；内置根 `resources/models/registry.json` 已有数十条真实注册记录，权重多为训练机绝对路径）。
 > 与本文档设计稿的差异：
 > 1. `ModelRegistry` 采用双资源根（读合并内置+私有、写只进私有根 registry.json），注册表 MD 与权重目录也解析到私有根；
-> 2. 注册时模型名自动追加毫秒级时间戳，避免同名冲突（`api-model-get` 的模糊匹配仍可命中原始名称片段）；
-> 3. **已知不一致**：`api-model-get` 直接读**内置根**的 `resources/models/registry.json`，而新注册条目只写**私有根**——因此注册后立刻 get 会查不到（需等条目进入内置根或改用 `ModelRegistry._read()` 的合并读取）。这与 `api-data-get` 的同类局限一致。
+> 2. 注册时若模型名与已有条目重名，自动追加递增序号 `_1`/`_2`… 确保名称唯一（`api-model-get` 的模糊匹配仍可命中原始名称片段）；
+> 3. `api-model-get` 经 `ModelRegistry._read()` 合并读取双根，注册后立即可查，与 `api-data-get` 行为一致。
 
 ---
 
