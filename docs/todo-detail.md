@@ -1,7 +1,12 @@
 
 # 工作任务详细说明
 
-> 基于 SOTABand 四层架构（应用层 → 核心层 → 资源层 → 存储层）和六大核心子系统（工作流引擎、资源管理、调度算力、多Agent协作、安全治理、可观测性），对 todo-list.md 中各工作任务的内涵进行详细说明。
+> 基于 SOTABand 四层架构（应用层 → 核心层 → 资源层 → 存储层）对 todo-list.md 中各工作任务的内涵进行详细说明。
+> 核心层当前已落地的能力为：资源管理、多 Agent 协作、工具执行、系统 API、LLM 接入、密钥脱敏；
+> 工作流引擎、调度算力、可观测性为规划中的预留模块（`core/engine/`、`core/scheduler/`、`core/observability/` 仅占位）。
+> 本文「关联架构」中提到的 `lifecycle.py`、`sandbox.py`、`verifier.py`、`watchdog.py`、`audit.py`、
+> `coordinator.py`、`protocol.py`、`intent_parser.py`、`flow_compiler.py`、`heterogeneous.py` 等文件
+> 均为**目标设计中的模块**，当前代码库中尚不存在，实现时需新建。
 
 ---
 

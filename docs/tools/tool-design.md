@@ -1,7 +1,7 @@
-# Tool 完整生命周期设计 v2
+# Tool 完整生命周期设计
 
 > 工具的规格化、生成、测试、注册、发现、调用全流程。
-> v2 核心变更：简化接口、移除后处理、用户驱动测试、自动化调试增强。
+> 核心取舍：简化接口、代码无后处理、用户驱动测试、自动化调试。
 
 ---
 
@@ -64,9 +64,9 @@ except Exception as e:
 | 参数传入 | 始终通过 `**kwargs` 键值对传入 |
 | 返回值 | 始终是 `dict`，方便 JSON 序列化 |
 | 无状态 | 每次调用独立，不依赖全局状态 |
-| 子进程隔离 | 工具在独立子进程中执行 |
-| 超时控制 | 默认 30 秒 |
-| 依赖隔离 | 每个工具使用本地 `.venv` |
+| 子进程隔离 | 工具代码写入临时脚本，在独立子进程中 `exec` 执行（永不与 FastAPI 同进程），统一注入 `TOOL_DIR`、强制 UTF-8 输出、屏蔽 `sys.argv` |
+| 超时控制 | `ToolExecutor.execute` 默认**无超时**（timeout=None，工具可能长耗时）；工具间调用 `_call_tool` 固定 30 秒 |
+| 解释器选择 | 按「工具本地 `.venv` → 项目 `venv` → 当前解释器」优先级选择，避免污染系统全局 Python |
 
 ### 2.6 LLM 生成时的强约束（写入 Prompt）
 
@@ -213,44 +213,34 @@ created: {日期}
 
 ### 5.1 核心原则
 
-**LLM 根据模板 + 提示，直接生成完整的可执行 Python 文件。不做额外后处理，完全依赖 LLM 生成符合规范的代码。**
+**LLM 根据模板 + 提示，直接生成完整的可执行 Python 文件。不做任何后处理，完全依赖 LLM 生成符合规范的代码**（`ToolCodeBuilder.build()` 即「模板 + LLM 生成」，与 Agent 生成不同，工具代码没有机械拼接与 `_fix_common_errors` 环节）。
 
 ### 5.2 模板结构
 
+`core/resource/builder/tool_builder.py` 中的 `TOOL_TEMPLATE`，为 LLM 提供以下预定义能力：
+
 ```python
 # === SOTABand 工具标准模板 ===
-import os, sys, json, time
+import os, sys, json, time, requests
 from pathlib import Path
-from typing import Any
-import requests
-try:
-    from dotenv import load_dotenv
-except ImportError:
-    load_dotenv = lambda *a, **kw: None
 
-# 项目根路径
-_tool_dir = os.environ.get("TOOL_DIR", "")
-if _tool_dir:
-    _PROJECT_ROOT = Path(_tool_dir).resolve().parent.parent.parent.parent
-else:
-    _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
-sys.path.insert(0, str(_PROJECT_ROOT))
-
-# 数据目录
+# 项目根路径：优先读 TOOL_DIR 环境变量（执行器注入），否则按 __file__ 回溯
+_PROJECT_ROOT = ...
 _DATA_DIR = _PROJECT_ROOT / "data"
-_DOWNLOADS_DIR = _DATA_DIR / "downloads"
 
-# API 调用辅助
-def _call_api(api_name: str, **params) -> dict:
-    from core.api import get_api
-    api = get_api(api_name)
-    return api.call(**params)
+# API 调用辅助：from core.api import get_api; api.call(**params)
+def _call_api(api_name: str, **params) -> dict: ...
 
-# 工具调用辅助
-def _call_tool(tool_name: str, **params) -> dict:
-    from core.resource.registry.tool_registry import ToolRegistry
-    import subprocess
-    # 加载工具并执行
+# LLM 调用辅助：统一走系统配置的 LLM_PROVIDER/LLM_API_KEY/LLM_MODEL，
+# 禁止 LLM 生成的代码硬编码服务商端点/模型名或调用 get-key 类 API
+def _llm_chat(messages, **kwargs) -> str: ...
+
+# 工具间调用：从内置根 registry.json 查 id/name，在「内置+私有」双资源根
+# 中定位 tool.py，用「工具 .venv → 当前解释器」的子进程执行，固定 30s 超时
+def _call_tool(tool_name: str, **params) -> dict: ...
+
+# 路径辅助
+def _resolve_path(path: str) -> str: ...
 
 # === 以下由 LLM 生成 ===
 ```
@@ -259,13 +249,13 @@ def _call_tool(tool_name: str, **params) -> dict:
 
 1. 前端调用 `POST /api/tool/generate-code`，传入 MD 文档
 2. 后端解析 MD 中的标记：
-   - `【xxx】` → 查找系统 API，生成 `_call_api("api-id", ...)` 调用示例
-   - `【【xxx】】` → 查找注册工具，生成 `_call_tool("tool-id", ...)` 调用示例
+   - `【xxx】` → 查找系统 API，注入 `_call_api("api-id", ...)` 的调用示例与输入/输出参数表
+   - `【【xxx】】` → 查找注册工具，注入 `_call_tool("tool-name", ...)` 调用示例
 3. 构建 Prompt，包含：
    - 模板框架说明（可用函数和变量）
    - MD 规范文档全文
    - API 和工具的调用方式
-   - 接口规范约束
+   - 接口规范约束（含「LLM 调用必须用 `_llm_chat`，禁止硬编码服务商/模型名」）
 4. LLM 生成完整 Python 文件
 5. **不进行任何后处理**，直接返回
 
@@ -289,27 +279,31 @@ def _call_tool(tool_name: str, **params) -> dict:
 ### 6.2 测试数据获取
 
 - 点击"沙箱测试"时，**弹窗让用户手动输入**测试参数
-- 对于**文件路径类型**的参数，提供**上传按钮**：
+- 对于**文件路径类型**的参数，提供**上传按钮**（`POST /api/tool/upload-test-file`）：
   1. 用户点击上传 → 选择本地文件
-  2. 上传到后端临时目录 `/tmp/sotaband-uploads/xxx.png`
+  2. 上传到后端临时目录 `/tmp/sotaband-uploads/{filename}`
   3. 返回临时路径，自动填入测试输入框
 - 用户确认输入后，点击"运行测试"
 
 ### 6.3 测试执行
 
-1. 将工具代码写入工具实现目录下的 `.py` 文件
-2. 子进程执行，传入测试参数
-3. 捕获 stdout 输出（`execute()` 的返回值）
-4. 展示执行结果（成功/失败、输出数据、错误信息）
+`POST /api/tool/test`（SSE 流式）：
+
+1. 代码为空时先调用 `builder.build()` 生成，随后**不落盘**，直接把代码字符串交给 `ToolExecutor.execute(code=...)`
+2. `ToolExecutor` 把代码包进统一临时脚本，子进程执行 `execute(**params)`，`timeout=None`
+3. 从子进程 stdout 中倒序找最后一行 JSON 作为 `execute()` 的返回值
+4. SSE 推送 `{exit_code, stdout, stderr, success}`；客户端断开时取消执行任务
+
+自动调试与对话界面执行走同一个 `ToolExecutor`，保证「自动调试能过的工具在对话界面中一定能过」。
 
 ### 6.4 依赖管理
 
-- 执行时遇到 `ModuleNotFoundError`：
-  1. 自动在工具目录创建 `.venv` 虚拟环境
-  2. `pip install` 缺失的库到 `.venv`
-  3. 后续执行使用 `.venv/bin/python`
-- 调用工具时优先使用本地 `.venv` 中的库
-- 本地没有的库，回退到全局 Python 环境
+依赖检测与安装是显式环节，不发生在普通执行路径上：
+
+- `GET /api/tool/{id}/check-deps`：静态提取工具代码的第三方 import，用工具实际解释器逐个 `find_spec` 存在性探测（不执行模块代码，避免 torch 等大包超时误报），返回缺失清单及 pip 包名映射（`PIL→Pillow`、`cv2→opencv-python-headless` 等，统一维护在 `core/resource/deps.py`）；「添加工具到工作空间」时前端据此提示安装
+- `POST /api/tool/{id}/install-deps`：安装缺失依赖到工具独立 `.venv`（uv 管理，缺失时自动引导创建，一次性装入工具全部第三方依赖，完成后 `uv pip freeze` 写工具目录 `requirements.txt` 精确 pin；多工具 venv 经 uv 全局缓存硬链接共享，近乎零磁盘增量，版本互不冲突）
+- 自动调试循环中遇到 `ModuleNotFoundError` 时，由**系统自动**调用 `install_deps_stream` 安装缺失库（LLM 不参与装依赖），安装失败则提示 LLM 换替代方案
+- 执行解释器按「工具 `.venv` → 项目 `venv` → 当前解释器」优先级选择（见 2.5）
 
 ---
 
@@ -360,8 +354,11 @@ def _call_tool(tool_name: str, **params) -> dict:
 
 ### 7.4 停止机制
 
-- 用户点击"停止调试"按钮 → 立即中断循环
-- 达到 50 轮仍未通过 → 自动停止，提示用户手动介入
+- 用户点击"停止调试"按钮 → 前端调用 `POST /api/tool/auto-debug/stop`（按 tool_id 设置全局停止标志，即使 SSE 连接已断开也能可靠停止后台调试）
+- 前端关闭 SSE 连接（`AbortController.abort()`）时后端同样设置停止标志并取消 producer
+- 达到 50 轮（`max_rounds=50`）仍未通过 → 自动停止，写入调试日志并提示用户手动介入
+
+调试过程与结果持久化到工具实现目录的调试日志文件，每轮的执行结果、LLM 分析、依赖安装事件都记入其中。
 
 ---
 
@@ -369,30 +366,40 @@ def _call_tool(tool_name: str, **params) -> dict:
 
 ### 8.1 注册流程
 
+注册（`POST /api/tool/register`）**不强制要求先通过沙箱测试**，用户核验即为落地门槛：
+
 ```
-ToolRegistry.register(tool_spec, tool_code)
+ToolRegistry.register(resource)
     │
-    ├── 1. 校验 MD 规范文档完整性
-    ├── 2. 分配唯一 Tool ID
-    ├── 3. 保存代码到 resources/tools/implementations/{tool-id}/
-    ├── 4. 写入 resources/tools/registry.json
-    ├── 5. 建立索引: 类型/标签/输入输出格式
-    └── 6. 发布注册事件
+    ├── 1. 写入条目到私有根 registry.json（读时合并内置根，同 id 私有覆盖内置）
+    │      字段: id/name/version/type/language/status/spec_path/impl_path/
+    │            input_schema/output_schema/param_meta/modes/tags/usage_count/
+    │            created_at/owner/visibility=public
+    ├── 2. MD 规范保存到私有根 definitions/{tool-id}.md
+    └── 3. 代码保存到私有根 implementations/{tool-id}/tool.py，
+           同时写 spec.md 副本与可选 tests/test_*.json 测试数据
 ```
 
-### 8.2 存储结构
+条目中的 `param_meta`（从 MD 输入规范解析的参数元数据）与 `modes`（多模式工具的 `parse_modes` 结果，单模式工具为空）供前端渲染执行表单。`owner` 记录创建者，`visibility=public`——工具是共享代码资产，不做归属隔离。未传 `tags` 时注册后异步调 LLM 生成 3-5 个中文标签。
+
+### 8.2 存储结构（双资源根）
 
 ```
-resources/tools/
-├── registry.json                       # 工具注册表
-├── definitions/                        # MD 规范文档
-│   └── {tool-id}.md
-└── implementations/                    # 工具代码
-    └── {tool-id}/
-        ├── tool.py                     # 工具实现
-        ├── spec.md                     # MD 规范文档副本
-        └── .venv/                      # 独立虚拟环境（自动创建）
+resources/tools/                      # 内置根（随仓库分发，含预置工具）
+├── registry.json                     # 内置工具注册表
+├── definitions/{tool-id}.md          # MD 规范文档
+└── implementations/{tool-id}/
+    ├── tool.py                       # 工具实现
+    └── spec.md                       # MD 规范文档副本
+
+../resources-private/tools/           # 私有根（SOTABAND_PRIVATE_RESOURCES 可覆盖）
+├── registry.json                     # 新注册工具一律写这里
+└── implementations/{tool-id}/
+    ├── .venv/                        # 工具独立虚拟环境（uv 管理，装依赖时自动创建）
+    └── requirements.txt                # uv freeze 的精确依赖 pin（存在即可重建 .venv）
 ```
+
+读取（发现、执行、代码查看）合并两个根，同 id 以私有为准；写入只进私有根。执行器与 `_call_tool` 都在双根中定位 `tool.py`；但 `_call_tool` 只从**内置根**的 registry.json 查 id（已知局限）。
 
 ---
 
@@ -400,46 +407,68 @@ resources/tools/
 
 ```python
 class ToolDiscoverer(BaseDiscoverer):
-    async def search(self, query, tags, input_format, output_format, tool_type) -> list[dict]:
-        """按多维度检索工具"""
-    
+    async def search(self, query=None, **filters) -> list[dict]:
+        """关键词匹配 name/id/tags，支持 type / tags 过滤（当前为字符串匹配，非语义搜索）"""
+
+    async def get_by_tags(self, tags) -> list[dict]: ...
+    async def get_by_input_format(self, fmt) -> list[dict]:
+        """按 input_schema.formats 过滤"""
+
     async def match_by_capability(self, description) -> list[dict]:
-        """根据能力描述匹配工具（语义搜索）"""
+        """按能力描述打分匹配（当前实现为关键词命中计分，非 LLM 语义搜索）"""
 ```
+
+需要真正的语义匹配时走 `POST /api/data/match-tools` 那样的 LLM 匹配路径。
 
 ---
 
 ## 十、工具调用
 
 ```python
-# 方式 1: Agent 内直接调用
-from core.resource.registry.tool_registry import ToolRegistry
-tool = await ToolRegistry.get("eeg-bandpass-filter")
-result = tool.execute(data_path="/data/subj01.edf", channels=[0,1,2])
+# 方式 1: 后端代码统一入口（子进程执行，Agent/路由都走这里）
+from core.executor.tool_executor import ToolExecutor
+result = await ToolExecutor.execute(tool_id="eeg-bandpass-filter",
+                                    params={"data_path": "/data/subj01.edf"})
 
-# 方式 2: 通过 API 调用
+# 方式 2: 通过 HTTP 调用
 POST /api/tool/{tool_id}/execute
 {"params": {"data_path":"/data/subj01.edf","channels":[0,1,2]}}
 
-# 方式 3: 工具间调用
-_calli_tool("eeg-bandpass-filter", data_path="...", channels=[0,1,2])
+# 方式 3: 工具间调用（模板提供，子进程执行，固定 30s 超时）
+_call_tool("eeg-bandpass-filter", data_path="...", channels=[0,1,2])
+
+# 方式 4: Agent 代码中的机械辅助函数（agent_builder 按 MD 引用生成）
+await self._call_tool_{tool_id}(**params)
 ```
+
+`ToolRegistry.get()` 只返回注册表条目（dict），不携带执行能力；执行一律经 `ToolExecutor`。
 
 ---
 
 ## 十一、API 端点
 
+`app/api/routes/tool_routes.py` 实际端点（节选核心项）：
+
 | 端点 | 方法 | 说明 |
 |------|------|------|
 | `/api/tool/generate-spec` | POST | NL → MD 工具描述 |
 | `/api/tool/generate-code` | POST | MD → 完整代码 |
-| `/api/tool/test` | POST | 沙箱执行测试 |
-| `/api/tool/auto-debug` | POST | SSE 自动化调试 |
-| `/api/tool/register` | POST | 注册发布 |
-| `/api/tool/list` | GET | 列出所有工具 |
-| `/api/tool/{id}` | GET | 工具详情 |
-| `/api/tool/{id}/execute` | POST | 调用工具 |
-| `/api/tool/search` | GET | 搜索工具 |
+| `/api/tool/test` | POST | 沙箱执行测试（SSE 流式，无超时） |
+| `/api/tool/upload-test-file` | POST | 上传测试文件，返回临时路径 |
+| `/api/tool/auto-debug` | POST | SSE 自动化调试（最多 50 轮） |
+| `/api/tool/auto-debug/stop` | POST | 按 tool_id 可靠停止后台调试 |
+| `/api/tool/register` | POST | 注册发布（不强制先过测试） |
+| `/api/tool/workspace` | GET/POST | 工作区间工具列表 / 添加到工作区间 |
+| `/api/tool/workspace/{tool_id}` | DELETE | 从工作区间移除 |
+| `/api/tool/{id}/check-deps` | GET | 检测第三方依赖缺失（含 pip 包名映射） |
+| `/api/tool/{id}/install-deps` | POST | 安装依赖到工具独立 `.venv`（uv 管理） |
+| `/api/tool/list` `/repository` | GET | 工具列表 / 仓库视图（含标签统计） |
+| `/api/tool/{id}` | GET/DELETE | 工具详情 / 删除工具 |
+| `/api/tool/{id}/execute` | POST | 调用工具（ToolExecutor，无超时） |
+| `/api/tool/search/find` | GET | 搜索工具（`?q=&tags=`） |
+| `/api/tool/{id}/modify-code` `/modify-and-debug` | POST | 对已注册工具改代码 / 改+调 |
+| `/api/tool/{id}/spec-table` `/spec-outline` `/refine-spec-node` | POST | MD 规格的结构化编辑 |
+| `/api/tool/{id}/save-code` `/save-spec` `/sync-spec-from-code` | POST | 保存代码/规格、从代码反向同步规格 |
 
 ---
 
@@ -491,33 +520,15 @@ core/resource/builder/tool_builder.py       # ToolCodeBuilder（模板 + LLM 生
 core/resource/builder/builder_base.py       # BaseBuilder
 app/api/schemas/tool_schemas.py             # Tool Pydantic 模型
 app/api/routes/tool_routes.py               # /api/tool/* 端点
-resources/tools/registry.json              # 工具注册表
+resources/tools/registry.json              # 内置根：预置工具注册表
 resources/tools/definitions/               # MD 规范文档
-resources/tools/implementations/           # 工具代码 + .venv
+resources/tools/implementations/           # 工具代码（.venv / requirements.txt 在私有根按需创建）
 
 # 前端
 frontend/src/components/center-panel/ToolEditorView.tsx
+frontend/src/components/center-panel/ToolDetailView.tsx
+frontend/src/components/center-panel/RepositoryView.tsx
 frontend/src/stores/tool-editor-store.ts
+frontend/src/stores/workspace-tool-store.ts
 frontend/src/services/api/tool.ts
-frontend/src/stores/ui-store.ts
-frontend/src/components/center-panel/CenterPanel.tsx
-frontend/src/components/left-panel/ResourceBrowser.tsx
-frontend/src/stores/resource-store.ts
 ```
-
----
-
-## 十四、v1 → v2 关键变更
-
-| 维度 | v1（旧） | v2（新） |
-|------|---------|---------|
-| 接口 | execute + 隐式约定 | **execute 唯一入口** |
-| 代码生成 | 函数体 + 后处理清理 | **完整文件**，无后处理 |
-| 沙箱测试 | 语法/接口/静态分析 + 自动数据 | **仅执行测试**，用户输入数据 |
-| 测试数据 | 自动构造 | **弹窗用户输入**，文件支持上传 |
-| 自动调试 | 5 轮，显示修改代码 | **50 轮**，显示输出和分析，代码静默更新 |
-| 依赖管理 | 报错提示 | **自动安装到本地 .venv** |
-| 停止机制 | 无 | **用户可随时停止** |
-| 工具调用 | 无 | `【【工具名】】` → `_call_tool()` |
-| 参数访问 | 未强制 | **强制 `kwargs.get`** |
-| 返回值 | 隐式约定 | **显式 4 字段规范** |

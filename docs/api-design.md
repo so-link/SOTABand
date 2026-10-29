@@ -18,25 +18,25 @@ API 子系统是核心层对外的**统一接口抽象层**。将核心层中的
 core/api/
 ├── __init__.py                       # get_api() 统一入口
 ├── registry.py                       # ApiRegistry — 注册中心
-├── registry.json                     # 11个API注册表
+├── registry.json                     # 19个API注册表
 ├── discoverer.py                     # ApiDiscoverer — 发现器
-├── base.py                           # BaseApi 基类
-├── definitions/                      # MD 规范文档（11个）
-│   ├── api-data-register.md
-│   ├── api-data-delete.md
-│   ├── api-data-list.md
-│   ├── api-tool-register.md
-│   ├── api-tool-list.md
-│   ├── api-llm-chat.md
-│   ├── api-llm-chat-stream.md
-│   ├── api-llm-get-config.md
-│   ├── api-agent-start.md
-│   ├── api-agent-stop.md
-│   └── api-doubao-get-key.md
-└── implementations/                  # Python 实现（4个文件）
-    ├── api_data.py                   # 数据集: register / delete / list
+├── base.py                           # BaseApi 基类（同步/异步双模式调用）
+├── definitions/                      # MD 规范文档（19个）
+│   ├── api-data-register.md / api-data-delete.md / api-data-list.md / api-data-get.md
+│   ├── api-tool-register.md / api-tool-list.md
+│   ├── api-llm-chat.md / api-llm-chat-stream.md / api-llm-chat-with-config.md
+│   ├── api-llm-get-config.md / api-llm-list-providers.md
+│   ├── api-llm-test-config.md / api-llm-test-connection.md
+│   ├── api-deepseek-get-key.md / api-doubao-get-key.md
+│   ├── api-agent-start.md / api-agent-stop.md
+│   └── api-model-register.md / api-model-get.md
+└── implementations/                  # Python 实现（5个文件）
+    ├── api_data.py                   # 数据集: register / delete / list / get（强制按 owner 过滤）
     ├── api_tool.py                   # 工具: register / list
-    ├── api_llm.py                    # LLM: chat / chat_stream / get_config / doubao
+    ├── api_llm.py                    # LLM: chat / chat_stream / chat_with_config / get_config /
+    │                                 #     list_providers / test_config / test_connection /
+    │                                 #     deepseek / doubao key 获取
+    ├── api_model.py                  # 模型: register / get
     └── api_agent.py                  # Agent: start / stop
 ```
 
@@ -136,6 +136,8 @@ class ApiXxx:
 6. 调用 `impl_method`（即 `call(**kwargs)`）→
 7. 返回结果 dict
 
+`BaseApi.call` 支持同步/异步双模式：实现为协程时（`is_async`，默认 true），若调用方已有事件循环则用 `run_coroutine_threadsafe` 桥接（等待上限 60s），否则 `asyncio.run`；因此同步的工具子进程代码可以直接调用异步实现。`get_api` 每次调用都会重新读取 `registry.json`，注册新 API 后无需重启即可生效（HTTP 侧另有 `/api/apis` 路由提供列表查询）。
+
 ### 4.1 工具代码中的调用方式
 
 工具通过模板提供的 `_call_api()` 函数调用：
@@ -211,14 +213,24 @@ result = _call_tool("tool-name", param1=value1, ...)
 | api-data-register | 数据集注册API | resource | api_data.py |
 | api-data-delete | 数据集删除API | resource | api_data.py |
 | api-data-list | 数据集列表API | resource | api_data.py |
+| api-data-get | 数据集详情API | resource | api_data.py |
 | api-tool-register | 工具注册API | resource | api_tool.py |
 | api-tool-list | 工具列表API | resource | api_tool.py |
 | api-llm-chat | LLM对话API | llm | api_llm.py |
 | api-llm-chat-stream | LLM流式对话API | llm | api_llm.py |
+| api-llm-chat-with-config | 自定义配置LLM对话API | llm | api_llm.py |
 | api-llm-get-config | LLM配置获取API | llm | api_llm.py |
+| api-llm-list-providers | LLM服务商列表API | llm | api_llm.py |
+| api-llm-test-config | LLM配置测试API | llm | api_llm.py |
+| api-llm-test-connection | LLM连接测试API | llm | api_llm.py |
+| api-deepseek-get-key | 获取DeepSeek API KEY | llm | api_llm.py |
 | api-doubao-get-key | 获取豆包API KEY | llm | api_llm.py |
 | api-agent-start | Agent启动API | resource | api_agent.py |
 | api-agent-stop | Agent停止API | resource | api_agent.py |
+| api-model-register | 模型注册API | resource | api_model.py |
+| api-model-get | 模型详情API | resource | api_model.py |
+
+> **密钥安全提示**：`api-llm-get-config` / `api-deepseek-get-key` / `api-doubao-get-key` 返回明文 Key，仅供本机工具使用。工具生成 Prompt 已明确禁止 LLM 生成的代码调用 get-key 类 API（应改用 `_llm_chat` / `api-llm-chat-with-config`，密钥不经过工具代码），但这些约束只作用于生成代码，不构成运行时隔离——注册工具本身即可执行任意代码，与项目「单机可信」前提一致。
 
 ---
 

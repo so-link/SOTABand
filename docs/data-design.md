@@ -123,66 +123,71 @@ eeg-subject-001/
     ↓
 系统扫描目录: 自动检测文件列表、格式、大小
     ↓
-调用 DeepSeek v4:
-  System: "你是一个数据集规格文档生成器..."
-  User: "[目录结构] + [用户描述]"
+调用 LLM（`.env` 配置的服务商，OpenAI 兼容协议）:
+  System: "你是一个数据集规格文档生成器..."（严禁编造未提供的信息）
+  User: "[文件列表（含大小/格式/描述）] + [用户描述]"
     ↓
-生成标准 MD 文档 → 展示给用户审阅编辑
+生成标准 MD 文档（另有一次独立 LLM 调用生成 3-5 个中文标签）→ 展示给用户审阅编辑
     ↓
 用户确认 → 注册到数据空间
 ```
 
-### 2.3 MD 生成 Prompt
+### 2.3 MD 生成 Prompt（实际实现）
+
+`app/api/routes/data_routes.py` 中的 `SPEC_PROMPT`，核心约束是**严禁编造**：
 
 ```
-你是一个数据集规格文档生成器。根据用户描述和目录扫描结果，
-生成标准化的 Dataset MD 描述文档。
-
-输入信息：
-- 目录路径: {path}
-- 文件列表: {files}
-- 用户描述: {description}
+你是一个数据集规格文档生成器。你必须严格根据用户提供的数据文件信息
+来生成文档，**严禁编造不存在的信息**。如果某个信息没有提供，填写"待补充"。
 
 规则：
-1. 自动检测文件格式并填充数据格式表
-2. 从文件名推断数据类型（EEG/图像/表格/文本）
-3. 如果用户未提及，合理推断使用场景和推荐工具
-4. dataset-id 使用小写字母+连字符
-5. 只输出 Markdown
+1. 只使用用户提供的文件信息，不要假设或编造任何数据属性
+2. 文件描述(description)直接用作数据格式表的说明列
+3. dataset-id 用小写英文+连字符，从用户描述中提取关键词
+4. type 从实际文件格式推断: png/jpg→image, csv→tabular, edf→timeseries, txt/md→text
+5. 只输出 Markdown，不要额外解释
 ```
+
+注册成功后还会有一次后台 LLM 调用为数据集自动匹配预览工具（`_match_preview_tool`），结果以 `preview_tool` 字段写回注册表，供预览时直接使用。
 
 ---
 
 ## 三、数据集注册与存储
 
-### 3.1 存储结构
+### 3.1 存储结构（双资源根）
+
+数据集遵循全局的**双资源根**模型（`core/resource/paths.py`）：读取时合并内置根与私有根，写入只进私有根。**数据文件不做复制**——注册只登记元数据，`data_path` 指向数据的原始位置（本机任意绝对路径）。
 
 ```
-resources/data/
-├── registry.json                     # 数据注册表
-├── definitions/                      # MD 规范文档
-│   ├── eeg-subject-001.md
-│   └── ...
-└── datasets/                         # 实际数据文件（软链接或复制）
-    └── eeg-subject-001/
-        ├── resting_state.edf
-        ├── visual_stimulus.edf
-        └── ...
+resources/data/                       # 内置根（随仓库分发，通常为空注册表）
+├── registry.json
+├── definitions/
+└── datasets/                         # 仅为兼容保留的目录，注册流程不向其复制数据
+
+../resources-private/data/            # 私有根（SOTABAND_PRIVATE_RESOURCES 可覆盖）
+├── registry.json                     # 新注册条目一律写这里
+└── definitions/{id}.md               # MD 规范文档写入私有根
 ```
+
+注册表条目字段：`id / name / version / type / status / spec_path / data_path / file_count / total_size / formats / tags / quality_score / created_at / owner / visibility / storage`。其中 `owner`（当前用户，不接受调用方传入）、`visibility`（一律 `private`）、`storage`（`local`/`remote`）由注册中心强制注入。
 
 ### 3.2 注册流程
 
 ```
 用户确认 MD 文档 → 点击 [注册数据集]
     ↓
+POST /api/data/register（文件保持在原位置，不复制）
+    ↓
 DataRegistry.register(dataset_info)
-    ├── 1. 校验 MD 规范文档完整性
-    ├── 2. 复制/链接数据目录到 resources/data/datasets/{id}/
-    ├── 3. 保存 MD 到 resources/data/definitions/{id}.md
-    ├── 4. 写入 resources/data/registry.json
-    ├── 5. 建立索引: 类型/格式/标签/大小
-    └── 6. 发布注册事件
+    ├── 1. data_path 取上传文件列表中第一个文件的父目录（绝对路径）
+    ├── 2. 统计实际 file_count / total_size / formats
+    ├── 3. 注入 owner / visibility=private / storage 字段
+    ├── 4. MD 保存到私有根 definitions/{id}.md（末尾追加数据集目录信息）
+    ├── 5. 条目写入私有根 registry.json（读时与内置根合并，同 id 私有覆盖内置）
+    └── 6. 后台异步匹配预览工具（LLM），结果缓存进注册表
 ```
+
+由于 `data_path` 指向注册时的机器路径，从他人环境复制项目时会带来「注册记录在本机无数据」的幽灵条目。`check_availability` / `is_present_locally` 逐个校验目录真实存在且有文件；`/api/data/list` 默认只返回**属于当前用户**且可见的条目（无 owner 的历史条目按「本机有数据视为本人」启发式平滑迁移，可用 `POST /api/data/claim-local` 一次性认领）。
 
 ---
 
@@ -218,8 +223,8 @@ DataRegistry.register(dataset_info)
     ↓
 ┌─ Step 4: 注册完成 ────────────────────────────────────────┐
 │  ✅ "eeg-subject-001" 已注册                               │
-│  📁 数据位置: resources/data/datasets/eeg-subject-001/     │
-│  📋 MD 文档: resources/data/definitions/eeg-subject-001.md │
+│  📁 数据位置: 原始目录（注册不复制文件，data_path 指向原路径）│
+│  📋 MD 文档: 私有资源根 data/definitions/eeg-subject-001.md │
 │                                                          │
 │  该数据集现在:                                             │
 │  - 在工作区间文件树中可见                                    │
@@ -281,7 +286,7 @@ POST /api/chat/send { content: "...", attachments: [eeg-subject-001] }
     ↓
 ┌─ 调用 ToolDiscoverer 查找匹配工具 ───────────────────────┐
 │                                                          │
-│  deepseek v4: "用户需要对 EEG 数据做带通滤波，               │
+│  LLM: "用户需要对 EEG 数据做带通滤波，                       │
 │  匹配可用工具..."                                          │
 │                                                          │
 │  检索工具空间:                                             │
@@ -362,18 +367,21 @@ POST /api/chat/send { content: "...", attachments: [eeg-subject-001] }
 
 ### 6.2 工具匹配逻辑
 
+工具匹配由 `POST /api/data/match-tools` 承担（`data_routes.py`）：
+
 ```
-ToolDiscoverer.match_for_dataset(dataset_md, user_request)
+POST /api/data/match-tools {dataset_id, request}
     │
-    ├── 1. 从 dataset MD 提取数据格式 (EDF, CSV, PNG...)
-    ├── 2. 从 user_request 提取处理意图 (滤波, 分析, 转换...)
+    ├── 1. 读取数据集 MD 规范前 1000 字作为数据集上下文
+    ├── 2. 取注册表中 status=active 的全部工具（id/name/type/tags）
     ├── 3. 调用 LLM 进行语义匹配:
-    │       "数据集格式: EDF, 用户需求: 带通滤波
-    │        可用工具列表: [...]
+    │       "用户需求 + 数据集信息 + 可用工具列表
     │        请判断哪些工具可以处理此需求，返回工具ID列表"
-    ├── 4. 返回匹配的工具列表（按匹配置信度排序）
+    ├── 4. 返回 {matches: [tool-id...], reason, total_tools}
     └── 5. 如果没有匹配，返回空列表 → 触发工具创建流程
 ```
+
+（`ToolDiscoverer` 另提供 `search / get_by_tags / get_by_input_format / match_by_capability` 等结构化检索方法，供 Agent 与路由复用。）
 
 ---
 
@@ -384,24 +392,22 @@ ToolDiscoverer.match_for_dataset(dataset_md, user_request)
 ```
 用户点击数据集（工作区间或数据空间）
     ↓
-主面板切换到 → 数据预览视图
+主面板切换到 → 数据预览视图 (DataPreviewView)
     ↓
-┌─ 系统调用 LLM 匹配预览工具 ──────────────────────────────┐
+┌─ GET /api/data/{id}/preview ─────────────────────────────┐
 │                                                          │
-│  deepseek v4: "数据集类型: EDF 时间序列，64通道，          │
-│  推荐预览方式: 波形图 + 频谱图"                             │
-│                                                          │
-│  检索工具空间中适合预览的工具:                               │
-│  ├── eeg_waveform_viewer   → 波形图                      │
-│  ├── eeg_spectrum_viewer   → 频谱图                      │
-│  └── eeg_topomap_viewer    → 地形图                      │
-│                                                          │
-│  匹配结果: 3 个预览工具可用                                 │
+│  1. 从 MD 规范"数据格式"表格解析文件列表，                  │
+│     表格无内容时回退为扫描实际目录                           │
+│  2. 预览工具: 优先读注册表中缓存的 preview_tool             │
+│     （注册时由后台 LLM 匹配写入），无缓存则跳过，            │
+│     避免每次点击都调 LLM；接口本身不自动执行预览工具          │
+│  3. 返回 {dataset, spec_md, files, preview_tool,          │
+│          has_preview_tool}                                │
 └──────────────────────────────────────────────────────────┘
     ↓
 ┌─ 有预览工具 ──────────────────────────────────────────────┐
 │                                                          │
-│  自动执行预览工具，可视化结果展示在主面板:                     │
+│  前端按 preview_tool 呈现可视化结果展示在主面板:              │
 │                                                          │
 │  ┌─ 数据预览: eeg-subject-001 ─────────────────────────┐ │
 │  │                                                      │ │
@@ -454,80 +460,60 @@ ToolDiscoverer.match_for_dataset(dataset_md, user_request)
 
 ## 八、API 端点
 
+`app/api/routes/data_routes.py` 实际暴露的端点：
+
 | 端点 | 方法 | 说明 |
 |------|------|------|
-| `/api/data/scan-directory` | POST | 扫描目录，返回文件列表和格式检测结果 |
-| `/api/data/generate-spec` | POST | NL + 目录扫描结果 → MD 数据集描述 |
-| `/api/data/register` | POST | 注册数据集 |
-| `/api/data/list` | GET | 列出所有已注册数据集 |
-| `/api/data/{id}` | GET | 数据集详情（含 MD） |
-| `/api/data/{id}/files` | GET | 数据集文件列表 |
-| `/api/data/{id}/preview` | GET | 预览数据集（自动匹配预览工具） |
-| `/api/data/{id}/process` | POST | 处理数据集（指定工具和参数） |
-| `/api/data/match-tools` | POST | 根据数据集和需求匹配可用工具 |
-| `/api/data/search` | GET | 搜索数据集 |
+| `/api/data/scan-directory` | POST | 扫描目录，返回文件列表、总数、格式与逐个文件大小 |
+| `/api/data/generate-spec` | POST | NL + 文件信息（含描述）→ MD 数据集描述 + 3-5 个标签 |
+| `/api/data/register` | POST | 注册数据集（文件保持原位置不复制；后台匹配预览工具） |
+| `/api/data/repository` | GET | 数据集仓库列表，含标签统计与缩略图/首句预览 |
+| `/api/data/list` | GET | 按归属隔离列出数据集（`available_only` / `include_others` 可选） |
+| `/api/data/claim-local` | POST | 把本机有数据、缺归属标记的历史条目认领给当前用户 |
+| `/api/data/{id}` | GET | 数据集详情（含 MD 文档） |
+| `/api/data/{id}/files` | GET | 数据集文件列表（目录不存在时明确报错，不静默返回空） |
+| `/api/data/match-tools` | POST | 根据数据集与需求，LLM 语义匹配可用工具 |
+| `/api/data/{id}/preview` | GET | 预览：解析文件列表 + 读缓存的 `preview_tool`（不自动执行） |
+| `/api/data/search/find` | GET | 按关键词/标签搜索数据集（`?q=&tags=`） |
+| `/api/data/{id}` | DELETE | 删除数据集（移除注册表条目、MD 文档，并删除数据目录） |
+
+> `DELETE` 会删除 `data_path` 指向的原始数据目录（已解析为绝对路径，并兜底拒绝删除数据根目录本身）；注册不复制，因此删除即删除原文件，操作不可逆。
 
 ---
 
-## 九、前端改动
+## 九、归属与可见性
 
-### 新增文件
+数据集是**私有**资源（数据文件在本机，按 owner 隔离），与工具/Agent 的「共享代码资产」不同：
 
-```
-frontend/src/components/center-panel/DatasetEditorView.tsx  # 数据集编辑器
-frontend/src/components/center-panel/DataPreviewView.tsx     # 数据集预览（重写）
-frontend/src/stores/dataset-editor-store.ts                 # 编辑器状态管理
-frontend/src/services/api/data.ts                           # Data API 服务
-```
-
-### 修改文件
-
-```
-frontend/src/stores/ui-store.ts              # + 'dataset-editor'
-frontend/src/components/center-panel/CenterPanel.tsx  # + 数据集编辑器路由
-frontend/src/components/left-panel/WorkspaceFileTree.tsx  # + 数据集右键菜单/标记
-frontend/src/components/left-panel/ResourceBrowser.tsx    # + 数据空间 [+] 按钮 + 加载真实数据
-frontend/src/stores/chat-store.ts             # 支持数据集附件
-frontend/src/stores/resource-store.ts         # + fetchDatasetsFromApi
-```
-
-### 后端新增文件
-
-```
-core/resource/registry/data_registry.py       # 数据注册中心
-core/resource/discoverer/data_discoverer.py    # 数据发现器
-app/api/schemas/data_schemas.py               # 数据 Pydantic 模型
-app/api/routes/data_routes.py                 # 数据 API 路由
-resources/data/registry.json                  # 数据注册表
-resources/data/definitions/                   # MD 规范文档
-resources/data/datasets/                      # 实际数据存储
-```
+- 注册时强制注入 `owner = 当前用户`（`core/user_context.get_current_user_id`），不接受调用方伪造；`visibility = private`；`storage = local/remote`。
+- 读取时 `is_visible` 叠加可见性：`public` 全员可见，`private` 需归属匹配。当前所有数据集均为 `private`，行为等同纯归属判定；未来上云把 `visibility` 设为 `public` 即可共享，无需改判定逻辑。
+- `/api/data/list` 默认只返回当前用户可见的条目，并逐个用 `check_availability` 校验本机是否真的有数据（`available` / `file_count_actual`），避免展示「一运行就报路径不存在」的幽灵数据集。
+- 历史无 `owner` 条目走「本机有数据即视为本人」的平滑迁移启发式，可用 `/api/data/claim-local` 一次性打补丁，此后走精确 owner 匹配。
 
 ---
 
-## 十、实现顺序
+## 十、相关实现文件
+
+后端：
 
 ```
-Phase 1: 数据注册基础设施
-  ├── 1. core/resource/registry/data_registry.py
-  ├── 2. core/resource/discoverer/data_discoverer.py
-  ├── 3. app/api/schemas/data_schemas.py
-  ├── 4. app/api/routes/data_routes.py (scan, generate-spec, register, list, get)
-  └── 5. resources/data/ 目录初始化
+core/resource/registry/data_registry.py       # 数据注册中心（双根读合并/写私有、归属与可用性校验）
+core/resource/discoverer/data_discoverer.py    # 数据发现器（search / get_by_tags / get_by_format）
+core/resource/paths.py                         # 双资源根：内置根 + 私有根解析
+core/user_context.py                           # 当前用户标识、可见性/归属判定、storage 探测
+app/api/schemas/data_schemas.py                # 数据 Pydantic 模型
+app/api/routes/data_routes.py                  # 数据 API 路由
+```
 
-Phase 2: 数据集编辑器
-  ├── 6. frontend DatasetEditorView + store + api service
-  ├── 7. WorkspaceFileTree 右键菜单 / [+] 按钮
-  └── 8. 端到端: 选择目录 → 描述 → 生成 MD → 注册
+前端：
 
-Phase 3: 数据集处理
-  ├── 9. POST /api/data/match-tools (语义匹配)
-  ├── 10. 交互Agent 集成: 附加数据集 → 匹配工具 → 执行/跳转
-  ├── 11. 无工具时自动跳转工具编辑器 + 预填需求
-  └── 12. 端到端: 点击数据集 → 对话描述 → 工具处理 → 显示结果
-
-Phase 4: 数据集预览
-  ├── 13. GET /api/data/{id}/preview (自动匹配预览工具)
-  ├── 14. DataPreviewView 重写 (集成预览工具调用)
-  └── 15. 无预览工具时展示 MD 描述信息
+```
+frontend/src/components/center-panel/DatasetEditorView.tsx       # 数据集编辑器（生成 MD → 注册）
+frontend/src/components/center-panel/DataPreviewView.tsx         # 数据预览视图
+frontend/src/components/center-panel/DatasetRepositoryView.tsx   # 数据仓库视图（标签统计/缩略图）
+frontend/src/components/center-panel/CsvTablePreview.tsx         # 表格类预览
+frontend/src/stores/dataset-editor-store.ts                      # 编辑器状态
+frontend/src/stores/dataset-repository-store.ts                  # 仓库视图状态
+frontend/src/stores/workspace-dataset-store.ts                   # 工作区间数据集状态
+frontend/src/services/api/data.ts                                # Data API 服务
 ```

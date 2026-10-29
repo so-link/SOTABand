@@ -2,9 +2,9 @@
 
 > 将 Agent 从四类（interactive / task / orchestrator / observer）收敛为**三类**：
 > **交互式（interactive）**、**任务式（task）**、**Web 服务式（web-service）**。
-> 三类 Agent 的执行界面各不相同。
+> **三类 Agent 的执行界面各不相同。**
 >
-> 本文档为**设计说明**，不含实现代码。
+> 本文档为设计说明；第 1.3、10 章的统一进程模型与交互式 Agent 进程化**已实现**，任务式/Web 服务式的独立执行界面按 `agent-detail` 视图落地（见第十一章）。
 
 ---
 
@@ -41,8 +41,7 @@
 3. **系统默认交互 Agent 的例外**：仅「系统默认的交互 Agent」随引擎自动启动（作为系统默认入口），但它**同样可以被手动关闭 / 重启**；用户自定义新增的交互式 Agent 则完全手动启停。
 4. **进程隔离收益**：单个 Agent 崩溃 / 阻塞不影响引擎与其他 Agent；便于按 Agent 维度限流、监控与资源隔离。
 
-> 设计演进说明：当前实现中，交互 Agent 是**与 FastAPI 同进程的模块级单例**（`chat_routes.py`）。
-> 本设计将统一改为**独立进程模型**，与任务式 / Web 服务式一致。
+> 实现现状：统一独立进程模型已落地。`chat_routes.py` 不再持有同进程单例，对话请求经 `AgentFactory.execute_stream` 转发到交互 Agent 子进程（stdin/stdout JSON-line 协议）；引擎启动时由 `main.py` lifespan 自动拉起系统默认交互 Agent，且支持手动关闭 / 重启。
 
 ---
 
@@ -226,10 +225,9 @@ apis:
 └──────────────────────────────────────────────────────────┘
 ```
 
-**组件**：`TaskAgentView.tsx`
-- **启动按钮**：提交启动参数 → `POST /api/agent/{id}/start-task`
-- **关闭按钮**：`POST /api/agent/{id}/stop-task`
-- **消息显示区**：SSE 流式接收执行日志（步骤进度、工具输出、错误）
+**实现**：任务式界面落在 `AgentDetailView.tsx`（`agent-detail:{id}` 参数化视图）中。
+- **从规格解析参数表单**，提交后 `POST /api/agent/{id}/execute`（SSE 流式接收 content / card / done / error 事件，带 AbortController 超时中断）
+- **启停按钮**：`POST /api/agent/{id}/start` / `stop` / `restart`（进程级），与执行（任务级）分离
 - **无对话输入框**（与交互式的核心区别）
 
 ### 4.4 Web 服务式 Agent 界面（新增）
@@ -260,13 +258,13 @@ apis:
 └──────────────────────────────────────────────────────────┘
 ```
 
-**组件**：`WebServiceAgentView.tsx`
-- **启动/关闭按钮**：控制 HTTP 服务进程
-- **消息显示区**：请求日志（谁来了、调了什么工具、响应耗时）
+**实现**：Web 服务界面同样落在 `AgentDetailView.tsx` 中。
+- **启动/关闭按钮**：控制 HTTP 服务进程（`start`/`stop`）；启动时宿主从子进程的 `service_ready` 事件捕获实际监听地址（`agent_factory.get_service`，经 `GET /api/agent/{id}/service` 查询）
 - **API 测试区**：
-  - 下拉选择该 Agent 暴露的 API（从 MD 规范解析）
+  - 下拉选择该 Agent 暴露的 API（来自 `service_ready` 上报 / 系统 API 注册表）
   - 根据 API 的 `params` 动态渲染输入表单
-  - 「发送测试请求」→ 由后端**内部代理**调用该 HTTP 服务（避免 CORS）→ 展示 JSON 结果
+  - 「发送测试请求」→ `POST /api/agent/{id}/test-api` 由后端**内部代理**请求本机回环地址（避免 CORS）→ 展示 JSON 结果
+- **API 文档**：注册时自动生成对外 API 文档（`GET /api/agent/{id}/api-doc` 及下载端点）
 
 ---
 
@@ -274,17 +272,17 @@ apis:
 
 ### 5.1 现状
 
-现有创建流程（`AgentEditorView.tsx`）为四步：
+早期创建流程（`AgentEditorView.tsx`）为四步：
 
 ```
 Step 1 描述需求  →  Step 2 审阅 MD  →  Step 3 代码核验  →  Step 4 完成
 ```
 
-**Step 1 是一个空白的需求文本框**，用户直接自由填写。没有「类型」概念，所有 Agent 走同一套生成逻辑。
+最初 Step 1 是一个空白的需求文本框，所有 Agent 走同一套生成逻辑。
 
-### 5.2 改进后的流程
+### 5.2 现行流程（已实现）
 
-**在描述需求之前，先让用户选择 Agent 类型**；选定类型后，需求框**自动填入该类型的默认模板**作为起点。
+**在描述需求之前先让用户选择 Agent 类型**（interactive / task / web-service 单选，切换时带模板确认对话框）；选定类型后，需求框**自动填入该类型的默认模板**作为起点。后端 `generate-spec` 按 role 注入类型专属生成指引。
 
 ```
 ┌─ Step 1a: 选择 Agent 类型 ────────────────────────────────┐
@@ -359,7 +357,7 @@ Step 1 描述需求  →  Step 2 审阅 MD  →  Step 3 代码核验  →  Step 
 
 ### 5.5 接口调整
 
-`POST /api/agent/generate-spec` 请求体新增 `role` 字段：
+`POST /api/agent/generate-spec` 请求体带 `role` 字段：
 
 ```json
 {
@@ -382,33 +380,32 @@ Step 1 描述需求  →  Step 2 审阅 MD  →  Step 3 代码核验  →  Step 
 
 ---
 
-## 六、前后端改动点
+## 六、前后端落地情况
 
 ### 5.1 后端
 
-| 文件 | 改动 |
+| 文件 | 现状 |
 |------|------|
-| `core/agent/base.py` | `AgentRole` 收敛为三类；`AgentSpec` 增加 `flow`（task）/ `server`+`apis`（web-service）字段 |
-| `core/agent/factory.py` | `start/stop` 按 role 统一为独立进程模型；启动/停止/状态查询对三类一致；web-service 额外申请端口 |
-| `core/agent/entrypoint.py` | 统一子进程入口：按 role 分派（interactive → 对话循环；task → flow 执行；web-service → HTTP 服务宿主） |
-| `app/api/routes/chat_routes.py` | **改造**：交互 Agent 由「同进程单例」改为「经 AgentFactory 的子进程」；对话请求转发到子进程 |
-| `app/main.py` | 启动时仅自动启动「系统默认交互 Agent」；其余不自动启动 |
-| `core/resource/builder/agent_builder.py` | 代码生成模板按三类区分（对话循环 / flow 执行器 / HTTP 服务框架） |
-| `app/api/routes/agent_routes.py` | 新增：`POST /{id}/start-task`、`POST /{id}/stop-task`、`GET /{id}/apis`、`POST /{id}/test-api` |
-| `core/agent/templates/` | 三类 Agent 模板更新 |
+| `core/agent/base.py` | ✅ `AgentRole` 已收敛为三类；task 的 flow / web-service 的 apis 约束体现在规格文档与代码模板中 |
+| `core/agent/factory.py` | ✅ `start/stop/restart/status` 对三类统一为独立进程模型；web-service 启动后捕获 `service_ready` 事件记录 host/port/apis |
+| `core/agent/entrypoint.py` | ✅ 统一子进程入口，按 role 行为分化由生成的 agent.py 自身实现 |
+| `app/api/routes/chat_routes.py` | ✅ 交互 Agent 已经 AgentFactory 子进程转发（原同进程单例方案已替换） |
+| `app/main.py` | ✅ lifespan 仅自动拉起系统默认交互 Agent；shutdown 时停止全部子进程 |
+| `core/resource/builder/agent_builder.py` | ✅ 代码生成按三类角色模板区分 |
+| `app/api/routes/agent_routes.py` | ✅ 启停/状态/execute(SSE)/service/test-api/api-doc 端点均已实现（未单独设 start-task/stop-task，启停与执行分离：`/start` 管进程，`/execute` 管一次任务） |
+| `core/agent/templates/` | ✅ `interactive.py.tmpl` / `task.py.tmpl` / `web_service.py.tmpl` 三个模板 |
 
 ### 5.2 前端
 
-| 文件 | 改动 |
+| 文件 | 现状 |
 |------|------|
-| `stores/ui-store.ts` | `ActiveView` 新增 `'interactive-agent'`、`'task-agent'`、`'web-service-agent'` |
-| `components/center-panel/CenterPanel.tsx` | switch 增加三个 case |
-| `components/center-panel/InteractiveAgentView.tsx` | **新增**（启停按钮 + 复用对话区） |
-| `components/center-panel/TaskAgentView.tsx` | **新增**（启停 + 消息区） |
-| `components/center-panel/WebServiceAgentView.tsx` | **新增**（启停 + 消息区 + API 测试区） |
-| `components/center-panel/ChatView.tsx` | 可提取出可复用的「对话区」子组件，供默认对话与 `InteractiveAgentView` 共用 |
-| `stores/agent-runtime-store.ts`（新建） | 统一管理所有 Agent 的运行状态（running/stopped/pid）与消息流 |
-| `services/api/agent.ts` | 新增 start / stop / status / apis / test-api 调用 |
+| `stores/ui-store.ts` | 未拆三个视图；Agent 运行/详情统一走参数化视图 `agent-detail:{id}` |
+| `components/center-panel/AgentDetailView.tsx` | ✅ 承载任务式运行（参数表单 + SSE 消息区）与 Web 服务式（服务地址 + API 测试区 + API 文档） |
+| `components/center-panel/AgentEditorView.tsx` | ✅ 四步向导 + 类型选择/模板预填 |
+| `stores/agent-editor-store.ts` | ✅ 含 agentRole 状态与三类默认模板 |
+| `services/api/agent.ts` | ✅ start / stop / status / execute / service / test-api 调用 |
+
+> 界面组织与原设计的差异：没有为三类 Agent 各建一个顶层视图（`InteractiveAgentView` / `TaskAgentView` / `WebServiceAgentView`），而是统一为一个 `agent-detail` 视图，按角色渲染对应区块——交互式仍复用主对话视图。
 
 ---
 
@@ -417,23 +414,23 @@ Step 1 描述需求  →  Step 2 审阅 MD  →  Step 3 代码核验  →  Step 
 ### 6.1 任务式 Agent 执行流程
 
 ```
-用户点击「启动」
+用户在 agent-detail 视图填参数并点击「运行」
     │
     ▼
-POST /api/agent/{id}/start-task  { params: {...} }
+POST /api/agent/{id}/execute  { params: {...} }   (SSE)
     │
     ▼
-AgentFactory.start_task(agent_id, params)
-    │  启动独立子进程（或线程）
+AgentFactory.execute_stream(agent_id, params)
+    │  向已启动的子进程 stdin 写任务 JSON
     ▼
-TaskRunner 按 MD 的 flow 逐步执行：
+Agent 子进程按 MD 的 flow 逐步执行：
     for step in flow:
         result = ToolExecutor.execute(step.tool, resolve(step.params))
-        yield {event:"log", data:{step, result}}   → SSE
+        yield {event:"log"/"card", data:{step, result}}   → stdout → SSE
     yield {event:"done"}
     │
     ▼
-前端 SSE → TaskAgentView 消息区流式追加
+前端 SSE → agent-detail 消息区流式追加
 ```
 
 ### 6.2 Web 服务式 Agent 流程
@@ -442,19 +439,19 @@ TaskRunner 按 MD 的 flow 逐步执行：
 用户点击「启动」
     │
     ▼
-POST /api/agent/{id}/start-service
+POST /api/agent/{id}/start
     │
     ▼
-启动 HTTP 服务子进程（监听分配端口，如 9200）
-    │  记录到 agent_factory._services[agent_id] = {port, proc}
+AgentFactory 启动子进程 → 子进程内 WebServiceHost 监听端口
+    │  （host 默认 127.0.0.1；port 传 0 时由系统分配实际端口）
+    │  子进程上报 service_ready 事件 → agent_factory._services[agent_id] = {host, port, apis}
     ▼
-外部：POST http://host:9200/detect  { image: "..." }
+外部：POST http://host:{port}/detect  { image: "..." }
     │
     ▼
 服务进程匹配 API 路由 /detect → 按 flow 组合调用工具 → 返回 JSON
-    │  同时把请求日志推送到主进程（通过 bus 或日志文件）
     ▼
-前端 消息区显示请求日志
+前端 agent-detail 显示服务地址（GET /api/agent/{id}/service）
 ```
 
 ### 6.3 API 测试区流程
@@ -466,7 +463,7 @@ POST /api/agent/{id}/start-service
 POST /api/agent/{id}/test-api  { api_name, params }
     │
     ▼
-后端内部代理请求到 http://127.0.0.1:{port}{path}
+后端读取 get_service(agent_id) 的 host/port，内部代理请求到该 HTTP 服务
     │  （走本机回环，避免 CORS 与外部网络问题）
     ▼
 返回响应 JSON → 前端测试结果区展示
@@ -478,58 +475,56 @@ POST /api/agent/{id}/test-api  { api_name, params }
 
 ### 7.1 端口分配
 
-| 方案 | 说明 | 推荐 |
+| 方案 | 说明 | 采用 |
 |------|------|------|
-| **固定端口** | MD 中声明 `port`，冲突时报错 | 简单场景 |
-| **动态分配** | 从端口池（如 9200-9299）分配，记录到注册表 | **推荐**，避免冲突 |
-| 统一网关 | 所有 Agent 服务共用网关，按路径前缀路由 | 复杂、需要网关组件 |
+| **固定端口** | MD 中声明 `port`，冲突时报错 | 可选（spec 声明时生效） |
+| **动态分配** | 生成代码默认 `port=0`，由操作系统分配实际端口，经 `service_ready` 事件上报 | ✅ **默认方案** |
+| 统一网关 | 所有 Agent 服务共用网关，按路径前缀路由 | 未实现 |
 
-设计采用**动态分配 + 端口池**：`storage/agent_services.json` 记录 `{agent_id: {port, status}}`。
+实现采用**动态分配**：`core/agent/web_server.py` 的 `WebServiceHost` 以 `port=0` 监听时记录 `getsockname()` 的实际端口，子进程通过 `service_ready` 事件上报，主进程保存在 `AgentFactory._services`（内存字典）。引擎重启后需重新启动 Agent 并重新捕获。
 
 ### 7.2 生命周期（三类 Agent 统一）
 
 | 动作 | 说明 |
 |------|------|
-| 启动 | 启动独立子进程 → 健康检查（心跳 / 端口探测） |
-| 停止 | 发送停止信号 → 等待退出 → 超时强杀 |
-| 崩溃恢复 | 进程异常退出 → 记录日志（可选自动重启） |
+| 启动 | `POST /api/agent/{id}/start` → 启动独立子进程；代码缺失时先尝试从 spec 自动重建；web-service 额外捕获 `service_ready` |
+| 停止 | `POST /api/agent/{id}/stop` → 终止子进程 |
+| 重启 | `POST /api/agent/{id}/restart` |
+| 崩溃 | 进程异常退出后状态变为 stopped，不自动重启（进程状态存内存字典，引擎重启即丢失） |
 | 引擎重启 | FastAPI 重启后，**所有 Agent 均不自动恢复**（除系统默认交互 Agent），需用户手动启动 |
-
-> ⚠️ 与现有 `agent_factory` 一致：进程状态存内存字典，引擎重启即丢失。若需持久常驻，后续可引入进程守护。
 
 ### 7.3 安全
 
-- 默认监听 `127.0.0.1`（仅本机），MD 中显式声明 `host: 0.0.0.0` 才对外暴露
-- 可选的 API Key 鉴权（MD 中配置 `auth: {type: api_key, header: X-API-Key}`）
-- 请求体大小限制、超时限制
+- `WebServiceHost` 默认监听 `127.0.0.1`（仅本机）；对外暴露需显式配置
+- API Key 鉴权、请求体大小限制为规划项，尚未实现
 
 ---
 
-## 九、注册表结构扩展
+## 九、注册表结构
 
-`resources/agents/registry.json` 每条记录扩展 role 相关字段：
+`resources/agents/registry.json` 每条记录的实际字段：
 
 ```json
 {
-  "id": "yolo-service-agent",
-  "name": "YOLO检测服务",
-  "role": "web-service",
+  "id": "city-info-query-agent",
+  "name": "城市信息查询 Agent",
+  "version": "0.1.0",
+  "role": "interactive",
   "status": "active",
-  "spec_path": "definitions/yolo-service-agent.md",
-  "impl_path": "implementations/yolo-service-agent/",
-  "tools": ["yolo-detection-mmyolo"],
-  "apis": ["detect", "train"],          // web-service 专有
-  "server": { "port": null },           // 运行时分配
-  "flow": null,                          // task 专有
-  "tags": ["目标检测", "HTTP服务"],
-  "health": "healthy"
+  "health": "healthy",
+  "owner": "local-xxxxxxxx",
+  "visibility": "public",
+  "spec_path": "definitions/city-info-query-agent.md",
+  "impl_path": "implementations/city-info-query-agent/",
+  "tools": ["..."],
+  "tags": ["..."],
+  "created_at": "..."
 }
 ```
 
-| 字段 | 适用类型 | 说明 |
-|------|---------|------|
-| `flow` | task | 步骤化工具调用流程 |
-| `apis` / `server` | web-service | API 列表与服务配置 |
+- `role` ∈ interactive / task / web-service；`flow` / `apis` / `server` 等内容写在 MD 规范文档中，不复制进注册表
+- `visibility` 默认 `public`（Agent 是共享代码资产）；`owner` 记录创建者
+- web-service 的运行期端口等信息只存在于 `AgentFactory._services` 内存态，不落注册表
 
 ---
 
@@ -577,37 +572,36 @@ POST /api/agent/{id}/test-api  { api_name, params }
 
 ## 十一、兼容性与迁移
 
-1. **枚举收敛**：删除的 `orchestrator`/`observer` 在当前注册表中无实际使用，迁移零成本。
-2. **交互 Agent 进程化**（**本次核心改造**）：
-   - 现状：`chat_routes.py` 直接导入模块级单例，与 FastAPI **同进程**。
-   - 目标：经 `AgentFactory` 启动为**独立子进程**，对话请求通过 stdin/stdout 转发。
-   - 影响面：`chat_routes.py`、`app/main.py` 的启动逻辑需同步改造；对前端接口（`/api/chat/send`）**保持兼容**。
+1. **枚举收敛**：删除的 `orchestrator`/`observer` 在当前注册表中无实际使用，迁移零成本。未知 role 解析时回退为 `task`。
+2. **交互 Agent 进程化**（**已落地**）：
+   - 原实现：`chat_routes.py` 直接导入模块级单例，与 FastAPI 同进程。
+   - 现实现：经 `AgentFactory` 启动为独立子进程，对话请求通过 stdin/stdout 转发。
+   - 对前端接口（`/api/chat/send`）保持兼容。
 3. **系统默认交互 Agent**：仍随引擎自动启动，但可通过界面手动关闭 / 重启。
-4. **其他现有 Agent**：`echo-agent`、`weather-query-agent`（interactive）与 4 个 task Agent 继续可用，且自动获得独立进程与启停能力。
-5. **前端视图**：新增三个视图，不影响现有 `chat` / `agent-detail` 等。
+4. **其他现有 Agent**：用户创建的 Agent（如 city-info-query-agent）经统一启停端点获得独立进程与启停能力。
+5. **前端视图**：统一为 `agent-detail:{id}` 参数化视图，不影响现有 `chat` 等视图。
 
 ---
 
-## 十二、实施建议（分阶段）
+## 十二、实施状态
 
-| 阶段 | 内容 | 产出 |
+| 阶段 | 内容 | 状态 |
 |------|------|------|
-| **P0** | **交互 Agent 进程化**：改造 `chat_routes.py` + `main.py`，走 AgentFactory 子进程；补启停 API 与前端按钮 | 三类 Agent 统一进程模型 |
-| **P1** | 枚举收敛 + 规格字段扩展（`flow` / `apis`）+ 向后兼容 | 数据模型就绪 |
-| **P2** | 任务式 Agent：flow 执行器 + `TaskAgentView` | 可跑通一个流程式任务 |
-| **P3** | Web 服务式 Agent：HTTP 服务宿主 + 端口分配 + `WebServiceAgentView` | 可对外提供 API |
-| **P4** | API 测试区 + 消息流 + 生命周期完善 | 完整体验 |
+| **P0** | 交互 Agent 进程化：`chat_routes.py` + `main.py` 走 AgentFactory 子进程；启停 API 与前端按钮 | ✅ 完成 |
+| **P1** | 枚举收敛 + 角色模板 + 向后兼容 | ✅ 完成 |
+| **P2** | 任务式 Agent：agent-detail 参数表单 + execute SSE 运行 | ✅ 完成（flow 由生成的 agent.py 执行） |
+| **P3** | Web 服务式 Agent：WebServiceHost + 动态端口 + service_ready 上报 | ✅ 完成 |
+| **P4** | API 测试区 + api-doc 自动生成 + 生命周期完善 | ✅ 完成（鉴权/进程守护仍为规划项） |
 
 ---
 
-## 十三、待确认问题
+## 十三、遗留问题
 
-1. **Web 服务 Agent 的隔离**：每个 Agent 独立进程，还是多个 Agent 共享一个多路由服务？
-2. **认证鉴权**：对外 API 是否需要内置鉴权（API Key / Token）？
-3. **任务式 Agent 的触发**：是否支持定时触发（cron），还是仅手动点击启动？
-4. **web-service 与 task 的边界**：task 是否也可以被 HTTP 触发（即 task 的一种入口）？
-5. **端口暴露范围**：默认仅本机，是否需要公网暴露能力？
-6. **交互 Agent 进程化的对话流**：改造后对话请求经子进程转发，是否可接受额外的进程间通信开销？（现有 stdin/stdout 协议已验证可用）
+1. **认证鉴权**：对外 API 是否需要内置鉴权（API Key / Token）？—— 当前无鉴权，默认仅监听 127.0.0.1
+2. **任务式 Agent 的触发**：是否支持定时触发（cron），还是仅手动点击启动？—— 当前仅手动
+3. **web-service 与 task 的边界**：task 是否也可以被 HTTP 触发（即 task 的一种入口）？
+4. **端口暴露范围**：默认仅本机，是否需要公网暴露能力？
+5. **进程守护**：崩溃自动重启 / 引擎重启后自动恢复，尚未实现
 
 ---
 

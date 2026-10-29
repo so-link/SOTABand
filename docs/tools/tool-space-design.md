@@ -27,9 +27,11 @@
 
 | 概念 | 定义 | 存储位置 | 类比 |
 |------|------|---------|------|
-| **工具仓库** | 系统中所有已创建工具的全局注册中心，可删除 | `resources/tools/registry.json` + `implementations/` | npm registry |
-| **工具空间** | 当前工作区加载的工具子集，按需从仓库导入 | 前端 zustand store | `package.json` dependencies |
+| **工具仓库** | 系统中所有已创建工具的全局注册中心，可删除 | 「内置 + 私有」双资源根的 registry.json + implementations/ | npm registry |
+| **工具空间** | 当前工作区加载的工具子集，按需从仓库导入 | 后端 `storage/workspace_tools.json`（前端 zustand store 镜像，localStorage 仅作降级缓存） | `package.json` dependencies |
 | **工具标签** | 分类筛选元数据，创建时 LLM 自动生成 + 用户可修改 | registry.json 中 tools[].tags | npm keywords |
+
+工具空间早期只存 localStorage，换浏览器/无痕窗口后清单丢失，因此真实状态源已迁到后端（`GET/POST/DELETE /api/tool/workspace`），前端 store 启动时以后端为准并做一次性本地数据上传迁移。
 
 ### 1.3 三者关系
 
@@ -182,39 +184,28 @@
 │ └──────────────────────┘ │
 │                          │
 │ ──────────────────────── │
-│ [+ 添加工具]              │  ← 点击弹出选择弹窗
 │                          │
 └──────────────────────────┘
 ```
+
+（「仓库入口 + 创建新工具」两个按钮位于分区标题行右侧，见 3.3。）
 
 **工具项交互**：
 - **单击** → 在 Center Panel 打开工具详情页 (ToolDetailView)
 - **× 按钮** → 从工作空间移除（不删除仓库中的工具）
 - **悬停** → 显示完整名称和标签
 
-### 3.3 添加工具弹窗
+### 3.3 工具空间入口按钮
+
+实际实现中，工具空间分区头部直接放两个按钮（而非先弹出三选一弹窗）：
 
 ```
-┌───────────────────────────────────┐
-│  添加工具                          │
-│ ───────────────────────────────── │
-│                                   │
-│  ┌─────────────────────────────┐ │
-│  │ 📦 从工具仓库导入      →    │ │  ← 打开仓库浏览页选择
-│  │   浏览已有工具并添加到空间   │ │
-│  └─────────────────────────────┘ │
-│                                   │
-│  ┌─────────────────────────────┐ │
-│  │ 🆕 创建新工具          →    │ │  ← 进入工具编辑器
-│  │   自然语言描述，自动生成代码  │ │
-│  └─────────────────────────────┘ │
-│                                   │
-│  ┌─────────────────────────────┐ │
-│  │ 📋 从代码导入          →    │ │  ← 粘贴或上传 Python 代码
-│  │   已有代码快速注册为工具     │ │
-│  └─────────────────────────────┘ │
-│                                   │
-└───────────────────────────────────┘
+🔧 工具空间    [📦] [+]
+               │    └─ 创建新工具 → 进入工具编辑器 (ToolEditorView)
+               └─ 工具仓库 → 切换到仓库浏览页 (RepositoryView)
+
+从仓库导入：在仓库浏览页的工具卡片上点 [+ 添加]
+「从代码导入」为规划项，尚未实现。
 ```
 
 ---
@@ -345,49 +336,30 @@
 ### 5.1 从仓库导入工具
 
 ```
-用户在工具空间左边栏点击 [+ 添加]
-  → 弹出选择弹窗
-  → 选择 "从工具仓库导入"
+用户点击工具空间头部的 [📦 工具仓库] 按钮
   → 切换到仓库浏览页 (RepositoryView)
   → 浏览/搜索/标签筛选找到目标工具
   → 点击工具卡片上的 [+ 添加]
-  → 工具添加到左边栏 "已加载工具" 列表
-  → 按钮变为 [✓ 已加载]
-  → 用户可继续浏览或返回空间
+  → POST /api/tool/workspace，工具写入后端工作区间清单
+  → 左边栏 "已加载工具" 列表刷新，按钮变为 [✓ 已加载]
 ```
 
 ### 5.2 创建新工具
 
 ```
-用户在工具空间左边栏点击 [+ 添加]
-  → 弹出选择弹窗
-  → 选择 "创建新工具"
+用户点击工具空间头部的 [+ 创建新工具] 按钮
   → 切换到工具编辑器 (ToolEditorView)
   → 填写需求描述 → 生成 MD 规范 → 生成代码 → 自动调试 → 注册
   → 注册成功后:
-      ① 工具写入仓库 (registry.json + 文件)
-      ② LLM 自动生成标签
-      ③ 工具自动加入当前工具空间左边栏
+      ① 工具写入私有根仓库 (registry.json + 文件)
+      ② LLM 自动生成标签（异步）
+      ③ 工具自动加入当前工具空间（后端工作区间清单）
       ④ 切换到工具详情页
 ```
 
-### 5.3 从代码导入
+### 5.3 从代码导入（规划中）
 
-```
-用户在工具空间左边栏点击 [+ 添加]
-  → 弹出选择弹窗
-  → 选择 "从代码导入"
-  → 弹出代码输入框
-  → 粘贴 Python 代码 或 上传 .py 文件
-  → 系统分析代码:
-      · 提取函数签名和参数
-      · 提取 import 依赖
-      · 生成 MD 规范文档
-  → 用户确认后注册:
-      ① 写入仓库
-      ② LLM 打标签
-      ③ 加入工具空间
-```
+粘贴/上传已有 Python 代码、自动提取签名生成 MD 规范并注册的流程为规划项，尚未实现。
 
 ### 5.4 从工作空间移除工具
 
@@ -474,13 +446,16 @@
 
 ## 七、API 接口
 
-| 方法 | 路径 | 说明 | 状态 |
-|------|------|------|------|
-| `GET` | `/api/tool/list` | 获取仓库所有工具列表 | 已有 |
-| `POST` | `/api/tool/register` | 注册新工具 | 已有 |
-| `DELETE` | `/api/tool/{id}` | 删除工具（registry + 文件） | 已有 |
-| `POST` | `/api/tool/{id}/tags` | 更新工具标签 | **新增** |
-| `GET` | `/api/tool/repository` | 仓库工具（含标签统计） | **新增** |
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/api/tool/list` | 获取仓库所有工具列表（含 `is_user_generated` 标记） |
+| `POST` | `/api/tool/register` | 注册新工具 |
+| `DELETE` | `/api/tool/{id}` | 删除工具（registry + 文件） |
+| `POST` | `/api/tool/{id}/tags` | 更新工具标签 |
+| `GET` | `/api/tool/repository` | 仓库工具（含标签统计） |
+| `GET` | `/api/tool/workspace` | 工作区间已加载工具清单 |
+| `POST` | `/api/tool/workspace` | 添加工具到工作区间 |
+| `DELETE` | `/api/tool/workspace/{tool_id}` | 从工作区间移除 |
 
 ### 7.1 `POST /api/tool/{id}/tags`
 
@@ -640,87 +615,17 @@ interface WorkspaceTool {
 
 ---
 
-## 十、实施计划
+## 十、落地状态
 
-### Phase 1 — 工具仓库浏览页（核心）
+| 能力 | 状态 | 落点 |
+|------|------|------|
+| 仓库浏览页（搜索/标签筛选/排序/分页/删除） | ✅ 已实现 | `RepositoryView.tsx` + `repository-store.ts` + `GET /api/tool/repository` |
+| 工具空间左边栏（已加载列表 + 仓库/创建入口） | ✅ 已实现 | `ResourceBrowser.tsx` + `workspace-tool-store.ts`（后端 `storage/workspace_tools.json` 为真实状态源） |
+| 从仓库导入 / 新建自动加入空间 | ✅ 已实现 | `repository-store.importToWorkspace`；`tool-editor-store` 注册成功后 `addTool` |
+| 标签系统（LLM 自动打标 + 手动编辑） | ✅ 已实现 | 注册后异步打标；`POST /api/tool/{id}/tags`；`ToolDetailView` 编辑 UI |
+| 工作区间工具依赖检测 | ✅ 已实现（超出本设计） | 添加到工作空间时 `GET /{id}/check-deps` 提示缺失依赖 |
+| 从代码导入 | ❌ 规划中 | 未实现 |
 
-**目标**：用户可以浏览仓库中所有工具，按标签筛选，搜索，分页
-
-**新增文件**：
-- `frontend/src/components/center-panel/RepositoryView.tsx` — 仓库浏览页
-- `frontend/src/stores/repository-store.ts` — 仓库状态管理
-
-**修改文件**：
-- `frontend/src/components/center-panel/CenterPanel.tsx` — 添加 `repository` 路由
-- `frontend/src/stores/ui-store.ts` — 添加 `repository` 视图类型
-- `app/api/routes/tool_routes.py` — 新增 `/repository` 端点
-
-**功能**：
-- 工具卡片 4 列网格展示
-- 标签筛选栏（多选取交集）
-- 搜索框
-- 排序下拉（名称/最新/最常用）
-- 分页控件
-- 删除按钮 + 确认弹窗
-
-### Phase 2 — 工具空间左边栏重构（核心）
-
-**目标**：左边栏改为 "已加载工具" 列表 + 仓库入口 + 添加弹窗
-
-**新增文件**：
-- `frontend/src/components/center-panel/ToolSpaceView.tsx` — 工具空间主视图
-- `frontend/src/stores/workspace-tool-store.ts` — 工作空间状态管理
-
-**修改文件**：
-- `frontend/src/components/center-panel/CenterPanel.tsx` — 添加 `tool-space` 路由
-- `frontend/src/components/left-panel/ResourceBrowser.tsx` — 工具列表改为从工作空间 store 读取
-
-**功能**：
-- 左边栏显示已加载工具
-- 仓库入口按钮
-- 添加工具弹窗（三个选项）
-- 从空间移除工具
-
-### Phase 3 — 导入 + 新建自动加入（核心）
-
-**目标**：从仓库导入工具到空间；新建工具自动加入空间
-
-**修改文件**：
-- `frontend/src/stores/repository-store.ts` — 添加 `importToWorkspace`
-- `frontend/src/stores/tool-editor-store.ts` — 注册成功后自动加入空间
-- `frontend/src/components/center-panel/RepositoryView.tsx` — 添加按钮状态联动
-
-**功能**：
-- 仓库页 [+ 添加] 按钮功能
-- 已加载工具显示 [✓ 已加载]
-- 新建工具注册后自动加入空间
-
-### Phase 4 — 标签系统（增强）
-
-**目标**：LLM 自动打标签 + 用户手动编辑
-
-**新增文件**：
-- `app/api/routes/tool_routes.py` — 新增 `/tags` 端点
-
-**修改文件**：
-- `core/resource/builder/tool_builder.py` — 注册时异步调 LLM 打标签
-- `frontend/src/components/center-panel/ToolDetailView.tsx` — 标签编辑 UI
-
-**功能**：
-- 注册时 LLM 自动生成 3-5 个标签
-- 工具详情页可编辑标签（增删）
-- 标签自动保存
-
-### Phase 5 — 从代码导入（增强）
-
-**目标**：粘贴 Python 代码快速注册为工具
-
-**功能**：
-- 代码输入框（粘贴或上传 .py 文件）
-- 自动分析函数签名和参数
-- 生成 MD 规范文档
-- 注册到仓库 + 加入空间
-
----
-
-**总计**：3 个核心阶段 + 2 个增强阶段。Phase 1-3 完成后即可上线使用。
+> 注：设计中独立的 `ToolSpaceView.tsx` 组件未创建，工具空间直接复用左侧
+> `ResourceBrowser` 的资源分区渲染；工作区间清单也从纯 localStorage
+> 升级为后端持久化（见 1.2）。

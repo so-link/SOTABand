@@ -2,6 +2,11 @@
 # 模型注册与获取 API 设计文档
 
 > 参照「数据集注册 API」和「获取数据集 API」的设计模式，为模型空间新增「注册模型」和「获取模型」两个 API。
+> 状态：**已实现**（`api-model-register` / `api-model-get` 已登记到 `core/api/registry.json`，实现见 `core/api/implementations/api_model.py`；内置根 `resources/models/registry.json` 已有数十条真实注册记录，权重多为训练机绝对路径）。
+> 与本文档设计稿的差异：
+> 1. `ModelRegistry` 采用双资源根（读合并内置+私有、写只进私有根 registry.json），注册表 MD 与权重目录也解析到私有根；
+> 2. 注册时模型名自动追加毫秒级时间戳，避免同名冲突（`api-model-get` 的模糊匹配仍可命中原始名称片段）；
+> 3. **已知不一致**：`api-model-get` 直接读**内置根**的 `resources/models/registry.json`，而新注册条目只写**私有根**——因此注册后立刻 get 会查不到（需等条目进入内置根或改用 `ModelRegistry._read()` 的合并读取）。这与 `api-data-get` 的同类局限一致。
 
 ---
 
@@ -27,15 +32,15 @@
 
 每个 AI 模型对应工具空间中的一个调用工具，形成「模型空间版本管理 + 工具空间调用接口」的双重管理模式。
 
-### 1.2 当前状态
+### 1.2 设计前的状态
 
-模型空间目录 `resources/models/` 存在但仅有 `__init__.py`，没有：
+设计之初模型空间目录 `resources/models/` 仅有 `__init__.py`，没有：
 - ModelRegistry 注册中心
 - registry.json 注册表
 - definitions/ 定义文档目录
 - API 实现
 
-工具代码无法通过 API 注册模型或查询模型路径。
+工具代码无法通过 API 注册模型或查询模型路径。上述各项均已按本设计落地（见开头状态说明）。
 
 ### 1.3 对标参照
 
@@ -384,18 +389,18 @@ model = torch.load(model_path)
 
 ---
 
-## 七、实现步骤
+## 七、实现步骤（已全部完成）
 
-### Phase 1：后端基础设施
-1. 新建 `core/resource/registry/model_registry.py`（继承 BaseRegistry）
-2. 新建 `resources/models/registry.json`（初始空数组）
-3. 新建 `resources/models/definitions/` 和 `resources/models/models/` 目录
+### Phase 1：后端基础设施 ✅
+1. 新建 `core/resource/registry/model_registry.py`（继承 BaseRegistry，双根读合并/写私有）
+2. 内置根 `resources/models/registry.json` 初始化
+3. `definitions/` 与 `models/` 目录（内置根与私有根各一套，写入走私有根）
 
-### Phase 2：API 实现
+### Phase 2：API 实现 ✅
 4. 新建 `core/api/implementations/api_model.py`（ApiModelRegister + ApiModelGet + 标签生成）
 5. 新建 `core/api/definitions/api-model-register.md`
 6. 新建 `core/api/definitions/api-model-get.md`
 7. 在 `core/api/registry.json` 中新增两条 API 条目
 
-### Phase 3：前端联动
-8. 更新 `frontend/src/stores/chat-store.ts`，识别 `_action: "register_model"`，自动加入模型空间
+### Phase 3：前端联动 ✅
+8. `frontend/src/stores/chat-store.ts` 识别 `_action: "register_model"`，自动加入模型空间
