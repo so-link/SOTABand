@@ -123,12 +123,13 @@ class ToolRuntime:
             return [_P(__file__).resolve().parent.parent.parent / "resources" / "tools"]
 
     def _python_exe(self, tool_id: str) -> str:
-        """选择执行工具的 Python：优先工具独立 venv，否则当前解释器。"""
-        for space in self._tool_space_dirs():
-            venv_py = space / "implementations" / tool_id / ".venv" / "bin" / "python"
-            if venv_py.exists():
-                return str(venv_py)
-        return sys.executable
+        """选择执行工具的 Python：工具 .venv → 项目 venv → 当前解释器。
+
+        委托 ToolExecutor，保证常驻 worker 与一次性执行用同一解释器。
+        """
+        from core.executor.tool_executor import ToolExecutor
+
+        return ToolExecutor._get_python_exe(tool_id)
 
     def _tool_dir(self, tool_id: str) -> Path:
         """在「内置 + 私有」资源根中定位工具实现目录。"""
