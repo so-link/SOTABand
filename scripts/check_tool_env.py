@@ -167,7 +167,7 @@ def check_and_install(dry_run: bool = False) -> Dict[str, List[str]]:
 
     print("🔍 检查工具运行环境（uv 管理的工具独立 .venv）")
     print(f"   项目根目录: {root}")
-    print(f"   共享回退解释器: {python_exe}")
+    print(f"   项目解释器: {python_exe}")
     print()
 
     rows: List[Tuple[str, str, str]] = []   # (工具, 状态, 环境)
