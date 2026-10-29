@@ -101,8 +101,7 @@
 |------|------|------|
 | Agent 基类 | `base.py` | `BaseAgent` 抽象 + 三类角色枚举（interactive / task / web_service） |
 | 通信总线 | `bus.py` | Pub/Sub 通信抽象（当前 InProcess 实现，供 Agent 间协作扩展；主/子进程通信实际走 entrypoint 的 JSON-line 协议） |
-| Agent 工厂 | `factory.py` | Agent 子进程的启动、停止、重启、健康检查与自动重建 |
-| 进程封装 | `process.py` | 每个 Agent 运行在独立进程中 |
+| Agent 工厂 | `factory.py` | Agent 子进程的启动、停止、重启、健康检查与自动重建（直接以子进程方式托管生命周期） |
 | 子进程入口 | `entrypoint.py` | 通过 stdin/stdout JSON-line 协议与主进程通信 |
 | 交互基类 | `interactive_base.py` | 交互式 Agent 的共享逻辑（System Prompt 组装、LLM 流式对话） |
 | Web 服务宿主 | `web_server.py` | Web 服务式 Agent 的 HTTP 宿主 |
