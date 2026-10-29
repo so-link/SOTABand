@@ -11,7 +11,7 @@ SOTABand 一键安装 / 启动脚本（Windows / macOS / Linux）
 可选参数:
     --skip-tools        跳过工具依赖检查（scripts/check_tool_env.py，首次较慢，含 torch 等大包）
     --rebuild-frontend  强制重新构建前端（仅 start）
-    --mirror <url>      为 venv 写入 pip 镜像源（如 https://pypi.tuna.tsinghua.edu.cn/simple）
+    --mirror <url>      pip/uv 统一镜像源 URL（如 https://pypi.tuna.tsinghua.edu.cn/simple）
 
 端口与监听地址在仓库根目录 .env 中配置:
     SOTABAND_API_HOST / SOTABAND_API_PORT   后端（默认 0.0.0.0:8001）
@@ -119,7 +119,7 @@ def step_venv() -> Path:
 
 
 def step_pip_config(py: Path, mirror: str | None):
-    # 镜像源兜底：uv 侧由 core.resource.deps.uv_env() 注入 UV_DEFAULT_INDEX，
+    # 镜像源兜底：uv 侧索引由 main() 注入 UV_DEFAULT_INDEX 统一传导，
     # 这里保证用户手动使用 venv 内 pip 时同样走镜像
     # venv 内 pip 配置路径: Windows 为 venv\pip.ini，Unix 为 venv/pip.conf
     target = VENV / ("pip.ini" if IS_WIN else "pip.conf")
@@ -330,8 +330,13 @@ def main():
     ap.add_argument("command", choices=["setup", "dev", "start", "stop"])
     ap.add_argument("--skip-tools", action="store_true", help="跳过工具依赖检查")
     ap.add_argument("--rebuild-frontend", action="store_true", help="强制重新构建前端（start）")
-    ap.add_argument("--mirror", help="为 venv 写入 pip 镜像源 URL")
+    ap.add_argument("--mirror", help="pip/uv 统一镜像源 URL（写入 venv pip.conf，并经 UV_DEFAULT_INDEX 传导到 uv）")
     a = ap.parse_args()
+
+    if a.mirror:
+        # core.resource.deps.uv_env() 外部已设置 UV_DEFAULT_INDEX 时不再注入默认镜像，
+        # 因此 --mirror 在此设置进程级环境变量，覆盖本进程及其子进程的 uv 索引
+        os.environ["UV_DEFAULT_INDEX"] = a.mirror
 
     if a.command == "stop":
         stop_managed()
