@@ -403,7 +403,7 @@ Step 1 描述需求  →  Step 2 审阅 MD  →  Step 3 代码核验  →  Step 
 | `components/center-panel/AgentDetailView.tsx` | ✅ 承载任务式运行（参数表单 + SSE 消息区）与 Web 服务式（服务地址 + API 测试区 + API 文档） |
 | `components/center-panel/AgentEditorView.tsx` | ✅ 四步向导 + 类型选择/模板预填 |
 | `stores/agent-editor-store.ts` | ✅ 含 agentRole 状态与三类默认模板 |
-| `services/api/agent.ts` | ✅ start / stop / status / execute / service / test-api 调用 |
+| `services/api/agent.ts` | Agent CRUD（spec/code/register/list/detail 等）；运行时端点 start / stop / status / execute / service / test-api 由 `AgentDetailView.tsx` 内联 fetch 调用 |
 
 > 界面组织与原设计的差异：没有为三类 Agent 各建一个顶层视图（`InteractiveAgentView` / `TaskAgentView` / `WebServiceAgentView`），而是统一为一个 `agent-detail` 视图，按角色渲染对应区块——交互式仍复用主对话视图。
 

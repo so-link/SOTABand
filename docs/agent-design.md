@@ -408,8 +408,7 @@ core/resource/
 # Agent 运行时框架
 core/agent/base.py                  # BaseAgent + AgentSpec + AgentRole(三类) + MD 解析
 core/agent/bus.py                   # 消息总线（InProcess 实现）
-core/agent/factory.py               # AgentFactory — 子进程生命周期
-core/agent/process.py               # Agent 进程封装
+core/agent/factory.py               # AgentFactory — 子进程生命周期（asyncio 子进程 + 管道协议）
 core/agent/entrypoint.py            # 子进程入口（stdin/stdout JSON-line 协议）
 core/agent/interactive_base.py      # 交互式 Agent 共享基类
 core/agent/web_server.py            # Web 服务式 Agent 的 HTTP 宿主
