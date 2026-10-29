@@ -125,7 +125,7 @@
 │  │   └── 📄 output.json │
 │  └── 📄 notes.md        │
 │                         │
-│  [+ 上传数据] [＋ 新建文件夹] │
+│  [+ 上传数据]              │
 └─────────────────────────┘
 ```
 
@@ -774,5 +774,5 @@
 | 任务监控视图 | ❌ 占位 | 依赖工作流引擎与任务空间 |
 | 右侧属性面板 | ✅ | ResourceProperties / TaskStatus（后者数据源有限） |
 | 仓库/工作区间双层（工具、数据） | ✅ | RepositoryView / DatasetRepositoryView + workspace store |
-| 设置视图 | ✅（超出设计） | SettingsView：LLM 服务商/密钥/端口等配置 |
+| 设置视图 | ✅（超出设计） | SettingsView：LLM 模型与 API 密钥配置（端口在仓库根 `.env` 配置，无 UI 入口） |
 | Toast / 快捷键体系 / DAG 编辑 / 血缘 | ❌ | 见 §7.2、§八 |
