@@ -107,3 +107,6 @@ logs/aerial-image-quality-batch-assessment_*.md
 
 # serve.py 运行时状态（pids / 服务日志）
 .run/
+
+# 工具生成的临时产物（HTML 分享包等，随机器变化）
+.trae-html-share-packages/
