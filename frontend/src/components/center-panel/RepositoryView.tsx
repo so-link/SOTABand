@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   ArrowLeft, Search, ChevronLeft, ChevronRight,
-  Trash2, Plus, Check, Package, Download, X, Loader2, AlertTriangle,
+  Trash2, Plus, Check, Package, Download, Upload, X, Loader2, AlertTriangle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardBody } from '@/components/ui/card'
@@ -9,6 +9,7 @@ import { useUIStore } from '@/stores/ui-store'
 import { useResourceStore } from '@/stores/resource-store'
 import { useRepositoryStore, getFilteredTools, type RepositoryTool } from '@/stores/repository-store'
 import { useWorkspaceToolStore } from '@/stores/workspace-tool-store'
+import { toolApi } from '@/services/api/tool'
 
 const PAGE_SIZE_OPTIONS = [8, 12, 16, 24, 32]
 const BASE_URL = ''
@@ -124,6 +125,42 @@ export function RepositoryView() {
     }
   }
 
+  // ── 导入 zip 工具包 ────────────────────────────────────────
+  const [importing, setImporting] = useState(false)
+  const [importMsg, setImportMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const importInputRef = useRef<HTMLInputElement>(null)
+
+  const handleImportFile = async (file: File) => {
+    setImporting(true)
+    setImportMsg(null)
+    try {
+      let r = await toolApi.importTool(file)
+      if (r.status === 409) {
+        const conflictId = r.body.imported || file.name.replace(/\.zip$/i, '')
+        if (confirm(`${r.body.detail || `工具 "${conflictId}" 已存在`} 覆盖将替换本地版本，确定？`)) {
+          r = await toolApi.importTool(file, true)
+        } else {
+          setImporting(false)
+          return
+        }
+      }
+      if (r.ok) {
+        const b = r.body
+        let msg = `工具 "${b.imported}" 导入成功。依赖尚未安装，运行时会自动提示安装`
+        if (b.overrode_builtin) msg += '（已遮蔽内置同名工具，删除后可恢复内置版本）'
+        setImportMsg({ ok: true, text: msg })
+        fetchTools()
+      } else {
+        setImportMsg({ ok: false, text: r.body.detail || '导入失败' })
+      }
+    } catch (e) {
+      setImportMsg({ ok: false, text: `导入请求失败：${String(e)}` })
+    } finally {
+      setImporting(false)
+      if (importInputRef.current) importInputRef.current.value = ''
+    }
+  }
+
   return (
     <div className="flex flex-col h-full bg-maia-surface overflow-auto">
       {/* Header */}
@@ -137,9 +174,36 @@ export function RepositoryView() {
             工具仓库（共 {tools.length} 个工具）
           </span>
         </div>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]"
+            disabled={importing}
+            onClick={() => importInputRef.current?.click()}>
+            {importing
+              ? <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />导入中...</>
+              : <><Upload className="h-3.5 w-3.5 mr-1" />导入工具包</>}
+          </Button>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept=".zip"
+            className="hidden"
+            onChange={e => { const f = e.target.files?.[0]; if (f) handleImportFile(f) }}
+          />
+        </div>
       </div>
 
       <div className="flex-1 p-4 max-w-7xl mx-auto space-y-3 w-full">
+        {importMsg && (
+          <div className={`flex items-center justify-between px-3 py-2 rounded border text-[12px] ${
+            importMsg.ok
+              ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/25'
+              : 'bg-red-500/10 text-red-400 border-red-500/25'}`}>
+            <span className="break-words">{importMsg.text}</span>
+            <button className="shrink-0 ml-2 opacity-70 hover:opacity-100" onClick={() => setImportMsg(null)}>
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
         {/* 搜索和排序 */}
         <div className="flex items-center gap-2">
           <div className="relative flex-1 max-w-md">
@@ -258,6 +322,14 @@ export function RepositoryView() {
                         <span>已用 {tool.usage_count} 次</span>
                       </div>
                       <div className="flex items-center justify-center gap-3 shrink-0 border-t border-maia-border/30 pt-1.5">
+                        <a
+                          href={toolApi.exportUrl(tool.id)}
+                          download={`${tool.id}.zip`}
+                          title="导出为 zip 工具包（含代码、文档、依赖清单，不含虚拟环境）"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center h-6 px-2 text-[10px] text-maia-text-muted hover:text-maia-accent transition-colors">
+                          <Download className="h-3 w-3 mr-0.5" />导出
+                        </a>
                         <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-red-400 hover:text-red-300 hover:bg-red-500/10"
                           onClick={(e) => { e.stopPropagation(); handleDelete(tool) }}>
                           <Trash2 className="h-3 w-3 mr-0.5" />删除

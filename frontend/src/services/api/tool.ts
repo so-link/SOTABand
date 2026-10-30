@@ -146,6 +146,24 @@ export const toolApi = {
     return res.json() as Promise<{ tools: Array<Record<string, unknown>> }>
   },
 
+  /** 导出工具的下载地址（配合 <a download> 使用） */
+  exportUrl(toolId: string) {
+    return `${BASE_URL}/api/tool/${encodeURIComponent(toolId)}/export`
+  },
+
+  /** 导入工具 zip 归档；409 表示同名冲突，调用方确认后带 overwrite 重试 */
+  async importTool(file: File, overwrite = false): Promise<{
+    ok: boolean; status: number
+    body: { imported?: string; overwrote?: boolean; overrode_builtin?: boolean; deps_installed?: boolean; detail?: string }
+  }> {
+    const form = new FormData()
+    form.append('file', file)
+    if (overwrite) form.append('overwrite', 'true')
+    const res = await fetch(`${BASE_URL}/api/tool/import`, { method: 'POST', body: form })
+    const body = await res.json().catch(() => ({ detail: res.statusText }))
+    return { ok: res.ok, status: res.status, body }
+  },
+
   /** 解析规范文档结构，返回节点树（withSummary=true 时同时生成人话摘要） */
   async getSpecOutline(toolId: string, specMd: string = '', withSummary: boolean = false): Promise<SpecOutline> {
     const res = await fetch(`${BASE_URL}/api/tool/${encodeURIComponent(toolId)}/spec-outline`, {

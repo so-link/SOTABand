@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Wrench, FileCode, FileText, X, Play, Loader2,
   CheckCheck, Save, Bot, Code, Pencil, Plus, Square,
-  FolderOpen, Folder, File, ChevronRight, ChevronDown,
+  FolderOpen, Folder, File, ChevronRight, ChevronDown, Download,
 } from 'lucide-react'
 import { Highlight, themes } from 'prism-react-renderer'
 import { Button } from '@/components/ui/button'
@@ -370,6 +370,14 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
           >
             <Pencil className="h-3 w-3" />编辑
           </button>
+          <a
+            href={`${BASE_URL}/api/tool/${encodeURIComponent(tool.id)}/export`}
+            download={`${tool.id}.zip`}
+            title="导出为 zip 工具包（含代码、文档、依赖清单，不含虚拟环境）"
+            className="flex items-center gap-1 text-[11px] text-maia-accent hover:underline ml-2"
+          >
+            <Download className="h-3 w-3" />导出
+          </a>
         </div>
       </div>
 
