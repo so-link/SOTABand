@@ -66,7 +66,7 @@ except Exception as e:
 | 无状态 | 每次调用独立，不依赖全局状态 |
 | 子进程隔离 | 工具代码写入临时脚本，在独立子进程中 `exec` 执行（永不与 FastAPI 同进程），统一注入 `TOOL_DIR`、强制 UTF-8 输出、屏蔽 `sys.argv` |
 | 超时控制 | `ToolExecutor.execute` 默认**无超时**（timeout=None，工具可能长耗时）；工具间调用 `_call_tool` 固定 30 秒 |
-| 解释器选择 | 按「工具本地 `.venv` → 项目 `venv` → 当前解释器」优先级选择，避免污染系统全局 Python |
+| 解释器选择 | 按「工具本地 `.venv` → 项目 `venv` → 当前解释器」优先级选择，避免污染系统全局 Python；每级同时探测 Unix `bin/python` 与 Windows `Scripts/python.exe` |
 
 ### 2.6 LLM 生成时的强约束（写入 Prompt）
 
@@ -236,11 +236,12 @@ def _call_api(api_name: str, **params) -> dict: ...
 def _llm_chat(messages, **kwargs) -> str: ...
 
 # 工具间调用：在「内置+私有」双资源根的 registry.json 中查 id/name
-# （私有根优先），双根中定位 tool.py，用「工具 .venv → 当前解释器」的
-# 子进程执行，固定 30s 超时
+# （私有根优先），双根中定位 tool.py，用「工具 .venv（Unix bin/ 与
+# Windows Scripts/ 均探测）→ 当前解释器」的子进程执行，固定 30s 超时
 def _call_tool(tool_name: str, **params) -> dict: ...
 
-# 路径辅助
+# 路径辅助：展开 ~、反斜杠归一、消除 ./..、剥离空白与引号，
+# 相对路径基于 _PROJECT_ROOT 解析（跨平台边界统一在此处理）
 def _resolve_path(path: str) -> str: ...
 
 # === 以下由 LLM 生成 ===
@@ -305,7 +306,7 @@ def _resolve_path(path: str) -> str: ...
 
 - `GET /api/tool/{id}/check-deps`：静态提取工具代码的第三方 import，用工具实际解释器逐个 `find_spec` 存在性探测（不执行模块代码，避免 torch 等大包超时误报），返回缺失清单及 pip 包名映射（`PIL→Pillow`、`cv2→opencv-python-headless` 等，统一维护在 `core/resource/deps.py`）；「添加工具到工作空间」时前端据此提示安装
 - `POST /api/tool/{id}/install-deps`：安装缺失依赖到工具独立 `.venv`（uv 管理，缺失时自动引导创建，一次性装入工具全部第三方依赖，完成后 `uv pip freeze` 写工具目录 `requirements.txt` 精确 pin；多工具 venv 经 uv 全局缓存硬链接共享，近乎零磁盘增量，版本互不冲突）
-- 自动调试循环中遇到 `ModuleNotFoundError` 时，由**系统自动**调用 `install_deps_stream` 安装缺失库（LLM 不参与装依赖），安装失败则提示 LLM 换替代方案
+- 自动调试循环中遇到 `ModuleNotFoundError` 时，由**系统自动**调用 `install_deps_stream` 安装缺失库（LLM 不参与装依赖）：失败输出命中源码编译特征（缺编译器/工具链，Windows 最常见）时先以 `--only-binary=:all:` 确定性回退预编译 wheel 重试（不消耗 LLM 轮次，事件流 `pip_fallback` 展示），回退仍失败才提示 LLM 换替代方案
 - 执行解释器按「工具 `.venv` → 项目 `venv` → 当前解释器」优先级选择（见 2.5）
 
 ### 6.5 静态安全审查（执行前闸门）
@@ -313,7 +314,7 @@ def _resolve_path(path: str) -> str: ...
 沙箱执行入口（`sandbox_execute`）在起子进程之前先跑 `core/security/code_scan.py` 的 AST 静态扫描（todo 3.2）。基于 `ast.parse` 而非正则匹配（正则可被换行/别名绕过），两级结论：
 
 - **阻断项（errors）**：几乎只用于破坏/逃逸的调用——shell 执行（`os.system`/`os.popen`/`subprocess.getoutput` 等，以及任何子进程调用显式 `shell=True`——命令串整个交给 /bin/sh，与 shell 执行同级）、动态执行（`eval`/`exec`/`compile`/`__import__`）、直接删除原语（`os.remove`/`shutil.rmtree` 等）、原始套接字与 FFI（`socket`/`ctypes`/`pty`/`resource`）、动态导入（`importlib.import_module`）。命中即不执行，返回 `exit_code=1` 的失败结果，`stderr` 携带中文错误清单——自动调试循环把它喂给 LLM，下一轮重写代码。
-- **警告项（warnings）**：合法工具常见能力（subprocess 跑本地命令（列表参数、无 shell=True）、`open` 读写文件、requests 联网），以及需要人工确认的可疑信号——字符串字面量中的 `../` 上跳路径（拼接用户输入可能越权出 TOOL_DIR）、字面量 URL 指向本机/内网/链路本地地址、`while True` 体内找不到可达退出（LLM 忘写退出条件的典型形态）、≥10⁷ 量级的字面量分配。工具在独立子进程运行，警告项属于平台信任模型允许的范围，记录展示但不阻断；error 级判定需要数据流分析（参数是否来自用户输入），静态层不做，宁可漏报不误杀（`shell=变量名` 的取值无法静态判定，按 warning 兜底）。
+- **警告项（warnings）**：合法工具常见能力（subprocess 跑本地命令（列表参数、无 shell=True）、`open` 读写文件、requests 联网），以及需要人工确认的可疑信号——字符串字面量中的 `../` 上跳路径（拼接用户输入可能越权出 TOOL_DIR）、字面量 URL 指向本机/内网/链路本地地址、`while True` 体内找不到可达退出（LLM 忘写退出条件的典型形态）、≥10⁷ 量级的字面量分配、无守卫自递归（函数无条件调用自身且体内无 if/try/assert 出口，运行必触发 RecursionError；互递归静态不可判、接受漏报）、字符串字面量开头的单一平台硬编码路径（`/tmp/` 等 POSIX 绝对路径、`~/`、`C:\` 盘符——跨平台分发必然失效，建议 `_PROJECT_ROOT` / `TOOL_DIR` / `Path.home()` 解析）。工具在独立子进程运行，警告项属于平台信任模型允许的范围，记录展示但不阻断；error 级判定需要数据流分析（参数是否来自用户输入），静态层不做，宁可漏报不误杀（`shell=变量名` 的取值无法静态判定，按 warning 兜底）。
 
 设计基线是「对全部内置工具零误杀」，直接运行 `python -m core.security.code_scan` 即回归复核（扫描内置工具 `tool.py`，应输出 0 errors）。闸门分布：**落盘前**——`POST /api/tool/register`、`POST /api/tool/{id}/save-code`、`POST /api/tool/import`（对包内全部 `.py` 成员审查，命中 400，被阻断的代码不落盘）；**执行前**——`ToolExecutor.execute/execute_sync` 入口统一复查（对话执行、沙箱测试、Agent 调用、自动调试共享这同一 choke point，存量工具也无法绕过），沙箱执行入口 `sandbox_execute` 额外前置一层以便自动调试循环拿到结构化错误重写代码。
 

@@ -42,11 +42,17 @@
 
 **所属子系统**：调度与算力管理子系统 + 工具空间
 
-**内涵**：确保同一工具在 macOS / Windows / Linux 三个平台上均能正确执行。当前工具代码由 LLM 生成，可能包含平台相关的路径处理、系统调用、依赖库差异。需要：(1) 工具模板中的路径辅助函数（`_resolve_path`）覆盖更多平台边界情况；(2) 依赖安装逻辑适配不同平台的包管理差异（如 Windows 缺少编译工具链时回退到预编译 wheel）；(3) 沙箱执行环境在各平台上的行为一致性保障。
+**内涵**：确保同一工具在 macOS / Windows / Linux 三个平台上均能正确执行。工具代码由 LLM 生成，可能包含平台相关的路径处理、系统调用、依赖库差异。
+
+**落地形态**：
+- **解释器解析跨平台**：`ToolExecutor._get_python_exe` 与工具模板内 `_call_tool` 均按「工具 `.venv` → 项目 `venv` → 当前解释器」顺序查找，每级同时探测 Unix `bin/python` 与 Windows `Scripts/python.exe`，Windows 上独立 `.venv` 不再被静默跳过；执行脚本头部强制 UTF-8 stdout/stderr，规避中文 Windows 的 GBK 解码崩溃。
+- **路径辅助**：`TOOL_TEMPLATE` 的 `_resolve_path` 统一处理 `~` 用户目录展开、Windows 反斜杠分隔符归一为 `/`、`.` 与 `..` 跳转消除、首尾空白与包裹引号剥离，相对路径一律相对 `_PROJECT_ROOT` 解析。
+- **依赖安装平台适配**：安装失败输出命中源码编译特征（Failed building wheel / MSVC / gcc / cmake 等）时，先以 `uv pip install --only-binary=:all:` 确定性回退重试预编译 wheel（免耗 LLM 分析轮次，事件 `pip_fallback` 透明展示）；回退失败仍走 LLM 分析调整命令的既有重试循环。依赖经 uv 装入工具独立 `.venv` 并 pin 到 requirements.txt，跨机可精确重建。
+- **静态审查可见性**：`code_scan` 对字符串字面量开头的 POSIX 绝对路径（`/tmp/` 等）、`~/` 与盘符路径给 warning（跨平台分发必然失效），提示改用 `_PROJECT_ROOT` / `TOOL_DIR` / `Path.home()` 解析，随自动调试事件流回流 LLM 重写；运行时拼接的路径静态不可判，接受漏报。
 
 **关联架构**：
-- 沙箱引擎（`sandbox.py`）：隔离执行，屏蔽平台差异
-- 工具模板（`TOOL_TEMPLATE`）：提供跨平台的路径和系统调用辅助函数
+- 工具执行器（`core/executor/tool_executor.py`）：子进程隔离执行，统一解释器选择与 UTF-8 输出约定，屏蔽平台差异
+- 工具模板（`TOOL_TEMPLATE`）：提供跨平台的路径辅助函数与平台中性调用约定（禁运行时 pip、禁 shell）
 
 ### 2.3 自动调试的效率提高
 
