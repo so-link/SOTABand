@@ -154,7 +154,7 @@ export const toolApi = {
   /** 导入工具 zip 归档；409 表示同名冲突，调用方确认后带 overwrite 重试 */
   async importTool(file: File, overwrite = false): Promise<{
     ok: boolean; status: number
-    body: { imported?: string; overwrote?: boolean; overrode_builtin?: boolean; deps_installed?: boolean; detail?: string }
+    body: { imported?: string; overwrote?: boolean; overrode_builtin?: boolean; deps_installed?: boolean; import_warnings?: string[]; detail?: string }
   }> {
     const form = new FormData()
     form.append('file', file)

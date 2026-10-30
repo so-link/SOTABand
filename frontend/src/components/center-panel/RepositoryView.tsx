@@ -149,6 +149,9 @@ export function RepositoryView() {
         const b = r.body
         let msg = `工具 "${b.imported}" 导入成功。依赖尚未安装，运行时会自动提示安装`
         if (b.overrode_builtin) msg += '（已遮蔽内置同名工具，删除后可恢复内置版本）'
+        if (Array.isArray(b.import_warnings) && b.import_warnings.length > 0) {
+          msg += `；依赖声明提示：${b.import_warnings.join('；')}`
+        }
         setImportMsg({ ok: true, text: msg })
         fetchTools()
       } else {
