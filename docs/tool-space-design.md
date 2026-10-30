@@ -421,8 +421,10 @@
   → 同名冲突（内置或私有）未带 overwrite → 409
       → 前端 confirm 确认覆盖 → 带 overwrite=true 重试
   → 写入私有根（等同重新注册）: registry.json + definitions + implementations
+  → 包内全部 .py 成员过静态安全审查（命中阻断项 → 400 不落盘）；
+    非标准库导入未在 requirements.txt 声明 → import_warnings（不阻断）
   → 前端提示「导入成功，依赖尚未安装，运行时自动提示安装」；
-    若导入的是内置同名 id（私有副本将遮蔽内置），提示追加遮蔽警示
+    内置同名遮蔽警示与依赖声明提示（import_warnings）追加在同一提示条
 ```
 
 依赖不在导入时安装，与注册语义一致，由 check-deps / install-deps 懒安装接管。
