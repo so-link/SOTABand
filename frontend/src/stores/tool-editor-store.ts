@@ -409,6 +409,11 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
               debugStream: s.debugStream + `  ${data.line}\n`,
             }))
             break
+          case 'pip_fallback':
+            set((s) => ({
+              debugStream: s.debugStream + `♻️ ${data.reason || '回退重试'}\n`,
+            }))
+            break
           case 'pip_analyzing':
             set((s) => ({
               debugStream: s.debugStream + `🤔 安装失败，LLM 分析原因中... (第${data.attempt}次重试)\n`,

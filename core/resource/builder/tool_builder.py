@@ -789,9 +789,9 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
             yield {"event": "deps_done", "data": {"python": exec_python, "results": results}}
             return
 
-        def _pip_worker(dep: str, output_queue: asyncio.Queue):
+        def _pip_worker(dep: str, output_queue: asyncio.Queue, extra_flags: list[str] | None = None):
             """在线程中执行 uv 安装，逐行推入 queue"""
-            parts = _deps.uv_pip_install_argv(uv, exec_python, dep)
+            parts = _deps.uv_pip_install_argv(uv, exec_python, dep) + (extra_flags or [])
             try:
                 proc = subprocess.Popen(
                     parts,
@@ -825,11 +825,13 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
 
             # 启动安装线程
             current_dep = dep
+            extra_flags: list[str] = []
+            binary_fallback_done = False
             max_retries = 2
             for attempt in range(max_retries + 1):
                 q = asyncio.Queue()
                 all_output = ""
-                thread = threading.Thread(target=_pip_worker, args=(current_dep, q), daemon=True)
+                thread = threading.Thread(target=_pip_worker, args=(current_dep, q, extra_flags), daemon=True)
                 thread.start()
 
                 # 从 queue 读取输出，短超时轮询 + 停止检查
@@ -873,6 +875,15 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
                     yield {"event": "pip_result", "ok": True, "output": all_output[-1000:]}
                     break
 
+                # 确定性回退：源码编译失败（缺编译器/工具链，Windows 最常见）
+                # 时先用 --only-binary 重试预编译 wheel，不消耗 LLM 分析轮次
+                if not binary_fallback_done and self._looks_like_build_failure(all_output):
+                    binary_fallback_done = True
+                    extra_flags = ["--only-binary=:all:"]
+                    yield {"event": "pip_fallback", "dep": current_dep,
+                           "reason": "源码编译失败，改用预编译 wheel 重试"}
+                    continue
+
                 if attempt >= max_retries:
                     yield {"event": "pip_result", "ok": False, "output": all_output[-1000:]}
                     break
@@ -883,6 +894,7 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
                 yield {"event": "pip_analysis", "dep": current_dep, "analysis": analysis}
                 if analysis.get("adjusted_command"):
                     current_dep = analysis["adjusted_command"]
+                    extra_flags = []  # LLM 换版本/参数后重新全量尝试，不沿用 wheel 限定
                 else:
                     yield {"event": "pip_result", "ok": False, "output": all_output[-1000:]}
                     break
@@ -901,6 +913,22 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
 
         data = {"python": exec_python, "results": results}
         yield {"event": "deps_done", "data": data}
+
+    @staticmethod
+    def _looks_like_build_failure(output: str) -> bool:
+        """判断 pip 失败输出是否为源码编译失败（可用预编译 wheel 绕过）。
+
+        只匹配构建阶段特征：网络/索引/权限类失败不该触发 wheel 回退。
+        """
+        markers = (
+            "failed building wheel", "building wheel for",
+            "getting requirements to build", "preparing metadata",
+            "subprocess-exit-with-status", "microsoft visual c++",
+            "cl.exe", "gcc:", "cc1:", "cmake error", "ninja: error",
+            "cannot find -l", "fatal error:", "compilation error",
+        )
+        low = output.lower()
+        return any(m in low for m in markers)
 
     async def _llm_analyze_pip_error(self, dep: str, output: str) -> dict:
         """用 LLM 分析 pip 安装失败原因，返回调整建议"""
