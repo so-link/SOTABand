@@ -18,6 +18,9 @@ error 名单以「对内置工具零命中」为回归基线，直接运行本�
 from __future__ import annotations
 
 import ast
+import ipaddress
+import re
+from urllib.parse import urlparse
 
 # 直接 import 即阻断的模块（顶层名）。
 # 注：subprocess/threading 不在列——内置工具大量使用，属于 warning 能力。
@@ -49,6 +52,35 @@ BANNED_BUILTINS: frozenset[str] = frozenset({
 
 # 允许联网的常规库（识别 requests 的 session 方法时用到）。
 _HTTP_MODULES: frozenset[str] = frozenset({"requests", "httpx", "urllib"})
+
+# 视为内网/本机的主机名后缀（ urlparse 不识别 .local 之类为私有地址）。
+_LOCAL_TLD_RE = re.compile(r"\.(?:local|internal|lan)$", re.IGNORECASE)
+
+
+def _host_is_internal(host: str) -> bool:
+    """判断 URL 主机名是否指向本机/内网（warning 级，不阻断）。"""
+    host = host.strip("[]").rstrip(".").lower()
+    if not host:
+        return False
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    if _LOCAL_TLD_RE.search(host):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return (
+        ip.is_loopback or ip.is_private or ip.is_link_local
+        or ip.is_reserved or ip.is_multicast or ip.is_unspecified
+    )
+
+
+def _string_constants(tree: ast.AST):
+    """产出 (lineno, 字符串字面量)，含 f-string 中字面部分。"""
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Constant) and isinstance(n.value, str):
+            yield n.lineno, n.value
 
 
 class ScanResult:
@@ -160,6 +192,28 @@ def scan_code(code: str) -> ScanResult:
         res.warnings.append("直接读写本地文件（open），建议使用 TOOL_DIR / 数据集路径范围内的文件操作")
     if has["network"]:
         res.warnings.append("存在对外网络调用")
+
+    # 路径遍历风险：字符串字面量中出现 ../（todo 3.2 检查项 2，warning 级）。
+    # error 级需数据流分析（参数是否来自用户输入），静态层不做，避免误杀。
+    trav_lines = sorted({
+        line for line, v in _string_constants(tree) if "../" in v or "..\\" in v
+    })
+    if trav_lines:
+        shown = "、".join(f"第 {l} 行" for l in trav_lines[:3])
+        res.warnings.append(
+            f"字符串中出现 ../ 相对上跳路径（{shown}），若拼接用户输入可能越权访问 TOOL_DIR 之外的位置")
+
+    # 网络目标校验：字面量 URL 指向本机/内网（todo 3.2 检查项 3，warning 级）。
+    # 主机名为变量时静态无法判定，接受漏报。
+    internal_urls: list[str] = []
+    for _line, v in _string_constants(tree):
+        for m in re.finditer(r"https?://[^\s'\"]+", v):
+            host = urlparse(m.group(0)).hostname or ""
+            if _host_is_internal(host):
+                internal_urls.append(f"第 {_line} 行 {m.group(0)[:60]}")
+    if internal_urls:
+        res.warnings.append(
+            f"存在指向本机/内网的 URL（{ '；'.join(internal_urls[:3]) }），请确认目标服务允许被工具访问")
     return res
 
 
