@@ -269,7 +269,7 @@ AgentRegistry (core/resource/registry/agent_registry.py)
 Agent 空间自动刷新 → 前端左侧面板可看到新 Agent
 ```
 
-注册采用「读合并 / 写私有」模型：读取时合并内置根与私有根，写入只落私有根，内置资产不被覆盖。
+注册采用「读合并 / 写私有」模型：读取时合并内置根与私有根，写入只落私有根，内置资产不被覆盖。注册与 save-code 的代码先过 `core/security/code_scan.py` 静态安全审查（与工具同一闸门，todo 3.2），命中阻断项返回 400、不落盘。
 
 ---
 

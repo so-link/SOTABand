@@ -337,6 +337,12 @@ async def register_agent(req: RegisterAgentRequest):
             agent_id = line.split(":", 1)[1].strip()
             break
 
+    if req.code.strip():
+        from core.security.code_scan import scan_code
+        scan = scan_code(req.code)
+        if not scan.ok:
+            raise HTTPException(400, "静态安全审查未通过：\n" + "\n".join(scan.errors))
+
     resource = {
         "id": agent_id,
         "name": req.agent_name,
@@ -349,7 +355,7 @@ async def register_agent(req: RegisterAgentRequest):
     registered_id = await registry.register(resource)
     entry = await registry.get(registered_id)
 
-    # 保存生成的代码到 implementations 目录
+    # 保存生成的代码到 implementations 目录（已在注册前通过静态安全审查）
     if req.code.strip():
         impl_dir = registry._get_impl_dir() / registered_id
         impl_dir.mkdir(parents=True, exist_ok=True)
@@ -498,6 +504,11 @@ async def save_agent_code(agent_id: str, req: SaveCodeRequest):
         raise HTTPException(404, f"Agent '{agent_id}' not found")
     if not req.code.strip():
         raise HTTPException(400, "代码不能为空")
+
+    from core.security.code_scan import scan_code
+    scan = scan_code(req.code)
+    if not scan.ok:
+        raise HTTPException(400, "静态安全审查未通过：\n" + "\n".join(scan.errors))
 
     # 优先写回原位置（内置资源就地更新）；不存在则写私有目录
     impl_dir = _locate_agent_impl_dir(agent_id) or (registry._get_impl_dir() / agent_id)
