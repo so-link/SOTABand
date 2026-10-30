@@ -1,14 +1,19 @@
-import { PanelLeft, PanelRight, Settings, Sun, Moon } from 'lucide-react'
+import { PanelLeft, PanelRight, Settings, Sun, Moon, LogIn, LogOut, User } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip } from '@/components/ui/tooltip'
 import { useUIStore } from '@/stores/ui-store'
 import { useFileTreeStore } from '@/stores/file-tree-store'
+import { useAuthStore } from '@/stores/auth-store'
+import { LoginDialog } from '@/components/topbar/LoginDialog'
 import { APP_VERSION } from '@/lib/utils'
 
 export function TopBar() {
   const { leftPanelOpen, rightPanelOpen, toggleLeftPanel, toggleRightPanel, theme, toggleTheme, setActiveView } = useUIStore()
   const workspaceName = useFileTreeStore((s) => s.root?.name)
+  const user = useAuthStore((s) => s.user)
+  const openLogin = useAuthStore((s) => s.openLogin)
+  const logout = useAuthStore((s) => s.logout)
 
   return (
     <header className="flex h-9 items-center justify-between px-3 shrink-0 select-none glass border-b border-white/[0.04] relative">
@@ -41,6 +46,27 @@ export function TopBar() {
       </div>
 
       <div className="flex items-center gap-0.5">
+        {user ? (
+          <>
+            <Tooltip content={user.role === 'admin' ? '管理员' : '已登录'}>
+              <span className="flex items-center gap-1 px-1.5 h-7 text-[12px] text-maia-text-secondary">
+                <User className="h-3.5 w-3.5 text-maia-accent" />
+                {user.username}
+              </span>
+            </Tooltip>
+            <Tooltip content="退出登录">
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => void logout()}>
+                <LogOut className="h-3.5 w-3.5" />
+              </Button>
+            </Tooltip>
+          </>
+        ) : (
+          <Tooltip content="登录（未登录以本机实例身份使用）">
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={openLogin}>
+              <LogIn className="h-3.5 w-3.5" />
+            </Button>
+          </Tooltip>
+        )}
         <Tooltip content={theme === 'dark' ? '浅色模式' : '深色模式'}>
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={toggleTheme}>
             {theme === 'dark' ? <Sun className="h-3.5 w-3.5 text-amber-400" /> : <Moon className="h-3.5 w-3.5 text-maia-accent" />}
@@ -55,6 +81,7 @@ export function TopBar() {
           </Button>
         </Tooltip>
       </div>
+      <LoginDialog />
     </header>
   )
 }
