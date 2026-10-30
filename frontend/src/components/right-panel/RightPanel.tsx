@@ -1,3 +1,4 @@
+import { X } from 'lucide-react'
 import { useResourceStore } from '@/stores/resource-store'
 import { useFileTreeStore } from '@/stores/file-tree-store'
 import { ResourceProperties } from './ResourceProperties'
@@ -6,6 +7,7 @@ import { ChatContextPanel } from './ChatContextPanel'
 export function RightPanel() {
   const selectedResource = useResourceStore((s) => s.selectedResource)
   const selectedFile = useFileTreeStore((s) => s.selectedFile)
+  const selectFile = useFileTreeStore((s) => s.selectFile)
 
   // Priority: selected resource > selected file > 会话上下文
   if (selectedResource) {
@@ -15,8 +17,15 @@ export function RightPanel() {
   if (selectedFile) {
     return (
       <div className="flex flex-col h-full">
-        <div className="flex items-center h-8 px-3 shrink-0 border-b border-maia-border text-[13px] text-maia-text-muted">
-          文件属性
+        <div className="flex items-center justify-between h-9 px-3 shrink-0 border-b border-maia-border">
+          <span className="text-[13px] text-maia-text-muted">文件属性</span>
+          <button
+            onClick={() => selectFile(null)}
+            className="flex items-center justify-center h-6 w-6 rounded text-maia-text-muted hover:text-maia-text hover:bg-maia-sidebar-hover transition-colors"
+            title="返回会话上下文"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
         </div>
         <div className="p-3 flex flex-col gap-3">
           <Prop label="名称" value={selectedFile.name} />

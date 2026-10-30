@@ -57,7 +57,7 @@ export function ChatContextPanel() {
 
   return (
     <div className="flex flex-col h-full w-full min-w-0 overflow-hidden">
-      <div className="flex items-center h-8 px-3 shrink-0 border-b border-maia-border text-[13px] text-maia-text-muted">
+      <div className="flex items-center justify-between h-9 px-3 shrink-0 border-b border-maia-border text-[13px] text-maia-text-muted">
         会话上下文
       </div>
 
@@ -79,10 +79,10 @@ export function ChatContextPanel() {
                   也可以在 Agent 空间挑选一个专用 Agent，再开始对话。
                 </p>
                 <button
-                  onClick={() => setActiveView('agent-editor')}
+                  onClick={() => agents[0] ? setActiveView(`agent-detail:${agents[0].id}` as never) : setActiveView('agent-editor')}
                   className="mt-2 w-full h-7 rounded-[7px] bg-maia-accent text-white text-[13px] font-medium hover:bg-maia-accent-hover transition-colors"
                 >
-                  浏览 Agent
+                  {agents.length > 0 ? '浏览 Agent' : '创建 Agent'}
                 </button>
               </Card>
             </Section>
