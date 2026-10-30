@@ -287,6 +287,28 @@ def scan_code(code: str) -> ScanResult:
         res.warnings.append(
             f"存在指向本机/内网的 URL（{ '；'.join(internal_urls[:3]) }），请确认目标服务允许被工具访问")
 
+    # 平台相关路径（todo 2.2 跨平台可见性，warning 级）：字符串字面量以
+    # POSIX 专属绝对路径或 ~/ 开头、或含 Windows 盘符路径——工具代码会
+    # 随平台对比/镜像分发到 macOS/Windows/Linux，硬编码单一平台路径在
+    # 另两平台必然失败。只查字符串开头的路径前缀，不查中间片段
+    # （URL、正则、docstring 里的 /tmp 字样会误报）；运行时拼接路径
+    # 静态无法判定，接受漏报。
+    posix_prefixes = ("/tmp/", "/bin/", "/usr/", "/etc/", "/var/", "/home/", "/opt/", "/dev/")
+    plat_paths: list[str] = []
+    for line, v in _string_constants(tree):
+        vs = v.strip()
+        hit = (
+            any(vs.startswith(p) or vs == p.rstrip("/") for p in posix_prefixes)
+            or vs.startswith("~/") or vs == "~"
+            or re.match(r"^[A-Za-z]:[\\/]", vs) is not None
+        )
+        if hit:
+            plat_paths.append(f"第 {line} 行 {vs[:50]!r}")
+    if plat_paths:
+        res.warnings.append(
+            f"存在硬编码单一平台路径（{ '；'.join(plat_paths[:3]) }），"
+            "跨平台分发时另一平台将不存在该路径，建议基于 _PROJECT_ROOT / TOOL_DIR / Path.home() 解析")
+
     # 复杂度异常（todo 3.2 检查项 4，warning 级——常驻服务循环是合法写法，
     # 不能阻断；但对 LLM 生成的「忘写退出条件的死循环」是有效提示）：
     # (a) while True 体内无任何 break/return/raise；(b) 巨量字面量分配（≥10MB 级）。
