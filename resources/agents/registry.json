@@ -32,5 +32,24 @@
     "health": "healthy",
     "owner": "local",
     "visibility": "public"
+  },
+  {
+    "id": "orchestrator-agent",
+    "name": "任务编排智能体",
+    "version": "0.1.0",
+    "role": "web-service",
+    "status": "active",
+    "spec_path": "definitions/orchestrator-agent.md",
+    "impl_path": "implementations/orchestrator-agent/",
+    "tools": [],
+    "tags": [
+      "编排",
+      "多Agent",
+      "API"
+    ],
+    "created_at": "2026-10-31T03:53:00Z",
+    "health": "healthy",
+    "owner": "local",
+    "visibility": "public"
   }
 ]
