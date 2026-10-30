@@ -119,11 +119,13 @@
 
 **内涵**：智能体不仅要能调用单个工具，还要能将多个工具串联为完整的数据处理流程。当用户描述一个复杂需求时（如「读取 EEG 数据 → 滤波去噪 → 提取频带特征 → 统计分析 → 可视化」），系统自动生成编排描述文件（Markdown 格式），编译为 DAG（有向无环图），由多个 Agent 分工协作执行。任务编排是 SOTABand「复杂模式」的核心，区别于简单需求的「单工具直接调用」。
 
+**落地形态**：跨 Agent 委派编排首版——内置 web-service Agent `orchestrator-agent`（`resources/agents/`，手写实现，与 4.1 message-router-agent 同模式）。三个 API：`GET /agents`（Agent 空间可委派清单：id/名称/角色/描述；编排 Agent 在独立子进程看不到主进程进程表，运行与否由委派时的总线错误如实反馈）、`POST /plan`（声明式步骤数组串行执行——DAG 的线性特例：每步 `{agent, method, params?, timeout?, required?}`，params 复用 `BaseAgent.resolve_refs` 支持 `{stepN.a.b}` 引用前序步骤输出与 `{param.x}` 引用请求级参数；required 步骤失败即中止并标注 `failed_step`，非 required 失败记录后继续；`results` 逐步聚合）、`POST /call`（单跳委派，调试直通）。委派唯一出口是 4.5 本地总线 `self._bus.call_agent`（被调侧以 execute 语义聚合响应），目标未运行/超时/崩溃均得结构化错误、编排不抛 500；步骤上限 20、单步超时钳制 1–300 秒。自然语言自动生成编排描述文件（意图解析器/流程编译器）与并行 DAG 执行依赖工作流引擎子系统，仍为规划中。
+
 **关联架构**：
-- 意图解析器（`intent_parser.py`）：将自然语言意图解析为标准化流程描述
-- 流程编译器（`flow_compiler.py`）：将流程描述编译为可执行 DAG
-- 执行器（`executor.py`）：按 DAG 驱动多智能体执行，管理任务生命周期
-- 多智能体编排流程：自然语言描述 → 解析 → 编译 → 生成编排文件 → 用户确认 → 执行
+- 意图解析器（`intent_parser.py`）：将自然语言意图解析为标准化流程描述（规划中）
+- 流程编译器（`flow_compiler.py`）：将流程描述编译为可执行 DAG（规划中）
+- 执行器（`executor.py`）：按 DAG 驱动多智能体执行，管理任务生命周期（规划中；当前由 `orchestrator-agent` 以串行步骤 + 总线路由承担线性编排）
+- 多智能体编排流程：自然语言描述 → 解析 → 编译 → 生成编排文件 → 用户确认 → 执行（规划中）
 
 ### 4.3 智能体代码自动调试
 

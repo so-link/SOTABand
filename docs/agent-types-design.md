@@ -172,6 +172,26 @@ curl -X POST http://127.0.0.1:<port>/route -H 'Content-Type: application/json' \
 
 未命中 / 未知工具 / 参数皆缺均返回结构化 JSON（`not_found` / `bad_request` + 近似候选），不抛 500。工具执行经 `BaseAgent.call_tool`（常驻 Worker 优先、`ToolExecutor` 回退），工具侧静态安全审查闸门照常生效。
 
+**内置实例：任务编排智能体（`orchestrator-agent`）**
+
+平台内置第二个手写 web-service Agent（`resources/agents/implementations/orchestrator-agent/`，todo 4.2 首版），把编排对象从**单个工具**提升为**多个运行中的 Agent**：接收多步任务，逐步经本地通信总线（4.5 `call_agent` RPC）委派给 Agent 空间中的子 Agent，步骤间以 `{stepN.x}` / `{param.x}` 引用传递数据，聚合全部步骤结果返回。
+
+| API | 方法/路径 | 语义 |
+|-----|-----------|------|
+| `agents` | `GET /agents` | 列出 Agent 空间中活跃 Agent 的 id/名称/角色/描述（运行与否由委派时的总线错误如实反馈） |
+| `plan` | `POST /plan` | 请求体 `{steps: [{agent, method, params?, timeout?, required?}], params?}`：串行执行（DAG 的线性特例），required 步骤失败即中止（`status:"failed"` + `failed_step`），非 required 失败记录后继续；`results` 逐步列出 `{step, agent, method, ok, result, error}` |
+| `call` | `POST /call` | 单跳委派 `{agent, method, params?, timeout?}`（调试与直连用） |
+
+```bash
+curl -X POST http://127.0.0.1:<port>/plan -H 'Content-Type: application/json' \
+  -d '{"steps": [
+        {"agent": "worker-a", "method": "echo", "params": {"v": 1}},
+        {"agent": "worker-b", "method": "twice", "params": {"n": "{step1.v}"}}
+      ]}'
+```
+
+目标 Agent 未运行 / 超时 / 崩溃均得该步结构化错误（总线契约，编排不抛 500）。委派唯一出口是 `self._bus.call_agent`（子进程 → 主进程路由 → 目标子进程），本 Agent 不直接执行工具、不开网络出口；被调 Agent 以其自身 `execute` 语义执行委派。自然语言自动生成编排文件与并行 DAG 执行仍依赖工作流引擎，为规划中。
+
 ---
 
 ## 四、三类 Agent 的执行界面设计
