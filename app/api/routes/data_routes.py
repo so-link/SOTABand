@@ -544,18 +544,24 @@ async def delete_dataset(dataset_id: str):
         raise HTTPException(404, f"Dataset '{dataset_id}' not found")
 
     import shutil
-    # 删除数据文件
-    # 必须解析成绝对路径：相对路径若直接 rmtree，会误删 resources/data 下的目录
+    # 删除数据文件：仅限「托管目录内」的数据集副本。
+    # 上传注册的数据集 data_path 常指向上传器原位置（托管目录之外），
+    # 那属于用户的源文件，删除数据集只注销、不删源文件；
+    # 托管目录（private/data/datasets）之下才允许整目录删除。
     data_path = registry.resolve_data_path(entry.get("data_path", ""))
+    managed_root = registry._get_data_dir().resolve()
+    files_removed = False
     if data_path.exists() and data_path.is_dir():
-        # 安全兜底：绝不允许删除 resources/data 根目录自身
-        if data_path.resolve() == registry._get_data_dir().resolve().parent.resolve():
+        resolved = data_path.resolve()
+        if resolved in (managed_root, managed_root.parent, managed_root.parent.parent):
             raise HTTPException(400, "拒绝删除数据根目录")
-        shutil.rmtree(data_path, ignore_errors=True)
+        if resolved.is_relative_to(managed_root):
+            shutil.rmtree(resolved, ignore_errors=True)
+            files_removed = True
     # 删除 MD 文档
     spec_path = registry._get_def_dir() / f"{dataset_id}.md"
     if spec_path.exists():
         spec_path.unlink()
     # 从 registry 移除
     await registry.unregister(dataset_id)
-    return {"deleted": dataset_id}
+    return {"deleted": dataset_id, "files_removed": files_removed}
