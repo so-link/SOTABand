@@ -467,6 +467,11 @@ async def register_tool(req: RegisterToolRequest):
     spec = {"raw_md": req.spec_md, "id": req.tool_id, "name": req.tool_name}
     code = req.code or (await builder.build(spec))
 
+    from core.security.code_scan import scan_code
+    scan = scan_code(code)
+    if not scan.ok:
+        raise HTTPException(400, "静态安全审查未通过：\n" + "\n".join(scan.errors))
+
     param_meta = []
     try:
         param_meta = await builder.extract_param_metadata(req.spec_md)
@@ -1784,6 +1789,10 @@ async def save_code(tool_id: str, req: dict):
     code = req.get("code", "")
     if not code.strip():
         raise HTTPException(400, "代码不能为空")
+    from core.security.code_scan import scan_code
+    scan = scan_code(code)
+    if not scan.ok:
+        raise HTTPException(400, "静态安全审查未通过：\n" + "\n".join(scan.errors))
     impl_dir = registry._get_impl_dir() / tool_id
     impl_dir.mkdir(parents=True, exist_ok=True)
     (impl_dir / "tool.py").write_text(code, encoding="utf-8")

@@ -625,7 +625,21 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
         import asyncio
 
         tid = tool_id or "sandbox"
-        
+
+        # 静态安全审查（todo 3.2）：命中阻断项则拒绝执行。
+        # 自动调试的 LLM 修订路径已在前置 generate-code 处把关；
+        # 这里覆盖直接调用沙箱的路径，作为执行前的最后闸门。
+        from core.security.code_scan import scan_code
+        scan = scan_code(code)
+        if not scan.ok:
+            msg = "静态安全审查未通过：\n" + "\n".join(f"- {e}" for e in scan.errors)
+            return {
+                "exit_code": 1,
+                "stdout": json.dumps({"status": "failed", "security_scan": scan.to_dict()}, ensure_ascii=False),
+                "stderr": msg,
+                "success": False,
+            }
+
         from core.executor.tool_executor import ToolExecutor
 
         try:
