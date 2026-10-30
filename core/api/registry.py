@@ -26,8 +26,8 @@ class ApiRegistry:
             return json.load(f)
 
     def _write(self, data: list[dict]):
-        with open(REGISTRY_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        from core.resource.json_store import write_json_atomic
+        write_json_atomic(REGISTRY_FILE, data)
 
     async def register(self, resource: dict) -> str:
         api_id = resource.get("id", f"api-{int(time.time())}")

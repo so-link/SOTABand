@@ -21,12 +21,12 @@ from core.user_context import get_current_user_id, is_visible_to, VISIBILITY_PUB
 
 from core.resource.registry.registry_base import BaseRegistry
 from core.resource import paths
+from core.resource.json_store import write_json_atomic
 
 
 def _write_json(path: Path, data) -> None:
-    """写入 JSON 文件（自动创建父目录）。"""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    """写入 JSON 文件（原子替换，自动创建父目录）。"""
+    write_json_atomic(path, data)
 
 
 # 内置资源根（随仓库分发）与私有资源根（本地新建，不入 git）
