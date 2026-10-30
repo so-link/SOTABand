@@ -1,100 +1,115 @@
 @import 'tailwindcss';
 
 /* ============================================================
-   SOTABand — Design System v3
-   深色科技风 · Cyber Terminal · Light ↔ Dark
+   SOTABand — Design System v4
+   与设计稿 /root/SOTABand/design/ui-direction.html 对齐
    ============================================================ */
 
 @theme {
-  /* ── 深色默认（WorkBuddy 风格：炭黑底 + 蓝紫强调）── */
-  --color-maia-bg: #0f0f11;
-  --color-maia-surface: #1a1a1e;
-  --color-maia-sidebar: #121214;
-  --color-maia-sidebar-hover: #1c1c20;
-  --color-maia-sidebar-active: #24242a;
-  --color-maia-border: #27272a;
-  --color-maia-border-light: #323238;
-  --color-maia-border-glow: #2a2a40;
-  --color-maia-text: #d4d4d8;
-  --color-maia-text-secondary: #90909b;
-  --color-maia-text-muted: #5c5c66;
-  --color-maia-text-heading: #ececf0;
-  --color-maia-accent: #7c5cfc;
-  --color-maia-accent-light: #1a1525;
-  --color-maia-accent-hover: #9567ff;
-  --color-maia-accent-border: #2e2466;
+  /* ── 字体：拉丁走 Inter / JetBrains Mono，中文回落 Noto Sans SC ── */
+  --font-sans: 'Inter', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Noto Sans SC', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+
+  /* ── 深色默认：炭黑底 + 蓝紫强调 ── */
+  --color-maia-bg: #0B0D10;
+  --color-maia-surface: #11141A;
+  --color-maia-sidebar: #0E1116;
+  --color-maia-sidebar-hover: #181C24;
+  --color-maia-sidebar-active: #232A34;
+  --color-maia-border: #232A34;
+  --color-maia-border-light: #2A313C;
+  --color-maia-border-glow: #2E2466;
+  --color-maia-text: #E7EAF0;
+  --color-maia-text-secondary: #9CA6B5;
+  --color-maia-text-muted: #7E8A9A;
+  --color-maia-text-heading: #F5F7FA;
+  --color-maia-accent: #7C5CFC;
+  --color-maia-accent-light: #14102A;
+  --color-maia-accent-hover: #9567FF;
+  --color-maia-accent-border: #2E2466;
   --color-maia-accent-glow: rgba(124, 92, 252, 0.18);
-  --color-maia-success: #00e676;
-  --color-maia-success-bg: #0a1e14;
-  --color-maia-warning: #ffb300;
-  --color-maia-warning-bg: #1e1808;
-  --color-maia-danger: #ff5252;
-  --color-maia-danger-bg: #1e0a0a;
-  --color-maia-chat-user: #0d1f30;
-  --color-maia-chat-agent: #111922;
-  --color-maia-chat-system: #121212;
-  --color-maia-card-blue: #0d1f30;
-  --color-maia-card-green: #0a1e14;
-  --color-maia-card-amber: #1e1808;
-  --color-maia-card-purple: #140d28;
+  --color-maia-success: #3ED598;
+  --color-maia-success-bg: #0A2016;
+  --color-maia-warning: #E7B65A;
+  --color-maia-warning-bg: #201808;
+  --color-maia-danger: #F0746C;
+  --color-maia-danger-bg: #200808;
+  --color-maia-chat-user: #14102A;
+  --color-maia-chat-agent: #11141A;
+  --color-maia-chat-system: #0E1116;
+  --color-maia-card-blue: #0D1520;
+  --color-maia-card-green: #0A2016;
+  --color-maia-card-amber: #201808;
+  --color-maia-card-purple: #14102A;
 }
 
 /* ── 浅色主题覆盖 ── */
 [data-theme="light"] {
-  --color-maia-bg: #f0f2f5;
-  --color-maia-surface: #ffffff;
-  --color-maia-sidebar: #e8ecf1;
-  --color-maia-sidebar-hover: #dde2e8;
-  --color-maia-sidebar-active: #d4dae2;
-  --color-maia-border: #d8dce3;
-  --color-maia-border-light: #e5e8ed;
-  --color-maia-border-glow: #c8d6e5;
-  --color-maia-text: #3b3f48;
-  --color-maia-text-secondary: #5f6470;
-  --color-maia-text-muted: #949aa5;
-  --color-maia-text-heading: #1e2127;
-  --color-maia-accent: #6c5ce7;
-  --color-maia-accent-light: #f0edff;
-  --color-maia-accent-hover: #5a4bd1;
-  --color-maia-accent-border: #d5cff7;
-  --color-maia-accent-glow: rgba(108, 92, 231, 0.12);
-  --color-maia-success: #10a37f;
-  --color-maia-success-bg: #e6f7f1;
-  --color-maia-warning: #e5a50a;
-  --color-maia-warning-bg: #fef9e7;
-  --color-maia-danger: #e05050;
-  --color-maia-danger-bg: #fdeaea;
-  --color-maia-chat-user: #f0edff;
-  --color-maia-chat-agent: #ffffff;
-  --color-maia-chat-system: #faf9f7;
-  --color-maia-card-blue: #e8f0fe;
-  --color-maia-card-green: #e6f7f1;
-  --color-maia-card-amber: #fef6e6;
-  --color-maia-card-purple: #f0edff;
+  --color-maia-bg: #F4F5F7;
+  --color-maia-surface: #FFFFFF;
+  --color-maia-sidebar: #EEF0F3;
+  --color-maia-sidebar-hover: #E4E7EC;
+  --color-maia-sidebar-active: #D8DCE4;
+  --color-maia-border: #E2E6ED;
+  --color-maia-border-light: #ECF0F5;
+  --color-maia-border-glow: #D6D2F0;
+  --color-maia-text: #16191F;
+  --color-maia-text-secondary: #596373;
+  --color-maia-text-muted: #6F7886;
+  --color-maia-text-heading: #16191F;
+  --color-maia-accent: #5D4FE3;
+  --color-maia-accent-light: #F2F0FF;
+  --color-maia-accent-hover: #4A3DCC;
+  --color-maia-accent-border: #D0CAF7;
+  --color-maia-accent-glow: rgba(93, 79, 227, 0.12);
+  --color-maia-success: #10A37F;
+  --color-maia-success-bg: #E6F7F1;
+  --color-maia-warning: #E5A50A;
+  --color-maia-warning-bg: #FEF9E7;
+  --color-maia-danger: #E05050;
+  --color-maia-danger-bg: #FDEAEA;
+  --color-maia-chat-user: #F2F0FF;
+  --color-maia-chat-agent: #FFFFFF;
+  --color-maia-chat-system: #FAFAFA;
+  --color-maia-card-blue: #E8F0FE;
+  --color-maia-card-green: #E6F7F1;
+  --color-maia-card-amber: #FEF6E6;
+  --color-maia-card-purple: #F2F0FF;
 }
 
 /* ============================================================
    Base
    ============================================================ */
-* { margin: 0; padding: 0; box-sizing: border-box; }
+/* Tailwind preflight 已重置 margin/padding 与 box-sizing；
+   这里不要再写未分层的 `* { padding: 0 }`，否则会压过 padding 工具类。 */
 html, body, #root { height: 100%; width: 100%; overflow: hidden; }
 
 body {
-  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-size: 13px; font-weight: 400; line-height: 1.68;
-  letter-spacing: 0.03em;
+  font-family: var(--font-sans);
+  font-size: 14px; font-weight: 400; line-height: 1.6;
   color: var(--color-maia-text);
   background: var(--color-maia-bg);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
-h1,h2,h3,h4,h5,h6 { letter-spacing: 0.04em; font-weight: 650; }
+h1, h2, h3, h4, h5, h6 { font-weight: 600; line-height: 1.4; }
 
-code, pre, .font-mono, .mono {
-  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'SF Mono', ui-monospace, monospace;
-  letter-spacing: 0.03em; font-size: 12px;
+/* 代码：中文注释也要有字形，行高按等宽字体基线留足 */
+@layer base {
+  code, pre, .font-mono, .mono {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-variant-ligatures: contextual;
+    font-feature-settings: 'liga' 1, 'calt' 1, 'tnum' 1;
+  }
+  pre { line-height: 22px; tab-size: 2; }
+  pre code { font-size: 13px; }
 }
+
+/* 数字对齐：用于计数、指标、状态栏 */
+.tnum { font-variant-numeric: tabular-nums; }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -106,7 +121,7 @@ code, pre, .font-mono, .mono {
 
 .panel-transition { transition: width 200ms cubic-bezier(0.16, 1, 0.3, 1); }
 
-/* ── WorkBuddy 风格毛玻璃效果 ── */
+/* ── 毛玻璃效果 ── */
 .glass {
   background: rgba(17, 22, 29, 0.75);
   backdrop-filter: blur(12px);

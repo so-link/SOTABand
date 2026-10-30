@@ -63,7 +63,7 @@ export function AutocompleteDropdown({
       style={{ top: position.top, left: position.left }}
     >
       {loading && items.length === 0 ? (
-        <div className="px-3 py-2 text-[12px] text-maia-text-muted">加载中...</div>
+        <div className="px-3 py-2 text-[13px] text-maia-text-muted">加载中...</div>
       ) : (
         items.map((item, i) => (
           <button
@@ -78,10 +78,10 @@ export function AutocompleteDropdown({
               onSelect(item)
             }}
           >
-            <span className="text-[12px] font-medium tracking-wide truncate">
+            <span className="text-[13px] font-medium truncate">
               {formatResult(item.name)}
             </span>
-            <span className="text-[10px] text-maia-text-muted truncate">{item.id}</span>
+            <span className="text-[12px] text-maia-text-muted truncate">{item.id}</span>
           </button>
         ))
       )}
