@@ -98,7 +98,7 @@ export function OpenDirectoryDialog({ onOpen, onClose }: Props) {
 
         {/* 路径导航栏 */}
         <div className="px-4 py-2 border-b border-maia-border bg-maia-bg/50">
-          <div className="flex items-center gap-1 text-[12px]">
+          <div className="flex items-center gap-1 text-[13px]">
             <button
               onClick={goUp}
               disabled={!currentPath || crumbs.length === 0}
@@ -136,7 +136,7 @@ export function OpenDirectoryDialog({ onOpen, onClose }: Props) {
               <Loader2 className="h-4 w-4 animate-spin" />加载中...
             </div>
           ) : error ? (
-            <div className="flex items-center gap-2 px-4 py-6 text-xs text-maia-danger">
+            <div className="flex items-center gap-2 px-4 py-6 text-[13px] text-maia-danger">
               <AlertCircle className="h-4 w-4 shrink-0" />{error}
             </div>
           ) : (
@@ -167,8 +167,8 @@ export function OpenDirectoryDialog({ onOpen, onClose }: Props) {
                   className="flex items-center gap-2.5 px-3 py-1.5 text-left opacity-60"
                 >
                   <File className="h-4 w-4 text-maia-text-muted shrink-0" />
-                  <span className="flex-1 truncate text-[12px] text-maia-text-secondary">{f.name}</span>
-                  <span className="text-[10px] text-maia-text-muted shrink-0">{f.format}</span>
+                  <span className="flex-1 truncate text-[13px] text-maia-text-secondary">{f.name}</span>
+                  <span className="text-[12px] text-maia-text-muted shrink-0">{f.format}</span>
                 </div>
               ))}
             </div>
@@ -177,13 +177,13 @@ export function OpenDirectoryDialog({ onOpen, onClose }: Props) {
 
         {/* Footer */}
         <div className="flex items-center justify-between px-4 py-2.5 border-t border-maia-border bg-maia-bg/50">
-          <div className="flex items-center gap-1.5 text-[11px] text-maia-text-muted min-w-0">
+          <div className="flex items-center gap-1.5 text-[12px] text-maia-text-muted min-w-0">
             <HardDrive className="h-3.5 w-3.5 shrink-0" />
             <span className="truncate font-mono">{currentPath || '/'}</span>
           </div>
           <div className="flex gap-2 shrink-0">
-            <Button variant="outline" size="sm" onClick={onClose} className="text-[11px] h-7">取消</Button>
-            <Button size="sm" onClick={handleOpen} disabled={!currentPath || opening} className="text-[11px] h-7">
+            <Button variant="outline" size="sm" onClick={onClose} className="text-[12px] h-7">取消</Button>
+            <Button size="sm" onClick={handleOpen} disabled={!currentPath || opening} className="text-[12px] h-7">
               {opening ? <><Loader2 className="h-3 w-3 animate-spin" />打开中...</> : '打开此目录'}
             </Button>
           </div>

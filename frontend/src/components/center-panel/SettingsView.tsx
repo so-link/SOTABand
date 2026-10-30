@@ -68,8 +68,8 @@ export function SettingsView() {
             <Settings className="h-4.5 w-4.5 text-maia-accent" />
           </div>
           <div>
-            <h1 className="text-[15px] font-semibold text-maia-text-heading tracking-wider">系统设置</h1>
-            <p className="text-[11px] text-maia-text-muted tracking-wide">配置系统背后所使用的大模型</p>
+            <h1 className="text-[15px] font-semibold text-maia-text-heading">系统设置</h1>
+            <p className="text-[12px] text-maia-text-muted">配置系统背后所使用的大模型</p>
           </div>
         </div>
 
@@ -80,7 +80,7 @@ export function SettingsView() {
         )}
 
         {error && (
-          <div className="flex items-center gap-2 px-3 py-2.5 rounded border border-maia-danger/30 bg-maia-danger/10 text-maia-danger text-xs">
+          <div className="flex items-center gap-2 px-3 py-2.5 rounded border border-maia-danger/30 bg-maia-danger/10 text-maia-danger text-[13px]">
             <AlertCircle className="h-4 w-4" />加载配置失败：{error}
           </div>
         )}
@@ -90,33 +90,33 @@ export function SettingsView() {
             <CardHeader>
               <div className="flex items-center gap-2">
                 <Cpu className="h-4 w-4 text-maia-accent" />
-                <span className="text-[13px] font-semibold text-maia-text-heading tracking-wide">大模型配置</span>
+                <span className="text-[13px] font-semibold text-maia-text-heading">大模型配置</span>
               </div>
             </CardHeader>
             <CardBody className="space-y-5">
               {/* 模型类型下拉框 */}
               <div>
-                <label className="block text-[12px] text-maia-text-secondary mb-1.5 tracking-wide">大模型类型</label>
+                <label className="block text-[13px] text-maia-text-secondary mb-1.5">大模型类型</label>
                 <div className="relative">
                   <select
                     value={model}
                     onChange={(e) => setModel(e.target.value)}
-                    className="h-9 w-full appearance-none rounded border border-maia-border bg-maia-surface px-3 pr-9 text-[12px] text-maia-text tracking-wide focus:outline-none focus:ring-2 focus:ring-maia-accent/20 focus:border-maia-accent cursor-pointer"
+                    className="h-9 w-full appearance-none rounded border border-maia-border bg-maia-surface px-3 pr-9 text-[13px] text-maia-text focus:outline-none focus:ring-2 focus:ring-maia-accent/20 focus:border-maia-accent cursor-pointer"
                   >
                     {supportedModels.map((m) => (
                       <option key={m.value} value={m.value}>{m.label}</option>
                     ))}
                   </select>
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-maia-text-muted text-xs">▾</span>
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-maia-text-muted text-[13px]">▾</span>
                 </div>
-                <p className="text-[10px] text-maia-text-muted mt-1 tracking-wide">
+                <p className="text-[12px] text-maia-text-muted mt-1">
                   环境变量：<span className="font-mono">DEEPSEEK_MODEL</span>
                 </p>
               </div>
 
               {/* API Key */}
               <div>
-                <label className="block text-[12px] text-maia-text-secondary mb-1.5 tracking-wide">API Key</label>
+                <label className="block text-[13px] text-maia-text-secondary mb-1.5">API Key</label>
                 <div className="flex gap-2">
                   <div className="relative flex-1">
                     <KeyRound className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-maia-text-muted" />
@@ -137,9 +137,9 @@ export function SettingsView() {
                     </button>
                   </div>
                 </div>
-                <div className="flex items-center gap-1.5 mt-1">
-                  {config?.has_api_key && <Badge variant="accent" className="text-[10px]">已配置</Badge>}
-                  <p className="text-[10px] text-maia-text-muted tracking-wide">
+                <div className="flex items-center gap-2 mt-1.5">
+                  {config?.has_api_key && <Badge variant="accent" className="text-[12px] shrink-0">已配置</Badge>}
+                  <p className="text-[12px] text-maia-text-muted">
                     环境变量：<span className="font-mono">DEEPSEEK_API_KEY</span>
                   </p>
                 </div>
@@ -147,23 +147,27 @@ export function SettingsView() {
 
               {/* 保存结果反馈 */}
               {saveError && (
-                <div className="flex items-center gap-2 px-3 py-2 rounded border border-maia-danger/30 bg-maia-danger/10 text-maia-danger text-xs">
+                <div className="flex items-center gap-2 px-3 py-2 rounded border border-maia-danger/30 bg-maia-danger/10 text-maia-danger text-[13px]">
                   <AlertCircle className="h-4 w-4" />{saveError}
                 </div>
               )}
               {saved && (
-                <div className="flex items-center gap-2 px-3 py-2 rounded border border-maia-success/30 bg-maia-success/10 text-maia-success text-xs">
+                <div className="flex items-center gap-2 px-3 py-2 rounded border border-maia-success/30 bg-maia-success/10 text-maia-success text-[13px]">
                   <CheckCircle2 className="h-4 w-4" />配置已保存并写入 .env 文件，已即时生效
                 </div>
               )}
 
-              <div className="flex items-center justify-between pt-1">
-                <div className="text-[10px] text-maia-text-muted tracking-wide">
-                  当前 Provider：<span className="font-mono text-maia-text-secondary">{config?.provider ?? 'deepseek'}</span>
-                  {' · '}Base URL：<span className="font-mono text-maia-text-secondary">{config?.base_url ?? '-'}</span>
+              <div className="flex items-center justify-between gap-4 pt-4 mt-1 border-t border-maia-border">
+                <div className="min-w-0 text-[12px] text-maia-text-muted">
+                  <div className="truncate">
+                    Provider：<span className="font-mono text-maia-text-secondary">{config?.provider ?? 'deepseek'}</span>
+                  </div>
+                  <div className="truncate">
+                    Base URL：<span className="font-mono text-maia-text-secondary">{config?.base_url ?? '-'}</span>
+                  </div>
                 </div>
-                <Button onClick={handleSave} disabled={saving}>
-                  {saving ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />保存中...</> : <>保存配置</>}
+                <Button onClick={handleSave} disabled={saving} className="shrink-0 whitespace-nowrap">
+                  {saving ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />保存中…</> : <>保存配置</>}
                 </Button>
               </div>
             </CardBody>

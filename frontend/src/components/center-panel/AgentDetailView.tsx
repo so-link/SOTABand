@@ -9,6 +9,7 @@ import { useResourceStore } from '@/stores/resource-store'
 import { useUIStore } from '@/stores/ui-store'
 import { useAgentEditorStore } from '@/stores/agent-editor-store'
 import { agentApi } from '@/services/api/agent'
+import { cn } from '@/lib/utils'
 import { useTabIndent } from '@/hooks/use-tab-indent'
 import type { AgentResource } from '@/types/resources'
 import type { InlineCard as InlineCardType } from '@/types/chat'
@@ -313,7 +314,7 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                 setStreamCards([])
                 streamDone = true
               } else if (eventType === 'error') {
-                setMessages((m) => [...m, { role: 'system', content: `⚠️ ${payload.message || '执行错误'}` }])
+                setMessages((m) => [...m, { role: 'system', content: `[WARN] ${payload.message || '执行错误'}` }])
                 streamDone = true
               }
               eventType = ''
@@ -329,9 +330,9 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
       }
     } catch (e: unknown) {
       if ((e as Error).name === 'AbortError') {
-        setMessages((m) => [...m, { role: 'system', content: '⚠️ 请求超时，Agent 未在 2 分钟内响应' }])
+        setMessages((m) => [...m, { role: 'system', content: '[WARN] 请求超时，Agent 未在 2 分钟内响应' }])
       } else {
-        setMessages((m) => [...m, { role: 'system', content: '⚠️ 请求失败' }])
+        setMessages((m) => [...m, { role: 'system', content: '[WARN] 请求失败' }])
       }
       setStreaming('')
     } finally {
@@ -351,7 +352,7 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   /** 任务式：点击「启动任务」，按启动参数执行既定流程 */
   const startTask = async () => {
     if (!running) {
-      setMessages((m) => [...m, { role: 'system', content: '⚠️ 请先点击「启动」按钮启动 Agent 进程' }])
+      setMessages((m) => [...m, { role: 'system', content: '[WARN] 请先点击「启动」按钮启动 Agent 进程' }])
       return
     }
     setMessages([])
@@ -360,71 +361,86 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
 
   return (
     <div className="flex flex-col h-full bg-maia-surface">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-maia-border bg-maia-bg/50 shrink-0">
-        <div className="flex items-center gap-2">
-          <Bot className="h-4 w-4 text-maia-accent" />
-          <span className="text-sm font-semibold text-maia-text-heading tracking-wide">
+      {/* Header：第一行是身份与启停，第二行是文档/代码工具条，避免标题与操作挤在一行换行 */}
+      <div className="shrink-0 border-b border-maia-border bg-maia-bg/40">
+        <div className="flex items-center gap-2 px-4 h-11 min-w-0">
+          <Bot className="h-4 w-4 text-maia-accent shrink-0" />
+          <span className="text-[14px] font-semibold text-maia-text-heading truncate min-w-0">
             {agent.name}
           </span>
-          <Badge variant={running ? 'success' : 'default'}>
+          <Badge variant={running ? 'success' : 'default'} className="shrink-0">
             {running ? '运行中' : '未启动'}
           </Badge>
+
+          <div className="ml-auto flex items-center gap-2 shrink-0">
+            {!running ? (
+              <Button size="sm" variant="default" onClick={start} disabled={loading}>
+                {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+                启动
+              </Button>
+            ) : (
+              <>
+                <Button size="sm" variant="outline" onClick={stop} disabled={loading}>
+                  <Square className="h-3.5 w-3.5" />
+                  停止
+                </Button>
+                <Button size="sm" variant="outline" onClick={restart} disabled={loading}>
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  重启
+                </Button>
+              </>
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          {/* Detail toggle buttons */}
+
+        <div className="flex items-center gap-1 px-3 h-9 border-t border-maia-border/60 overflow-x-auto">
           {hasDemand && (
             <button
               onClick={() => togglePanel('demand')}
-              className="flex items-center gap-1 text-[11px] text-maia-accent hover:underline"
+              className={cn(
+                'inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-[12px] whitespace-nowrap border transition-colors shrink-0',
+                showDemand
+                  ? 'bg-maia-accent-light text-maia-accent border-maia-accent-border'
+                  : 'text-maia-text-muted border-transparent hover:bg-maia-sidebar-hover hover:text-maia-text',
+              )}
+              title="需求描述"
             >
-              <FileText className="h-3 w-3" />
-              {showDemand ? '收起需求' : '查看需求描述'}
+              <FileText className="h-3.5 w-3.5" />
+              {showDemand ? '收起需求' : '需求描述'}
             </button>
           )}
           <button
             onClick={() => togglePanel('spec')}
-            className="flex items-center gap-1 text-[11px] text-maia-accent hover:underline"
+            className={cn(
+              'inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-[12px] whitespace-nowrap border transition-colors shrink-0',
+              showSpec
+                ? 'bg-maia-accent-light text-maia-accent border-maia-accent-border'
+                : 'text-maia-text-muted border-transparent hover:bg-maia-sidebar-hover hover:text-maia-text',
+            )}
           >
-            <FileText className="h-3 w-3" />
-            {showSpec ? '收起 MD' : '查看 MD 文档'}
+            <FileText className="h-3.5 w-3.5" />
+            {showSpec ? '收起 MD 文档' : 'MD 文档'}
           </button>
           <button
             onClick={() => togglePanel('code')}
-            className="flex items-center gap-1 text-[11px] text-maia-accent hover:underline"
+            className={cn(
+              'inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-[12px] whitespace-nowrap border transition-colors shrink-0',
+              showCode
+                ? 'bg-maia-accent-light text-maia-accent border-maia-accent-border'
+                : 'text-maia-text-muted border-transparent hover:bg-maia-sidebar-hover hover:text-maia-text',
+            )}
           >
-            <FileCode className="h-3 w-3" />
-            {showCode ? '收起代码' : '查看代码'}
+            <FileCode className="h-3.5 w-3.5" />
+            {showCode ? '收起代码' : '代码'}
           </button>
           <button
             onClick={handleEditInEditor}
-            className="flex items-center gap-1 text-[11px] text-amber-500 hover:underline ml-1"
+            className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-[12px] whitespace-nowrap border border-transparent text-maia-text-muted hover:bg-maia-sidebar-hover hover:text-maia-text transition-colors shrink-0 ml-auto"
             title="带齐现有文档与代码，从审阅步进入编辑"
           >
-            <Pencil className="h-3 w-3" />
+            <Pencil className="h-3.5 w-3.5" />
             编辑
           </button>
-
-          <div className="w-px h-5 bg-maia-border mx-1" />
-
-          {/* Start/Stop/Restart buttons */}
-          {!running ? (
-            <Button size="sm" variant="default" onClick={start} disabled={loading}>
-              {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
-              启动
-            </Button>
-          ) : (
-            <>
-              <Button size="sm" variant="outline" onClick={stop} disabled={loading}>
-                <Square className="h-3 w-3" />
-                停止
-              </Button>
-              <Button size="sm" variant="outline" onClick={restart} disabled={loading}>
-                <RefreshCw className="h-3 w-3" />
-                重启
-              </Button>
-            </>
-          )}
         </div>
       </div>
 
@@ -437,10 +453,10 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
             <Card className="border-maia-border">
               <CardBody>
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-medium text-maia-text-secondary tracking-wide">MD 规范文档</span>
+                  <span className="text-[13px] font-medium text-maia-text-secondary">MD 规范文档</span>
                   <button onClick={() => setShowSpec(false)}><X className="h-3 w-3 text-maia-text-muted" /></button>
                 </div>
-                <pre className="text-[11px] font-mono leading-relaxed text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto bg-maia-bg rounded p-3">
+                <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto bg-maia-bg rounded p-3 border border-maia-border">
                   {specMd || '加载中...'}
                 </pre>
               </CardBody>
@@ -452,10 +468,10 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
             <Card className="border-maia-border">
               <CardBody>
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-medium text-maia-text-secondary tracking-wide">用户需求描述</span>
+                  <span className="text-[13px] font-medium text-maia-text-secondary">用户需求描述</span>
                   <button onClick={() => setShowDemand(false)}><X className="h-3 w-3 text-maia-text-muted" /></button>
                 </div>
-                <pre className="text-[11px] font-mono leading-relaxed text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto bg-maia-bg rounded p-3">
+                <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto bg-maia-bg rounded p-3 border border-maia-border">
                   {demandMd}
                 </pre>
               </CardBody>
@@ -468,10 +484,10 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
               <CardBody>
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-maia-text-secondary tracking-wide">Agent 源代码</span>
+                    <span className="text-[13px] font-medium text-maia-text-secondary">Agent 源代码</span>
                     {codeDirty && <Badge variant="warning">已修改</Badge>}
                     {saveMsg && (
-                      <span className={`text-[10px] ${saveMsg.startsWith('保存失败') ? 'text-maia-danger' : 'text-maia-success'}`}>
+                      <span className={`text-[12px] ${saveMsg.startsWith('保存失败') ? 'text-maia-danger' : 'text-maia-success'}`}>
                         {saveMsg}
                       </span>
                     )}
@@ -479,14 +495,14 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => { if (isEditingCode) { setDraftCode(code); setIsEditingCode(false) } else { setDraftCode(code); setIsEditingCode(true) } }}
-                      className="flex items-center gap-1 text-[10px] text-maia-text-muted hover:text-maia-accent px-1.5 py-0.5 rounded border border-maia-border"
+                      className="flex items-center gap-1 text-[12px] text-maia-text-muted hover:text-maia-accent px-1.5 py-0.5 rounded border border-maia-border"
                     >
                       <Pencil className="h-2.5 w-2.5" />{isEditingCode ? '取消' : '手工微调'}
                     </button>
                     <button
                       onClick={handleSaveCode}
                       disabled={!codeDirty || isSaving}
-                      className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border border-maia-border text-maia-accent hover:bg-maia-accent/10 disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="flex items-center gap-1 text-[12px] px-1.5 py-0.5 rounded border border-maia-border text-maia-accent hover:bg-maia-accent/10 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       {isSaving ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Save className="h-2.5 w-2.5" />}
                       保存代码
@@ -500,10 +516,10 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                     onChange={(e) => setDraftCode(e.target.value)}
                     onKeyDown={onCodeTabIndent}
                     spellCheck={false}
-                    className="w-full max-h-[400px] min-h-[240px] text-[11px] font-mono leading-relaxed text-maia-text bg-maia-bg rounded p-3 border border-maia-border outline-none resize-y focus:border-maia-accent/40"
+                    className="w-full max-h-[400px] min-h-[240px] text-[13px] font-mono leading-[22px] text-maia-text bg-maia-bg rounded p-3 border border-maia-border outline-none resize-y focus:border-maia-accent/40"
                   />
                 ) : (
-                  <pre className="text-[11px] font-mono leading-relaxed text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto bg-maia-bg rounded p-3">
+                  <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto bg-maia-bg rounded p-3 border border-maia-border">
                     {code || '加载中...'}
                   </pre>
                 )}
@@ -515,18 +531,18 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
           {isTask && (
             <Card className="border-maia-border">
               <CardBody>
-                <div className="text-xs font-medium text-maia-text-secondary tracking-wide mb-2">任务启动参数</div>
+                <div className="text-[13px] font-medium text-maia-text-secondary mb-2">任务启动参数</div>
                 <div className="space-y-2">
                   {(taskInputNames.length ? taskInputNames : ['（无启动参数）']).map((name) => (
                     name.startsWith('（') ? (
-                      <p key={name} className="text-[11px] text-maia-text-muted">{name}</p>
+                      <p key={name} className="text-[12px] text-maia-text-muted">{name}</p>
                     ) : (
                       <div key={name} className="flex items-center gap-2">
-                        <label className="text-[12px] text-maia-text-muted w-24 shrink-0">{name}</label>
+                        <label className="text-[13px] text-maia-text-muted w-24 shrink-0">{name}</label>
                         <input
                           value={taskParams[name] || ''}
                           onChange={(e) => setTaskParams((p) => ({ ...p, [name]: e.target.value }))}
-                          className="flex-1 text-[12px] bg-maia-bg rounded border border-maia-border px-2 py-1 outline-none focus:border-maia-accent/40"
+                          className="flex-1 text-[13px] bg-maia-bg rounded border border-maia-border px-2 py-1 outline-none focus:border-maia-accent/40"
                           placeholder={`请输入 ${name}`}
                         />
                       </div>
@@ -538,7 +554,7 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                     {isSending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
                     启动任务
                   </Button>
-                  {!running && <span className="text-[11px] text-maia-text-muted ml-2">（请先点击顶部「启动」）</span>}
+                  {!running && <span className="text-[12px] text-maia-text-muted ml-2">（请先点击顶部「启动」）</span>}
                 </div>
               </CardBody>
             </Card>
@@ -549,7 +565,7 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
             <Card className="border-maia-border">
               <CardBody>
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-medium text-maia-text-secondary tracking-wide">服务状态</span>
+                  <span className="text-[13px] font-medium text-maia-text-secondary">服务状态</span>
                   <Badge variant={serviceInfo.running ? 'success' : 'default'}>
                     {serviceInfo.running ? `运行中 :${serviceInfo.port}` : '未运行'}
                   </Badge>
@@ -557,7 +573,7 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                 {(serviceInfo.apis?.length || 0) > 0 && (
                   <>
                     <div className="flex items-center justify-between mt-3 mb-2">
-                      <span className="text-xs font-medium text-maia-text-secondary tracking-wide">API 测试</span>
+                      <span className="text-[13px] font-medium text-maia-text-secondary">API 测试</span>
                       {/* API 说明文档：浏览 / 下载 */}
                       <div className="flex items-center gap-2">
                         <button
@@ -575,13 +591,13 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                               }
                             } catch { /* ignore */ }
                           }}
-                          className="text-[11px] text-maia-accent hover:underline"
+                          className="text-[12px] text-maia-accent hover:underline"
                         >
                           查看 API 文档
                         </button>
                         <a
                           href={`${BASE_URL}/api/agent/${agent!.id}/api-doc/download`}
-                          className="text-[11px] text-maia-accent hover:underline"
+                          className="text-[12px] text-maia-accent hover:underline"
                           download
                         >
                           下载 .md
@@ -589,11 +605,11 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                       </div>
                     </div>
                     <div className="flex items-center gap-2 mb-2">
-                      <label className="text-[12px] text-maia-text-muted w-24 shrink-0">选择 API</label>
+                      <label className="text-[13px] text-maia-text-muted w-24 shrink-0">选择 API</label>
                       <select
                         value={testApi}
                         onChange={(e) => { setTestApi(e.target.value); setTestParams({}); setTestResult('') }}
-                        className="flex-1 text-[12px] bg-maia-bg rounded border border-maia-border px-2 py-1 outline-none focus:border-maia-accent/40"
+                        className="flex-1 text-[13px] bg-maia-bg rounded border border-maia-border px-2 py-1 outline-none focus:border-maia-accent/40"
                       >
                         {serviceInfo.apis!.map((a) => (
                           <option key={a.name} value={a.name}>{a.method || 'POST'} {a.path} — {a.name}</option>
@@ -607,13 +623,13 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                       )
                       return (
                         <div key={p.name} className="flex items-center gap-2 mb-2">
-                          <label className="text-[12px] text-maia-text-muted w-24 shrink-0">
+                          <label className="text-[13px] text-maia-text-muted w-24 shrink-0">
                             {p.name}{p.required ? ' *' : ''}
                           </label>
                           <input
                             value={testParams[p.name] || ''}
                             onChange={(e) => setTestParams((prev) => ({ ...prev, [p.name]: e.target.value }))}
-                            className="flex-1 text-[12px] bg-maia-bg rounded border border-maia-border px-2 py-1 outline-none focus:border-maia-accent/40"
+                            className="flex-1 text-[13px] bg-maia-bg rounded border border-maia-border px-2 py-1 outline-none focus:border-maia-accent/40"
                             placeholder={p.desc || `请输入 ${p.name}`}
                           />
                           {isPathParam && (
@@ -621,7 +637,7 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                               size="sm"
                               variant="ghost"
                               onClick={() => setPickForParam(p.name)}
-                              className="shrink-0 h-7 px-2 text-[11px]"
+                              className="shrink-0 h-7 px-2 text-[12px]"
                               title="从工作区选择文件"
                             >
                               <FolderOpen className="h-3 w-3" />
@@ -636,10 +652,10 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                         {testing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
                         发送测试请求
                       </Button>
-                      {!serviceInfo.running && <span className="text-[11px] text-maia-text-muted ml-2">（请先点击顶部「启动」）</span>}
+                      {!serviceInfo.running && <span className="text-[12px] text-maia-text-muted ml-2">（请先点击顶部「启动」）</span>}
                     </div>
                     {testResult && (
-                      <pre className="mt-3 text-[11px] font-mono leading-relaxed text-maia-text whitespace-pre-wrap max-h-[300px] overflow-auto bg-maia-bg rounded p-3 border border-maia-border">
+                      <pre className="mt-3 text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap max-h-[300px] overflow-auto bg-maia-bg rounded p-3 border border-maia-border">
                         {testResult}
                       </pre>
                     )}
@@ -651,40 +667,49 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
 
           {/* Messages area */}
           {messages.length === 0 && !streaming && (
-            <div className="flex flex-col items-center justify-center py-12 text-maia-text-muted gap-2">
-              <Bot className="h-8 w-8 opacity-30" />
-              <p className="text-sm">
+            <div className="flex flex-col items-center justify-center py-14 text-center">
+              <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-maia-border bg-maia-sidebar text-maia-text-muted">
+                <Bot className="h-5 w-5" />
+              </span>
+              <p className="text-[13px] leading-[20px] text-maia-text mt-3">
                 {!running
-                  ? '点击"启动"按钮启动 Agent'
+                  ? 'Agent 尚未启动'
                   : isWebService
                     ? '服务已启动，可在上方 API 测试区发起测试'
                     : isTask
                       ? 'Agent 已启动，填写启动参数后点击「启动任务」'
                       : 'Agent 已启动，输入消息开始交互'}
               </p>
+              {!running && (
+                <p className="text-[12px] leading-[18px] text-maia-text-muted mt-1">
+                  点击右上角「启动」运行 Agent 后即可交互
+                </p>
+              )}
             </div>
           )}
 
           <div className="space-y-3">
-            {messages.map((msg, i) => (
-              <div
-                key={i}
-                className={`flex gap-2 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
-              >
-                <div
-                  className={`flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-[10px] ${
-                    msg.role === 'user'
-                      ? 'bg-maia-accent text-white'
-                      : msg.role === 'system'
-                        ? 'bg-amber-100 text-amber-600'
-                        : 'bg-purple-100 text-purple-600'
-                  }`}
-                >
-                  {msg.role === 'user' ? 'U' : msg.role === 'system' ? 'S' : 'A'}
-                </div>
-                <div className="flex-1 min-w-0 flex flex-col gap-2">
+            {messages.map((msg, i) => {
+              if (msg.role === 'user') {
+                return (
+                  <div key={i} className="flex justify-end">
+                    <div className="max-w-[90%] rounded-xl rounded-br-sm bg-maia-chat-user border border-maia-accent-border px-3.5 py-2 text-[14px] leading-[22px] text-maia-text whitespace-pre-wrap">
+                      {msg.content}
+                    </div>
+                  </div>
+                )
+              }
+              if (msg.role === 'system') {
+                return (
+                  <div key={i} className="text-center text-[12px] leading-[18px] text-maia-text-muted py-1">
+                    {msg.content}
+                  </div>
+                )
+              }
+              return (
+                <div key={i} className="flex flex-col gap-2">
                   {msg.content && (
-                    <div className="text-[13px] leading-relaxed tracking-wide text-maia-text whitespace-pre-wrap">
+                    <div className="text-[14px] leading-[24px] text-maia-text whitespace-pre-wrap">
                       {msg.content}
                     </div>
                   )}
@@ -697,15 +722,12 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                     </div>
                   )}
                 </div>
-              </div>
-            ))}
+              )
+            })}
 
             {streaming && (
-              <div className="flex gap-2">
-                <div className="flex-shrink-0 h-6 w-6 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center text-[10px]">
-                  A
-                </div>
-                <div className="text-[13px] leading-relaxed tracking-wide text-maia-text whitespace-pre-wrap">
+              <div>
+                <div className="text-[14px] leading-[24px] text-maia-text whitespace-pre-wrap">
                   {streaming}
                   <span className="inline-block w-1.5 h-4 bg-maia-accent ml-0.5 animate-pulse" />
                 </div>
@@ -714,15 +736,10 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
 
             {/* 流式过程中已到达的卡片（实时展示） */}
             {streamCards.length > 0 && (
-              <div className="flex gap-2">
-                <div className="flex-shrink-0 h-6 w-6 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center text-[10px]">
-                  A
-                </div>
-                <div className="flex-1 min-w-0 flex flex-col gap-2">
-                  {streamCards.map((card) => (
-                    <InlineCard key={card.id} card={card} />
-                  ))}
-                </div>
+              <div className="flex flex-col gap-2">
+                {streamCards.map((card) => (
+                  <InlineCard key={card.id} card={card} />
+                ))}
               </div>
             )}
 
@@ -733,8 +750,8 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
 
       {/* Input — 仅交互式 Agent 显示对话输入框 */}
       {running && !isTask && !isWebService && (
-        <div className="border-t border-maia-border px-4 py-3 shrink-0">
-          <div className="flex items-end gap-2 max-w-2xl mx-auto bg-maia-bg rounded-lg border border-maia-border p-2">
+        <div className="border-t border-maia-border bg-maia-surface px-4 pt-3 pb-2.5 shrink-0">
+          <div className="flex items-end gap-2 max-w-2xl mx-auto bg-maia-sidebar rounded-xl border border-maia-border p-2 focus-within:border-maia-accent/50 transition-colors">
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -744,9 +761,9 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                   sendMessage()
                 }
               }}
-              placeholder={`向 ${agent.name} 发送消息...`}
+              placeholder={`向 ${agent.name} 发送消息…`}
               rows={1}
-              className="flex-1 bg-transparent text-[13px] tracking-wide outline-none resize-none placeholder:text-maia-text-muted"
+              className="flex-1 bg-transparent px-1 py-1.5 text-[14px] leading-[22px] outline-none resize-none min-h-[32px] max-h-[140px] placeholder:text-maia-text-muted"
               disabled={isSending}
             />
             <Button
@@ -761,6 +778,9 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                 <Send className="h-4 w-4" />
               )}
             </Button>
+          </div>
+          <div className="max-w-2xl mx-auto mt-2 text-[12px] text-maia-text-muted">
+            Enter 发送 · Shift+Enter 换行
           </div>
         </div>
       )}

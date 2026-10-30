@@ -73,13 +73,13 @@ function SaveIndicator() {
     <span className="flex items-center gap-2">
       <span className="flex items-center gap-1.5" title={saveError || ''}>
         {cfg.spin && <Loader2 className="h-3 w-3 animate-spin" />}
-        <span className={`text-[11px] ${cfg.cls}`}>{cfg.text}</span>
+        <span className={`text-[12px] ${cfg.cls}`}>{cfg.text}</span>
       </span>
       <button
         onClick={() => void flushSave()}
         disabled={!cfg.canSave}
         title="保存 (Ctrl/Cmd+S)"
-        className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded border border-maia-border text-maia-accent hover:bg-maia-accent/10 disabled:opacity-40 disabled:cursor-not-allowed"
+        className="flex items-center gap-1 text-[12px] px-2 py-0.5 rounded border border-maia-border text-maia-accent hover:bg-maia-accent/10 disabled:opacity-40 disabled:cursor-not-allowed"
       >
         <Save className="h-3 w-3" />
         保存
@@ -124,9 +124,9 @@ export function ToolEditorView() {
       <div className="flex items-center justify-between px-4 py-2 border-b border-maia-border bg-maia-bg/50 shrink-0">
         <div className="flex items-center gap-2">
           <Wrench className="h-4 w-4 text-amber-500" />
-          <span className="text-sm font-semibold text-maia-text-heading tracking-wide">工具编辑器</span>
+          <span className="text-sm font-semibold text-maia-text-heading">工具编辑器</span>
           {store.editingToolId && (
-            <span className="text-[11px] text-amber-500 tracking-wide">
+            <span className="text-[12px] text-amber-500">
               编辑中：{store.editingToolName || store.editingToolId}
             </span>
           )}
@@ -145,10 +145,10 @@ export function ToolEditorView() {
       <div className="flex items-center gap-0 px-4 py-2 border-b border-maia-border bg-maia-surface shrink-0">
         {[1, 2, 3, 4].map((s, i) => (
           <div key={s} className="flex items-center gap-0">
-            <div className={`flex items-center gap-1.5 text-[11px] font-medium tracking-wide px-2 py-1 rounded-full transition-colors ${
+            <div className={`flex items-center gap-1.5 text-[12px] font-medium px-2 py-1 rounded-full transition-colors ${
               store.step === s ? 'bg-maia-accent text-white' : store.step > s ? 'bg-maia-success/10 text-maia-success' : 'text-maia-text-muted'
             }`}>
-              {store.step > s ? <CheckCircle2 className="h-3 w-3" /> : <span className="text-[10px]">{s}</span>}
+              {store.step > s ? <CheckCircle2 className="h-3 w-3" /> : <span className="text-[12px]">{s}</span>}
               {['描述', '审阅', '核验', '注册'][i]}
             </div>
             {i < 3 && <div className="w-6 h-[1px] bg-maia-border mx-1" />}
@@ -279,20 +279,20 @@ function Step1() {
 
   return (
     <div className="max-w-2xl mx-auto">
-      <h3 className="text-lg font-semibold text-maia-text-heading mb-2 tracking-wide">Step 1: 描述工具需求</h3>
+      <h3 className="text-lg font-semibold text-maia-text-heading mb-2">Step 1: 描述工具需求</h3>
       <p className="text-sm text-maia-text-secondary mb-4">
         用自然语言描述你需要什么工具。输入 <code className="text-maia-accent bg-maia-accent/5 px-1 rounded">@</code> 引用系统 API，输入 <code className="text-maia-accent bg-maia-accent/5 px-1 rounded">$</code> 引用注册工具。
       </p>
       <textarea ref={textareaRef} value={description} onChange={handleChange} onKeyDown={handleKeyDown}
         placeholder='例如: "我需要一个EEG带通滤波器，支持delta/theta/alpha/beta/gamma频段，Butterworth滤波器，输入EDF文件，输出滤波后的EDF文件"'
-        rows={15} className="w-full rounded-lg border border-maia-border bg-maia-surface px-4 py-3 text-[13px] tracking-wide outline-none resize-none focus:border-maia-accent/40 placeholder:text-maia-text-muted" />
+        rows={15} className="w-full rounded-lg border border-maia-border bg-maia-surface px-4 py-3 text-[13px] outline-none resize-none focus:border-maia-accent/40 placeholder:text-maia-text-muted" />
       
       {/* 参考代码输入 */}
       <div className="mt-3">
-        <div className="text-[10px] text-maia-text-muted uppercase tracking-wider font-semibold mb-1">参考代码（可选，将完整复制到 MD 执行流程中）</div>
+        <div className="text-[12px] text-maia-text-muted uppercase font-semibold mb-1">参考代码（可选，将完整复制到 MD 执行流程中）</div>
         <textarea value={referenceCode} onChange={e => setReferenceCode(e.target.value)} onKeyDown={onRefTabIndent}
           placeholder="粘贴参考代码..."
-          rows={8} className="w-full rounded-lg border border-maia-border bg-maia-bg px-4 py-3 text-[12px] font-mono tracking-wide outline-none resize-none focus:border-maia-accent/40 placeholder:text-maia-text-muted" />
+          rows={8} className="w-full rounded-lg border border-maia-border bg-maia-bg px-4 py-3 text-[13px] font-mono outline-none resize-none focus:border-maia-accent/40 placeholder:text-maia-text-muted" />
       </div>
 
       {show && (showHint || filtered.length > 0) && createPortal(
@@ -301,31 +301,31 @@ function Step1() {
             // 两种失败给不同指引：接口异常时让用户查后端日志（后端明明在跑，
             // 说"请先启动后端"反而误导——正是条目 27 误诊案例的教训）
             acFailReason.startsWith('http:') ? (
-              <div className="px-3 py-2 text-[12px] text-maia-danger leading-relaxed">
+              <div className="px-3 py-2 text-[13px] text-maia-danger leading-relaxed">
                 后端接口异常（HTTP {acFailReason.slice(5)}）。后端在运行但该接口出错，
                 常见原因（编码/权限等）见后端控制台日志。
               </div>
             ) : (
-              <div className="px-3 py-2 text-[12px] text-maia-danger leading-relaxed">
+              <div className="px-3 py-2 text-[13px] text-maia-danger leading-relaxed">
                 无法连接后端服务（http://localhost:8001）<br />
-                <span className="text-[10px] text-maia-text-muted">请先启动后端：uvicorn app.main:app --port 8001</span>
+                <span className="text-[12px] text-maia-text-muted">请先启动后端：uvicorn app.main:app --port 8001</span>
               </div>
             )
           ) : acState === 'loading' ? (
-            <div className="px-3 py-2 text-[12px] text-maia-text-muted">加载中...</div>
+            <div className="px-3 py-2 text-[13px] text-maia-text-muted">加载中...</div>
           ) : acSrc.length === 0 ? (
-            <div className="px-3 py-2 text-[12px] text-maia-text-muted">
+            <div className="px-3 py-2 text-[13px] text-maia-text-muted">
               {trigger === '@' ? '暂无可用系统 API' : '暂无可用工具'}
             </div>
           ) : filtered.map((item, i) => (
               <button key={item.id} className={`w-full text-left px-3 py-1.5 flex flex-col gap-0 transition-colors ${i === selIdx ? 'bg-maia-accent/10 text-maia-accent' : 'hover:bg-maia-bg text-maia-text'}`}
                 onMouseDown={e => { e.preventDefault(); doSelect(item) }}>
-                <span className="text-[12px] font-medium tracking-wide truncate">{trigger === '@' ? `【${item.name}】` : `【【${item.name}】】`}</span>
-                <span className="text-[10px] text-maia-text-muted truncate">{item.id}</span>
+                <span className="text-[13px] font-medium truncate">{trigger === '@' ? `【${item.name}】` : `【【${item.name}】】`}</span>
+                <span className="text-[12px] text-maia-text-muted truncate">{item.id}</span>
               </button>
             ))}
         </div>, document.body)}
-      {error && <div className="flex items-center gap-1.5 mt-2 text-xs text-maia-danger"><XCircle className="h-3 w-3" />{error}</div>}
+      {error && <div className="flex items-center gap-1.5 mt-2 text-[13px] text-maia-danger"><XCircle className="h-3 w-3" />{error}</div>}
       <div className="flex justify-end mt-4">
         <Button onClick={generateSpec} disabled={!description.trim() || isGenerating}>
           {isGenerating ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />生成中...</> : <>生成 MD 文档<ArrowRight className="h-3.5 w-3.5" /></>}
@@ -442,10 +442,10 @@ function OutlineSection({
       >
         <span className="flex items-center gap-1.5">
           <FileText className="h-3.5 w-3.5 text-maia-accent" />
-          <span className="text-xs text-maia-text-secondary">
+          <span className="text-[13px] text-maia-text-secondary">
             文档要点概览
           </span>
-          <span className="text-[10px] text-maia-text-muted">
+          <span className="text-[12px] text-maia-text-muted">
             （看不懂技术文档时先看这里）
           </span>
         </span>
@@ -460,7 +460,7 @@ function OutlineSection({
       {open && outline && (
         <div className="px-3 pb-3">
           {outline.warning && (
-            <div className="text-[10px] text-amber-500 mb-2">{outline.warning}</div>
+            <div className="text-[12px] text-amber-500 mb-2">{outline.warning}</div>
           )}
 
           {/* 表格表单化编辑：改参数值这类确定性改动直接改，0 延迟、不调 LLM */}
@@ -476,7 +476,7 @@ function OutlineSection({
           {/* 人话摘要：慢操作，按需触发并显示等待预期，避免阻塞概览展开 */}
           <div className="mb-2 flex items-center gap-2">
             {summaryLoaded ? (
-              <span className="text-[10px] text-maia-success">
+              <span className="text-[12px] text-maia-success">
                 已生成通俗解读
               </span>
             ) : (
@@ -484,14 +484,14 @@ function OutlineSection({
                 <button
                   onClick={genSummaries}
                   disabled={summarizing}
-                  className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-maia-border text-maia-accent hover:bg-maia-accent/10 disabled:opacity-60"
+                  className="flex items-center gap-1 text-[12px] px-2 py-0.5 rounded border border-maia-border text-maia-accent hover:bg-maia-accent/10 disabled:opacity-60"
                 >
                   {summarizing
                     ? <Loader2 className="h-2.5 w-2.5 animate-spin" />
                     : <Sparkles className="h-2.5 w-2.5" />}
                   {summarizing ? '正在生成…' : '生成通俗解读'}
                 </button>
-                <span className="text-[10px] text-maia-text-muted">
+                <span className="text-[12px] text-maia-text-muted">
                   {summarizing
                     ? '需调用模型逐段概括，约需 30 秒'
                     : '把每段技术描述翻译成大白话（文档未改动时会自动缓存）'}
@@ -508,7 +508,7 @@ function OutlineSection({
         </div>
       )}
       {error && (
-        <div className="px-3 pb-2 text-[10px] text-maia-danger">{error}</div>
+        <div className="px-3 pb-2 text-[12px] text-maia-danger">{error}</div>
       )}
     </div>
   )
@@ -542,7 +542,7 @@ function Step2() {
 
   return (
     <div className="max-w-3xl mx-auto">
-      <h3 className="text-lg font-semibold text-maia-text-heading mb-2 tracking-wide">Step 2: 审阅 &amp; 编辑 MD 规范文档</h3>
+      <h3 className="text-lg font-semibold text-maia-text-heading mb-2">Step 2: 审阅 &amp; 编辑 MD 规范文档</h3>
       <p className="text-sm text-maia-text-secondary mb-3">
         {isEditMode
           ? <>正在编辑已有工具 <span className="text-amber-500">{editingToolName || editingToolId}</span>，以下是其现有规范文档，可直接修改后重新生成代码。</>
@@ -553,7 +553,7 @@ function Step2() {
       <div className="flex items-center gap-1 mb-3">
         <Tag className="h-3.5 w-3.5 text-amber-400 shrink-0" />
         {tags.map(tag => (
-          <span key={tag} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] bg-amber-100 text-amber-700 border border-amber-300 font-medium">
+          <span key={tag} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[12px] bg-amber-100 text-amber-700 border border-amber-300 font-medium">
             {tag}
             <button onClick={() => removeTag(tag)} className="hover:text-red-400"><X className="h-2.5 w-2.5" /></button>
           </span>
@@ -564,7 +564,7 @@ function Step2() {
               value={newTag}
               onChange={e => setNewTag(e.target.value)}
               placeholder="+标签"
-              className="w-16 h-5 px-1 rounded border border-amber-300 bg-maia-bg text-[10px] text-maia-text outline-none"
+              className="w-16 h-5 px-1 rounded border border-amber-300 bg-maia-bg text-[12px] text-maia-text outline-none"
               autoFocus
               onBlur={() => { if (!newTag.trim()) setEditing(false) }}
             />
@@ -593,8 +593,8 @@ function Step2() {
       )}
 
       <textarea value={generatedMd} onChange={handleMdChange} onKeyDown={onTabIndent} rows={18}
-        className="w-full rounded-lg border border-maia-border bg-maia-bg/50 px-4 py-3 text-[12px] font-mono outline-none resize-y focus:border-maia-accent/40" spellCheck={false} />
-      {error && <div className="flex items-center gap-1.5 mt-2 text-xs text-maia-danger"><XCircle className="h-3 w-3" />{error}</div>}
+        className="w-full rounded-lg border border-maia-border bg-maia-bg/50 px-4 py-3 text-[13px] font-mono outline-none resize-y focus:border-maia-accent/40" spellCheck={false} />
+      {error && <div className="flex items-center gap-1.5 mt-2 text-[13px] text-maia-danger"><XCircle className="h-3 w-3" />{error}</div>}
       <div className="flex justify-between mt-4">
         <Button variant="outline" onClick={() => setStep(1)}><ArrowLeft className="h-3.5 w-3.5" />返回修改需求</Button>
         <Button onClick={generateCode} disabled={!generatedMd.trim() || isGenerating}>
@@ -665,9 +665,9 @@ function Step3() {
   return (
     <div className="max-w-5xl mx-auto h-full flex flex-col" ref={containerRef}>
       <div className="flex items-center justify-between mb-2 shrink-0">
-        <h3 className="text-lg font-semibold text-maia-text-heading tracking-wide">Step 3: 代码预览 &amp; 沙箱测试</h3>
+        <h3 className="text-lg font-semibold text-maia-text-heading">Step 3: 代码预览 &amp; 沙箱测试</h3>
         {isEditMode && (
-          <span className="text-[11px] text-amber-500 tracking-wide">
+          <span className="text-[12px] text-amber-500">
             正在编辑已有工具：{editingToolName || editingToolId}
           </span>
         )}
@@ -681,13 +681,13 @@ function Step3() {
             <div className="flex items-center justify-between mb-2 shrink-0">
               <div className="flex items-center gap-1.5">
                 <FileCode className="h-3.5 w-3.5 text-amber-400" />
-                <span className="text-xs font-medium text-maia-text-secondary tracking-wide">生成代码</span>
-                {codeDirty && <span className="text-[10px] text-amber-500 tracking-wide">已手工修改</span>}
+                <span className="text-[13px] font-medium text-maia-text-secondary">生成代码</span>
+                {codeDirty && <span className="text-[12px] text-amber-500">已手工修改</span>}
               </div>
               <div className="flex items-center gap-1.5">
                 <button
                   onClick={() => setIsEditingCode(!isEditingCode)}
-                  className="flex items-center gap-1 text-[10px] text-maia-text-muted hover:text-maia-accent px-1.5 py-0.5 rounded border border-maia-border"
+                  className="flex items-center gap-1 text-[12px] text-maia-text-muted hover:text-maia-accent px-1.5 py-0.5 rounded border border-maia-border"
                 >
                   {isEditingCode ? '预览' : '手工微调'}
                 </button>
@@ -696,7 +696,7 @@ function Step3() {
                     onClick={() => syncSpecFromCode()}
                     disabled={!codeDirty || isGenerating}
                     title={codeDirty ? '让 AI 依据代码改动更新 MD 文档' : '代码未修改，无需同步'}
-                    className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border border-maia-border text-purple-500 hover:bg-purple-500/10 disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="flex items-center gap-1 text-[12px] px-1.5 py-0.5 rounded border border-maia-border text-purple-500 hover:bg-purple-500/10 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     {isGenerating ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : null}
                     同步代码改动到文档
@@ -710,17 +710,17 @@ function Step3() {
                 onChange={handleCodeEdit}
                 onKeyDown={onCodeTabIndent}
                 spellCheck={false}
-                className="flex-1 min-h-0 rounded-lg border border-maia-border bg-[#1e1e1e] text-gray-100 px-3 py-2 text-[11px] font-mono leading-relaxed outline-none resize-none focus:border-maia-accent/40"
+                className="flex-1 min-h-0 rounded-lg border border-maia-border bg-[#1e1e1e] text-gray-100 px-3 py-2 text-[13px] font-mono leading-[22px] outline-none resize-none focus:border-maia-accent/40"
                 style={{ maxHeight: codeHeight }}
               />
             ) : (
             <div className="flex-1 min-h-0 rounded-lg border border-maia-border bg-[#1e1e1e] overflow-auto" style={{ maxHeight: codeHeight }}>
               <Highlight theme={themes.vsDark} code={generatedCode || '# 等待生成代码...'} language="python">
                 {({ style, tokens, getLineProps, getTokenProps }) => (
-                  <pre style={style} className="px-3 py-2 text-[11px] font-mono leading-relaxed m-0">
+                  <pre style={style} className="px-3 py-2 text-[13px] font-mono leading-[22px] m-0">
                     {tokens.map((line, i) => (
                       <div key={i} {...getLineProps({ line })}>
-                        <span className="inline-block w-8 text-right mr-3 text-white/20 select-none text-[10px]">{i + 1}</span>
+                        <span className="inline-block w-8 text-right mr-3 text-white/20 select-none text-[12px]">{i + 1}</span>
                         {line.map((token, key) => (
                           <span key={key} {...getTokenProps({ token })} />
                         ))}
@@ -737,24 +737,24 @@ function Step3() {
           <div className="col-span-2 flex flex-col min-h-0" style={{ maxHeight: codeHeight }}>
             <div className="flex items-center gap-1.5 mb-2 shrink-0">
               <Play className="h-3.5 w-3.5 text-amber-400" />
-              <span className="text-xs font-medium text-maia-text-secondary tracking-wide">沙箱测试</span>
+              <span className="text-[13px] font-medium text-maia-text-secondary">沙箱测试</span>
             </div>
             <div className="flex-1 min-h-0 overflow-auto">
               {/* 模式选择（多模式工具） */}
               {modes.length > 0 && (
                 <div className="mb-2">
-                  <div className="text-[10px] text-maia-text-muted uppercase tracking-wider font-semibold mb-1">模式</div>
+                  <div className="text-[12px] text-maia-text-muted uppercase font-semibold mb-1">模式</div>
                   <div className="relative">
                     <select
                       value={selectedMode}
                       onChange={(e) => setSelectedMode(e.target.value)}
-                      className="h-7 w-full appearance-none rounded border border-maia-border bg-maia-surface px-2 pr-8 text-[11px] text-maia-text tracking-wide focus:outline-none focus:border-maia-accent cursor-pointer"
+                      className="h-7 w-full appearance-none rounded border border-maia-border bg-maia-surface px-2 pr-8 text-[12px] text-maia-text focus:outline-none focus:border-maia-accent cursor-pointer"
                     >
                       {modes.map((m) => (
                         <option key={m.id} value={m.id}>{m.name}{m.desc ? ` - ${m.desc}` : ''}</option>
                       ))}
                     </select>
-                    <span className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-maia-text-muted text-xs">▾</span>
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-maia-text-muted text-[13px]">▾</span>
                   </div>
                 </div>
               )}
@@ -762,10 +762,10 @@ function Step3() {
               {/* 测试输入表单 */}
               {params.length > 0 && (
                 <div className="mb-2 space-y-2">
-                  <div className="text-[10px] text-maia-text-muted uppercase tracking-wider font-semibold">测试参数</div>
+                  <div className="text-[12px] text-maia-text-muted uppercase font-semibold">测试参数</div>
                   {params.filter((p) => !selectedMode || !p.mode || p.mode === selectedMode).map((p) => (
                     <div key={p.name}>
-                      <div className="text-[10px] text-maia-text-muted mb-0.5 flex items-center gap-1">
+                      <div className="text-[12px] text-maia-text-muted mb-0.5 flex items-center gap-1">
                         {p.name} <span className="text-maia-accent/60">({p.type})</span>
                         {p.required && <span className="text-maia-danger">*</span>}
                       </div>
@@ -773,16 +773,16 @@ function Step3() {
                         <div className="flex gap-1">
                           <input type="text" value={testInputs[p.name] || ''}
                             onChange={e => setTestInput(p.name, e.target.value)}
-                            className="flex-1 h-7 rounded border border-maia-border px-2 text-[11px] font-mono outline-none focus:border-maia-accent"
+                            className="flex-1 h-7 rounded border border-maia-border px-2 text-[13px] font-mono leading-[22px] outline-none focus:border-maia-accent"
                             placeholder={p.desc || p.name} />
                           <button
                             onClick={() => { setFilePickerParam(p.name); setFilePickerOpen(true) }}
-                            className="shrink-0 h-7 px-2 text-[10px] rounded border border-maia-border hover:bg-maia-sidebar-hover text-maia-text-secondary tracking-wider"
+                            className="shrink-0 h-7 px-2 text-[12px] rounded border border-maia-border hover:bg-maia-sidebar-hover text-maia-text-secondary"
                             title="从数据空间选择文件"
                           ><Database className="h-3 w-3 inline" /> 选择</button>
                           <button
                             onClick={() => fileInputRefs.current.get(p.name)?.click()}
-                            className="shrink-0 h-7 px-2 text-[10px] rounded border border-maia-border hover:bg-maia-sidebar-hover text-maia-text-secondary tracking-wider"
+                            className="shrink-0 h-7 px-2 text-[12px] rounded border border-maia-border hover:bg-maia-sidebar-hover text-maia-text-secondary"
                             title="上传本地文件"
                           >📎 上传</button>
                           <input type="file" ref={el => { if (el) fileInputRefs.current.set(p.name, el) }}
@@ -791,7 +791,7 @@ function Step3() {
                       ) : (
                         <input type="text" value={testInputs[p.name] || ''}
                           onChange={e => setTestInput(p.name, e.target.value)}
-                          className="w-full h-7 rounded border border-maia-border px-2 text-[11px] font-mono outline-none focus:border-maia-accent"
+                          className="w-full h-7 rounded border border-maia-border px-2 text-[13px] font-mono leading-[22px] outline-none focus:border-maia-accent"
                           placeholder={p.desc || p.name} />
                       )}
                     </div>
@@ -803,22 +803,22 @@ function Step3() {
               {testOutput && (
                 <Card className="border-maia-border mt-2">
                   <CardBody>
-                    <div className="text-[10px] text-maia-text-muted uppercase tracking-wider font-semibold mb-1">执行输出</div>
-                    <pre className={`text-[10px] font-mono leading-relaxed max-h-[120px] overflow-auto whitespace-pre-wrap ${testOutput.success ? 'text-maia-success' : 'text-maia-danger'}`}>
+                    <div className="text-[12px] text-maia-text-muted uppercase font-semibold mb-1">执行输出</div>
+                    <pre className={`text-[13px] font-mono leading-[22px] max-h-[120px] overflow-auto whitespace-pre-wrap ${testOutput.success ? 'text-maia-success' : 'text-maia-danger'}`}>
                       {testOutput.stdout || '(空)'}
                     </pre>
                     {testOutput.stderr && (
                       <>
-                        <div className="text-[10px] text-maia-warning uppercase tracking-wider font-semibold mt-1.5 mb-0.5">stderr</div>
-                        <pre className="text-[10px] font-mono text-maia-danger leading-relaxed max-h-[80px] overflow-auto whitespace-pre-wrap">{testOutput.stderr}</pre>
+                        <div className="text-[12px] text-maia-warning uppercase font-semibold mt-1.5 mb-0.5">stderr</div>
+                        <pre className="text-[12px] font-mono text-maia-danger leading-relaxed max-h-[80px] overflow-auto whitespace-pre-wrap">{testOutput.stderr}</pre>
                       </>
                     )}
                   </CardBody>
                 </Card>
               )}
 
-              {!testOutput && !isTesting && !isAutoDebugging && <div className="text-[11px] text-maia-text-muted mt-2">填写测试参数后运行</div>}
-              {isTesting && <div className="flex items-center gap-1.5 mt-2 text-xs text-maia-accent"><Loader2 className="h-3 w-3 animate-spin" />测试中...</div>}
+              {!testOutput && !isTesting && !isAutoDebugging && <div className="text-[12px] text-maia-text-muted mt-2">填写测试参数后运行</div>}
+              {isTesting && <div className="flex items-center gap-1.5 mt-2 text-[13px] text-maia-accent"><Loader2 className="h-3 w-3 animate-spin" />测试中...</div>}
 
               {/* 按钮 */}
               <div className="flex gap-1.5 mt-2">
@@ -849,33 +849,33 @@ function Step3() {
         {/* 下半部分：自动调试日志 */}
         {(isAutoDebugging || debugRounds.length > 0) && (
           <div className="shrink-0 rounded-lg border border-maia-border bg-maia-bg/50 overflow-auto" style={{ height: logHeight }}>
-            <div className="px-3 py-2 text-[11px] font-semibold text-maia-text-secondary tracking-wider border-b border-maia-border sticky top-0 bg-maia-bg/90 z-10">
+            <div className="px-3 py-2 text-[12px] font-semibold text-maia-text-secondary border-b border-maia-border sticky top-0 bg-maia-bg/90 z-10">
               🧠 自动调试日志 {isAutoDebugging && <Loader2 className="h-3 w-3 animate-spin inline ml-1" />}
             </div>
-            <div className="p-2 space-y-1.5 font-mono text-[10px] text-maia-text-secondary">
+            <div className="p-2 space-y-1.5 font-mono text-[12px] text-maia-text-secondary">
               {debugStream && (
-                <pre className="whitespace-pre-wrap break-all leading-relaxed text-[10px]">{debugStream}</pre>
+                <pre className="whitespace-pre-wrap break-all leading-relaxed text-[12px]">{debugStream}</pre>
               )}
               {debugRounds.map((round, i) => (
                 <div key={i}>
-                  <div className="flex items-center gap-2 text-[11px]">
+                  <div className="flex items-center gap-2 text-[12px]">
                     <span className="text-maia-text-muted shrink-0">[第{round.round}轮]</span>
                     <span className={round.success ? 'text-maia-success' : 'text-maia-danger'}>
-                      {round.success ? '✅ 通过' : '❌ 失败'}
+                      {round.success ? '通过' : '失败'}
                     </span>
                     {round.stdout && (
                       <span className="text-maia-text-secondary truncate max-w-[200px]">{round.stdout.slice(0, 80)}</span>
                     )}
                   </div>
                   {round.analysis && (
-                    <pre className="text-green-400 font-mono text-[10px] whitespace-pre-wrap break-all ml-14 mt-0.5 leading-relaxed">{round.analysis}</pre>
+                    <pre className="text-green-400 font-mono text-[12px] whitespace-pre-wrap break-all ml-14 mt-0.5 leading-relaxed">{round.analysis}</pre>
                   )}
                   {round.code && (
                     <details className="ml-14 mt-1">
-                      <summary className="cursor-pointer text-[10px] text-blue-400 hover:text-blue-300 select-none tracking-wide">
+                      <summary className="cursor-pointer text-[12px] text-blue-400 hover:text-blue-300 select-none">
                         查看修改后的代码（{round.code.length} 字符）
                       </summary>
-                      <pre className="text-maia-text-secondary font-mono text-[10px] whitespace-pre-wrap break-all mt-1 leading-relaxed border-l-2 border-blue-500/40 pl-2 max-h-[300px] overflow-auto">{round.code}</pre>
+                      <pre className="text-maia-text-secondary font-mono text-[12px] whitespace-pre-wrap break-all mt-1 leading-relaxed border-l-2 border-blue-500/40 pl-2 max-h-[300px] overflow-auto">{round.code}</pre>
                     </details>
                   )}
                 </div>
@@ -886,7 +886,7 @@ function Step3() {
         )}
       </div>
 
-      {error && <div className="flex items-center gap-1.5 mt-2 text-xs text-maia-danger shrink-0"><XCircle className="h-3 w-3" />{error}</div>}
+      {error && <div className="flex items-center gap-1.5 mt-2 text-[13px] text-maia-danger shrink-0"><XCircle className="h-3 w-3" />{error}</div>}
 
       <div className="flex justify-between mt-4 shrink-0">
         <Button variant="outline" onClick={() => setStep(2)} disabled={isAutoDebugging}><ArrowLeft className="h-3.5 w-3.5" />返回修改 MD</Button>
@@ -928,8 +928,8 @@ function Step4() {
   return (
     <div className="max-w-md mx-auto text-center py-12">
       <div className="flex justify-center mb-4"><div className="flex items-center justify-center h-16 w-16 rounded-full bg-maia-success/10"><Rocket className="h-8 w-8 text-maia-success" /></div></div>
-      <h3 className="text-lg font-semibold text-maia-text-heading mb-2 tracking-wide">工具已发布！</h3>
-      <Card className="border-maia-border mt-4"><CardBody><div className="space-y-2 text-left"><div className="flex justify-between text-xs"><span className="text-maia-text-muted">Tool ID</span><span className="font-mono text-maia-text">{registeredId}</span></div><div className="flex justify-between text-xs"><span className="text-maia-text-muted">状态</span><Badge variant="success">已注册</Badge></div></div></CardBody></Card>
+      <h3 className="text-lg font-semibold text-maia-text-heading mb-2">工具已发布！</h3>
+      <Card className="border-maia-border mt-4"><CardBody><div className="space-y-2 text-left"><div className="flex justify-between text-[13px]"><span className="text-maia-text-muted">Tool ID</span><span className="font-mono text-maia-text">{registeredId}</span></div><div className="flex justify-between text-[13px]"><span className="text-maia-text-muted">状态</span><Badge variant="success">已注册</Badge></div></div></CardBody></Card>
       <div className="flex gap-3 justify-center mt-6">
         <Button variant="outline" onClick={handleBack}>
           {selectedResource?.type === 'tool' && (selectedResource as { id?: string }).id === registeredId
@@ -1016,14 +1016,14 @@ function DataFilePicker({ paramName, onSelect, onClose }: {
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-maia-border shrink-0">
           <div className="flex items-center gap-2">
             <Database className="h-4 w-4 text-blue-500" />
-            <span className="text-sm font-semibold text-maia-text-heading tracking-wide">从数据空间选择文件</span>
+            <span className="text-sm font-semibold text-maia-text-heading">从数据空间选择文件</span>
           </div>
           <button onClick={onClose} className="text-maia-text-muted hover:text-maia-text"><X className="h-4 w-4" /></button>
         </div>
 
         {/* 参数名提示 + 搜索 */}
         <div className="px-4 pt-2.5 pb-1.5 space-y-2 shrink-0">
-          <div className="text-[11px] text-maia-text-secondary">
+          <div className="text-[12px] text-maia-text-secondary">
             为参数 <span className="font-mono text-maia-accent">{paramName}</span> 选择文件
           </div>
           <div className="relative">
@@ -1032,16 +1032,16 @@ function DataFilePicker({ paramName, onSelect, onClose }: {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="搜索数据集..."
-              className="w-full h-7 pl-7 pr-2 rounded border border-maia-border bg-maia-bg text-[11px] outline-none focus:border-maia-accent"
+              className="w-full h-7 pl-7 pr-2 rounded border border-maia-border bg-maia-bg text-[12px] outline-none focus:border-maia-accent"
             />
           </div>
         </div>
 
         {/* 内容 */}
         <div className="flex-1 min-h-0 overflow-auto px-2 py-2">
-          {loading && <div className="flex items-center gap-1.5 px-2 py-4 text-xs text-maia-text-muted"><Loader2 className="h-3 w-3 animate-spin" />加载数据集...</div>}
-          {error && <div className="px-2 py-4 text-xs text-maia-danger">{error}</div>}
-          {!loading && !error && filtered.length === 0 && <div className="px-2 py-4 text-xs text-maia-text-muted">暂无数据集</div>}
+          {loading && <div className="flex items-center gap-1.5 px-2 py-4 text-[13px] text-maia-text-muted"><Loader2 className="h-3 w-3 animate-spin" />加载数据集...</div>}
+          {error && <div className="px-2 py-4 text-[13px] text-maia-danger">{error}</div>}
+          {!loading && !error && filtered.length === 0 && <div className="px-2 py-4 text-[13px] text-maia-text-muted">暂无数据集</div>}
 
           {!loading && !error && filtered.map((ds) => {
             const isExpanded = expandedId === ds.id
@@ -1057,13 +1057,13 @@ function DataFilePicker({ paramName, onSelect, onClose }: {
                   >
                     {isExpanded ? <ChevronDown className="h-3 w-3 text-maia-text-muted shrink-0" /> : <ChevronRight className="h-3 w-3 text-maia-text-muted shrink-0" />}
                     <Folder className="h-3.5 w-3.5 text-blue-500 shrink-0" />
-                    <span className="flex-1 truncate text-[12px] text-maia-text">{ds.name}</span>
-                    <span className="text-[10px] text-maia-text-muted shrink-0">{ds.file_count ?? (dsFiles?.length ?? '')} 文件</span>
+                    <span className="flex-1 truncate text-[13px] text-maia-text">{ds.name}</span>
+                    <span className="text-[12px] text-maia-text-muted shrink-0">{ds.file_count ?? (dsFiles?.length ?? '')} 文件</span>
                   </button>
                   {ds.data_path && (
                     <button
                       onClick={() => onSelect(ds.data_path)}
-                      className="shrink-0 mr-1 px-1.5 py-0.5 rounded text-[10px] text-blue-500 bg-blue-500/10 hover:bg-blue-500/20 tracking-wide"
+                      className="shrink-0 mr-1 px-1.5 py-0.5 rounded text-[12px] text-blue-500 bg-blue-500/10 hover:bg-blue-500/20"
                       title={`选择整个目录: ${ds.data_path}`}
                     >选目录</button>
                   )}
@@ -1072,8 +1072,8 @@ function DataFilePicker({ paramName, onSelect, onClose }: {
                 {/* 文件列表 */}
                 {isExpanded && (
                   <div className="ml-4 pl-2 border-l border-maia-border">
-                    {isLoadingFiles && <div className="flex items-center gap-1.5 px-2 py-1.5 text-[11px] text-maia-text-muted"><Loader2 className="h-3 w-3 animate-spin" />加载文件...</div>}
-                    {!isLoadingFiles && dsFiles && dsFiles.length === 0 && <div className="px-2 py-1.5 text-[11px] text-maia-text-muted">无文件</div>}
+                    {isLoadingFiles && <div className="flex items-center gap-1.5 px-2 py-1.5 text-[12px] text-maia-text-muted"><Loader2 className="h-3 w-3 animate-spin" />加载文件...</div>}
+                    {!isLoadingFiles && dsFiles && dsFiles.length === 0 && <div className="px-2 py-1.5 text-[12px] text-maia-text-muted">无文件</div>}
                     {!isLoadingFiles && dsFiles?.map((f) => {
                       const fullPath = ds.data_path ? `${ds.data_path}/${f.path}` : f.path
                       return (
@@ -1084,8 +1084,8 @@ function DataFilePicker({ paramName, onSelect, onClose }: {
                           title={fullPath}
                         >
                           <File className="h-3.5 w-3.5 text-maia-text-muted shrink-0" />
-                          <span className="flex-1 truncate text-[11px] font-mono text-maia-text-secondary group-hover:text-maia-accent">{f.name}</span>
-                          <span className="text-[10px] text-maia-text-muted shrink-0">{f.format}</span>
+                          <span className="flex-1 truncate text-[12px] font-mono text-maia-text-secondary group-hover:text-maia-accent">{f.name}</span>
+                          <span className="text-[12px] text-maia-text-muted shrink-0">{f.format}</span>
                         </button>
                       )
                     })}
@@ -1114,24 +1114,24 @@ function TestDetail({ detail }: { detail?: Record<string, unknown> }) {
     <div className="mt-3 space-y-2">
       {input && (
         <div>
-          <div className="text-[10px] text-maia-text-muted mb-0.5 uppercase tracking-wider">测试输入</div>
-          <pre className="rounded border border-maia-border bg-maia-bg px-2 py-1.5 text-[10px] font-mono leading-relaxed max-h-[80px] overflow-auto whitespace-pre-wrap">
+          <div className="text-[12px] text-maia-text-muted mb-0.5 uppercase">测试输入</div>
+          <pre className="rounded border border-maia-border bg-maia-bg px-2 py-1.5 text-[13px] font-mono leading-[22px] max-h-[80px] overflow-auto whitespace-pre-wrap">
             {JSON.stringify(input, null, 2)}
           </pre>
         </div>
       )}
       {output && (
         <div>
-          <div className="text-[10px] text-maia-success mb-0.5 uppercase tracking-wider">执行输出</div>
-          <pre className="rounded border border-emerald-200 bg-emerald-50/50 px-2 py-1.5 text-[10px] font-mono leading-relaxed max-h-[120px] overflow-auto whitespace-pre-wrap">
+          <div className="text-[12px] text-maia-success mb-0.5 uppercase">执行输出</div>
+          <pre className="rounded border border-emerald-200 bg-emerald-50/50 px-2 py-1.5 text-[13px] font-mono leading-[22px] max-h-[120px] overflow-auto whitespace-pre-wrap">
             {typeof output === 'string' ? output : JSON.stringify(output, null, 2)}
           </pre>
         </div>
       )}
       {error && (
         <div>
-          <div className="text-[10px] text-maia-danger mb-0.5 uppercase tracking-wider">错误</div>
-          <pre className="rounded border border-red-200 bg-red-50/50 px-2 py-1.5 text-[10px] font-mono max-h-[80px] overflow-auto whitespace-pre-wrap">{error}</pre>
+          <div className="text-[12px] text-maia-danger mb-0.5 uppercase">错误</div>
+          <pre className="rounded border border-red-200 bg-red-50/50 px-2 py-1.5 text-[12px] font-mono max-h-[80px] overflow-auto whitespace-pre-wrap">{error}</pre>
         </div>
       )}
     </div>

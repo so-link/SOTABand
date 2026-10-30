@@ -350,7 +350,7 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
                 const msg = (data.message as string) || ''
                 if (msg.includes('过短') || msg.includes('跳过')) {
                   // 分析结果提示：追加，不覆盖已累积的 LLM 分析内容
-                  last.analysis = last.analysis ? `${last.analysis}\n⚠️ ${msg}` : `⚠️ ${msg}`
+                  last.analysis = last.analysis ? `${last.analysis}\n[WARN] ${msg}` : `[WARN] ${msg}`
                 } else if (!last.analysis) {
                   // 首次开始分析
                   last.analysis = 'LLM 分析中...'
@@ -416,17 +416,17 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
             break
           case 'pip_analysis':
             set((s) => ({
-              debugStream: s.debugStream + `💡 ${(data.analysis as Record<string,string>)?.reason || '未知'}: ${(data.analysis as Record<string,string>)?.suggestion || ''}\n`,
+              debugStream: s.debugStream + `[TIP] ${(data.analysis as Record<string,string>)?.reason || '未知'}: ${(data.analysis as Record<string,string>)?.suggestion || ''}\n`,
             }))
             break
           case 'dep_already':
             set((s) => ({
-              debugStream: s.debugStream + `✅ ${data.dep} 已安装，跳过 (${data.env})\n`,
+              debugStream: s.debugStream + `[OK] ${data.dep} 已安装，跳过 (${data.env})\n`,
             }))
             break
           case 'dep_installed':
             set((s) => ({
-              debugStream: s.debugStream + `✅ ${data.dep} 安装完成 (${data.env})\n`,
+              debugStream: s.debugStream + `[OK] ${data.dep} 安装完成 (${data.env})\n`,
             }))
             break
           case 'dep_failed':
@@ -436,12 +436,12 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
             break
           case 'env_switch':
             set((s) => ({
-              debugStream: s.debugStream + `⚠️ 全局安装 ${data.dep} 失败，切换到本地环境\n`,
+              debugStream: s.debugStream + `[WARN] 全局安装 ${data.dep} 失败，切换到本地环境\n`,
             }))
             break
           case 'deps_done':
             set((s) => ({
-              debugStream: s.debugStream + `✅ 依赖安装完成\n`,
+              debugStream: s.debugStream + `[OK] 依赖安装完成\n`,
             }))
             break
           case 'missing_dep':
@@ -455,7 +455,7 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
             set((s) => {
               const rounds = [...s.debugRounds]; const last = rounds[rounds.length - 1]
               if (last) last.analysis = `依赖已安装: ${data.module}`
-              return { debugRounds: rounds, debugStream: s.debugStream + `✅ 依赖已安装: ${data.module}\n` }
+              return { debugRounds: rounds, debugStream: s.debugStream + `[OK] 依赖已安装: ${data.module}\n` }
             })
             break
           case 'code_updated':

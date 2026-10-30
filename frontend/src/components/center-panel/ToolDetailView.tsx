@@ -319,29 +319,29 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
       <div className="flex items-center justify-between px-4 py-2 border-b border-maia-border bg-maia-bg/50 shrink-0 gap-2">
         <div className="flex items-center gap-2">
           <Wrench className="h-4 w-4 text-amber-500" />
-          <span className="text-sm font-semibold text-maia-text-heading tracking-wide">{tool.name}</span>
+          <span className="text-sm font-semibold text-maia-text-heading">{tool.name}</span>
           <Badge variant="success">v{tool.version}</Badge>
           <ToolTagsEditor toolId={tool.id} tags={tool.tags || []} />
         </div>
         <div className="flex items-center gap-2">
           {demandText && (
             <button onClick={() => { setShowDemand(!showDemand); setShowSpec(false); setShowCode(false); setShowReference(false) }}
-              className="flex items-center gap-1 text-[11px] text-maia-accent hover:underline">
+              className="flex items-center gap-1 text-[12px] text-maia-accent hover:underline">
               <FileText className="h-3 w-3" />{showDemand ? '收起需求' : '查看需求描述'}
             </button>
           )}
           {hasReference && (
             <button onClick={() => { setShowReference(!showReference); setShowSpec(false); setShowCode(false); setShowDemand(false) }}
-              className="flex items-center gap-1 text-[11px] text-purple-500 hover:underline">
+              className="flex items-center gap-1 text-[12px] text-purple-500 hover:underline">
               <Code className="h-3 w-3" />{showReference ? '收起参考' : '查看参考代码'}
             </button>
           )}
           <button onClick={() => { setShowSpec(!showSpec); setShowCode(false); setShowDemand(false); setShowReference(false) }}
-            className="flex items-center gap-1 text-[11px] text-maia-accent hover:underline">
+            className="flex items-center gap-1 text-[12px] text-maia-accent hover:underline">
             <FileText className="h-3 w-3" />{showSpec ? '收起 MD' : '查看 MD 文档'}
           </button>
           <button onClick={() => { setShowCode(!showCode); setShowSpec(false); setShowDemand(false); setShowReference(false) }}
-            className="flex items-center gap-1 text-[11px] text-maia-accent hover:underline">
+            className="flex items-center gap-1 text-[12px] text-maia-accent hover:underline">
             <FileCode className="h-3 w-3" />{showCode ? '收起代码' : '查看代码'}
           </button>
           <button
@@ -366,7 +366,7 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
               })
               setActiveView('tool-editor')
             }}
-            className="flex items-center gap-1 text-[11px] text-amber-500 hover:underline ml-2"
+            className="flex items-center gap-1 text-[12px] text-amber-500 hover:underline ml-2"
           >
             <Pencil className="h-3 w-3" />编辑
           </button>
@@ -374,7 +374,7 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
             href={`${BASE_URL}/api/tool/${encodeURIComponent(tool.id)}/export`}
             download={`${tool.id}.zip`}
             title="导出为 zip 工具包（含代码、文档、依赖清单，不含虚拟环境）"
-            className="flex items-center gap-1 text-[11px] text-maia-accent hover:underline ml-2"
+            className="flex items-center gap-1 text-[12px] text-maia-accent hover:underline ml-2"
           >
             <Download className="h-3 w-3" />导出
           </a>
@@ -391,11 +391,11 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
                 <CardBody className="flex-1 flex flex-col min-h-0">
                   <div className="flex items-center justify-between mb-2 shrink-0">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-medium text-maia-text-secondary tracking-wide">工具代码</span>
+                      <span className="text-[13px] font-medium text-maia-text-secondary">工具代码</span>
                       {codeModified && <Badge variant="warning">已修改</Badge>}
                     </div>
                     <div className="flex items-center gap-1">
-                      <button onClick={() => setIsEditing(!isEditing)} className="flex items-center gap-1 text-[10px] text-maia-text-muted hover:text-maia-accent px-1.5 py-0.5 rounded border border-maia-border">
+                      <button onClick={() => setIsEditing(!isEditing)} className="flex items-center gap-1 text-[12px] text-maia-text-muted hover:text-maia-accent px-1.5 py-0.5 rounded border border-maia-border">
                         <Pencil className="h-2.5 w-2.5" />{isEditing ? '预览' : '编辑'}
                       </button>
                       <button onClick={() => setShowCode(false)}><X className="h-3 w-3 text-maia-text-muted" /></button>
@@ -404,15 +404,15 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
                   {isEditing ? (
                     <textarea value={editedCode} onChange={(e) => handleCodeChange(e.target.value)}
                       onKeyDown={onCodeTabIndent}
-                      className="flex-1 min-h-0 rounded border border-maia-border bg-maia-bg px-3 py-2 text-[11px] font-mono leading-relaxed outline-none resize-none focus:border-maia-accent/40"
+                      className="flex-1 min-h-0 rounded border border-maia-border bg-maia-bg px-3 py-2 text-[13px] font-mono leading-[22px] outline-none resize-none focus:border-maia-accent/40"
                       spellCheck={false} />
                   ) : (
                     <div className="flex-1 min-h-0 rounded-lg border border-maia-border bg-[#1e1e1e] overflow-auto">
                       <Highlight theme={themes.vsDark} code={editedCode || '# 暂无代码'} language="python">
                         {({ style, tokens, getLineProps, getTokenProps }) => (
-                          <pre style={style} className="px-3 py-2 text-[11px] font-mono leading-relaxed m-0">
+                          <pre style={style} className="px-3 py-2 text-[13px] font-mono leading-[22px] m-0">
                             {tokens.map((line, i) => (<div key={i} {...getLineProps({ line })}>
-                              <span className="inline-block w-8 text-right mr-3 text-white/20 select-none text-[10px]">{i + 1}</span>
+                              <span className="inline-block w-8 text-right mr-3 text-white/20 select-none text-[12px]">{i + 1}</span>
                               {line.map((token, key) => (<span key={key} {...getTokenProps({ token })} />))}
                             </div>))}
                           </pre>
@@ -427,8 +427,8 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
                       {isUpdating ? <><Loader2 className="h-3 w-3 animate-spin" />更新中</> : <><Save className="h-3 w-3" />更新代码</>}</Button>
                   </div>
                   {testResults && (<div className="mt-2 space-y-1 shrink-0">
-                    {passed.map((m, i) => <div key={i} className="text-[10px] text-maia-success flex items-center gap-1"><CheckCheck className="h-3 w-3" />{m}</div>)}
-                    {failed.map((m, i) => <div key={i} className="text-[10px] text-maia-danger flex items-center gap-1"><X className="h-3 w-3" />{m}</div>)}
+                    {passed.map((m, i) => <div key={i} className="text-[12px] text-maia-success flex items-center gap-1"><CheckCheck className="h-3 w-3" />{m}</div>)}
+                    {failed.map((m, i) => <div key={i} className="text-[12px] text-maia-danger flex items-center gap-1"><X className="h-3 w-3" />{m}</div>)}
                   </div>)}
                 </CardBody>
               </Card>
@@ -458,17 +458,17 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
             {/* 右：参数 + 执行 + AI修改 */}
             <div className="shrink-0 space-y-4 overflow-auto" style={{ width: rightPanelWidth }}>
               <div>
-                <h3 className="text-sm font-semibold text-maia-text-heading mb-3 tracking-wide">输入参数</h3>
-                {inputs.length === 0 ? (<p className="text-xs text-maia-text-muted">此工具无需输入参数</p>) : (
+                <h3 className="text-sm font-semibold text-maia-text-heading mb-3">输入参数</h3>
+                {inputs.length === 0 ? (<p className="text-[13px] text-maia-text-muted">此工具无需输入参数</p>) : (
                   <div className="space-y-3">
                     {inputs.map(f => (<div key={f.name}>
-                      <label className="text-[11px] font-medium text-maia-text-secondary tracking-wide">
+                      <label className="text-[12px] font-medium text-maia-text-secondary">
                         {f.name}{f.required && <span className="text-maia-danger ml-0.5">*</span>}<span className="text-maia-text-muted font-normal ml-1">({f.type})</span></label>
-                      {f.desc && <p className="text-[10px] text-maia-text-muted mb-1">{f.desc}</p>}
+                      {f.desc && <p className="text-[12px] text-maia-text-muted mb-1">{f.desc}</p>}
                       <div className="flex items-center gap-1.5">
                         <input type="text" value={formValues[f.name] || ''} onChange={(e) => setFormValues(p => ({ ...p, [f.name]: e.target.value }))}
                           placeholder={f.required ? '必填' : f.default || '可选'}
-                          className="flex-1 min-w-0 h-8 rounded border border-maia-border bg-maia-surface px-3 text-[12px] text-maia-text outline-none focus:border-maia-accent/40" />
+                          className="flex-1 min-w-0 h-8 rounded border border-maia-border bg-maia-surface px-3 text-[13px] text-maia-text outline-none focus:border-maia-accent/40" />
                         {isFilePathParam(f) && (
                           <button type="button" onClick={() => setPickerFor(f.name)} title="从工作区间选择数据文件"
                             className="shrink-0 h-8 px-2 rounded border border-maia-border bg-maia-surface hover:border-maia-accent/50 hover:text-maia-accent text-maia-text-muted transition-colors">
@@ -484,7 +484,7 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
               <div className="p-3 rounded-lg border border-purple-200 bg-purple-50/50">
                 <div className="flex items-center gap-1.5 mb-2">
                   <Bot className="h-3.5 w-3.5 text-purple-500" />
-                  <span className="text-[11px] font-medium text-purple-700 tracking-wide">AI 辅助修改</span>
+                  <span className="text-[12px] font-medium text-purple-700">AI 辅助修改</span>
                   {isDebugging && <Loader2 className="h-3 w-3 animate-spin text-purple-500" />}
                 </div>
                 <div className="flex flex-col gap-1.5">
@@ -503,14 +503,14 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
                     placeholder={modifyHistory.length > 0 ? '继续修改建议... (Enter提交，Shift+Enter换行)' : '描述修改需求，Enter提交，Shift+Enter换行'}
                     disabled={isDebugging}
                     rows={2}
-                    className="w-full rounded border border-maia-border bg-maia-surface px-2 py-1.5 text-[11px] text-maia-text outline-none focus:border-maia-accent/40 disabled:opacity-50 resize-none"
+                    className="w-full rounded border border-maia-border bg-maia-surface px-2 py-1.5 text-[12px] text-maia-text outline-none focus:border-maia-accent/40 disabled:opacity-50 resize-none"
                   />
                   {isDebugging ? (
-                    <Button size="sm" variant="danger" className="h-7 text-[11px] w-full" onClick={handleStopDebug}>
+                    <Button size="sm" variant="danger" className="h-7 text-[12px] w-full" onClick={handleStopDebug}>
                       <Square className="h-3 w-3" />停止调试
                     </Button>
                   ) : (
-                    <Button size="sm" className="bg-purple-500 hover:bg-purple-600 text-white h-7 text-[11px] w-full" onClick={handleModify} disabled={!modifyRequest.trim()}>
+                    <Button size="sm" className="bg-purple-500 hover:bg-purple-600 text-white h-7 text-[12px] w-full" onClick={handleModify} disabled={!modifyRequest.trim()}>
                       修改
                     </Button>
                   )}
@@ -520,26 +520,26 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
               {/* 调试日志 */}
               {showDebugLog && debugRounds.length > 0 && (
                 <div className="rounded-lg border border-maia-border bg-maia-bg/50 overflow-auto" style={{ maxHeight: '200px' }}>
-                  <div className="px-3 py-1.5 text-[10px] font-semibold text-maia-text-secondary tracking-wider border-b border-maia-border sticky top-0 bg-maia-bg/90 z-10 flex items-center justify-between">
+                  <div className="px-3 py-1.5 text-[12px] font-semibold text-maia-text-secondary border-b border-maia-border sticky top-0 bg-maia-bg/90 z-10 flex items-center justify-between">
                     <span>🐛 调试日志</span>
                     <button onClick={() => { setShowDebugLog(false); setDebugRounds([]); setDebugStream('') }} className="text-maia-text-muted hover:text-maia-text">
                       <X className="h-3 w-3" />
                     </button>
                   </div>
-                  <div className="p-2 space-y-2 font-mono text-[10px] text-maia-text-secondary">
+                  <div className="p-2 space-y-2 font-mono text-[12px] text-maia-text-secondary">
                     {debugStream && (
-                      <pre className="whitespace-pre-wrap break-all leading-relaxed text-[10px] text-maia-text-muted">{debugStream}</pre>
+                      <pre className="whitespace-pre-wrap break-all leading-relaxed text-[12px] text-maia-text-muted">{debugStream}</pre>
                     )}
                     {debugRounds.map((round, i) => (
                       <div key={i} className="border-b border-maia-border/30 pb-1.5 last:border-0">
                         {round.round === -1 ? (
-                          <div className="text-[10px] text-purple-400 font-semibold py-1">{round.analysis}</div>
+                          <div className="text-[12px] text-purple-400 font-semibold py-1">{round.analysis}</div>
                         ) : (
                           <div>
-                            <div className="flex items-center gap-1 text-[10px] font-semibold">
+                            <div className="flex items-center gap-1 text-[12px] font-semibold">
                               <span className="text-maia-text-muted">[第{round.round}轮]</span>
                               <span className={round.success ? 'text-maia-success' : 'text-maia-danger'}>
-                                {round.success ? '✅ 通过' : '❌ 失败'}
+                                {round.success ? '通过' : '失败'}
                               </span>
                             </div>
                             {round.stdout && (
@@ -560,13 +560,13 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
                 </div>
               )}
 
-              {error && <div className="p-3 rounded-lg border border-red-200 bg-red-50 text-xs text-maia-danger">{error}</div>}
+              {error && <div className="p-3 rounded-lg border border-red-200 bg-red-50 text-[13px] text-maia-danger">{error}</div>}
               {output && (<Card className="border-emerald-200 bg-emerald-50/30"><CardBody>
                 <div className="flex items-center gap-1.5 mb-2">
                   <div className={`h-2 w-2 rounded-full ${output.status === 'success' ? 'bg-maia-success' : 'bg-maia-danger'}`} />
-                  <span className="text-xs font-medium text-maia-text-secondary tracking-wide">{output.status === 'success' ? '执行成功' : '执行失败'}</span>
+                  <span className="text-[13px] font-medium text-maia-text-secondary">{output.status === 'success' ? '执行成功' : '执行失败'}</span>
                 </div>
-                <pre className="text-[11px] font-mono leading-relaxed text-maia-text whitespace-pre-wrap max-h-[300px] overflow-auto bg-maia-bg rounded p-3 border border-maia-border">{JSON.stringify(output, null, 2)}</pre>
+                <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap max-h-[300px] overflow-auto bg-maia-bg rounded p-3 border border-maia-border">{JSON.stringify(output, null, 2)}</pre>
               </CardBody></Card>)}
             </div>
           </div>
@@ -574,27 +574,27 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
           /* 单栏 */
           <div className="max-w-2xl mx-auto space-y-4">
           {showSpec && (<Card className="border-maia-border"><CardBody>
-            <div className="flex items-center justify-between mb-2"><span className="text-xs font-medium text-maia-text-secondary tracking-wide">MD 规范文档</span><button onClick={() => setShowSpec(false)}><X className="h-3 w-3 text-maia-text-muted" /></button></div>
-            <pre className="text-[11px] font-mono leading-relaxed text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto bg-maia-bg rounded p-3">{specMd || '加载中...'}</pre>
+            <div className="flex items-center justify-between mb-2"><span className="text-[13px] font-medium text-maia-text-secondary">MD 规范文档</span><button onClick={() => setShowSpec(false)}><X className="h-3 w-3 text-maia-text-muted" /></button></div>
+            <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto bg-maia-bg rounded p-3">{specMd || '加载中...'}</pre>
           </CardBody></Card>)}
           {showDemand && demandText && (<Card className="border-maia-border"><CardBody>
-            <div className="flex items-center justify-between mb-2"><span className="text-xs font-medium text-maia-text-secondary tracking-wide">用户需求描述</span><button onClick={() => setShowDemand(false)}><X className="h-3 w-3 text-maia-text-muted" /></button></div>
-            <pre className="text-[11px] font-mono leading-relaxed text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto bg-maia-bg rounded p-3">{demandText}</pre>
+            <div className="flex items-center justify-between mb-2"><span className="text-[13px] font-medium text-maia-text-secondary">用户需求描述</span><button onClick={() => setShowDemand(false)}><X className="h-3 w-3 text-maia-text-muted" /></button></div>
+            <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto bg-maia-bg rounded p-3">{demandText}</pre>
           </CardBody></Card>)}
           {showReference && referenceCode && (<Card className="border-purple-200 bg-purple-50/30"><CardBody>
-            <div className="flex items-center justify-between mb-2"><span className="text-xs font-medium text-purple-700 tracking-wide">参考代码</span><button onClick={() => setShowReference(false)}><X className="h-3 w-3 text-maia-text-muted" /></button></div>
-            <pre className="text-[11px] font-mono leading-relaxed text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto bg-maia-bg rounded p-3 border border-maia-border">{referenceCode}</pre>
+            <div className="flex items-center justify-between mb-2"><span className="text-[13px] font-medium text-purple-700">参考代码</span><button onClick={() => setShowReference(false)}><X className="h-3 w-3 text-maia-text-muted" /></button></div>
+            <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto bg-maia-bg rounded p-3 border border-maia-border">{referenceCode}</pre>
           </CardBody></Card>)}
           <div>
-            <h3 className="text-sm font-semibold text-maia-text-heading mb-3 tracking-wide">输入参数</h3>
-            {inputs.length === 0 ? (<p className="text-xs text-maia-text-muted">此工具无需输入参数</p>) : (
+            <h3 className="text-sm font-semibold text-maia-text-heading mb-3">输入参数</h3>
+            {inputs.length === 0 ? (<p className="text-[13px] text-maia-text-muted">此工具无需输入参数</p>) : (
               <div className="space-y-3">
                 {inputs.map(f => (<div key={f.name}>
-                  <label className="text-[11px] font-medium text-maia-text-secondary tracking-wide">{f.name}{f.required && <span className="text-maia-danger ml-0.5">*</span>}<span className="text-maia-text-muted font-normal ml-1">({f.type})</span></label>
-                  {f.desc && <p className="text-[10px] text-maia-text-muted mb-1">{f.desc}</p>}
+                  <label className="text-[12px] font-medium text-maia-text-secondary">{f.name}{f.required && <span className="text-maia-danger ml-0.5">*</span>}<span className="text-maia-text-muted font-normal ml-1">({f.type})</span></label>
+                  {f.desc && <p className="text-[12px] text-maia-text-muted mb-1">{f.desc}</p>}
                   <div className="flex items-center gap-1.5">
                     <input type="text" value={formValues[f.name] || ''} onChange={(e) => setFormValues(p => ({ ...p, [f.name]: e.target.value }))}
-                      placeholder={f.required ? '必填' : f.default || '可选'} className="flex-1 min-w-0 h-8 rounded border border-maia-border bg-maia-surface px-3 text-[12px] text-maia-text outline-none focus:border-maia-accent/40" />
+                      placeholder={f.required ? '必填' : f.default || '可选'} className="flex-1 min-w-0 h-8 rounded border border-maia-border bg-maia-surface px-3 text-[13px] text-maia-text outline-none focus:border-maia-accent/40" />
                     {isFilePathParam(f) && (
                       <button type="button" onClick={() => setPickerFor(f.name)} title="从工作区间选择数据文件"
                         className="shrink-0 h-8 px-2 rounded border border-maia-border bg-maia-surface hover:border-maia-accent/50 hover:text-maia-accent text-maia-text-muted transition-colors">
@@ -605,13 +605,13 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
                 </div>))}
               </div>)}
           </div>
-          {error && <div className="p-3 rounded-lg border border-red-200 bg-red-50 text-xs text-maia-danger">{error}</div>}
+          {error && <div className="p-3 rounded-lg border border-red-200 bg-red-50 text-[13px] text-maia-danger">{error}</div>}
           {output && (<Card className="border-emerald-200 bg-emerald-50/30"><CardBody>
             <div className="flex items-center gap-1.5 mb-2">
               <div className={`h-2 w-2 rounded-full ${output.status === 'success' ? 'bg-maia-success' : 'bg-maia-danger'}`} />
-              <span className="text-xs font-medium text-maia-text-secondary tracking-wide">{output.status === 'success' ? '执行成功' : '执行失败'}</span>
+              <span className="text-[13px] font-medium text-maia-text-secondary">{output.status === 'success' ? '执行成功' : '执行失败'}</span>
             </div>
-            <pre className="text-[11px] font-mono leading-relaxed text-maia-text whitespace-pre-wrap max-h-[300px] overflow-auto bg-maia-bg rounded p-3 border border-maia-border">{JSON.stringify(output, null, 2)}</pre>
+            <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap max-h-[300px] overflow-auto bg-maia-bg rounded p-3 border border-maia-border">{JSON.stringify(output, null, 2)}</pre>
           </CardBody></Card>)}
           </div>
         )}
@@ -685,17 +685,17 @@ function WorkspaceFilePicker({ paramName, currentValue, onClose, onSelect }: {
         </div>
         <div className="flex-1 overflow-auto p-3 space-y-1.5">
           {currentValue && (
-            <div className="mb-2 px-2 py-1 rounded bg-maia-surface border border-maia-border text-[11px] text-maia-text-muted">
+            <div className="mb-2 px-2 py-1 rounded bg-maia-surface border border-maia-border text-[12px] text-maia-text-muted">
               当前值：<span className="text-maia-text font-mono">{currentValue}</span>
             </div>
           )}
           {workspaceDatasets.length === 0 ? (
-            <div className="text-center py-10 text-xs text-maia-text-muted">
+            <div className="text-center py-10 text-[13px] text-maia-text-muted">
               工作区间暂无数据文件<br />请先在数据空间加载数据集
             </div>
           ) : (
             <>
-              <p className="text-[10px] text-maia-text-muted px-1">工作区间数据（点击展开查看文件）</p>
+              <p className="text-[12px] text-maia-text-muted px-1">工作区间数据（点击展开查看文件）</p>
               {workspaceDatasets.map(ds => {
                 const files = filesMap[ds.id] || []
                 const isExpanded = expandedId === ds.id
@@ -709,8 +709,8 @@ function WorkspaceFilePicker({ paramName, currentValue, onClose, onSelect }: {
                         : isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-maia-text-muted shrink-0" />
                         : <ChevronRight className="h-3.5 w-3.5 text-maia-text-muted shrink-0" />}
                       <Folder className="h-3.5 w-3.5 text-amber-500 shrink-0" />
-                      <span className="text-[12px] text-maia-text truncate flex-1">{ds.name}</span>
-                      {resolveDataPath(ds.id) && <span className="text-[10px] text-maia-text-muted truncate max-w-[140px]">{resolveDataPath(ds.id)}</span>}
+                      <span className="text-[13px] text-maia-text truncate flex-1">{ds.name}</span>
+                      {resolveDataPath(ds.id) && <span className="text-[12px] text-maia-text-muted truncate max-w-[140px]">{resolveDataPath(ds.id)}</span>}
                     </button>
                     {isExpanded && (
                       <div className="border-t border-maia-border max-h-[220px] overflow-auto">
@@ -720,10 +720,10 @@ function WorkspaceFilePicker({ paramName, currentValue, onClose, onSelect }: {
                           title="选择数据集根目录"
                         >
                           <Folder className="h-3 w-3 text-maia-accent shrink-0" />
-                          <span className="text-[11px] text-maia-text-secondary">使用数据集目录路径</span>
+                          <span className="text-[12px] text-maia-text-secondary">使用数据集目录路径</span>
                         </button>
                         {files.length === 0 && !loadingFiles[ds.id] && (
-                          <div className="px-3 py-2 text-[10px] text-maia-text-muted">该数据集内没有文件</div>
+                          <div className="px-3 py-2 text-[12px] text-maia-text-muted">该数据集内没有文件</div>
                         )}
                         {files.map((f, i) => (
                           <button
@@ -733,8 +733,8 @@ function WorkspaceFilePicker({ paramName, currentValue, onClose, onSelect }: {
                             title={f.path}
                           >
                             <File className="h-3 w-3 text-maia-text-muted shrink-0" />
-                            <span className="text-[11px] text-maia-text truncate flex-1">{f.name}</span>
-                            {f.size != null && <span className="text-[10px] text-maia-text-muted shrink-0">{(f.size / 1024).toFixed(1)}KB</span>}
+                            <span className="text-[12px] text-maia-text truncate flex-1">{f.name}</span>
+                            {f.size != null && <span className="text-[12px] text-maia-text-muted shrink-0">{(f.size / 1024).toFixed(1)}KB</span>}
                           </button>
                         ))}
                       </div>
@@ -745,7 +745,7 @@ function WorkspaceFilePicker({ paramName, currentValue, onClose, onSelect }: {
             </>
           )}
         </div>
-        <div className="px-4 py-2 border-t border-maia-border text-[10px] text-maia-text-muted shrink-0">
+        <div className="px-4 py-2 border-t border-maia-border text-[12px] text-maia-text-muted shrink-0">
           点击文件填入完整路径；点击"使用数据集目录路径"填入数据集根目录
         </div>
       </div>
@@ -775,7 +775,7 @@ function ToolTagsEditor({ toolId, tags: initialTags }: { toolId: string; tags: s
   return (
     <div className="flex items-center gap-1">
       {tags.map(tag => (
-        <span key={tag} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] bg-amber-100 text-amber-700 border border-amber-300 font-medium">
+        <span key={tag} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[12px] bg-amber-100 text-amber-700 border border-amber-300 font-medium">
           {tag}
           {editing && (
             <button onClick={() => saveTags(tags.filter(t => t !== tag))} className="hover:text-red-400">
@@ -790,7 +790,7 @@ function ToolTagsEditor({ toolId, tags: initialTags }: { toolId: string; tags: s
             value={newTag}
             onChange={e => setNewTag(e.target.value)}
             placeholder="+标签"
-            className="w-16 h-5 px-1 rounded border border-maia-accent/40 bg-maia-bg text-[10px] text-maia-text outline-none"
+            className="w-16 h-5 px-1 rounded border border-maia-accent/40 bg-maia-bg text-[12px] text-maia-text outline-none"
             autoFocus
             onBlur={() => { if (!newTag.trim()) setEditing(false) }}
           />
@@ -808,7 +808,7 @@ function ToolTagsEditor({ toolId, tags: initialTags }: { toolId: string; tags: s
       {editing && (
         <button
           onClick={() => setEditing(false)}
-          className="text-[10px] text-maia-text-muted hover:text-maia-text ml-1"
+          className="text-[12px] text-maia-text-muted hover:text-maia-text ml-1"
         >
           完成
         </button>

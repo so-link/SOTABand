@@ -78,7 +78,7 @@ export function DatasetImportDialog({ onImport, onClose }: Props) {
           <div className="flex items-center gap-2">
             <Database className="h-4 w-4 text-blue-500" />
             <span className="text-sm font-semibold text-maia-text-heading">导入数据集</span>
-            <Badge variant="default" className="text-[10px]">{datasets.length}</Badge>
+            <Badge variant="default" className="text-[12px]">{datasets.length}</Badge>
           </div>
           <button onClick={onClose} className="text-maia-text-muted hover:text-maia-text"><X className="h-4 w-4" /></button>
         </div>
@@ -91,7 +91,7 @@ export function DatasetImportDialog({ onImport, onClose }: Props) {
               value={query}
               onChange={e => setQuery(e.target.value)}
               placeholder="搜索数据集..."
-              className="pl-7 h-8 text-[12px]"
+              className="pl-7 h-8 text-[13px]"
             />
           </div>
         </div>
@@ -124,10 +124,10 @@ export function DatasetImportDialog({ onImport, onClose }: Props) {
                   <div className="flex-1 min-w-0">
                     <div className="text-[13px] font-medium text-maia-text-heading truncate">{ds.name}</div>
                     <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-[10px] text-maia-text-muted font-mono">{ds.id}</span>
-                      <span className="text-[10px] text-maia-text-muted">{ds.file_count || 0} 文件</span>
+                      <span className="text-[12px] text-maia-text-muted font-mono">{ds.id}</span>
+                      <span className="text-[12px] text-maia-text-muted">{ds.file_count || 0} 文件</span>
                       {ds.total_size > 0 && (
-                        <span className="text-[10px] text-maia-text-muted">
+                        <span className="text-[12px] text-maia-text-muted">
                           {ds.total_size > 1048576 ? `${(ds.total_size / 1048576).toFixed(1)}MB` : `${(ds.total_size / 1024).toFixed(0)}KB`}
                         </span>
                       )}
@@ -149,12 +149,12 @@ export function DatasetImportDialog({ onImport, onClose }: Props) {
 
         {/* Footer */}
         <div className="flex items-center justify-between px-4 py-2.5 border-t border-maia-border bg-maia-bg/50">
-          <span className="text-[11px] text-maia-text-muted">
+          <span className="text-[12px] text-maia-text-muted">
             {selected ? `已选择: ${datasets.find(d => d.id === selected)?.name}` : '点击选择数据集'}
           </span>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={onClose} className="text-[11px] h-7">取消</Button>
-            <Button size="sm" onClick={handleImport} disabled={!selected || importing} className="text-[11px] h-7">
+            <Button variant="outline" size="sm" onClick={onClose} className="text-[12px] h-7">取消</Button>
+            <Button size="sm" onClick={handleImport} disabled={!selected || importing} className="text-[12px] h-7">
               {importing ? '导入中...' : '导入'}
             </Button>
           </div>

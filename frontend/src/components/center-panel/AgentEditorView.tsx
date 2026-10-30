@@ -28,13 +28,13 @@ function AgentSaveIndicator() {
     <span className="flex items-center gap-2">
       <span className="flex items-center gap-1.5" title={saveError || ''}>
         {cfg.spin && <Loader2 className="h-3 w-3 animate-spin" />}
-        <span className={`text-[11px] ${cfg.cls}`}>{cfg.text}</span>
+        <span className={`text-[12px] ${cfg.cls}`}>{cfg.text}</span>
       </span>
       <button
         onClick={() => void flushSave()}
         disabled={!cfg.canSave}
         title="保存 (Ctrl/Cmd+S)"
-        className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded border border-maia-border text-maia-accent hover:bg-maia-accent/10 disabled:opacity-40 disabled:cursor-not-allowed"
+        className="flex items-center gap-1 text-[12px] px-2 py-0.5 rounded border border-maia-border text-maia-accent hover:bg-maia-accent/10 disabled:opacity-40 disabled:cursor-not-allowed"
       >
         <Save className="h-3 w-3" />
         保存
@@ -78,11 +78,11 @@ export function AgentEditorView() {
       <div className="flex items-center justify-between px-4 py-2 border-b border-maia-border bg-maia-bg/50 shrink-0">
         <div className="flex items-center gap-2">
           <Bot className="h-4 w-4 text-maia-accent" />
-          <span className="text-sm font-semibold text-maia-text-heading tracking-wide">
+          <span className="text-sm font-semibold text-maia-text-heading">
             Agent 编辑器
           </span>
           {store.editingAgentId && (
-            <span className="text-[11px] text-amber-500 tracking-wide">
+            <span className="text-[12px] text-amber-500">
               编辑中：{store.editingAgentName || store.editingAgentId}
             </span>
           )}
@@ -102,7 +102,7 @@ export function AgentEditorView() {
         {[1, 2, 3, 4].map((s, i) => (
           <div key={s} className="flex items-center gap-0">
             <div
-              className={`flex items-center gap-1.5 text-[11px] font-medium tracking-wide px-2 py-1 rounded-full transition-colors ${
+              className={`flex items-center gap-1.5 text-[12px] font-medium px-2 py-1 rounded-full transition-colors ${
                 store.step === s
                   ? 'bg-maia-accent text-white'
                   : store.step > s
@@ -113,7 +113,7 @@ export function AgentEditorView() {
               {store.step > s ? (
                 <CheckCircle2 className="h-3 w-3" />
               ) : (
-                <span className="text-[10px]">{s}</span>
+                <span className="text-[12px]">{s}</span>
               )}
               {['描述', '审阅', '核验', '注册'][i]}
             </div>
@@ -334,7 +334,7 @@ function Step1Description() {
   // ═══ Render ═══
   return (
     <div className="max-w-4xl mx-auto relative flex flex-col min-h-full">
-      <h3 className="text-lg font-semibold text-maia-text-heading mb-2 tracking-wide">
+      <h3 className="text-lg font-semibold text-maia-text-heading mb-2">
         Step 1: 描述你的 Agent 需求
       </h3>
 
@@ -362,15 +362,15 @@ function Step1Description() {
                     : 'border-maia-border hover:border-maia-accent/40'
                 }`}
               >
-                <div className="text-[12px] font-semibold text-maia-text-heading">{opt.label}</div>
-                <div className="text-[10px] text-maia-text-muted leading-snug truncate">{opt.desc}</div>
+                <div className="text-[13px] font-semibold text-maia-text-heading">{opt.label}</div>
+                <div className="text-[12px] text-maia-text-muted leading-snug truncate">{opt.desc}</div>
               </button>
             )
           })}
         </div>
       </div>
 
-      <p className="text-[12px] text-maia-text-secondary mb-2 shrink-0">
+      <p className="text-[13px] text-maia-text-secondary mb-2 shrink-0">
         描述你的 Agent 需求，系统会调用大模型生成标准化 MD 规范文档。
         <code className="text-maia-accent bg-maia-accent/5 px-1 rounded mx-1">@</code>引用 API，
         <code className="text-maia-accent bg-maia-accent/5 px-1 rounded mx-1">$</code>引用工具。
@@ -383,7 +383,7 @@ function Step1Description() {
         onKeyDown={handleKeyDown}
         placeholder={'例如: "我需要一个能分析EEG数据、检测异常信号、自动生成可视化报告的Agent"'}
         rows={6}
-        className="w-full flex-1 min-h-[200px] rounded-lg border border-maia-border bg-maia-surface px-4 py-3 text-[13px] leading-relaxed tracking-wide outline-none resize-none focus:border-maia-accent/40 placeholder:text-maia-text-muted"
+        className="w-full flex-1 min-h-[200px] rounded-lg border border-maia-border bg-maia-surface px-4 py-3 text-[13px] leading-relaxed outline-none resize-none focus:border-maia-accent/40 placeholder:text-maia-text-muted"
       />
 
       {/* Dropdown via Portal to avoid parent clipping */}
@@ -398,23 +398,23 @@ function Step1Description() {
               // 两种失败给不同指引：接口异常时让用户查后端日志（后端明明在跑，
               // 说"请先启动后端"反而误导——正是条目 27 误诊案例的教训）
               acFailReason.startsWith('http:') ? (
-                <div className="px-3 py-2 text-[12px] text-maia-danger leading-relaxed">
+                <div className="px-3 py-2 text-[13px] text-maia-danger leading-relaxed">
                   后端接口异常（HTTP {acFailReason.slice(5)}）。后端在运行但该接口出错，
                   常见原因（编码/权限等）见后端控制台日志。
                 </div>
               ) : (
-                <div className="px-3 py-2 text-[12px] text-maia-danger leading-relaxed">
+                <div className="px-3 py-2 text-[13px] text-maia-danger leading-relaxed">
                   无法连接后端服务（http://localhost:8001）
                   <br />
-                  <span className="text-[10px] text-maia-text-muted">
+                  <span className="text-[12px] text-maia-text-muted">
                     请先启动后端：uvicorn app.main:app --port 8001
                   </span>
                 </div>
               )
             ) : acState === 'loading' ? (
-              <div className="px-3 py-2 text-[12px] text-maia-text-muted">加载中...</div>
+              <div className="px-3 py-2 text-[13px] text-maia-text-muted">加载中...</div>
             ) : acSrc.length === 0 ? (
-              <div className="px-3 py-2 text-[12px] text-maia-text-muted">
+              <div className="px-3 py-2 text-[13px] text-maia-text-muted">
                 {trigger === '@' ? '暂无可用系统 API' : '暂无可用工具'}
               </div>
             ) : (
@@ -431,10 +431,10 @@ function Step1Description() {
                     doSelect(item)
                   }}
                 >
-                  <span className="text-[12px] font-medium tracking-wide truncate">
+                  <span className="text-[13px] font-medium truncate">
                     {trigger === '@' ? `【${item.name}】` : `【【${item.name}】】`}
                   </span>
-                  <span className="text-[10px] text-maia-text-muted truncate">{item.id}</span>
+                  <span className="text-[12px] text-maia-text-muted truncate">{item.id}</span>
                 </button>
               ))
             )}
@@ -443,7 +443,7 @@ function Step1Description() {
         )}
 
       {error && (
-        <div className="flex items-center gap-1.5 mt-2 text-xs text-maia-danger">
+        <div className="flex items-center gap-1.5 mt-2 text-[13px] text-maia-danger">
           <XCircle className="h-3 w-3" />
           {error}
         </div>
@@ -489,7 +489,7 @@ function Step2Review() {
 
   return (
     <div className="max-w-3xl mx-auto">
-      <h3 className="text-lg font-semibold text-maia-text-heading mb-2 tracking-wide">
+      <h3 className="text-lg font-semibold text-maia-text-heading mb-2">
         Step 2: 审阅 &amp; 编辑 MD 规范文档
       </h3>
       <p className="text-sm text-maia-text-secondary mb-4">
@@ -503,12 +503,12 @@ function Step2Review() {
         onChange={handleMdChange}
         onKeyDown={onTabIndent}
         rows={20}
-        className="w-full rounded-lg border border-maia-border bg-maia-bg/50 px-4 py-3 text-[12px] font-mono tracking-tight outline-none resize-y focus:border-maia-accent/40"
+        className="w-full rounded-lg border border-maia-border bg-maia-bg/50 px-4 py-3 text-[13px] font-mono outline-none resize-y focus:border-maia-accent/40"
         spellCheck={false}
       />
 
       {error && (
-        <div className="flex items-center gap-1.5 mt-2 text-xs text-maia-danger">
+        <div className="flex items-center gap-1.5 mt-2 text-[13px] text-maia-danger">
           <XCircle className="h-3 w-3" />
           {error}
         </div>
@@ -567,11 +567,11 @@ function Step3Verify() {
   return (
     <div className="max-w-4xl mx-auto">
       <div className="flex items-center justify-between mb-2">
-        <h3 className="text-lg font-semibold text-maia-text-heading tracking-wide">
+        <h3 className="text-lg font-semibold text-maia-text-heading">
           Step 3: 代码预览 &amp; 沙箱核验
         </h3>
         {isEditMode && (
-          <span className="text-[11px] text-amber-500 tracking-wide">
+          <span className="text-[12px] text-amber-500">
             正在编辑已有 Agent：{editingAgentName || editingAgentId}
           </span>
         )}
@@ -583,10 +583,10 @@ function Step3Verify() {
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-1.5">
               <FileCode className="h-3.5 w-3.5 text-maia-accent" />
-              <span className="text-xs font-medium text-maia-text-secondary tracking-wide">
+              <span className="text-[13px] font-medium text-maia-text-secondary">
                 生成代码
               </span>
-              {codeDirty && <span className="text-[10px] text-amber-500 tracking-wide">已手工修改</span>}
+              {codeDirty && <span className="text-[12px] text-amber-500">已手工修改</span>}
             </div>
             <div className="flex items-center gap-2">
               {isEditMode && (
@@ -595,7 +595,7 @@ function Step3Verify() {
                     onClick={() => syncSpecFromCode()}
                     disabled={!codeDirty || isGenerating}
                     title={codeDirty ? '让 AI 依据代码改动更新 MD 文档' : '代码未修改，无需同步'}
-                    className="text-[11px] text-purple-500 hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="text-[12px] text-purple-500 hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     同步代码改动到文档
                   </button>
@@ -603,7 +603,7 @@ function Step3Verify() {
                     onClick={() => saveCode()}
                     disabled={!codeDirty || isGenerating}
                     title="保存代码到该 Agent"
-                    className="text-[11px] text-maia-accent hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="text-[12px] text-maia-accent hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     保存代码
                   </button>
@@ -611,7 +611,7 @@ function Step3Verify() {
               )}
               <button
                 onClick={() => setEditingCode(!editingCode)}
-                className="text-[11px] text-maia-accent hover:underline"
+                className="text-[12px] text-maia-accent hover:underline"
               >
                 {editingCode ? '只读' : '编辑'}
               </button>
@@ -623,11 +623,11 @@ function Step3Verify() {
               onChange={handleCodeEdit}
               onKeyDown={onCodeTabIndent}
               rows={18}
-              className="w-full rounded-lg border border-maia-border bg-maia-bg/50 px-3 py-2 text-[11px] font-mono outline-none resize-y"
+              className="w-full rounded-lg border border-maia-border bg-maia-bg/50 px-3 py-2 text-[13px] font-mono leading-[22px] outline-none resize-y"
               spellCheck={false}
             />
           ) : (
-            <pre className="rounded-lg border border-maia-border bg-maia-bg/50 px-3 py-2 text-[11px] font-mono leading-relaxed overflow-auto max-h-[350px] whitespace-pre-wrap">
+            <pre className="rounded-lg border border-maia-border bg-maia-bg/50 px-3 py-2 text-[13px] font-mono leading-[22px] overflow-auto max-h-[350px] whitespace-pre-wrap">
               {code}
             </pre>
           )}
@@ -637,7 +637,7 @@ function Step3Verify() {
         <div className="col-span-2">
           <div className="flex items-center gap-1.5 mb-2">
             <Play className="h-3.5 w-3.5 text-maia-accent" />
-            <span className="text-xs font-medium text-maia-text-secondary tracking-wide">
+            <span className="text-[13px] font-medium text-maia-text-secondary">
               沙箱测试
             </span>
           </div>
@@ -645,19 +645,19 @@ function Step3Verify() {
             <CardBody>
               <div className="space-y-1.5">
                 {passed.map((msg, i) => (
-                  <div key={i} className="flex items-center gap-1.5 text-xs text-maia-success">
+                  <div key={i} className="flex items-center gap-1.5 text-[13px] text-maia-success">
                     <CheckCheck className="h-3 w-3 shrink-0" />
                     {msg}
                   </div>
                 ))}
                 {failed.map((msg, i) => (
-                  <div key={i} className="flex items-center gap-1.5 text-xs text-maia-danger">
+                  <div key={i} className="flex items-center gap-1.5 text-[13px] text-maia-danger">
                     <XCircle className="h-3 w-3 shrink-0" />
                     {msg}
                   </div>
                 ))}
                 {passed.length === 0 && failed.length === 0 && (
-                  <div className="text-xs text-maia-text-muted">等待测试...</div>
+                  <div className="text-[13px] text-maia-text-muted">等待测试...</div>
                 )}
               </div>
             </CardBody>
@@ -666,7 +666,7 @@ function Step3Verify() {
       </div>
 
       {error && (
-        <div className="flex items-center gap-1.5 mt-2 text-xs text-maia-danger">
+        <div className="flex items-center gap-1.5 mt-2 text-[13px] text-maia-danger">
           <XCircle className="h-3 w-3" />
           {error}
         </div>
@@ -718,18 +718,18 @@ function Step4Done() {
         </div>
       </div>
 
-      <h3 className="text-lg font-semibold text-maia-text-heading mb-2 tracking-wide">
+      <h3 className="text-lg font-semibold text-maia-text-heading mb-2">
         Agent 已就绪！
       </h3>
 
       <Card className="border-maia-border mt-4">
         <CardBody>
           <div className="space-y-2 text-left">
-            <div className="flex justify-between text-xs">
+            <div className="flex justify-between text-[13px]">
               <span className="text-maia-text-muted">Agent ID</span>
               <span className="font-mono text-maia-text">{registeredId}</span>
             </div>
-            <div className="flex justify-between text-xs">
+            <div className="flex justify-between text-[13px]">
               <span className="text-maia-text-muted">状态</span>
               <Badge variant="success">已注册</Badge>
             </div>

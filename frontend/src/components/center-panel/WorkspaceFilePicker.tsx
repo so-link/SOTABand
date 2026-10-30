@@ -51,14 +51,14 @@ export function WorkspaceFilePicker({ onSelect, onClose }: Props) {
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
               placeholder="搜索文件名…"
-              className="flex-1 bg-transparent text-[12px] outline-none placeholder:text-maia-text-muted"
+              className="flex-1 bg-transparent text-[13px] outline-none placeholder:text-maia-text-muted"
             />
           </div>
         </div>
 
         <div className="flex-1 overflow-auto px-2 py-2">
           {filtered.length === 0 ? (
-            <div className="text-center text-[12px] text-maia-text-muted py-8">
+            <div className="text-center text-[13px] text-maia-text-muted py-8">
               {files.length === 0
                 ? '工作区暂无文件，请先在左侧「工作区间」上传 / 导入文件'
                 : '没有匹配的文件'}
@@ -72,8 +72,8 @@ export function WorkspaceFilePicker({ onSelect, onClose }: Props) {
                 title={f.path}
               >
                 <FileIcon className="h-3.5 w-3.5 text-maia-text-muted shrink-0" />
-                <span className="text-[12px] text-maia-text truncate">{f.name}</span>
-                <span className="ml-auto text-[10px] text-maia-text-muted truncate max-w-[220px] opacity-0 group-hover:opacity-100">
+                <span className="text-[13px] text-maia-text truncate">{f.name}</span>
+                <span className="ml-auto text-[12px] text-maia-text-muted truncate max-w-[220px] opacity-0 group-hover:opacity-100">
                   {f.path}
                 </span>
               </button>
@@ -81,7 +81,7 @@ export function WorkspaceFilePicker({ onSelect, onClose }: Props) {
           )}
         </div>
 
-        <div className="px-4 py-2 border-t border-maia-border flex items-center gap-2 text-[11px] text-maia-text-muted">
+        <div className="px-4 py-2 border-t border-maia-border flex items-center gap-2 text-[12px] text-maia-text-muted">
           <Folder className="h-3.5 w-3.5" />
           共 {files.length} 个文件
         </div>
