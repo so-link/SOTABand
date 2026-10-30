@@ -761,30 +761,21 @@ async def test_agent_api(agent_id: str, req: TestApiRequest):
 
     走本机回环（127.0.0.1），避免前端跨域与外部网络问题。
     """
-    import httpx
+    try:
+        import httpx
+    except ModuleNotFoundError:  # 部分环境仅提供 httpx2（同 API 的延续包）
+        import httpx2 as httpx
 
     svc = agent_factory.get_service(agent_id)
     if not svc or not svc.get("port"):
         raise HTTPException(400, f"Agent '{agent_id}' 的 HTTP 服务未运行，请先启动")
 
-    # 在 API 定义中查找路径与方法
-    entry = await registry.get(agent_id)
+    # 在 API 定义中查找路径与方法（复用双根检索，内置 Agent 的规范同样可见）
+    spec = _load_agent_spec(agent_id)
     api_def = None
-    base = registry._get_spec_dir()
-    spec_path = entry.get("spec_path") if entry else None
-    for cand in ([base / spec_path] if spec_path else []) + [base / f"{agent_id}.md"]:
-        if cand and cand.exists():
-            from core.agent.base import AgentSpec, AgentRole
-            from core.agent.entrypoint import _parse_role_from_md
-
-            raw = cand.read_text(encoding="utf-8")
-            spec = AgentSpec(id=agent_id, name=agent_id,
-                             role=_parse_role_from_md(raw), raw_md=raw)
-            spec.parse_structured_fields()
-            for a in spec.apis or []:
-                if a.get("name") == req.api_name:
-                    api_def = a
-                    break
+    for a in (spec.apis or []) if spec else []:
+        if a.get("name") == req.api_name:
+            api_def = a
             break
 
     if api_def is None:
