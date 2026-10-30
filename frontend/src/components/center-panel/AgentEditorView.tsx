@@ -333,7 +333,7 @@ function Step1Description() {
 
   // ═══ Render ═══
   return (
-    <div className="max-w-4xl mx-auto relative flex flex-col min-h-full">
+    <div className="max-w-5xl mx-auto relative flex flex-col min-h-full">
       <h3 className="text-lg font-semibold text-maia-text-heading mb-2">
         Step 1: 描述你的 Agent 需求
       </h3>
@@ -488,7 +488,7 @@ function Step2Review() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto">
+    <div className="max-w-5xl mx-auto">
       <h3 className="text-lg font-semibold text-maia-text-heading mb-2">
         Step 2: 审阅 &amp; 编辑 MD 规范文档
       </h3>
@@ -565,7 +565,7 @@ function Step3Verify() {
   const failed = (sandboxResults as Record<string, unknown>)?.failed as string[] || []
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-lg font-semibold text-maia-text-heading">
           Step 3: 代码预览 &amp; 沙箱核验
