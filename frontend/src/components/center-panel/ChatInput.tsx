@@ -137,7 +137,7 @@ export function ChatInput() {
   }
 
   return (
-    <div className="border-t border-maia-border bg-maia-surface px-4 py-3">
+    <div className="border-t border-maia-border bg-maia-surface px-4 pt-3 pb-2.5">
       <div className="max-w-3xl mx-auto">
         {/* Attachment bar */}
         {(attachedFiles.length > 0 || pathRefs.length > 0) && (
@@ -145,7 +145,7 @@ export function ChatInput() {
             {pathRefs.map((ref, i) => (
               <div
                 key={`${ref.name}-${i}`}
-                className="flex items-center gap-1 rounded-full bg-blue-500/15 border border-blue-500/40 px-2.5 py-1 text-[11px] tracking-wide text-blue-600 dark:text-blue-400"
+                className="flex items-center gap-1 rounded-full bg-blue-500/15 border border-blue-500/40 px-2.5 py-1 text-[12px] text-blue-600 dark:text-blue-400"
                 title={`${ref.path}`}
               >
                 <Folder className="h-3 w-3" />
@@ -161,7 +161,7 @@ export function ChatInput() {
             {attachedFiles.map((file) => (
               <div
                 key={file.id}
-                className="flex items-center gap-1 rounded-full bg-maia-accent-light border border-maia-accent-border px-2.5 py-1 text-[11px] tracking-wide text-maia-accent"
+                className="flex items-center gap-1 rounded-full bg-maia-accent-light border border-maia-accent-border px-2.5 py-1 text-[12px] text-maia-accent"
               >
                 <Paperclip className="h-3 w-3" />
                 <span className="max-w-[120px] truncate">{file.fileName}</span>
@@ -179,7 +179,7 @@ export function ChatInput() {
         {/* Text input area */}
         <div
           className={`flex items-end gap-2 bg-maia-sidebar rounded-xl border p-2 transition-colors ${
-            isDragOver ? 'border-maia-accent border-2' : 'border-maia-border/50'
+            isDragOver ? 'border-maia-accent border-2' : 'border-maia-border focus-within:border-maia-accent/50'
           }`}
         >
           <textarea
@@ -193,16 +193,16 @@ export function ChatInput() {
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
-            placeholder={isSending ? '工具执行中...' : '输入你的需求... (Enter 发送，Shift+Enter 换行)'}
+            placeholder={isSending ? '工具执行中…' : '输入你的需求…'}
             rows={1}
-            className="flex-1 bg-transparent text-[13px] tracking-wide outline-none focus-visible:outline-none resize-none max-h-[150px] placeholder:text-maia-text-muted"
+            className="flex-1 bg-transparent px-1 py-1.5 text-[14px] leading-[22px] text-maia-text outline-none focus-visible:outline-none resize-none min-h-[32px] max-h-[150px] placeholder:text-maia-text-muted"
             disabled={isSending}
           />
           {isSending ? (
             <Button
               size="icon"
               onClick={handleSend}
-              className="shrink-0 h-8 w-8 rounded-lg bg-red-500 hover:bg-red-600 text-white"
+              className="shrink-0 h-8 w-8 rounded-lg bg-maia-danger hover:bg-maia-danger/90 text-white"
             >
               <Square className="h-3.5 w-3.5 fill-current" />
             </Button>
@@ -218,17 +218,19 @@ export function ChatInput() {
           )}
         </div>
 
-        <div className="flex items-center gap-3 mt-1.5 text-[10px] tracking-wide text-maia-text-muted">
+        <div className="flex items-center gap-3 mt-2 text-[12px] text-maia-text-muted min-w-0">
           {isUploading ? (
-            <span className="flex items-center gap-1">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              正在上传...
+            <span className="flex items-center gap-1 whitespace-nowrap">
+              <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+              正在上传…
             </span>
           ) : (
-            <span>🖱️ 拖拽文件/目录到输入框，提交时自动填入完整路径</span>
+            <span className="flex items-center gap-1 whitespace-nowrap min-w-0">
+              <Folder className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">拖拽文件自动填入路径</span>
+            </span>
           )}
-          <span>@ 提及 Agent</span>
-          <span>/ 命令</span>
+          <span className="ml-auto whitespace-nowrap hidden sm:inline">Enter 发送 · Shift+Enter 换行</span>
         </div>
       </div>
     </div>

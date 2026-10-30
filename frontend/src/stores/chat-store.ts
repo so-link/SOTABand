@@ -40,15 +40,7 @@ function genId(): string {
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
-  messages: [
-    {
-      id: 'msg-welcome',
-      role: 'system',
-      content:
-        '欢迎回来！当前工作区间：**my_project/**  \n上次处理了 eeg_data/subj01.edf  \n可用工具：8 · 可用Agent：6 · 任务历史：3',
-      timestamp: new Date().toISOString(),
-    },
-  ],
+  messages: [],
   isSending: false,
   attachedFiles: [],
   inputText: '',
@@ -106,16 +98,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((s) => ({ messages: [...s.messages, msg] })),
 
   clearMessages: () =>
-    set({
-      messages: [
-        {
-          id: 'msg-welcome',
-          role: 'system',
-          content: '对话已清空。有什么可以帮你的？',
-          timestamp: new Date().toISOString(),
-        },
-      ],
-    }),
+    set({ messages: [] }),
 
   stopMessage: () => {
     chatService.stopChat().catch(() => {})
@@ -202,7 +185,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         set((s) => ({
           messages: s.messages.map((m) =>
             m.id === agentMsgId
-              ? { ...m, content: `⚠️ ${errMsg || '响应失败，请重试。'}` }
+              ? { ...m, content: `[WARN] ${errMsg || '响应失败，请重试。'}` }
               : m
           ),
         }))

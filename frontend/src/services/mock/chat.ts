@@ -143,8 +143,8 @@ function getDefaultResponse(text: string): { response: string; cards?: InlineCar
 
 当前工作区间有 4 个数据集可用，工具空间有 8 个工具。你可以：
 - 📎 从左侧拖拽数据文件到对话框，将其作为任务输入
-- 🔧 浏览工具空间查看可用工具
-- 🤖 指定要使用的 Agent
+- 浏览工具空间查看可用工具
+- 指定要使用的 Agent
 
 请提供更多细节，我好为你精准匹配资源。`,
     cards: [],

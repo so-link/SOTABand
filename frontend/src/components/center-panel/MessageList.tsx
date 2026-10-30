@@ -67,9 +67,9 @@ export function MessageList({ messages, isSending }: MessageListProps) {
         ))}
 
         {isSending && (
-          <div className="flex items-center gap-2 text-gray-400 text-xs py-2">
-            <Loader2 className="h-3 w-3 animate-spin" />
-            处理中...
+          <div className="flex items-center gap-2 text-maia-text-muted text-[13px] py-1">
+            <Loader2 className="h-3 w-3 animate-spin text-maia-accent" />
+            正在处理…
           </div>
         )}
       </div>
