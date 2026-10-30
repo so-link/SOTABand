@@ -2026,6 +2026,18 @@ async def import_tool(file: UploadFile = File(...), overwrite: bool = Form(False
     except tool_package.PackageError as e:
         raise HTTPException(400, str(e))
 
+    # 落盘前静态安全审查：与 /register 同一闸门，被阻断的代码不落盘。
+    from core.security.code_scan import scan_code as _scan_code
+    for rel, raw in pkg["impl_files"].items():
+        if not rel.endswith(".py"):
+            continue
+        _scan = _scan_code(raw.decode("utf-8", errors="replace"))
+        if not _scan.ok:
+            raise HTTPException(
+                400,
+                f"工具包 {rel} 静态安全审查未通过：\n" + "\n".join(_scan.errors),
+            )
+
     tool_id = pkg["tool_id"]
     existed = await registry.get(tool_id)
     if existed and not overwrite:

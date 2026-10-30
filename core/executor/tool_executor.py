@@ -26,6 +26,25 @@ class ToolExecutor:
     """
 
     @staticmethod
+    def _security_gate(code: str) -> dict | None:
+        """执行前静态安全闸门：命中阻断项返回失败结果，放行返回 None。
+
+        这里是所有执行路径（/test、/{id}/execute、Agent 调用、自动调试）
+        共享的最后闸门——注册/保存/导入在落盘前已拦截，但存量工具与
+        直接传码执行仍需执行前复查。
+        """
+        from core.security.code_scan import scan_code
+
+        scan = scan_code(code)
+        if scan.ok:
+            return None
+        return {
+            "status": "failed",
+            "message": "静态安全审查未通过：\n" + "\n".join(scan.errors),
+            "security_scan": scan.to_dict(),
+        }
+
+    @staticmethod
     def _project_root() -> Path:
         """项目根目录"""
         return Path(__file__).resolve().parent.parent.parent
@@ -158,6 +177,10 @@ class ToolExecutor:
                 return {"status": "failed", "message": f"工具代码不存在: {impl_file}"}
             code = impl_file.read_text(encoding='utf-8')
 
+        blocked = cls._security_gate(code)
+        if blocked is not None:
+            return blocked
+
         tool_dir = str(impl_dir)
         script = cls._build_script(code, params, tool_dir, project_root)
 
@@ -232,6 +255,10 @@ class ToolExecutor:
             if not impl_file.exists():
                 return {"status": "failed", "message": f"工具代码不存在: {impl_file}"}
             code = impl_file.read_text(encoding='utf-8')
+
+        blocked = cls._security_gate(code)
+        if blocked is not None:
+            return blocked
 
         tool_dir = str(impl_dir)
         script = cls._build_script(code, params, tool_dir, project_root)

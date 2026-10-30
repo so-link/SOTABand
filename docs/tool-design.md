@@ -315,7 +315,7 @@ def _resolve_path(path: str) -> str: ...
 - **阻断项（errors）**：几乎只用于破坏/逃逸的调用——shell 执行（`os.system`/`os.popen`/`subprocess.getoutput` 等）、动态执行（`eval`/`exec`/`compile`/`__import__`）、直接删除原语（`os.remove`/`shutil.rmtree` 等）、原始套接字与 FFI（`socket`/`ctypes`/`pty`/`resource`）、动态导入（`importlib.import_module`）。命中即不执行，返回 `exit_code=1` 的失败结果，`stderr` 携带中文错误清单——自动调试循环把它喂给 LLM，下一轮重写代码。
 - **警告项（warnings）**：合法工具常见能力（subprocess 跑本地命令、`open` 读写文件、requests 联网），以及需要人工确认的可疑信号——字符串字面量中的 `../` 上跳路径（拼接用户输入可能越权出 TOOL_DIR）、字面量 URL 指向本机/内网/链路本地地址。工具在独立子进程运行，警告项属于平台信任模型允许的范围，记录展示但不阻断；error 级判定需要数据流分析（参数是否来自用户输入），静态层不做，宁可漏报不误杀。
 
-设计基线是「对全部内置工具零误杀」，直接运行 `python -m core.security.code_scan` 即回归复核（扫描内置工具 `tool.py`，应输出 0 errors）。同样的闸门共三处：沙箱执行入口、`POST /api/tool/register`、`PUT /api/tool/{id}/save-code`（后两者命中返回 400 + 错误明细），确保被阻断的代码既跑不起来、也落不了盘。
+设计基线是「对全部内置工具零误杀」，直接运行 `python -m core.security.code_scan` 即回归复核（扫描内置工具 `tool.py`，应输出 0 errors）。闸门分布：**落盘前**——`POST /api/tool/register`、`POST /api/tool/{id}/save-code`、`POST /api/tool/import`（对包内全部 `.py` 成员审查，命中 400，被阻断的代码不落盘）；**执行前**——`ToolExecutor.execute/execute_sync` 入口统一复查（对话执行、沙箱测试、Agent 调用、自动调试共享这同一 choke point，存量工具也无法绕过），沙箱执行入口 `sandbox_execute` 额外前置一层以便自动调试循环拿到结构化错误重写代码。
 
 ---
 

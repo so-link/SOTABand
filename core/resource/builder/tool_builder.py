@@ -626,9 +626,9 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
 
         tid = tool_id or "sandbox"
 
-        # 静态安全审查（todo 3.2）：命中阻断项则拒绝执行。
-        # 自动调试的 LLM 修订路径已在前置 generate-code 处把关；
-        # 这里覆盖直接调用沙箱的路径，作为执行前的最后闸门。
+        # 静态安全审查（todo 3.2）：命中阻断项则拒绝执行，stderr 携带
+        # 错误清单回流自动调试循环。ToolExecutor 内还有统一 choke point
+        # 兜底；这一层前置的意义是让沙箱路径尽早失败、事件结构清晰。
         from core.security.code_scan import scan_code
         scan = scan_code(code)
         if not scan.ok:
