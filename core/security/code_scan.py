@@ -334,6 +334,40 @@ def scan_code(code: str) -> ScanResult:
                     res.warnings.append(
                         f"第 {node.lineno} 行出现 {c.value} 量级的乘法尺寸表达式，请确认内存占用")
                     break
+
+    # 递归深度异常（todo 3.2 检查项 4 补遗，warning 级）：函数在自身作用域
+    # （不含嵌套 def/lambda/class）内调用自己，且作用域内没有任何
+    # if / 三元 / match / try / assert —— 即「无守卫自递归」，运行必然
+    # RecursionError。守卫判定是作用域级的粗粒度：只要函数体内出现过任一
+    # 守卫结构就放行（宁可漏报，不误报）。互递归/经变量间接递归静态不可判，
+    # 接受漏报。
+    def _selfcall_unguarded(fn) -> bool:
+        selfcall = False
+        guarded = False
+        stack = list(ast.iter_child_nodes(fn))
+        while stack:
+            x = stack.pop()
+            if isinstance(x, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
+                continue  # 嵌套定义是另一个作用域（其内部自递归另行检测）
+            if isinstance(x, ast.Call):
+                f = x.func
+                if (isinstance(f, ast.Name) and f.id == fn.name) or (
+                        isinstance(f, ast.Attribute) and f.attr == fn.name
+                        and isinstance(f.value, ast.Name)
+                        and f.value.id in ("self", "cls")):
+                    selfcall = True
+            elif isinstance(x, (ast.If, ast.IfExp, ast.Match, ast.Try, ast.Assert)):
+                guarded = True
+            stack.extend(ast.iter_child_nodes(x))
+        return selfcall and not guarded
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) \
+                and _selfcall_unguarded(node):
+            res.warnings.append(
+                f"第 {node.lineno} 行：函数 {node.name}() 无条件调用自身且体内无"
+                " if/try/assert 等递归出口，运行将触发 RecursionError"
+                "（若为笔误请补收敛条件；互递归请忽略本提示）")
     return res
 
 
