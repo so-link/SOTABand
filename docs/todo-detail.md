@@ -30,12 +30,13 @@
 
 **所属子系统**：资源生命周期管理（`core/resource/`）→ 工具空间（`resources/tools/`）
 
-**内涵**：实现工具在不同 SOTABand 实例之间的迁移能力。当前工具在本地生成、注册、存储，但缺乏跨实例的导出/导入机制。需要设计标准化的工具包格式（包含 MD 规范文档、Python 代码、依赖声明、版本信息），支持一键导出为压缩包、在另一个实例中导入并自动注册到工具仓库。这是工具空间从「单机孤岛」走向「可流通资产」的关键一步。
+**内涵**：实现工具在不同 SOTABand 实例之间的迁移能力（已落地）。工具以标准化 zip 归档流通：`core/resource/tool_package.py` 定义归档格式（manifest.json + registry.json + definitions/ + impl/，排除 `.venv`/`__pycache__`，含 zip-slip、zip 炸弹、非法 id 防护），`GET /api/tool/{id}/export` 导出（内置与私有工具均可，内置为只读导出），`POST /api/tool/import` 导入到私有根并复用 `registry.register()` 自动完成注册登记；同名冲突返回 409，前端确认后带 `overwrite` 重试。依赖清单 `requirements.txt`（uv 精确 pin）随包走，导入不自动安装、首次运行时按既有 check-deps/install-deps 链路懒安装。这是工具空间从「单机孤岛」走向「可流通资产」的关键一步。
 
 **关联架构**：
 - 工具空间（`resources/tools/`）：管理工具的元数据、代码存储位置、版本信息
-- 资源注册中心（`registry.py`）：导入时自动完成注册登记
-- 资源生命周期管理器（`lifecycle.py`）：处理导入时的版本冲突与合并策略
+- 归档模块（`core/resource/tool_package.py`）：打包/解包与安全校验
+- 资源注册中心（`core/resource/registry/tool_registry.py`）：导入时自动完成注册登记（写只进私有根，按 id 替换）
+- 版本冲突处理：导入端 409 + `overwrite` 覆盖重试；覆盖内置同名工具时响应 `overrode_builtin` 提示遮蔽关系（独立的 `lifecycle.py` 生命周期管理器为规划中的目标模块，当前冲突与合并策略由导入端点直接实现）
 
 ### 2.2 工具跨平台稳定运行
 

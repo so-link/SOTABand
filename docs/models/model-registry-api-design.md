@@ -139,7 +139,7 @@
 |------|------|
 | `core/resource/registry/model_registry.py` | 模型注册中心，继承 BaseRegistry |
 | `core/api/implementations/api_model.py` | 模型 API 实现（ApiModelRegister + ApiModelGet） |
-| `resources/models/registry.json` | 模型注册表（初始为空数组 `[]`） |
+| `resources/models/registry.json` | 模型注册表（随训练产物持续积累记录，权重路径多为训练机绝对路径） |
 | `resources/models/definitions/` | 模型 MD 规范文档目录 |
 | `resources/models/models/` | 模型权重文件存储目录 |
 | `core/api/definitions/api-model-register.md` | 注册模型 API 的 MD 规范文档 |
