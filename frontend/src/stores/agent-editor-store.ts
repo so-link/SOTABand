@@ -55,6 +55,84 @@ export const AGENT_ROLE_TEMPLATES: Record<AgentRoleChoice, string> = {
 - 输出：JSON 响应。`,
 }
 
+export interface AgentDebugRound {
+  round: number
+  stdout: string
+  stderr: string
+  success: boolean
+  analysis: string
+  code?: string
+}
+
+/** 从 MD frontmatter 解析 id/name/role（与 agent.ts 的解析规则一致） */
+export function parseAgentMeta(specMd: string): { agentId: string; agentName: string; role: string } {
+  return {
+    agentId: specMd.match(/^id:\s*(.+)$/m)?.[1]?.trim() || 'custom-agent',
+    agentName: specMd.match(/^name:\s*(.+)$/m)?.[1]?.trim() || 'Custom Agent',
+    role: specMd.match(/^role:\s*(.+)$/m)?.[1]?.trim() || 'task',
+  }
+}
+
+export interface TestParamDef {
+  name: string
+  type: string
+  required: boolean
+  desc: string
+}
+
+/** 从 MD 规范解析测试参数定义：
+ * - task/interactive：「输入规范」表格行 `| 字段 | 类型 | 必填 | 说明 |`
+ * - web-service：```apis 声明块中各 API 的 params（跨 API 按名称去重合并）
+ */
+export function parseTestParamDefs(specMd: string, role: string): TestParamDef[] {
+  const defs: TestParamDef[] = []
+  const seen = new Set<string>()
+  const push = (d: TestParamDef) => {
+    if (d.name && !seen.has(d.name)) { seen.add(d.name); defs.push(d) }
+  }
+  if (role === 'web-service') {
+    const m = specMd.match(/```apis\s*\n([\s\S]*?)```/)
+    if (m) {
+      try {
+        const apis = JSON.parse(m[1])
+        if (Array.isArray(apis)) {
+          for (const api of apis) {
+            for (const p of api?.params || []) {
+              if (p && typeof p.name === 'string') {
+                push({ name: p.name, type: p.type || 'string', required: Boolean(p.required), desc: p.desc || '' })
+              }
+            }
+          }
+        }
+      } catch { /* apis JSON 非法时回退到输入规范表 */ }
+    }
+  }
+  // 「输入规范」表格（三类通用兜底；web-service 无 apis 声明时也走这里）
+  const sec = specMd.match(/#+\s*[^\n]*输入规范[^\n]*\n([\s\S]*?)(?=\n#+\s|\s*$)/)
+  if (sec) {
+    for (const line of sec[1].split('\n')) {
+      const row = line.trim()
+      if (!row.startsWith('|')) continue
+      const cells = row.replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim())
+      if (cells.length < 3) continue
+      const [name, type, req, desc] = cells
+      if (!name || name === '字段' || /^-+$/.test(name)) continue
+      push({ name, type: type || 'string', required: req === '是' || req.toLowerCase() === 'yes', desc: desc || '' })
+    }
+  }
+  return defs
+}
+
+/** 按参数定义初始化测试输入（空值占位，用户填写后保留） */
+export function initTestInputs(specMd: string): Record<string, string> {
+  const { role } = parseAgentMeta(specMd)
+  const inputs: Record<string, string> = {}
+  for (const d of parseTestParamDefs(specMd, role)) {
+    if (!(d.name in inputs)) inputs[d.name] = ''
+  }
+  return inputs
+}
+
 interface AgentEditorState {
   step: EditorStep
   /** 新建 Agent 时选择的类型（null 表示尚未选择，需先选类型再填需求） */
@@ -80,17 +158,27 @@ interface AgentEditorState {
   saveState: 'idle' | 'dirty' | 'saving' | 'saved' | 'error'
   saveError: string | null
 
+  // ── 自动调试（todo 4.3）──
+  testInputs: Record<string, string>
+  debugRounds: AgentDebugRound[]
+  debugStream: string
+  isAutoDebugging: boolean
+  abortController: AbortController | null
+
   // Autocomplete data (lazy-loaded)
   apiItems: AutocompleteItem[]
   toolItems: AutocompleteItem[]
 
   setDescription: (text: string) => void
+  setTestInput: (key: string, value: string) => void
   /** 选择 Agent 类型；若需求框为空则自动填入该类型默认模板 */
   setAgentRole: (role: AgentRoleChoice) => void
   setGeneratedMd: (md: string) => void
   setGeneratedCode: (code: string) => void
   generateSpec: () => Promise<void>
   generateCode: () => Promise<void>
+  autoDebug: () => Promise<void>
+  stopAutoDebug: () => void
   registerAgent: () => Promise<void>
   setStep: (step: EditorStep) => void
   reset: () => void
@@ -134,10 +222,17 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
   baselineMd: '',
   saveState: 'idle',
   saveError: null,
+  testInputs: {},
+  debugRounds: [],
+  debugStream: '',
+  isAutoDebugging: false,
+  abortController: null,
   apiItems: [],
   toolItems: [],
 
   setDescription: (text) => set({ description: text }),
+
+  setTestInput: (key, value) => set((s) => ({ testInputs: { ...s.testInputs, [key]: value } })),
 
   setAgentRole: (role) => {
     const { description } = get()
@@ -167,6 +262,10 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
       editingAgentId: null,
       editingAgentName: '',
       baselineCode: '',
+      testInputs: {},
+      debugRounds: [],
+      debugStream: '',
+      isAutoDebugging: false,
     }),
 
   // 编辑已发布 Agent：保留现有 MD 与代码，直接从 step 2（审阅）开始，
@@ -187,6 +286,10 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
       isGenerating: false,
       saveState: 'idle',
       saveError: null,
+      testInputs: initTestInputs(specMd),
+      debugRounds: [],
+      debugStream: '',
+      isAutoDebugging: false,
     }),
 
   // 手工微调代码后，让 AI 依据代码改动反向更新 MD 规范文档，
@@ -348,12 +451,129 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
       set({
         generatedCode: result.code,
         sandboxResults: result.sandbox_results,
+        testInputs: initTestInputs(generatedMd),
+        debugRounds: [],
+        debugStream: '',
         step: 3,
         isGenerating: false,
       })
     } catch (e) {
       set({ error: String(e), isGenerating: false })
     }
+  },
+
+  // ── 自动调试（todo 4.3）──
+  // 循环由后端 SSE 驱动（沙箱试运行 entrypoint 子进程 → LLM 修复 → 再跑）。
+  // 前端职责：转发事件到 debugRounds/debugStream、把 code_updated 写回
+  // generatedCode、异常/中断时兜底调用后端 stop 端点。
+  autoDebug: async () => {
+    const { generatedMd, generatedCode } = get()
+    if (!generatedCode.trim()) return
+    const { agentId, agentName, role } = parseAgentMeta(generatedMd)
+
+    const controller = new AbortController()
+    set({ isAutoDebugging: true, abortController: controller, error: null, debugRounds: [], debugStream: '' })
+
+    try {
+      await agentApi.autoDebug({
+        specMd: generatedMd,
+        agentId,
+        agentName,
+        role,
+        code: generatedCode,
+        testInputs: get().testInputs,
+        signal: controller.signal,
+        onEvent: (eventType, data) => {
+          switch (eventType) {
+            case 'debug_start':
+              set({ debugStream: `🚀 Agent 自动调试启动 (最多 ${data.max_rounds} 轮)\n` })
+              break
+            case 'round_start':
+              set((s) => ({ debugRounds: [...s.debugRounds, { round: Number(data.round), stdout: '', stderr: '', success: false, analysis: '' }] }))
+              break
+            case 'exec_result':
+              set((s) => {
+                const rounds = [...s.debugRounds]; const last = rounds[rounds.length - 1]
+                if (last) { last.stdout = String(data.stdout || ''); last.stderr = String(data.stderr || ''); last.success = Boolean(data.success) }
+                return { debugRounds: rounds }
+              })
+              break
+            case 'thinking':
+              set((s) => {
+                const rounds = [...s.debugRounds]; const last = rounds[rounds.length - 1]
+                if (last) {
+                  const msg = (data.message as string) || ''
+                  if (msg.includes('过短') || msg.includes('跳过') || msg.includes('补回')) {
+                    last.analysis = last.analysis ? `${last.analysis}\n[WARN] ${msg}` : `[WARN] ${msg}`
+                  } else if (!last.analysis) {
+                    last.analysis = 'LLM 分析中...'
+                  }
+                }
+                return { debugRounds: rounds }
+              })
+              break
+            case 'thinking_stream':
+              set((s) => {
+                const rounds = [...s.debugRounds]; const last = rounds[rounds.length - 1]
+                if (last) {
+                  if (last.analysis === 'LLM 分析中...' || last.analysis.startsWith('LLM 分析中')) last.analysis = ''
+                  last.analysis += (data.token || '')
+                }
+                return { debugRounds: rounds }
+              })
+              break
+            case 'analysis_result':
+              set((s) => {
+                const rounds = [...s.debugRounds]; const last = rounds[rounds.length - 1]
+                if (last) last.analysis = (data.analysis as string) || ''
+                return { debugRounds: rounds }
+              })
+              break
+            case 'llm_error':
+              set((s) => {
+                const rounds = [...s.debugRounds]; const last = rounds[rounds.length - 1]
+                if (last) {
+                  const msg = (data.message as string) || 'LLM 调用异常'
+                  last.analysis = last.analysis && last.analysis !== 'LLM 分析中...'
+                    ? `${last.analysis}\n❌ ${msg}` : `❌ ${msg}`
+                }
+                return { debugRounds: rounds }
+              })
+              break
+            case 'code_updated':
+              set({ generatedCode: String(data.code || '') })
+              set((s) => {
+                const rounds = [...s.debugRounds]; const last = rounds[rounds.length - 1]
+                if (last) last.code = String(data.code || '')
+                return { debugRounds: rounds }
+              })
+              break
+            case 'done':
+            case 'stopped':
+              if (data.code) set({ generatedCode: String(data.code) })
+              set({ isAutoDebugging: false, abortController: null })
+              break
+          }
+        },
+      })
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') {
+        set({ isAutoDebugging: false, abortController: null })
+      } else {
+        set({ error: String(e), isAutoDebugging: false, abortController: null })
+      }
+      // 异常退出时兜底调用后端 stop 端点，确保后台循环也停止
+      agentApi.stopAutoDebug(agentId).catch(() => {})
+    }
+  },
+
+  stopAutoDebug: () => {
+    const { abortController, generatedMd } = get()
+    if (abortController) abortController.abort()
+    const { agentId } = parseAgentMeta(generatedMd)
+    // 同时调用后端 stop 端点（即使 SSE 连接已断开也能可靠停止）
+    agentApi.stopAutoDebug(agentId).catch(() => {})
+    set({ isAutoDebugging: false, abortController: null })
   },
 
   registerAgent: async () => {

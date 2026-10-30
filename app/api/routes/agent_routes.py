@@ -4,7 +4,7 @@ import asyncio
 import re
 import time
 from pathlib import Path
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Form, HTTPException
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -321,6 +321,95 @@ async def generate_code(req: GenerateCodeRequest):
     sandbox = await builder.dry_run(code)
 
     return {"code": code, "sandbox_results": sandbox}
+
+
+# ── 自动调试（todo 4.3）──
+
+@router.post("/auto-debug")
+async def agent_auto_debug(
+    spec_md: str = Form(""),
+    agent_id: str = Form(""),
+    agent_name: str = Form(""),
+    role: str = Form("task"),
+    code: str = Form(""),
+    test_input_json: str = Form("{}"),
+):
+    """Agent 代码自动调试：SSE 流式返回每轮试运行结果和 LLM 分析。
+
+    循环：沙箱试运行（entrypoint 子进程，按角色语义验证）→ LLM 分析错误 →
+    整文件重写 → 每轮重写后重跑静态安全审查与试运行，最多 max_rounds 轮。
+    用户关闭 SSE 连接（前端 AbortController.abort()）时自动停止。
+    """
+    import json as _json
+
+    try:
+        test_input = _json.loads(test_input_json or "{}")
+    except _json.JSONDecodeError:
+        raise HTTPException(400, "test_input_json 不是合法 JSON")
+    if not isinstance(test_input, dict):
+        raise HTTPException(400, "test_input_json 必须是 JSON 对象")
+
+    agent_id = (agent_id or "").strip() or "custom-agent"
+    role = (role or "task").strip().lower()
+    if role in ("web_service", "webservice"):
+        role = "web-service"
+
+    if not code.strip():
+        if not spec_md.strip():
+            raise HTTPException(400, "code 与 spec_md 不能同时为空")
+        spec = {"raw_md": spec_md, "id": agent_id, "name": agent_name, "role": role}
+        code = await builder.build(spec)
+
+    from core.resource.builder.agent_builder import stop_debug
+
+    stop_event = asyncio.Event()
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def _producer():
+        try:
+            async for event in builder.auto_debug_stream(
+                spec_md, code, test_input, agent_id, role=role, stop_event=stop_event
+            ):
+                await queue.put(event)
+        except asyncio.CancelledError:
+            stop_event.set()
+        finally:
+            await queue.put(None)
+
+    producer_task = asyncio.create_task(_producer())
+
+    async def event_stream():
+        try:
+            while True:
+                event = await queue.get()
+                if event is None:
+                    break
+                yield {"event": event["event"], "data": _json.dumps(event, ensure_ascii=False)}
+        except asyncio.CancelledError:
+            stop_event.set()
+            producer_task.cancel()
+            try:
+                await asyncio.wait_for(producer_task, timeout=5.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+
+    return EventSourceResponse(event_stream())
+
+
+@router.post("/auto-debug/stop")
+async def agent_stop_auto_debug(req: dict):
+    """停止指定 Agent 的自动调试。
+
+    前端点击停止按钮、页面关闭、网络断开时都应调用此端点；
+    即使 SSE 连接已断开，也能通过全局标志可靠停止后台调试。
+    """
+    from core.resource.builder.agent_builder import stop_debug
+
+    agent_id = (req.get("agent_id") or "").strip()
+    if not agent_id:
+        raise HTTPException(400, "缺少 agent_id")
+    stop_debug(agent_id)
+    return {"status": "ok", "message": f"已请求停止 Agent {agent_id} 的调试"}
 
 
 @router.post("/register")

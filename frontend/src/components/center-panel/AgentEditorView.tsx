@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardBody } from '@/components/ui/card'
 import { useUIStore } from '@/stores/ui-store'
-import { useAgentEditorStore, AGENT_ROLE_OPTIONS } from '@/stores/agent-editor-store'
+import { useAgentEditorStore, AGENT_ROLE_OPTIONS, parseTestParamDefs, parseAgentMeta } from '@/stores/agent-editor-store'
 import { useTabIndent } from '@/hooks/use-tab-indent'
 import { useSaveShortcut } from '@/hooks/use-save-shortcut'
 
@@ -540,9 +540,11 @@ function Step2Review() {
 // ── Step 3: 代码核验 ─────────────────────────────────────────
 
 function Step3Verify() {
-  const { generatedCode, sandboxResults, registerAgent, setStep, isGenerating, error,
+  const { generatedMd, generatedCode, sandboxResults, registerAgent, setStep, isGenerating, error,
           setGeneratedCode, editingAgentId, editingAgentName, baselineCode,
-          syncSpecFromCode, saveCode } =
+          syncSpecFromCode, saveCode,
+          testInputs, setTestInput, debugRounds, debugStream,
+          isAutoDebugging, autoDebug, stopAutoDebug } =
     useAgentEditorStore()
   const [editingCode, setEditingCode] = useState(false)
 
@@ -563,6 +565,10 @@ function Step3Verify() {
 
   const passed = (sandboxResults as Record<string, unknown>)?.passed as string[] || []
   const failed = (sandboxResults as Record<string, unknown>)?.failed as string[] || []
+
+  // 测试参数定义：web-service 从 ```apis 声明解析，task/interactive 从输入规范表解析
+  const { role } = parseAgentMeta(generatedMd)
+  const paramDefs = parseTestParamDefs(generatedMd, role)
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -633,14 +639,54 @@ function Step3Verify() {
           )}
         </div>
 
-        {/* Sandbox panel */}
+        {/* 测试 & 自动调试面板 */}
         <div className="col-span-2">
           <div className="flex items-center gap-1.5 mb-2">
             <Play className="h-3.5 w-3.5 text-maia-accent" />
             <span className="text-[13px] font-medium text-maia-text-secondary">
-              沙箱测试
+              沙箱核验 &amp; 自动调试
             </span>
           </div>
+
+          {/* 测试输入表单 */}
+          {paramDefs.length > 0 && (
+            <div className="mb-2 space-y-2">
+              <div className="text-[12px] text-maia-text-muted uppercase font-semibold">测试参数</div>
+              {paramDefs.map((p) => (
+                <div key={p.name}>
+                  <div className="text-[12px] text-maia-text-muted mb-0.5 flex items-center gap-1">
+                    {p.name} <span className="text-maia-accent/60">({p.type})</span>
+                    {p.required && <span className="text-maia-danger">*</span>}
+                  </div>
+                  <input type="text" value={testInputs[p.name] || ''}
+                    onChange={(e) => setTestInput(p.name, e.target.value)}
+                    disabled={isAutoDebugging}
+                    className="w-full h-7 rounded border border-maia-border px-2 text-[13px] font-mono leading-[22px] outline-none focus:border-maia-accent disabled:opacity-50"
+                    placeholder={p.desc || p.name} />
+                </div>
+              ))}
+            </div>
+          )}
+          {paramDefs.length === 0 && (
+            <div className="text-[12px] text-maia-text-muted mb-2">
+              未从规范文档解析到输入参数，将以空输入试运行
+            </div>
+          )}
+
+          <div className="flex gap-1.5 mb-2">
+            {isAutoDebugging ? (
+              <Button variant="danger" size="sm" className="flex-1" onClick={stopAutoDebug}>
+                <XCircle className="h-3.5 w-3.5" /> 停止调试
+              </Button>
+            ) : (
+              <Button size="sm" className="flex-1" onClick={() => void autoDebug()}
+                disabled={isGenerating || isAutoDebugging || !code.trim()}>
+                <Rocket className="h-3.5 w-3.5" /> 自动调试
+              </Button>
+            )}
+          </div>
+
+          {/* 静态核验结果（生成时的 dry_run） */}
           <Card className="border-maia-border">
             <CardBody>
               <div className="space-y-1.5">
@@ -665,6 +711,47 @@ function Step3Verify() {
         </div>
       </div>
 
+      {/* 自动调试日志 */}
+      {(isAutoDebugging || debugRounds.length > 0) && (
+        <div className="mt-3 rounded-lg border border-maia-border bg-maia-bg/50 max-h-[320px] overflow-auto">
+          <div className="px-3 py-2 text-[12px] font-semibold text-maia-text-secondary border-b border-maia-border sticky top-0 bg-maia-bg/90 z-10">
+            🧠 自动调试日志 {isAutoDebugging && <Loader2 className="h-3 w-3 animate-spin inline ml-1" />}
+          </div>
+          <div className="p-2 space-y-1.5 font-mono text-[12px] text-maia-text-secondary">
+            {debugStream && (
+              <pre className="whitespace-pre-wrap break-all leading-relaxed text-[12px]">{debugStream}</pre>
+            )}
+            {debugRounds.map((round, i) => (
+              <div key={i}>
+                <div className="flex items-center gap-2 text-[12px]">
+                  <span className="text-maia-text-muted shrink-0">[第{round.round}轮]</span>
+                  <span className={round.success ? 'text-maia-success' : 'text-maia-danger'}>
+                    {round.success ? '通过' : '失败'}
+                  </span>
+                  {round.stdout && (
+                    <span className="text-maia-text-secondary truncate max-w-[200px]">{round.stdout.slice(0, 80)}</span>
+                  )}
+                </div>
+                {round.stderr && !round.success && (
+                  <pre className="text-maia-danger font-mono text-[12px] whitespace-pre-wrap break-all ml-14 mt-0.5 leading-relaxed max-h-[120px] overflow-auto">{round.stderr.slice(0, 1500)}</pre>
+                )}
+                {round.analysis && (
+                  <pre className="text-maia-success font-mono text-[12px] whitespace-pre-wrap break-all ml-14 mt-0.5 leading-relaxed">{round.analysis}</pre>
+                )}
+                {round.code && (
+                  <details className="ml-14 mt-1">
+                    <summary className="cursor-pointer text-[12px] text-blue-400 hover:text-blue-300 select-none">
+                      查看修改后的代码（{round.code.length} 字符）
+                    </summary>
+                    <pre className="text-maia-text-secondary font-mono text-[12px] whitespace-pre-wrap break-all mt-1 leading-relaxed border-l-2 border-blue-500/40 pl-2 max-h-[300px] overflow-auto">{round.code}</pre>
+                  </details>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {error && (
         <div className="flex items-center gap-1.5 mt-2 text-[13px] text-maia-danger">
           <XCircle className="h-3 w-3" />
@@ -673,18 +760,18 @@ function Step3Verify() {
       )}
 
       <div className="flex justify-between mt-4">
-        <Button variant="outline" onClick={() => setStep(2)}>
+        <Button variant="outline" onClick={() => setStep(2)} disabled={isAutoDebugging}>
           <ArrowLeft className="h-3.5 w-3.5" />
           返回修改 MD
         </Button>
         <div className="flex gap-2">
-          <Button variant="danger" onClick={() => setStep(1)}>
+          <Button variant="danger" onClick={() => setStep(1)} disabled={isAutoDebugging}>
             <XCircle className="h-3.5 w-3.5" />
             拒绝
           </Button>
           <Button
             onClick={registerAgent}
-            disabled={isGenerating || failed.length > 0}
+            disabled={isGenerating || isAutoDebugging || failed.length > 0}
           >
             {isGenerating ? (
               <>

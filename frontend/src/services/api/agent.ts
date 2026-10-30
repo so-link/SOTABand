@@ -93,6 +93,75 @@ export const agentApi = {
   },
 
   /**
+   * 自动调试（SSE 流）：试运行 → LLM 分析 → 改代码 → 再试运行。
+   * 事件回调与工具自动调试同构（debug_start/round_start/exec_result/
+   * thinking/thinking_stream/analysis_result/llm_error/code_updated/stopped/done）。
+   */
+  async autoDebug(params: {
+    specMd: string
+    agentId: string
+    agentName: string
+    role: string
+    code: string
+    testInputs: Record<string, unknown>
+    onEvent: (type: string, data: Record<string, unknown>) => void
+    signal?: AbortSignal
+  }): Promise<void> {
+    const form = new FormData()
+    form.append('spec_md', params.specMd)
+    form.append('agent_id', params.agentId)
+    form.append('agent_name', params.agentName)
+    form.append('role', params.role)
+    form.append('code', params.code)
+    form.append('test_input_json', JSON.stringify(params.testInputs))
+
+    const res = await fetch(`${BASE_URL}/api/agent/auto-debug`, { method: 'POST', body: form, signal: params.signal })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }))
+      throw new Error(err.detail || `HTTP ${res.status}`)
+    }
+
+    const reader = res.body?.getReader()
+    if (!reader) throw new Error('No response body')
+
+    // 监听 AbortSignal → 立即取消 reader，强制关闭 SSE 连接
+    const onAbort = () => reader.cancel()
+    params.signal?.addEventListener('abort', onAbort)
+
+    try {
+      const decoder = new TextDecoder()
+      let buffer = '', currentEvent = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n'); buffer = lines.pop() || ''
+        for (const line of lines) {
+          if (line.startsWith('event: ')) { currentEvent = line.slice(7).trim() }
+          else if (line.startsWith('data: ')) {
+            try { params.onEvent(currentEvent || 'message', JSON.parse(line.slice(6))) } catch { /* skip */ }
+            currentEvent = ''
+          } else if (line === '') { currentEvent = '' }
+        }
+      }
+    } finally {
+      params.signal?.removeEventListener('abort', onAbort)
+    }
+  },
+
+  async stopAutoDebug(agentId: string) {
+    const res = await fetch(`${BASE_URL}/api/agent/auto-debug/stop`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent_id: agentId }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }))
+      throw new Error(err.detail || `HTTP ${res.status}`)
+    }
+    return res.json()
+  },
+
+  /**
    * 代码 → 文档反向同步：
    * 使用者手工微调代码后，让 AI 把改动同步回 MD 规范文档。
    */

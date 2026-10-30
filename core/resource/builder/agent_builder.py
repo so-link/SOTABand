@@ -5,13 +5,44 @@
 """
 
 import ast
+import asyncio
 import json
+import os as _os
 import re
+import shutil
+import sys
+import threading
+from datetime import datetime
 from pathlib import Path
 
 from core.resource.builder.builder_base import BaseBuilder
 from core.resource import paths
 from core.llm.client import create_llm_client
+
+# ── 全局调试状态：线程安全的停止标志（与 tool_builder 同构，key=agent_id）──
+_debug_states: dict[str, bool] = {}
+_debug_lock = threading.Lock()
+
+
+def set_debug_running(agent_id: str):
+    with _debug_lock:
+        _debug_states[agent_id] = True
+
+
+def set_debug_stopped(agent_id: str):
+    with _debug_lock:
+        _debug_states.pop(agent_id, None)
+
+
+def is_debug_running(agent_id: str) -> bool:
+    with _debug_lock:
+        return _debug_states.get(agent_id, False)
+
+
+def stop_debug(agent_id: str):
+    with _debug_lock:
+        if agent_id in _debug_states:
+            _debug_states[agent_id] = False
 
 # ═══════════════════════════════════════════════════════════════════
 # 头文件模板 — 始终正确，非 LLM 生成
@@ -576,3 +607,711 @@ yield {{"event": "content", "data": {{"text": response}}}}
             results["passed"].append("无 __import__ hack")
 
         return results
+
+    # ══════════════════════════════════════════════════════════
+    # 沙箱试运行（自动调试每轮的真实执行）
+    # ══════════════════════════════════════════════════════════
+
+    @staticmethod
+    def _neutralize_port(spec_md: str) -> str:
+        """调试用 spec：把 server 块声明的固定端口强制改为自动分配。
+
+        调试目录每轮重建、进程随起随停，绝不允许占用固定端口
+        （尤其是 8200/8201 等本机在运行服务）。
+        """
+        def _repl(m: "re.Match[str]") -> str:
+            try:
+                cfg = json.loads(m.group(1))
+            except Exception:
+                return m.group(0)
+            if not isinstance(cfg, dict) or cfg.get("port") in (None, 0, "0"):
+                return m.group(0)
+            cfg["port"] = 0
+            return "```server\n" + json.dumps(cfg, ensure_ascii=False) + "\n```"
+
+        return re.sub(r"```server\s*\n(.*?)\n\s*```", _repl, spec_md, flags=re.DOTALL)
+
+    @staticmethod
+    def _http_call(method: str, url: str, payload: dict | None, timeout: float = 60) -> tuple[int, str]:
+        """回环 HTTP 调用（stdlib urllib，不依赖 httpx/httpx2）。返回 (状态码, 响应体文本)。"""
+        from urllib.error import HTTPError
+        from urllib.request import Request, urlopen
+
+        data = None
+        headers = {"Accept": "application/json"}
+        if payload is not None:
+            data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        req = Request(url, data=data, headers=headers, method=method.upper())
+        try:
+            with urlopen(req, timeout=timeout) as resp:
+                return resp.status, resp.read().decode("utf-8", "replace")
+        except HTTPError as e:
+            try:
+                body = e.read().decode("utf-8", "replace")
+            except Exception:
+                body = ""
+            return e.code, body
+
+    @staticmethod
+    def _api_test_params(api: dict, test_input: dict) -> dict:
+        """从 test_input 中解出某个 API 的请求参数。
+
+        支持三种形态（按优先级）：
+        - {"<api名>": {"params": {...}}}  /  {"<api名>": {...}}  —— 按 API 分组
+        - {"params": {...}}                        —— 统一参数
+        - 扁平 dict（第一个 API 直接使用整个 test_input）
+        """
+        name = api.get("name") or ""
+        if name and name in test_input:
+            v = test_input[name]
+            if isinstance(v, dict):
+                return v.get("params") if isinstance(v.get("params"), dict) else v
+        if isinstance(test_input.get("params"), dict):
+            return test_input["params"]
+        declared = [p.get("name") for p in (api.get("params") or []) if isinstance(p, dict) and p.get("name")]
+        if declared and any(k in test_input for k in declared):
+            return {k: v for k, v in test_input.items() if k in declared}
+        return dict(test_input)
+
+    async def _run_agent_once(
+        self,
+        code: str,
+        spec_md: str,
+        role: str,
+        test_input: dict,
+        agent_id: str,
+        round_timeout: float = 180,
+    ) -> dict:
+        """单次沙箱试运行：写私有调试目录 → 起 entrypoint 子进程 → 按角色语义判定成败。
+
+        不复用 agent_factory：factory.start 会对代码做 _auto_fix 改写并写盘，
+        且 _processes 会混入 _debug-* 条目。调试循环每轮都要用新代码重启进程，
+        factory 的常驻生命周期在此场景没有价值。
+
+        角色语义：
+        - interactive / task：stdin 发一条 execute 任务，流式收 stdout 事件直到
+          done；出现 error 事件 / 提前退出 / 超时 → 失败。
+        - web-service：等 service_ready 拿端口，用回环 HTTP 逐个调用 spec.apis
+          声明的 API（端口强制 0 自动分配）；全部 2xx 且无 error 事件 → 成功。
+        """
+        debug_id = f"_debug-{agent_id}"
+        # 静态安全审查（todo 3.2）：每轮试运行前先审，命中阻断项直接失败，
+        # 错误清单经 stderr 回流给 LLM 修复（与 tool_builder.sandbox_execute 同构）。
+        from core.security.code_scan import scan_code
+        scan = scan_code(code)
+        if not scan.ok:
+            msg = "静态安全审查未通过：\n" + "\n".join(f"- {e}" for e in scan.errors)
+            return {
+                "exit_code": 1,
+                "stdout": json.dumps({"status": "failed", "security_scan": scan.to_dict()}, ensure_ascii=False),
+                "stderr": msg,
+                "success": False,
+            }
+
+        impl_dir = paths.ensure_private_dirs("agents") / "implementations" / debug_id
+        impl_dir.mkdir(parents=True, exist_ok=True)
+        (impl_dir / "agent.py").write_text(code, encoding="utf-8")
+        (impl_dir / "spec.md").write_text(self._neutralize_port(spec_md), encoding="utf-8")
+
+        events: list[dict] = []
+        stderr_chunks: list[str] = []
+        proc = None
+
+        async def _collect_stderr() -> None:
+            while True:
+                chunk = await proc.stderr.read(2048)
+                if not chunk:
+                    break
+                stderr_chunks.append(chunk.decode("utf-8", "replace"))
+
+        def _fail(reason: str, extra_stdout: str = "") -> dict:
+            stdout = "\n".join(json.dumps(e, ensure_ascii=False) for e in events)
+            if extra_stdout:
+                stdout = stdout + "\n" + extra_stdout if stdout else extra_stdout
+            stderr = "".join(stderr_chunks)
+            if reason:
+                stderr = (stderr + "\n" if stderr else "") + f"[debug] {reason}"
+            if not stderr.strip() and not events and not extra_stdout:
+                stderr = "[debug] Agent 子进程无任何输出即退出"
+            return {"exit_code": 1, "stdout": stdout, "stderr": stderr, "success": False}
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable,
+                str(paths.PROJECT_ROOT / "core" / "agent" / "entrypoint.py"),
+                "--agent-id", debug_id,
+                "--impl-path", str(impl_dir),
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(paths.PROJECT_ROOT),
+            )
+            stderr_task = asyncio.create_task(_collect_stderr())
+
+            async def _next_event(wait: float) -> dict | None:
+                line = await asyncio.wait_for(proc.stdout.readline(), timeout=wait)
+                if not line:
+                    return None
+                line = line.strip()
+                if not line:
+                    return {}
+                try:
+                    return json.loads(line.decode("utf-8", "replace"))
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    return {}
+
+            async def _read_until_done(first: float, total_deadline: float) -> bool:
+                """持续读事件直到 done 或 error；EOF 返回 False。
+
+                error 视为终止事件：entrypoint 对 execute 抛出的异常只发
+                error 不发 done，若只等 done 会白等满超时。
+                """
+                nonlocal events
+                wait = first
+                while True:
+                    remaining = total_deadline - asyncio.get_running_loop().time()
+                    if remaining <= 0:
+                        raise asyncio.TimeoutError()
+                    ev = await _next_event(min(wait, remaining))
+                    wait = round_timeout
+                    if ev is None:
+                        return False
+                    if ev:
+                        events.append(ev)
+                        if ev.get("event") in ("done", "error"):
+                            return True
+
+            total_deadline = asyncio.get_running_loop().time() + round_timeout
+
+            if role == "web-service":
+                # 等 service_ready（加载失败时 entrypoint 会先发 error+done）
+                service_info = None
+                while True:
+                    remaining = total_deadline - asyncio.get_event_loop().time()
+                    if remaining <= 0:
+                        raise asyncio.TimeoutError()
+                    ev = await _next_event(min(30, remaining))
+                    if ev is None:
+                        break
+                    if not ev:
+                        continue
+                    events.append(ev)
+                    if ev.get("event") == "service_ready":
+                        service_info = ev.get("data") or {}
+                        break
+                    if ev.get("event") == "error":
+                        break
+                if service_info is None:
+                    return _fail("Web 服务未就绪（未收到 service_ready）")
+
+                port = service_info.get("port")
+                from core.agent.base import AgentSpec
+                _spec = AgentSpec(id=debug_id, name=debug_id)
+                _spec.raw_md = self._neutralize_port(spec_md)
+                try:
+                    _spec.parse_structured_fields()
+                except Exception:
+                    pass
+                api_specs = _spec.apis or []
+                if not api_specs:
+                    return _fail("spec 未声明任何 apis，无法进行 HTTP 验证")
+                bodies = []
+                for api in api_specs:
+                    method = (api.get("method") or "POST").upper()
+                    path = api.get("path") or "/"
+                    params = self._api_test_params(api, test_input)
+                    url = f"http://127.0.0.1:{port}{path}"
+                    try:
+                        status, body = await asyncio.to_thread(
+                            self._http_call, method, url,
+                            params if method != "GET" else None, 30)
+                    except Exception as e:
+                        return _fail(f"API {api.get('name')} 调用异常: {type(e).__name__}: {e}")
+                    bodies.append(f"### API {api.get('name')} {method} {path} → {status}\n{body[:2000]}")
+                    if status >= 300:
+                        events.append({"event": "error",
+                                       "data": {"message": f"API {api.get('name')} 返回 {status}"}})
+                        events.append({"event": "done", "data": {}})
+                        # 已成功的 API 结果 + 本次 5xx 响应体一并回流，供 LLM 定位
+                        return _fail("", "\n".join(bodies))
+                # 全部 API 通过 → 通知子进程优雅退出并执行 on_stop 清理
+                try:
+                    proc.stdin.write((json.dumps({"action": "stop"}) + "\n").encode())
+                    await proc.stdin.drain()
+                    proc.stdin.close()
+                except Exception:
+                    pass
+                stdout = "\n".join(json.dumps(e, ensure_ascii=False) for e in events)
+                stdout += "\n" + "\n".join(bodies)
+                return {"exit_code": 0, "stdout": stdout,
+                        "stderr": "".join(stderr_chunks), "success": True}
+
+            # interactive / task：发送一条 execute 任务并读到 done
+            task = {
+                "action": "execute",
+                "context": {"session_id": "debug", "user_id": "debug"},
+                "params": dict(test_input or {"content": ""}),
+            }
+            proc.stdin.write((json.dumps(task, ensure_ascii=False) + "\n").encode())
+            await proc.stdin.drain()
+
+            got_done = await _read_until_done(60, total_deadline)
+            err_msg = next(
+                ((e.get("data") or {}).get("message", "") for e in events if e.get("event") == "error"),
+                None,
+            )
+            if err_msg is not None:
+                return _fail(f"Agent 执行抛出 error 事件: {err_msg}")
+            if not got_done:
+                return _fail("未收到 done 事件（进程提前退出或输出中断）")
+            return {"exit_code": 0,
+                    "stdout": "\n".join(json.dumps(e, ensure_ascii=False) for e in events),
+                    "stderr": "".join(stderr_chunks), "success": True}
+
+        except asyncio.TimeoutError:
+            return _fail(f"Agent 试运行超时（{int(round_timeout)}秒）")
+        except Exception as e:
+            return _fail(f"沙箱执行异常: {type(e).__name__}: {e}")
+        finally:
+            if proc is not None:
+                try:
+                    proc.stdin.close()
+                except Exception:
+                    pass
+                if proc.returncode is None:
+                    try:
+                        proc.terminate()
+                        await asyncio.wait_for(proc.wait(), timeout=5)
+                    except Exception:
+                        try:
+                            proc.kill()
+                        except Exception:
+                            pass
+                try:
+                    await asyncio.wait_for(stderr_task, timeout=2)
+                except Exception:
+                    stderr_task.cancel()
+            shutil.rmtree(impl_dir, ignore_errors=True)
+
+    # ══════════════════════════════════════════════════════════
+    # 自动调试（todo 4.3）— 试运行 → LLM 分析 → 改代码 → 再试运行
+    # 循环骨架移植自 tool_builder.auto_debug_stream；差异：
+    # - 无依赖安装环节（Agent 运行于项目 venv，缺模块时反馈引导 LLM 换方案）
+    # - 每轮执行是完整 entrypoint 子进程（代码每轮都在变，无常驻生命周期可复用）
+    # - 静态安全审查 + 辅助方法防丢失检查在每轮执行前生效
+    # ══════════════════════════════════════════════════════════
+
+    def _restore_helpers(self, code: str, spec_md: str) -> tuple[str, list[str]]:
+        """LLM 整文件重写时可能丢掉模板机械生成的工具/API 辅助方法。
+
+        辅助方法本就从 spec 确定性生成，缺失时按模板重新注入类体，
+        返回 (修复后的代码, 注入说明列表)。
+        """
+        restored: list[str] = []
+        missing = []
+        for tr in self._extract_tool_refs(spec_md):
+            if f"def _call_tool_{self._safe_ident(tr['id'])}(" not in code:
+                missing.append(("tool", tr))
+        for ar in self._extract_api_refs(spec_md):
+            if f"def _call_api_{self._safe_ident(ar['id'])}(" not in code:
+                missing.append(("api", ar))
+        if not missing:
+            return code, restored
+
+        helpers = ""
+        for kind, ref in missing:
+            if kind == "tool":
+                helpers += TOOL_HELPER_TEMPLATE.format(
+                    tool_id_safe=self._safe_ident(ref["id"]),
+                    tool_name=ref["name"], tool_id=ref["id"])
+            else:
+                helpers += API_HELPER_TEMPLATE.format(
+                    api_id_safe=self._safe_ident(ref["id"]),
+                    api_name=ref["name"], api_id=ref["id"])
+            restored.append(ref["name"])
+
+        # 注入到类体：定位第一个 "    async def execute" 之前
+        m = re.search(r"^    async def execute", code, re.MULTILINE)
+        if m:
+            code = code[:m.start()] + helpers + "\n" + code[m.start():]
+        return code, restored
+
+    async def _write_debug_log(self, agent_id: str, timestamp: str, entries: list[dict],
+                               success: bool, final_round: int):
+        """将调试日志写入 logs/ 目录（脱敏后落盘，与 tool_builder 同构）"""
+        from core.security.secrets import scrub_text as _scrub
+
+        def _write():
+            try:
+                log_dir = paths.PROJECT_ROOT / "logs"
+                log_dir.mkdir(parents=True, exist_ok=True)
+                log_file = log_dir / f"agent_{agent_id}_{timestamp}.md"
+
+                lines = ["# Agent 自动调试日志\n",
+                         f"- **Agent**: {agent_id}",
+                         f"- **时间**: {timestamp}",
+                         f"- **结果**: {'成功' if success else '失败'}（共 {final_round} 轮）",
+                         f"- **日志条目**: {len(entries)} 轮\n", "---\n"]
+                for i, entry in enumerate(entries):
+                    lines.append(f"## 第 {entry['round']} 轮\n")
+                    lines.append("### 试运行结果\n")
+                    lines.append(f"```\n{_scrub(entry['exec_result'])}\n```\n")
+                    if entry.get("gate_feedback"):
+                        lines.append(f"### 附加反馈\n{entry['gate_feedback']}\n")
+                    lines.append("### 发送给 LLM 的 Prompt\n")
+                    lines.append(f"```\n{_scrub(entry['prompt'])}\n```\n")
+                    lines.append("### LLM 返回\n")
+                    lines.append(f"```\n{_scrub(entry['response'])}\n```\n")
+                    if i < len(entries) - 1:
+                        lines.append("======================\n")
+                log_file.write_text("\n".join(lines), encoding="utf-8")
+            except Exception:
+                pass
+
+        await asyncio.to_thread(_write)
+
+    async def auto_debug_stream(self, spec_md: str, code: str, test_input: dict,
+                                agent_id: str, role: str = "task",
+                                max_rounds: int = 50, stop_event=None):
+        """自动调试生成器：试运行→LLM分析→改代码→再试运行。
+
+        事件名与工具自动调试一致（debug_start/round_start/exec_result/
+        thinking/thinking_stream/analysis_result/llm_error/code_updated/
+        stopped/done），前端无需新事件类型。无 deps_* 事件。
+        """
+        set_debug_running(agent_id)
+        try:
+            try:
+                async for event in self._auto_debug_loop(
+                    spec_md, code, test_input, agent_id, role, max_rounds, stop_event
+                ):
+                    yield event
+            except asyncio.CancelledError:
+                if stop_event:
+                    stop_event.set()
+                yield {"event": "stopped", "round": 0, "message": "调试已停止"}
+        finally:
+            set_debug_stopped(agent_id)
+
+    async def _auto_debug_loop(self, spec_md: str, code: str, test_input: dict,
+                               agent_id: str, role: str, max_rounds: int, stop_event):
+        current_code = code
+        debug_log_entries: list[dict] = []
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # 跨轮修复对话：user=失败上下文, assistant=LLM 修复回复。
+        # 只保留首条全量 Prompt + 最近 _DEBUG_HISTORY_KEEP 条，防止逐轮膨胀。
+        debug_messages: list[dict] = []
+        _DEBUG_HISTORY_KEEP = 12
+
+        yield {"event": "debug_start", "message": "Agent 自动调试启动",
+               "max_rounds": max_rounds, "role": role}
+
+        for round_num in range(1, max_rounds + 1):
+            if not is_debug_running(agent_id):
+                yield {"event": "stopped", "round": round_num, "message": "调试已停止"}
+                return
+            if stop_event and stop_event.is_set():
+                yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试"}
+                return
+
+            yield {"event": "round_start", "round": round_num, "max": max_rounds}
+
+            # ── ① 试运行（事件驱动等待：执行完成与停止信号同时挂起）──
+            exec_task = asyncio.create_task(
+                self._run_agent_once(current_code, spec_md, role, test_input, agent_id)
+            )
+            stop_waiters = set()
+            if stop_event:
+                _sw = asyncio.create_task(stop_event.wait())
+                stop_waiters.add(_sw)
+            done, _pending = await asyncio.wait(
+                {exec_task} | stop_waiters, timeout=None,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if exec_task in done:
+                for w in stop_waiters:
+                    w.cancel()
+                try:
+                    exec_result = exec_task.result()
+                except Exception as e:
+                    exec_result = {"exit_code": 1, "stdout": "",
+                                   "stderr": f"试运行内部异常: {type(e).__name__}: {e}",
+                                   "success": False}
+            else:
+                exec_task.cancel()
+                try:
+                    await asyncio.wait_for(exec_task, timeout=5.0)
+                except (asyncio.TimeoutError, asyncio.CancelledError):
+                    pass
+                yield {"event": "stopped", "round": round_num,
+                       "message": "用户手动停止调试（试运行已中断）"}
+                return
+
+            if stop_event and stop_event.is_set():
+                yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试"}
+                return
+
+            success = bool(exec_result.get("success"))
+            yield {"event": "exec_result", "round": round_num,
+                   "stdout": exec_result.get("stdout", ""),
+                   "stderr": exec_result.get("stderr", ""), "success": success}
+
+            if success:
+                yield {"event": "done", "round": round_num, "success": True,
+                       "code": current_code, "message": f"调试成功 (第{round_num}轮)"}
+                await self._write_debug_log(agent_id, timestamp, debug_log_entries,
+                                            success=True, final_round=round_num)
+                return
+
+            if round_num >= max_rounds:
+                break
+
+            if not is_debug_running(agent_id):
+                yield {"event": "stopped", "round": round_num, "message": "调试已停止"}
+                return
+            if stop_event and stop_event.is_set():
+                yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试"}
+                return
+
+            yield {"event": "thinking", "round": round_num, "message": "LLM 分析错误..."}
+
+            # ── ② LLM 分析并修复代码 ──
+            # 脱敏：以下内容会随 Prompt 发给第三方模型服务商，密钥混入即泄露。
+            from core.security.secrets import redact_for_prompt as _redact, scrub_mapping as _scrub_mapping
+
+            _safe_test_input = json.dumps(_scrub_mapping(test_input), ensure_ascii=False, indent=2)
+            _safe_stdout_full = _redact(exec_result.get("stdout", ""), max_len=3000)
+            _safe_stderr_full = _redact(exec_result.get("stderr", ""), max_len=2000)
+            _safe_stdout = _redact(exec_result.get("stdout", ""), max_len=2000)
+            _safe_stderr = _redact(exec_result.get("stderr", ""), max_len=1000)
+            exec_summary = f"stdout:\n{_safe_stdout_full}\n\nstderr:\n{_safe_stderr_full}"
+
+            role_iface = (
+                "execute(self, ctx: AgentContext, api_name: str = None, params: dict = None) 为异步生成器，"
+                "按 api_name 分派，结果用 yield {\"event\": \"result\", \"data\": {\"response\": {...}}} 返回"
+                if role == "web-service" else
+                "execute(self, ctx: AgentContext, **kwargs) 为异步生成器，"
+                "content = kwargs.get(\"content\", \"\") 取输入，输出用 yield {\"event\": \"content\", \"data\": {\"text\": ...}}"
+            )
+
+            if debug_messages:
+                fix_prompt = f"""上一版 Agent 代码试运行仍失败。请基于你上一轮回复中的代码继续修复（不要推翻重来，除非错误明确指向方案性缺陷）。
+
+=== 试运行结果 ===
+stdout: {_safe_stdout}
+stderr: {_safe_stderr}
+===  END 结果 ===
+
+仍按 <analysis>/<code> 格式输出。要求：<code> 内是完整 Python 文件（含模板头部与全部辅助方法）。"""
+            else:
+                fix_prompt = f"""Debug this Agent code. It failed the sandbox test run.
+
+=== CURRENT CODE ===
+{current_code}
+=== END CODE ===
+
+=== AGENT 类型 ===
+role: {role}
+
+=== MD 规范文档 ===
+{spec_md}
+=== END 规范 ===
+
+=== TEST INPUT ===
+{_safe_test_input}
+=== END INPUT ===
+
+=== 试运行结果 ===
+stdout: {_safe_stdout}
+stderr: {_safe_stderr}
+=== END 结果 ===
+
+请分两部分输出，严格使用以下格式：
+
+<analysis>
+问题原因：（简要说明代码为什么失败，1-3 句话）
+修改计划：（列出打算如何修改，逐条说明）
+</analysis>
+
+<code>
+（完整修复后的 Python 代码，含模板头部与全部辅助方法）
+</code>
+
+要求：
+1. <analysis> 和 <code> 标签必须完整、成对出现；<analysis> 中文、不超过 5 行。
+2. <code> 内只放完整 Python 代码，保留头部 import（import json / import sys / from pathlib import Path）与全部 _call_tool_* / _call_api_* 辅助方法。
+3. INTERFACE RULES: 类必须继承 BaseAgent；{role_iface}；结束时 yield {{"event": "done", "data": {{}}}}。
+4. _call_tool_* / _call_api_* 是同步方法，直接调用，不要 await；llm.chat 是异步方法，必须 await。
+5. 不要使用 ctx.get_input()、ctx.session、ctx.metadata_id（不存在）；多轮状态存 self._state。
+6. 依赖由项目环境管理：ModuleNotFoundError 时改用标准库或已安装模块，禁止 pip install / subprocess 安装依赖。
+7. 禁止 shell=True、eval、删除类原语（静态安全审查会阻断执行）。
+8. 调用大模型（self._get_llm().chat / _extract_params_with_llm）时 max_tokens 用大值（100000），不要 4096/1024。"""
+
+            log_entry = {"round": round_num, "exec_result": exec_summary,
+                         "gate_feedback": "", "prompt": fix_prompt, "response": ""}
+
+            full_response = ""
+            llm_task = None
+            llm_exception = None
+            get_task = None
+            LLM_TIMEOUT = int(_os.getenv("LLM_TIMEOUT", "300"))
+            try:
+                # 事件驱动泵：token 经 asyncio.Queue 直达消费侧，与停止信号、
+                # 整体超时三方竞态（与 tool_builder 调试循环同构）。
+                _SENTINEL = object()
+                token_q: asyncio.Queue = asyncio.Queue()
+                loop = asyncio.get_running_loop()
+
+                async def _collect_tokens():
+                    nonlocal llm_exception
+                    try:
+                        async for token in self.llm.chat_stream(
+                            messages=debug_messages + [{"role": "user", "content": fix_prompt}],
+                            temperature=0.2, max_tokens=32000,
+                        ):
+                            await token_q.put(token)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        llm_exception = exc
+                    finally:
+                        token_q.put_nowait(_SENTINEL)
+
+                llm_task = asyncio.create_task(_collect_tokens())
+                start_time = loop.time()
+
+                timed_out = False
+                stopped_msg = None
+                get_task = asyncio.create_task(token_q.get())
+                while True:
+                    if not is_debug_running(agent_id):
+                        stopped_msg = "调试已停止"
+                        break
+                    if stop_event and stop_event.is_set():
+                        stopped_msg = "用户手动停止调试（LLM对话已中断）"
+                        break
+                    wait_futs = {get_task}
+                    if not llm_task.done():
+                        wait_futs.add(llm_task)
+                    stop_waiter = None
+                    if stop_event:
+                        stop_waiter = asyncio.create_task(stop_event.wait())
+                        wait_futs.add(stop_waiter)
+                    remaining = LLM_TIMEOUT - (loop.time() - start_time)
+                    done, _pending = await asyncio.wait(
+                        wait_futs, timeout=max(remaining, 0.01),
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if stop_waiter is not None and not stop_waiter.done():
+                        stop_waiter.cancel()
+                    if not done:
+                        timed_out = True
+                        break
+                    if get_task in done:
+                        token = get_task.result()
+                        if token is _SENTINEL:
+                            break
+                        full_response += token
+                        yield {"event": "thinking_stream", "round": round_num, "token": token}
+                        get_task = asyncio.create_task(token_q.get())
+
+                if timed_out:
+                    llm_task.cancel()
+                    try:
+                        await llm_task
+                    except asyncio.CancelledError:
+                        pass
+                    get_task.cancel()
+                    yield {"event": "llm_error", "round": round_num,
+                           "message": f"LLM调用超时（{LLM_TIMEOUT}秒），跳过本轮"}
+                    continue
+                if stopped_msg is not None:
+                    llm_task.cancel()
+                    try:
+                        await llm_task
+                    except asyncio.CancelledError:
+                        pass
+                    get_task.cancel()
+                    yield {"event": "stopped", "round": round_num, "message": stopped_msg}
+                    return
+
+                if llm_task.cancelled():
+                    continue
+                if llm_exception is not None:
+                    yield {"event": "llm_error", "round": round_num,
+                           "message": f"LLM调用异常: {str(llm_exception)[:300]}"}
+                    if not full_response.strip():
+                        continue
+
+            except asyncio.CancelledError:
+                if llm_task and not llm_task.done():
+                    llm_task.cancel()
+                    try:
+                        await llm_task
+                    except asyncio.CancelledError:
+                        pass
+                if get_task is not None and not get_task.done():
+                    get_task.cancel()
+                raise
+            except Exception as e:
+                yield {"event": "llm_error", "round": round_num,
+                       "message": f"LLM调用异常: {str(e)[:200]}"}
+                continue
+
+            # ── ③ 解析 LLM 响应：切分「分析」与「代码」──
+            log_entry["response"] = full_response
+            debug_log_entries.append(log_entry)
+
+            analysis_text = ""
+            code_text = ""
+            am = re.search(r"<analysis>(.*?)</analysis>", full_response, re.DOTALL)
+            if am:
+                analysis_text = am.group(1).strip()
+            cm = re.search(r"<code>(.*?)</code>", full_response, re.DOTALL)
+            if cm:
+                code_text = cm.group(1).strip()
+            elif am:
+                code_text = full_response[am.end():].strip()
+            else:
+                code_text = full_response.strip()
+
+            if code_text.startswith("```python"):
+                code_text = code_text[len("```python"):]
+            elif code_text.startswith("```"):
+                code_text = code_text[3:]
+            if code_text.endswith("```"):
+                code_text = code_text[:-3]
+            code_text = code_text.strip()
+            if code_text.startswith("```") and code_text.count("```") == 2:
+                parts = code_text.split("```")
+                code_text = parts[1].strip() if len(parts) >= 2 else code_text
+
+            if analysis_text:
+                yield {"event": "analysis_result", "round": round_num, "analysis": analysis_text}
+
+            if len(code_text) < 100:
+                llm_raw = (analysis_text or full_response.strip())[:2000] or "(空)"
+                yield {"event": "thinking", "round": round_num,
+                       "message": f"LLM 返回代码过短（{len(code_text)} 字符），跳过本轮。LLM 实际返回: {llm_raw}"}
+                continue
+
+            # 辅助方法防丢失：LLM 整文件重写可能删掉模板生成的 _call_tool_*，
+            # 这些方法本就从 spec 确定性生成，缺失时按模板重新注入。
+            code_text, restored = self._restore_helpers(code_text, spec_md)
+            if restored:
+                note = f"[系统提示] 上一轮回复丢失辅助方法已自动补回: {', '.join(restored)}"
+                log_entry["gate_feedback"] = note
+                yield {"event": "thinking", "round": round_num, "message": note}
+
+            current_code = code_text
+            debug_messages.append({"role": "user", "content": fix_prompt})
+            debug_messages.append({"role": "assistant", "content": full_response})
+            if len(debug_messages) > _DEBUG_HISTORY_KEEP + 1:
+                debug_messages[:] = [debug_messages[0]] + debug_messages[-_DEBUG_HISTORY_KEEP:]
+            yield {"event": "code_updated", "round": round_num, "code": current_code}
+
+        yield {"event": "done", "round": max_rounds, "success": False,
+               "code": current_code, "message": f"达到最大调试轮数（{max_rounds}），仍未通过"}
+        await self._write_debug_log(agent_id, timestamp, debug_log_entries,
+                                    success=False, final_round=max_rounds)
