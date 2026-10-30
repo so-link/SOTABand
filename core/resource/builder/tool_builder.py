@@ -1011,6 +1011,10 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
         # 调试日志记录
         debug_log_entries: list[dict] = []
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # 跨轮修复对话：user=失败上下文, assistant=LLM 修复回复。
+        # 只保留首条全量 Prompt + 最近 _DEBUG_HISTORY_KEEP 条，防止逐轮膨胀。
+        debug_messages: list[dict] = []
+        _DEBUG_HISTORY_KEEP = 12
 
         # 调试开始：立即通知前端
         yield {"event": "debug_start", "message": "自动调试启动", "max_rounds": max_rounds}
@@ -1036,25 +1040,31 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
             yield {"event": "round_start", "round": round_num, "max": max_rounds}
 
             # ── ① 执行 ──
+            # 事件驱动等待：exec 完成与 stop_event 同时挂起，谁先到听谁的。
+            # 旧实现每 0.1s 忙轮询一次，长执行下白耗调度且停止延迟固定。
             exec_task = asyncio.create_task(
                 self.sandbox_execute(current_code, test_input, tool_id)
             )
-            exec_done = False
-            exec_result = None
-            while not exec_done:
-                if stop_event and stop_event.is_set():
-                    exec_task.cancel()
-                    try:
-                        await asyncio.wait_for(exec_task, timeout=2.0)
-                    except (asyncio.TimeoutError, asyncio.CancelledError):
-                        pass
-                    yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试（执行已中断）"}
-                    return
+            stop_waiters = set()
+            if stop_event:
+                _sw = asyncio.create_task(stop_event.wait())
+                stop_waiters.add(_sw)
+            done, pending = await asyncio.wait(
+                {exec_task} | stop_waiters, timeout=None,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if exec_task in done:
+                for w in stop_waiters:
+                    w.cancel()
+                exec_result = exec_task.result()
+            else:
+                exec_task.cancel()
                 try:
-                    exec_result = await asyncio.wait_for(asyncio.shield(exec_task), timeout=0.1)
-                    exec_done = True
-                except asyncio.TimeoutError:
-                    continue
+                    await asyncio.wait_for(exec_task, timeout=2.0)
+                except (asyncio.TimeoutError, asyncio.CancelledError):
+                    pass
+                yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试（执行已中断）"}
+                return
 
             if stop_event and stop_event.is_set():
                 yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试"}
@@ -1145,7 +1155,21 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
 
             exec_summary = f"stdout:\n{_safe_stdout_full}\n\nstderr:\n{_safe_stderr_full}"
 
-            fix_prompt = f"""Debug this tool code. It failed execution.
+            # 跨轮对话记忆：首轮发全量上下文（代码+输入+结果），之后每轮只补发
+            # 最新执行结果——上一轮代码就在 assistant 历史里，无需每轮重放全文。
+            # LLM 因此能看到自己此前试过什么，减少重复试错与逐轮 token 膨胀。
+            if debug_messages:
+                fix_prompt = f"""上一版代码执行仍失败。请基于你上一轮回复中的代码继续修复（不要推翻重来，除非错误明确指向方案性缺陷）。
+
+=== EXECUTION RESULT ===
+stdout: {_safe_stdout}
+stderr: {_safe_stderr}
+=== END RESULT ===
+{dep_feedback}
+
+仍按 <analysis>/<code> 格式输出。要求：<code> 内是完整 Python 文件（含模板头部），保留已正确的部分；调用大模型时 max_tokens=100000（或更大）。"""
+            else:
+                fix_prompt = f"""Debug this tool code. It failed execution.
 
 === CURRENT CODE ===
 {current_code}
@@ -1196,62 +1220,87 @@ stderr: {_safe_stderr}
             full_response = ""
             llm_task = None
             llm_exception = None
+            get_task = None
             LLM_TIMEOUT = int(_os.getenv("LLM_TIMEOUT", "300"))  # LLM 调用总超时（秒），默认 300，跟随 .env 可调大
             try:
-                token_queue: list = []
+                # 事件驱动泵：token 经 asyncio.Queue 直达消费侧，与停止信号、
+                # 整体超时三方竞态（旧实现 sleep(0.05) 忙轮询 list，空转且延迟固定）。
+                _SENTINEL = object()
+                token_q: asyncio.Queue = asyncio.Queue()
+                loop = asyncio.get_event_loop()
 
                 async def _collect_tokens():
                     nonlocal llm_exception
                     try:
                         async for token in self.llm.chat_stream(
-                            messages=[{"role":"user","content":fix_prompt}],
+                            messages=debug_messages + [{"role": "user", "content": fix_prompt}],
                             temperature=0.2, max_tokens=32000,
                         ):
-                            token_queue.append(token)
+                            await token_q.put(token)
                     except asyncio.CancelledError:
                         raise
                     except Exception as exc:
                         llm_exception = exc
+                    finally:
+                        token_q.put_nowait(_SENTINEL)
 
                 llm_task = asyncio.create_task(_collect_tokens())
+                start_time = loop.time()
 
-                start_time = asyncio.get_event_loop().time()
-                while not llm_task.done():
-                    if stop_event and stop_event.is_set():
-                        llm_task.cancel()
-                        try: await llm_task
-                        except asyncio.CancelledError: pass
-                        yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试（LLM对话已中断）"}
-                        return
-                    # 整体超时检查
-                    if asyncio.get_event_loop().time() - start_time > LLM_TIMEOUT:
-                        llm_task.cancel()
-                        try: await llm_task
-                        except asyncio.CancelledError: pass
-                        yield {"event": "llm_error", "round": round_num, "message": f"LLM调用超时（{LLM_TIMEOUT}秒），跳过本轮"}
+                timed_out = False
+                stopped_msg = None
+                # 全程只保持一个挂起的 get_task，消费掉一个 token 后才补挂下一个，
+                # 避免两个 getter 竞态导致 token 被孤儿 getter 取走丢失。
+                get_task = asyncio.create_task(token_q.get())
+                while True:
+                    if not is_debug_running(tool_id):
+                        stopped_msg = "调试已停止"
                         break
-                    while token_queue:
-                        token = token_queue.pop(0)
+                    if stop_event and stop_event.is_set():
+                        stopped_msg = "用户手动停止调试（LLM对话已中断）"
+                        break
+                    wait_futs = {get_task}
+                    if not llm_task.done():
+                        wait_futs.add(llm_task)  # done 后摘除，防止 wait 立即返回空转
+                    stop_waiter = None
+                    if stop_event:
+                        stop_waiter = asyncio.create_task(stop_event.wait())
+                        wait_futs.add(stop_waiter)
+                    remaining = LLM_TIMEOUT - (loop.time() - start_time)
+                    done, _pending = await asyncio.wait(
+                        wait_futs, timeout=max(remaining, 0.01),
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if stop_waiter is not None and not stop_waiter.done():
+                        stop_waiter.cancel()
+                    if not done:  # 整体超时
+                        timed_out = True
+                        break
+                    if get_task in done:
+                        token = get_task.result()
+                        if token is _SENTINEL:
+                            break  # LLM 流正常结束（finally 保证 sentinel 必然入队）
                         full_response += token
                         yield {"event": "thinking_stream", "round": round_num, "token": token}
-                        # 每消费 50 个 token 检查一次停止信号
-                        if len(full_response) % 50 == 0:
-                            if not is_debug_running(tool_id):
-                                llm_task.cancel()
-                                try: await llm_task
-                                except asyncio.CancelledError: pass
-                                yield {"event": "stopped", "round": round_num, "message": "调试已停止"}
-                                return
-                    await asyncio.sleep(0.05)
+                        get_task = asyncio.create_task(token_q.get())
+
+                if timed_out:
+                    llm_task.cancel()
+                    try: await llm_task
+                    except asyncio.CancelledError: pass
+                    get_task.cancel()
+                    yield {"event": "llm_error", "round": round_num, "message": f"LLM调用超时（{LLM_TIMEOUT}秒），跳过本轮"}
+                    continue
+                if stopped_msg is not None:
+                    llm_task.cancel()
+                    try: await llm_task
+                    except asyncio.CancelledError: pass
+                    get_task.cancel()
+                    yield {"event": "stopped", "round": round_num, "message": stopped_msg}
+                    return
 
                 if llm_task.cancelled():
                     continue
-
-                # LLM 完成，消费剩余
-                while token_queue:
-                    token = token_queue.pop(0)
-                    full_response += token
-                    yield {"event": "thinking_stream", "round": round_num, "token": token}
 
                 # LLM 流式调用抛出异常（如 API 错误）时，明确反馈
                 if llm_exception is not None:
@@ -1265,6 +1314,8 @@ stderr: {_safe_stderr}
                     llm_task.cancel()
                     try: await llm_task
                     except asyncio.CancelledError: pass
+                if get_task is not None and not get_task.done():
+                    get_task.cancel()
                 raise  # 继续向上传播
             except Exception as e:
                 yield {"event": "llm_error", "round": round_num, "message": f"LLM调用异常: {str(e)[:200]}"}
@@ -1317,6 +1368,10 @@ stderr: {_safe_stderr}
                 continue
 
             current_code = code_text
+            debug_messages.append({"role": "user", "content": fix_prompt})
+            debug_messages.append({"role": "assistant", "content": full_response})
+            if len(debug_messages) > _DEBUG_HISTORY_KEEP + 1:
+                debug_messages[:] = [debug_messages[0]] + debug_messages[-_DEBUG_HISTORY_KEEP:]
             yield {"event": "code_updated", "round": round_num, "code": current_code}
 
             # ── ⑥ 系统自动安装新代码的依赖 ──
