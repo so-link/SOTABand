@@ -70,8 +70,8 @@ async def main():
             updated += 1
             print(f"    → {tags}")
 
-    with open(registry_path, "w", encoding="utf-8") as f:
-        json.dump(tools, f, ensure_ascii=False, indent=2)
+    from core.resource.json_store import write_json_atomic
+    write_json_atomic(registry_path, tools)
 
     print(f"\n完成！更新了 {updated} 个工具的标签")
 
