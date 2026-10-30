@@ -15,7 +15,6 @@ import {
 import { useResourceStore } from '@/stores/resource-store'
 import { useUIStore } from '@/stores/ui-store'
 import { useWorkspaceToolStore } from '@/stores/workspace-tool-store'
-import { useWorkspaceDatasetStore } from '@/stores/workspace-dataset-store'
 import { useUnsavedMarks } from '@/hooks/use-unsaved-marks'
 import { cn } from '@/lib/utils'
 import type { Resource, ResourceType, ToolResource } from '@/types/resources'
@@ -78,7 +77,6 @@ export function ResourceBrowser() {
   // 工具空间：从 workspace store 读取已加载的工具
   const workspaceTools = useWorkspaceToolStore((s) => s.tools)
   const workspaceRemoveTool = useWorkspaceToolStore((s) => s.removeTool)
-  const workspaceRemoveDataset = useWorkspaceDatasetStore((s) => s.removeDataset)
 
   const getResources = (type: ResourceType): Resource[] => {
     switch (type) {
@@ -126,9 +124,13 @@ export function ResourceBrowser() {
       workspaceRemoveTool(resource.id)
       return
     }
-    // 数据：从工作空间移除（不删除仓库中的数据集）
+    // 数据：左栏「数据空间」列的是已注册数据集，删除即注销该数据集
     if (resource.type === 'data') {
-      workspaceRemoveDataset(resource.id)
+      if (!confirm(`确定删除数据集 "${resource.name}"？注册信息与引用将一并移除。`)) return
+      try {
+        await fetch(`/api/data/${resource.id}`, { method: 'DELETE' })
+        fetchDatasetsFromApi()
+      } catch { /* ignore */ }
       return
     }
     // 模型：确认后彻底删除
