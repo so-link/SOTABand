@@ -36,15 +36,16 @@ export function setOnUnauthorized(cb: (() => void) | null) {
   onUnauthorized = cb
 }
 
-// 全局 fetch 补丁：只要本地存有令牌，所有同源 /api 请求自动携带
-// Authorization 头——避免逐个改造既有 fetch 调用点。401 时触发一次
-// 全局回调（登录态过期处理），登录端点自身除外（坏密码不该弹全局框）。
+// 全局 fetch 补丁：只要本地存有令牌，所有 /api 请求自动携带
+// Authorization 头——避免逐个改造既有 fetch 调用点（含 /api/auth/register，
+// 管理员添加用户需带身份）。401 时触发全局回调（登录过期处理），
+// auth 端点除外：其 401/403 由登录弹窗内联展示，不弹全局过期框。
 if (typeof window !== 'undefined') {
   const origFetch = window.fetch.bind(window)
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url
     const token = getStoredToken()
-    if (token && url.includes('/api/') && !url.includes('/api/auth/')) {
+    if (token && url.includes('/api/')) {
       const headers = new Headers(init?.headers)
       if (!headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`)
       init = { ...(init ?? {}), headers }
