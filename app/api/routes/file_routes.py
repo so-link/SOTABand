@@ -47,10 +47,66 @@ def _write_workspace_tree(root: dict) -> None:
     )
 
 
+_CATEGORY_BY_EXT = {
+    "image": {"png", "jpg", "jpeg", "gif", "bmp", "webp", "tiff"},
+    "table": {"csv", "tsv", "xlsx", "xls", "parquet"},
+    "text": {"txt", "md", "json", "yaml", "yml", "log", "py", "js", "ts"},
+    "eeg": {"edf", "bdf", "set", "fif"},
+    "model": {"pt", "pth", "ckpt", "onnx", "h5", "safetensors"},
+    "archive": {"zip", "tar", "gz", "bz2", "7z"},
+}
+
+
+def _category_of(ext: str) -> str:
+    for cat, exts in _CATEGORY_BY_EXT.items():
+        if ext in exts:
+            return cat
+    return "unknown"
+
+
+def _build_node(path: Path) -> dict:
+    if path.is_dir():
+        children = [_build_node(c) for c in sorted(path.iterdir(), key=lambda p: (p.is_file(), p.name))]
+        return {
+            "id": f"dir-{path}", "name": path.name, "type": "directory", "category": "folder",
+            "path": str(path), "expanded": False, "children": children,
+        }
+    ext = path.suffix.lstrip(".").lower()
+    try:
+        size = path.stat().st_size
+    except OSError:
+        size = 0
+    return {
+        "id": f"file-{path}", "name": path.name, "type": "file", "category": _category_of(ext),
+        "path": str(path), "format": ext, "size": size,
+    }
+
+
+def _scan_upload_root() -> dict | None:
+    """工作区间树的兜底：存储文件丢失时，从磁盘上的 uploads 目录重建（真实数据，非 mock）。"""
+    if not UPLOAD_ROOT.exists():
+        return None
+    children = [_build_node(c) for c in sorted(UPLOAD_ROOT.iterdir(), key=lambda p: (p.is_file(), p.name))]
+    if not children:
+        return None
+    return {
+        "id": "workspace-root", "name": "工作区间", "type": "directory", "category": "folder",
+        "path": "", "expanded": True, "children": children,
+    }
+
+
 @router.get("/workspace/tree")
 async def get_workspace_tree():
-    """返回后端保存的工作区间文件树（无则返回 null，前端自行决定空工作区）。"""
-    return {"root": _read_workspace_tree()}
+    """返回后端保存的工作区间文件树。
+
+    存储文件缺失时用 data/uploads 的磁盘内容兜底重建，避免升级或清缓存后工作区凭空消失。
+    """
+    root = _read_workspace_tree()
+    if not root:
+        root = _scan_upload_root()
+        if root:
+            _write_workspace_tree(root)
+    return {"root": root}
 
 
 @router.put("/workspace/tree")
