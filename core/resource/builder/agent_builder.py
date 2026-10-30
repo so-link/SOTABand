@@ -619,17 +619,26 @@ yield {{"event": "content", "data": {{"text": response}}}}
         调试目录每轮重建、进程随起随停，绝不允许占用固定端口
         （尤其是 8200/8201 等本机在运行服务）。
         """
+        # 与 base._extract_fenced_json 的解析模式保持一致（大小写不敏感、
+        # 闭合围栏允许同行），否则 LLM 生成 ```Server 或同行闭合时本函数
+        # 漏改、entrypoint 却照常解析出固定端口——形成绕过。
         def _repl(m: "re.Match[str]") -> str:
             try:
-                cfg = json.loads(m.group(1))
+                cfg = json.loads(m.group(2))
             except Exception:
                 return m.group(0)
-            if not isinstance(cfg, dict) or cfg.get("port") in (None, 0, "0"):
+            if not isinstance(cfg, dict):
+                return m.group(0)
+            try:
+                port = float(str(cfg.get("port")).strip())
+            except (TypeError, ValueError):
+                port = None
+            if cfg.get("port") in (None, "") or port == 0:
                 return m.group(0)
             cfg["port"] = 0
             return "```server\n" + json.dumps(cfg, ensure_ascii=False) + "\n```"
 
-        return re.sub(r"```server\s*\n(.*?)\n\s*```", _repl, spec_md, flags=re.DOTALL)
+        return re.sub(r"```(server)\s*\n(.*?)```", _repl, spec_md, flags=re.DOTALL | re.IGNORECASE)
 
     @staticmethod
     def _http_call(method: str, url: str, payload: dict | None, timeout: float = 60) -> tuple[int, str]:
