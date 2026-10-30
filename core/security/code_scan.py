@@ -3,11 +3,12 @@
 基于 AST 的确定性检查，不用正则匹配调用（正则可被换行/别名绕过）。
 两级结论：
 
-- **errors（阻断）**：几乎只用于破坏性/逃逸目的的调用——shell 执行、
+- **errors（阻断）**：几乎只用于破坏性/逃逸目的的调用——shell 执行
+  （os.system/popen/getoutput，以及子进程调用显式 shell=True）、
   进程替换、动态执行、直接删除路径、网络服务端等。LLM 生成的正常
   数据工具不会用到它们；命中即视为代码缺陷，返回给自动调试循环重写。
-- **warnings（记录不阻断）**：合法工具常见的能力（subprocess 跑本地
-  命令、open 读写文件、requests 联网）。这些是平台信任模型允许的
+- **warnings（记录不阻断）**：合法工具常见的能力（subprocess 列表参数
+  跑本地命令、open 读写文件、requests 联网）。这些是平台信任模型允许的
   部分（工具在独立子进程运行），但会在生成/调试事件流中透明展示。
 
 设计约定：宁可漏报（warning 化），不可误杀存量 48 个内置工具——
@@ -109,6 +110,19 @@ def _call_root_chain(node: ast.AST) -> tuple[str, ...] | None:
     return None
 
 
+def _has_shell_true(node: ast.Call) -> bool:
+    """子进程调用是否显式 shell=True（字面量）。shell=True 等价于
+    os.system：命令字符串整个交给 /bin/sh，注入面与 shell 执行同级，
+    故为 error。shell=变量 无法静态判定值，接受漏报（warning 兜底）。"""
+    for kw in node.keywords:
+        if kw.arg == "shell":
+            v = kw.value
+            if isinstance(v, ast.Constant):
+                return v.value is True
+            return False
+    return False
+
+
 def _local_names(tree: ast.AST) -> set[str]:
     """收集函数作用域内的局部名，用于区分 open 调用与同名变量。"""
     names: set[str] = set()
@@ -163,10 +177,16 @@ def scan_code(code: str) -> ScanResult:
                 if pair in BANNED_ATTR_CALLS:
                     res.errors.append(
                         f"第 {node.lineno} 行：禁止调用 {chain[0]}.{chain[1]}()（安全约束）")
+                elif chain[0] == "subprocess" and _has_shell_true(node):
+                    res.errors.append(
+                        f"第 {node.lineno} 行：subprocess 调用带 shell=True 等价于 shell 执行，禁止")
             else:
                 if chain[-1] in _SHELL_SUFFIXES:
                     res.errors.append(
                         f"第 {node.lineno} 行：禁止调用 {'.'.join(chain)}()（shell/动态导入）")
+                elif _has_shell_true(node):
+                    res.errors.append(
+                        f"第 {node.lineno} 行：子进程调用带 shell=True 等价于 shell 执行，禁止")
 
     # warnings：对内置工具常见、平台信任模型允许但值得透明的能力
     has = {"subprocess": False, "open": False, "network": False}
