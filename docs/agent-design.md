@@ -291,9 +291,9 @@ Agent 空间自动刷新 → 前端左侧面板可看到新 Agent
 └────────────────────┘          └──────────────────┘
 ```
 
-**所有 Agent（包括交互 Agent）都运行在独立子进程中**，统一通过 `core/agent/entrypoint.py` 加载：`python -m core.agent.entrypoint --agent-id xxx --impl-path <实现目录>`。主进程与子进程之间以 stdin/stdout 的 JSON-line 协议通信——主进程向 stdin 写一行任务 JSON，子进程按行向 stdout 写事件 JSON，主进程 `readline()` 逐行取出即转发 SSE，保证低延迟流式。
+**所有 Agent（包括交互 Agent）都运行在独立子进程中**，统一通过 `core/agent/entrypoint.py` 加载：`python -m core.agent.entrypoint --agent-id xxx --impl-path <实现目录>`。主进程与子进程之间以 stdin/stdout 的 JSON-line 协议通信——主进程向 stdin 写一行任务 JSON，子进程按行向 stdout 写事件 JSON。主进程为每个子进程维护一个后台 reader 逐行读取：普通事件进入该 Agent 的输出队列（`execute_stream` 从队列取事件转发 SSE，保证低延迟流式），通信帧（见下）交给工厂的总线路由器。
 
-`core/agent/bus.py` 提供 Pub/Sub 通信抽象（当前为 InProcess 实现），供 Agent 间协作扩展使用；Web 服务式 Agent 额外由 `web_server.py` 宿主暴露 HTTP API（`/api/agent/{id}/service` 查询服务地址）。
+`core/agent/bus.py` + `core/agent/protocol.py` 提供 Agent 间通信（本地）：主进程是唯一的路由中枢，跨 Agent 消息一律经「子进程 stdout → 主进程路由 → 目标子进程 stdin」转发。Agent 代码经 `self._bus` 使用两种模式——Pub/Sub（`subscribe`/`publish`，尽力而为投递，订阅随进程退出失效）与 RPC（`await self._bus.call_agent(target, method, params)`，被调方以 execute 语义执行、事件流聚合为一次性响应；目标未运行/超时/崩溃一律回结构化错误，不抛异常）。v1 通信帧 `{"v":1,"dir":"o|i","type":...}` 与旧协议行（无 `v` 字段）共存，旧调用方不受影响。外部系统可经 `POST /api/agent/bus/publish|call`、`GET /api/agent/bus/status` 接入总线。Web 服务式 Agent 额外由 `web_server.py` 宿主暴露 HTTP API（`/api/agent/{id}/service` 查询服务地址）。
 
 ### 7.2 超时与中断语义
 
@@ -407,8 +407,9 @@ core/resource/
 ```
 # Agent 运行时框架
 core/agent/base.py                  # BaseAgent + AgentSpec + AgentRole(三类) + MD 解析
-core/agent/bus.py                   # 消息总线（InProcess 实现）
-core/agent/factory.py               # AgentFactory — 子进程生命周期（asyncio 子进程 + 管道协议）
+core/agent/bus.py                   # 消息总线（子进程侧 AgentBusClient + InProcess 实现）
+core/agent/protocol.py              # Agent 间通信帧协议（v1 帧定义）
+core/agent/factory.py               # AgentFactory — 子进程生命周期 + 主进程总线路由
 core/agent/entrypoint.py            # 子进程入口（stdin/stdout JSON-line 协议）
 core/agent/interactive_base.py      # 交互式 Agent 共享基类
 core/agent/web_server.py            # Web 服务式 Agent 的 HTTP 宿主

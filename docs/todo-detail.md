@@ -153,10 +153,17 @@
 
 **内涵**：建立本地 Agent 间通信和远程 Agent 间通信两套机制。本地通信基于进程间通信（IPC，如 Unix Socket、共享内存），远程通信基于网络协议（如 gRPC / WebSocket）。通信总线提供两种模式：(1) Pub/Sub（发布订阅）——用于事件广播和状态通知；(2) RPC（远程过程调用）——用于请求-响应式的任务委派。协作协议定义统一的消息格式、握手流程、错误处理、超时重试、心跳保活等规范。
 
+**落地形态（本地通信已落地，远程通信规划中）**：所有 Agent 运行在独立子进程中，**主进程（`agent_factory`）是唯一的路由中枢**——子进程之间没有直连通道，跨 Agent 消息全部经主进程转发。
+(1) **协议**（`protocol.py`）：在既有 stdin/stdout JSON-line 通道上叠加 v1 通信帧 `{"v":1,"dir":"o|i","type":...,"req":...}`；无 `v` 字段的行仍是旧协议（`{"action":...}` 任务 / 裸事件），自动调试循环、旧调用方与旧主进程完全不受影响。帧类型：bus_subscribe / bus_publish / bus_message / agent_call / agent_reply / agent_call_response。
+(2) **主进程路由**（`factory.py`）：每个子进程启动时绑定一个后台 stdout reader，逐行分流——普通事件进入该 Agent 的输出队列（`execute_stream` 改为从队列取事件，SSE 语义与超时语义不变），通信帧交给路由器（订阅表 `{channel: {agent_id}}` 维护、bus_publish 扇出、agent_call 转发 + 悬挂表超时兜底）。订阅随进程退出自动清理；同一 Agent 的 execute 轮次经锁串行化，RPC 事件不外发到发起方的事件流。
+(3) **Agent 侧**（`bus.AgentBusClient`，entrypoint 启动时绑定为 `agent._bus`）：`await self._bus.subscribe([...])` 登记订阅、`publish(channel, message)` 尽力而为广播、`r = await self._bus.call_agent(target, method, params, timeout)` 请求-响应委派；目标未运行/超时/崩溃一律回结构化 `{"ok": false, "error": ...}`，不抛异常。被调侧以 execute 语义执行（`bus_method`/`bus_params` 入参，事件流聚合为一次性响应）。entrypoint 的 execute 轮次改为任务化运行，读循环持续收取 agent_call_response / bus_message 帧——否则 Agent 在 execute 中 await call_agent 会自锁死。
+(4) **外部接入**：`POST /api/agent/bus/publish`（外部系统注入总线消息）、`POST /api/agent/bus/call`（RPC 调用运行中的 Agent）、`GET /api/agent/bus/status`（订阅表与悬挂请求快照），供 4.1 消息路由智能体等 web-service Agent 作为跨 Agent 协作的 HTTP 入口。
+(5) **远程智能体通信**（跨机 gRPC/WebSocket、心跳保活、握手与重试规范）未落地，依赖 6.x 用户组网与 9.x 全局服务器；届时以路由中枢为升级点，把「子进程↔主进程」的帧通道替换为「子进程↔远程网关」的同构帧。
+
 **关联架构**：
-- 通信总线（`bus.py`）：Pub/Sub + RPC 双模式
-- 协作协议（`protocol.py`）：Agent 间交互的消息格式和行为规范
-- 角色协调器（`coordinator.py`）：基于通信机制进行任务分配和冲突解决
+- 通信总线（`bus.py`）：Pub/Sub + RPC 双模式（子进程侧客户端 AgentBusClient + 主进程保留 InProcess 实现）
+- 协作协议（`protocol.py`）：Agent 间交互的消息格式和行为规范（v1 帧定义）
+- 角色协调器（`coordinator.py`）：基于通信机制进行任务分配和冲突解决（规划中，未实现）
 
 ### 4.6 智能体发布
 
