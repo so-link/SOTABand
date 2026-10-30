@@ -56,7 +56,7 @@ export function SettingsView() {
   }
 
   const supportedModels: SupportedModel[] = config?.supported_models ?? [
-    { value: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro', provider: 'deepseek' },
+    { value: 'deepseek:deepseek-v4-pro', label: 'DeepSeek · deepseek-v4-pro', provider: 'deepseek' },
   ]
 
   return (
@@ -110,7 +110,7 @@ export function SettingsView() {
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-maia-text-muted text-[13px]">▾</span>
                 </div>
                 <p className="text-[12px] text-maia-text-muted mt-1">
-                  环境变量：<span className="font-mono">DEEPSEEK_MODEL</span>
+                  环境变量：<span className="font-mono">LLM_PROVIDER</span> / <span className="font-mono">LLM_MODEL</span>
                 </p>
               </div>
 
@@ -124,7 +124,7 @@ export function SettingsView() {
                       type={showKey ? 'text' : 'password'}
                       value={apiKey}
                       onChange={(e) => setApiKey(e.target.value)}
-                      placeholder={config?.has_api_key ? '已配置（留空则保留原值，输入新值以替换）' : '请输入 DeepSeek API Key'}
+                      placeholder={config?.has_api_key ? '已配置（留空则保留原值，输入新值以替换）' : '请输入当前服务商的 API Key'}
                       className="pl-8 pr-9 font-mono"
                     />
                     <button
@@ -140,7 +140,7 @@ export function SettingsView() {
                 <div className="flex items-center gap-2 mt-1.5">
                   {config?.has_api_key && <Badge variant="accent" className="text-[12px] shrink-0">已配置</Badge>}
                   <p className="text-[12px] text-maia-text-muted">
-                    环境变量：<span className="font-mono">DEEPSEEK_API_KEY</span>
+                    环境变量：<span className="font-mono">LLM_API_KEY</span>
                   </p>
                 </div>
               </div>
