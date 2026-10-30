@@ -74,21 +74,30 @@ class ToolExecutor:
             return [Path(__file__).resolve().parent.parent.parent / "resources" / "tools"]
 
     @classmethod
+    def _venv_python(cls, venv_root: Path) -> Path | None:
+        """venv 根目录 → 解释器路径（兼容 Unix bin/ 与 Windows Scripts/）。"""
+        for rel in (("bin", "python"), ("Scripts", "python.exe")):
+            p = venv_root.joinpath(*rel)
+            if p.exists():
+                return p
+        return None
+
+    @classmethod
     def _get_python_exe(cls, tool_id: str) -> str:
         """获取工具执行所用的 Python 解释器。
 
         优先级：
-        1. 工具独立 .venv/bin/python（在内置/私有目录中查找）
-        2. 项目 venv/bin/python（避免污染系统全局 Python）
+        1. 工具独立 .venv（在内置/私有目录中查找）
+        2. 项目 venv（避免污染系统全局 Python）
         3. 当前进程的 sys.executable
         """
         for space in cls._tool_space_dirs():
-            venv_py = space / "implementations" / tool_id / ".venv" / "bin" / "python"
-            if venv_py.exists():
+            venv_py = cls._venv_python(space / "implementations" / tool_id / ".venv")
+            if venv_py:
                 return str(venv_py)
 
-        project_venv_py = cls._project_root() / "venv" / "bin" / "python"
-        if project_venv_py.exists():
+        project_venv_py = cls._venv_python(cls._project_root() / "venv")
+        if project_venv_py:
             return str(project_venv_py)
 
         return sys.executable
