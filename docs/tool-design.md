@@ -402,6 +402,25 @@ resources/tools/                      # 内置根（随仓库分发，含预置�
 
 读取（发现、执行、代码查看）合并两个根，同 id 以私有为准；写入只进私有根。执行器与 `_call_tool` 都在双根中定位 `tool.py`，`_call_tool` 查 id 时同样双根都查、私有根优先。
 
+### 8.3 导出与导入（zip 工具包）
+
+`core/resource/tool_package.py` 定义跨机流转的归档格式（`{tool-id}.zip`）：
+
+```
+manifest.json                  # format=sotaband-tool / archive_version / tool_id / created_at
+registry.json                  # 精选注册表字段（丢弃 usage_count/created_at/owner/status，导入时重新生成）
+definitions/{tool-id}.md       # 必含；{tool-id}-demand.md / -reference.md 存在才带
+impl/tool.py                   # 必含
+impl/spec.md                   # MD 规范副本
+impl/requirements.txt          # uv freeze 精确 pin（环境真相来源）
+impl/tests/test_*.json         # 测试数据
+impl/<assets>                  # 资产文件（如人脸检测的 cascade XML）
+```
+
+- **导出** `GET /api/tool/{id}/export`：内置与私有工具均可；`.venv`/`__pycache__` 永不进包（虚拟环境由 uv 按 `requirements.txt` 秒级重建，包体仅含源码、文档与资产）。
+- **导入** `POST /api/tool/import`（multipart `file` + `overwrite`）：校验 manifest/registry/`tool.py` 必含、`tool_id` 白名单（`^[a-z0-9][a-z0-9_-]*$`）、manifest 与 registry id 一致、成员路径防 zip-slip、未压缩体积与成员数上限（zip 炸弹）。通过后复用 `register()` 落私有根——与重新注册语义一致；同名冲突未带 `overwrite` 返回 409，由 UI 确认后重试。导入内置同名 id 时私有副本遮蔽内置（响应 `overrode_builtin=true`，UI 警示；删除私有副本即恢复）。
+- 依赖不在导入时安装，与注册一致，由 check-deps / install-deps 懒安装接管。
+
 ---
 
 ## 九、工具发现
@@ -465,6 +484,8 @@ await self._call_tool_{tool_id}(**params)
 | `/api/tool/{id}/install-deps` | POST | 安装依赖到工具独立 `.venv`（uv 管理） |
 | `/api/tool/list` `/repository` | GET | 工具列表 / 仓库视图（含标签统计） |
 | `/api/tool/{id}` | GET/DELETE | 工具详情 / 删除工具 |
+| `/api/tool/{id}/export` | GET | 导出 zip 工具包（附件下载，见 8.3） |
+| `/api/tool/import` | POST | 导入 zip 工具包到私有根（冲突 409，见 8.3） |
 | `/api/tool/{id}/execute` | POST | 调用工具（ToolExecutor，无超时） |
 | `/api/tool/search/find` | GET | 搜索工具（`?q=&tags=`） |
 | `/api/tool/{id}/modify-code` `/modify-and-debug` | POST | 对已注册工具改代码 / 改+调 |
@@ -519,6 +540,7 @@ core/resource/registry/tool_registry.py     # ToolRegistry
 core/resource/discoverer/tool_discoverer.py # ToolDiscoverer
 core/resource/builder/tool_builder.py       # ToolCodeBuilder（模板 + LLM 生成）
 core/resource/builder/builder_base.py       # BaseBuilder
+core/resource/tool_package.py               # zip 工具包导出/导入（归档格式 + 安全校验）
 app/api/schemas/tool_schemas.py             # Tool Pydantic 模型
 app/api/routes/tool_routes.py               # /api/tool/* 端点
 resources/tools/registry.json              # 内置根：预置工具注册表

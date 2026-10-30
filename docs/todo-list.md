@@ -9,7 +9,7 @@
 
 ## 2. 工具全生命周期
 
-- 2.1 工具导出和导入
+- 2.1 ✅ 工具导出和导入（zip 工具包：`GET /api/tool/{id}/export` / `POST /api/tool/import`，含依赖清单 pin、排除 .venv、zip-slip 防护、同名 409 覆盖确认）
 - 2.2 🔶 工具跨平台稳定运行（依赖环境已由 uv 按工具独立管理并 pin 到 requirements.txt，跨机可精确重建；路径/系统调用的平台边界仍待加强）
 - 2.3 自动调试的效率提高
 

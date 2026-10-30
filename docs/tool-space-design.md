@@ -396,6 +396,37 @@
   → 显示: 工具信息、代码、参数、执行按钮
 ```
 
+### 5.7 导出 / 导入工具包
+
+导出（内置与私有工具均可）：
+
+```
+用户在仓库工具卡片上点击 [⬇ 导出]（或详情页头部 [⬇ 导出]）
+  → GET /api/tool/{id}/export
+  → 浏览器下载 {id}.zip，包含:
+      manifest.json（格式标记/归档版本/工具 id/导出时间）
+      registry.json（精选注册表字段，丢弃 usage_count/created_at/owner）
+      definitions/{id}.md + {id}-demand.md + {id}-reference.md（存在才带）
+      impl/（tool.py、spec.md、requirements.txt、tests/、资产文件）
+    排除 .venv 与 __pycache__（虚拟环境由 uv 按 requirements.txt 秒级重建）
+```
+
+导入：
+
+```
+用户点击仓库头部 [⬆ 导入工具包]，选择 .zip
+  → POST /api/tool/import（multipart: file, overwrite）
+  → 后端校验: manifest/registry/tool.py 必含、tool_id 白名单、
+    manifest 与 registry id 一致、成员路径防 zip-slip、zip 炸弹上限
+  → 同名冲突（内置或私有）未带 overwrite → 409
+      → 前端 confirm 确认覆盖 → 带 overwrite=true 重试
+  → 写入私有根（等同重新注册）: registry.json + definitions + implementations
+  → 前端提示「导入成功，依赖尚未安装，运行时自动提示安装」；
+    若导入的是内置同名 id（私有副本将遮蔽内置），提示追加遮蔽警示
+```
+
+依赖不在导入时安装，与注册语义一致，由 check-deps / install-deps 懒安装接管。
+
 ---
 
 ## 六、标签系统
@@ -457,6 +488,8 @@
 | `GET` | `/api/tool/workspace` | 工作区间已加载工具清单 |
 | `POST` | `/api/tool/workspace` | 添加工具到工作区间 |
 | `DELETE` | `/api/tool/workspace/{tool_id}` | 从工作区间移除 |
+| `GET` | `/api/tool/{id}/export` | 导出工具为 zip 工具包（附件下载） |
+| `POST` | `/api/tool/import` | 导入 zip 工具包到私有根（冲突返回 409） |
 
 ### 7.1 `POST /api/tool/{id}/tags`
 
