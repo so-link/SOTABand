@@ -402,7 +402,13 @@ class AppConfig:
     api_host: str = field(default_factory=lambda: os.getenv("SOTABAND_API_HOST", "0.0.0.0"))
     api_port: int = field(default_factory=lambda: int(os.getenv("SOTABAND_API_PORT", "8001")))
     web_port: int = field(default_factory=lambda: int(os.getenv("SOTABAND_WEB_PORT", "5173")))
-    cors_origins: list = field(default_factory=lambda: ["*"])
+    # CORS 允许的来源。默认空列表 = 仅放行同源/无 Origin 请求（curl、服务端、
+    # 以及经 vite proxy / nginx 反代的同源 /api 调用）。跨域访问需显式配置：
+    #   SOTABAND_CORS_ORIGINS="https://a.example.com,https://b.example.com"
+    # 历史上这里是 ["*"]，与 allow_credentials=True 自相矛盾，随身份层收紧。
+    cors_origins: list = field(default_factory=lambda: [
+        o.strip() for o in os.getenv("SOTABAND_CORS_ORIGINS", "").split(",") if o.strip()
+    ])
 
 
 @dataclass

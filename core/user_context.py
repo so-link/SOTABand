@@ -138,7 +138,17 @@ def _persist(uid: str) -> None:
 
 
 def get_current_user_id() -> str:
-    """获取当前用户 / 工作区标识（带进程内缓存）"""
+    """获取当前用户 / 工作区标识（带进程内缓存）
+
+    优先级：请求级登录身份（auth 中间件设置）> 环境变量 > user.json > local。
+    无登录态时行为与加身份层之前完全一致（单用户实例不受影响）。
+    """
+    # 0) 请求级身份：登录用户（见 core/auth/session.py）
+    from core.auth.session import current_identity
+    rid = current_identity()
+    if rid:
+        return rid
+
     global _cached_user_id
     if _cached_user_id:
         return _cached_user_id
