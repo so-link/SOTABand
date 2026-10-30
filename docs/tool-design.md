@@ -275,7 +275,9 @@ def _resolve_path(path: str) -> str: ...
 
 ### 6.1 核心原则
 
-**不做语法检查、接口检查、静态分析。直接用测试数据驱动工具执行，捕获结果。**
+**不做接口检查、不做执行前的准备性静态分析。直接用测试数据驱动工具执行，捕获结果——执行结果就是最好的验证器。**
+
+唯一的例外是安全闸门（见 6.5）：执行前有一道确定性的 AST 静态安全审查，但它不判断代码「对不对」，只拦截破坏性/逃逸性调用。
 
 ### 6.2 测试数据获取
 
@@ -305,6 +307,15 @@ def _resolve_path(path: str) -> str: ...
 - `POST /api/tool/{id}/install-deps`：安装缺失依赖到工具独立 `.venv`（uv 管理，缺失时自动引导创建，一次性装入工具全部第三方依赖，完成后 `uv pip freeze` 写工具目录 `requirements.txt` 精确 pin；多工具 venv 经 uv 全局缓存硬链接共享，近乎零磁盘增量，版本互不冲突）
 - 自动调试循环中遇到 `ModuleNotFoundError` 时，由**系统自动**调用 `install_deps_stream` 安装缺失库（LLM 不参与装依赖），安装失败则提示 LLM 换替代方案
 - 执行解释器按「工具 `.venv` → 项目 `venv` → 当前解释器」优先级选择（见 2.5）
+
+### 6.5 静态安全审查（执行前闸门）
+
+沙箱执行入口（`sandbox_execute`）在起子进程之前先跑 `core/security/code_scan.py` 的 AST 静态扫描（todo 3.2）。基于 `ast.parse` 而非正则匹配（正则可被换行/别名绕过），两级结论：
+
+- **阻断项（errors）**：几乎只用于破坏/逃逸的调用——shell 执行（`os.system`/`os.popen`/`subprocess.getoutput` 等）、动态执行（`eval`/`exec`/`compile`/`__import__`）、直接删除原语（`os.remove`/`shutil.rmtree` 等）、原始套接字与 FFI（`socket`/`ctypes`/`pty`/`resource`）、动态导入（`importlib.import_module`）。命中即不执行，返回 `exit_code=1` 的失败结果，`stderr` 携带中文错误清单——自动调试循环把它喂给 LLM，下一轮重写代码。
+- **警告项（warnings）**：合法工具常见能力（subprocess 跑本地命令、`open` 读写文件、requests 联网）。工具在独立子进程运行，属于平台信任模型允许的范围，记录展示但不阻断。
+
+设计基线是「对全部内置工具零误杀」，直接运行 `python -m core.security.code_scan` 即回归复核（扫描内置工具 `tool.py`，应输出 0 errors）。同样的闸门共三处：沙箱执行入口、`POST /api/tool/register`、`PUT /api/tool/{id}/save-code`（后两者命中返回 400 + 错误明细），确保被阻断的代码既跑不起来、也落不了盘。
 
 ---
 
