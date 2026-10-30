@@ -143,6 +143,50 @@ async def main():
         await send_event({"event": "done", "data": {"messageId": "fatal"}})
         return
 
+    # ── Agent 间通信（todo 4.5）：绑定总线客户端 ──
+    # Agent 代码在 execute/on_start 期间可经 self._bus 使用
+    # publish / subscribe / call_agent。帧经本通道与主进程交换。
+    from core.agent.bus import AgentBusClient
+    from core.agent.protocol import is_frame
+
+    bus = AgentBusClient(args.agent_id)
+    bus.bind(writer)
+    agent._bus = bus
+
+    async def _handle_rpc(from_agent: str, method: str, params: dict) -> dict:
+        """被调侧：以 execute 语义执行 RPC，把事件流聚合为一次性响应。
+
+        聚合规则：error 事件 → 失败；result 事件 → 取其 data；
+        否则拼接 content 事件文本。RPC 事件不外发，避免混入本 Agent
+        正常执行轮次的事件流。
+        """
+        from core.agent.base import AgentContext
+
+        ctx = AgentContext(agent_id=args.agent_id,
+                           session_id=f"rpc:{from_agent}", user_id=from_agent)
+        result = None
+        contents: list = []
+        err: str | None = None
+        try:
+            async for event in agent.execute(ctx, bus_method=method,
+                                             bus_params=params or {}):
+                et = event.get("event")
+                if et == "error":
+                    err = event.get("data", {}).get("message", "error")
+                elif et == "result":
+                    result = event.get("data")
+                elif et == "content":
+                    contents.append(event.get("data", {}).get("text", ""))
+        except Exception as e:
+            return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+        if err is not None:
+            return {"ok": False, "error": err}
+        if result is not None:
+            return {"ok": True, "result": result}
+        return {"ok": True, "result": {"text": "".join(contents)}}
+
+    bus.add_handler("__call__", _handle_rpc)
+
     # ── Web 服务式：加载成功后自动启动 HTTP 服务 ──
     _web_host = None
     if agent.role == AgentRole.WEB_SERVICE:
@@ -177,6 +221,35 @@ async def main():
         except Exception as e:
             await send_event({"event": "error", "data": {"message": f"Web 服务启动失败: {e}"}})
 
+    async def _run_execute(task: dict, exec_state: dict):
+        """在独立任务中驱动一个 execute 轮次。
+
+        必须作为任务运行：Agent 在 execute 期间可能 await
+        self._bus.call_agent(...)，需要本读循环继续读取 stdin 收取
+        agent_call_response / bus_message 帧——若同步 await 将自锁死。
+        """
+        ctx_data = task.get("context", {})
+        from core.agent.base import AgentContext
+
+        ctx = AgentContext(
+            agent_id=args.agent_id,
+            session_id=ctx_data.get("session_id", "default"),
+            user_id=ctx_data.get("user_id", "default"),
+            metadata=ctx_data.get("metadata", {}) or {},
+        )
+        params = task.get("params", {})
+        try:
+            async for event in agent.execute(ctx, **params):
+                await send_event(event)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            await send_event({"event": "error", "data": {"message": str(e)}})
+        finally:
+            exec_state["task"] = None
+
+    exec_state: dict = {"task": None}
+
     try:
         while True:
             try:
@@ -184,30 +257,35 @@ async def main():
                 if not line:
                     break  # stdin closed → 主进程要求退出
 
-                task = json.loads(line.decode('utf-8').strip())
+                msg = json.loads(line.decode('utf-8').strip())
 
-                if task.get("action") == "stop":
+                # ── 通信帧（todo 4.5）：响应 / 投递 ──
+                if is_frame(msg):
+                    t = msg.get("type")
+                    if t == "agent_call_response":
+                        bus.resolve(msg)
+                    elif t in ("bus_message", "agent_call"):
+                        # 作为任务投递：长 RPC 不阻塞读循环
+                        asyncio.ensure_future(bus.deliver(msg))
+                    continue
+
+                action = msg.get("action")
+                if action == "stop":
+                    cur = exec_state.get("task")
+                    if cur is not None and not cur.done():
+                        cur.cancel()
                     break
 
-                if task.get("action") == "execute":
-                    ctx_data = task.get("context", {})
-                    from core.agent.base import AgentContext
+                if action == "execute":
+                    cur = exec_state.get("task")
+                    if cur is not None and not cur.done():
+                        await send_event({"event": "error", "data": {
+                            "message": "Agent 正忙（上一轮 execute 尚未结束）"}})
+                    else:
+                        exec_state["task"] = asyncio.ensure_future(
+                            _run_execute(msg, exec_state))
 
-                    ctx = AgentContext(
-                        agent_id=args.agent_id,
-                        session_id=ctx_data.get("session_id", "default"),
-                        user_id=ctx_data.get("user_id", "default"),
-                        metadata=ctx_data.get("metadata", {}) or {},
-                    )
-                    params = task.get("params", {})
-
-                    try:
-                        async for event in agent.execute(ctx, **params):
-                            await send_event(event)
-                    except Exception as e:
-                        await send_event({"event": "error", "data": {"message": str(e)}})
-
-                elif task.get("action") == "ping":
+                elif action == "ping":
                     # 健康探测
                     await send_event({"event": "pong", "data": {}})
 
@@ -216,8 +294,11 @@ async def main():
             except Exception:
                 break
     finally:
-        # 无论正常退出还是异常崩溃，都执行清理：
+        # 取消未完成的 execute 轮次，再执行清理：
         # 回收常驻工具进程、释放其占用的模型/显存。
+        cur = exec_state.get("task")
+        if cur is not None and not cur.done():
+            cur.cancel()
         try:
             await agent.on_stop()
         except Exception:

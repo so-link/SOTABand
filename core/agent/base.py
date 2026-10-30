@@ -108,6 +108,10 @@ class BaseAgent(ABC):
         self._running = False
         # 工具常驻运行时（懒加载；Web 服务式 Agent 用它把依赖工具常驻化）
         self._tool_runtime = None
+        # Agent 间通信客户端（entrypoint 启动时绑定；见 core/agent/bus.py）
+        # 用法：await self._bus.subscribe([...]) / publish(ch, msg) /
+        #       await self._bus.call_agent(target, method, params)
+        self._bus = None
 
     @property
     def agent_id(self) -> str:

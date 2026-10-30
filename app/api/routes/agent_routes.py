@@ -412,6 +412,45 @@ async def agent_stop_auto_debug(req: dict):
     return {"status": "ok", "message": f"已请求停止 Agent {agent_id} 的调试"}
 
 
+# ═══════════════════════════════════════════════════════════════
+#  Agent 间通信总线（todo 4.5）— 主进程路由中枢的对外入口
+#  注意：必须注册在 /{agent_id}/... 动态路由之前（静态路径优先匹配）
+# ═══════════════════════════════════════════════════════════════
+
+@router.post("/bus/publish")
+async def bus_publish(req: dict):
+    """外部系统向总线频道发布消息，投递给所有订阅该频道的运行中 Agent。"""
+    channel = str(req.get("channel") or "").strip()
+    if not channel:
+        raise HTTPException(400, "缺少 channel")
+    return await agent_factory.bus_publish(
+        channel, req.get("message") if isinstance(req.get("message"), dict) else {},
+        src=str(req.get("src") or "main"))
+
+
+@router.post("/bus/call")
+async def bus_call(req: dict):
+    """外部系统以 RPC 方式调用一个运行中的 Agent（被调方 execute 聚合返回）。"""
+    to = str(req.get("to") or "").strip()
+    method = str(req.get("method") or "").strip()
+    if not to or not method:
+        raise HTTPException(400, "缺少 to 或 method")
+    params = req.get("params") if isinstance(req.get("params"), dict) else {}
+    try:
+        timeout = float(req.get("timeout") or 60)
+    except (TypeError, ValueError):
+        timeout = 60.0
+    result = await agent_factory.call_agent(
+        str(req.get("from") or "main"), to, method, params, timeout=timeout)
+    return result
+
+
+@router.get("/bus/status")
+async def bus_status():
+    """总线可观测快照：各频道订阅者与悬挂 RPC 数。"""
+    return agent_factory.bus_status()
+
+
 @router.post("/register")
 async def register_agent(req: RegisterAgentRequest):
     """注册 Agent 到资源空间"""
