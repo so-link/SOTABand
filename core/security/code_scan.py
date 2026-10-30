@@ -214,6 +214,54 @@ def scan_code(code: str) -> ScanResult:
     if internal_urls:
         res.warnings.append(
             f"存在指向本机/内网的 URL（{ '；'.join(internal_urls[:3]) }），请确认目标服务允许被工具访问")
+
+    # 复杂度异常（todo 3.2 检查项 4，warning 级——常驻服务循环是合法写法，
+    # 不能阻断；但对 LLM 生成的「忘写退出条件的死循环」是有效提示）：
+    # (a) while True 体内无任何 break/return/raise；(b) 巨量字面量分配（≥10MB 级）。
+    def _exits_loop(node: ast.AST) -> bool:
+        """本层是否存在能退出外层 while 的 break/return/raise。
+
+        规则：嵌套函数/lambda 内的 return 不算；嵌套 for/while 内的 break
+        属于内层循环，也不算；return/raise 在任何深度（除嵌套定义外）都退出。
+        """
+        stack: list[tuple[ast.AST, bool]] = [(node, False)]
+        while stack:
+            x, in_loop = stack.pop()
+            if x is not node and isinstance(x, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                continue
+            if isinstance(x, (ast.Return, ast.Raise)):
+                return True
+            if isinstance(x, ast.Break) and not in_loop:
+                return True
+            deeper = in_loop or isinstance(x, (ast.For, ast.AsyncFor, ast.While))
+            stack.extend((c, deeper) for c in ast.iter_child_nodes(x))
+        return False
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.While) and isinstance(node.test, ast.Constant) and node.test.value is True:
+            has_exit = any(
+                _exits_loop(stmt)
+                for stmt in node.body
+                if not isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef))
+            )
+            if not has_exit:
+                res.warnings.append(
+                    f"第 {node.lineno} 行 while True 循环体内没有 break/return/raise，若非有意常驻循环请检查退出条件")
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) \
+                and node.func.id in {"bytearray", "bytes", "list"}:
+            for a in node.args:
+                if isinstance(a, ast.Constant) and isinstance(a.value, int) and a.value >= 10 ** 7:
+                    res.warnings.append(
+                        f"第 {node.lineno} 行字面量分配 {a.value} 个元素（{node.func.id}），请确认内存占用")
+                    break
+        elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mult):
+            for c in (node.left, node.right):
+                if isinstance(c, ast.Constant) and isinstance(c.value, int) and c.value >= 10 ** 7:
+                    res.warnings.append(
+                        f"第 {node.lineno} 行出现 {c.value} 量级的乘法尺寸表达式，请确认内存占用")
+                    break
     return res
 
 
