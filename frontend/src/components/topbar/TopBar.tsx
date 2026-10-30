@@ -1,10 +1,10 @@
-import { PanelLeft, PanelRight, Bell, Settings, Sun, Moon } from 'lucide-react'
+import { PanelLeft, PanelRight, Settings, Sun, Moon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip } from '@/components/ui/tooltip'
-import { Avatar } from '@/components/ui/avatar'
 import { useUIStore } from '@/stores/ui-store'
 import { useFileTreeStore } from '@/stores/file-tree-store'
+import { APP_VERSION } from '@/lib/utils'
 
 export function TopBar() {
   const { leftPanelOpen, rightPanelOpen, toggleLeftPanel, toggleRightPanel, theme, toggleTheme, setActiveView } = useUIStore()
@@ -37,19 +37,13 @@ export function TopBar() {
             <span className="text-[13px] text-maia-text-secondary font-mono">{workspaceName}</span>
           </>
         )}
-        <Badge variant="accent" className="text-[12px] ml-1 font-mono">v0.1</Badge>
+        <Badge variant="accent" className="text-[12px] ml-1 font-mono">v{APP_VERSION}</Badge>
       </div>
 
       <div className="flex items-center gap-0.5">
         <Tooltip content={theme === 'dark' ? '浅色模式' : '深色模式'}>
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={toggleTheme}>
-            {theme === 'dark' ? <Sun className="h-3.5 w-3.5 text-amber-400" /> : <Moon className="h-3.5 w-3.5 text-violet-400" />}
-          </Button>
-        </Tooltip>
-        <Tooltip content="通知">
-          <Button variant="ghost" size="icon" className="h-7 w-7 relative">
-            <Bell className="h-3.5 w-3.5" />
-            <span className="absolute top-1.5 right-1.5 flex h-1.5 w-1.5 rounded-full bg-maia-danger" />
+            {theme === 'dark' ? <Sun className="h-3.5 w-3.5 text-amber-400" /> : <Moon className="h-3.5 w-3.5 text-maia-accent" />}
           </Button>
         </Tooltip>
         <Tooltip content="设置">
@@ -60,7 +54,6 @@ export function TopBar() {
             <PanelRight className="h-3.5 w-3.5" />
           </Button>
         </Tooltip>
-        <div className="ml-1.5"><Avatar fallback="J" className="h-6 w-6 text-[12px]" /></div>
       </div>
     </header>
   )

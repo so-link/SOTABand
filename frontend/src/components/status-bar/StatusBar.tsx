@@ -1,6 +1,7 @@
 import { Wrench, Database, Terminal } from 'lucide-react'
 import { useResourceStore } from '@/stores/resource-store'
 import { useWorkspaceToolStore } from '@/stores/workspace-tool-store'
+import { APP_VERSION } from '@/lib/utils'
 
 export function StatusBar() {
   // 与左栏「工具空间」同一口径：已加载到当前工作区、Agent 实际可调用的工具。
@@ -31,7 +32,7 @@ export function StatusBar() {
         </span>
         <span className="inline-flex items-center gap-1.5 pl-3 border-l border-maia-border text-maia-text-muted/70">
           <Terminal className="h-3.5 w-3.5 text-maia-accent/50" />
-          <span className="font-mono">SOTABand v0.1.0</span>
+          <span className="font-mono">SOTABand v{APP_VERSION}</span>
         </span>
       </div>
     </footer>
