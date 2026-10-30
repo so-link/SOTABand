@@ -113,11 +113,11 @@ class ModelRegistry(BaseRegistry):
             data.append(entry)
         self._write(data)
 
-        # 保存 MD 规范文档
+        # 保存 MD 规范文档（中文内容，Windows 默认 GBK，必须显式 utf-8）
         if "raw_md" in resource:
             spec_path = self._get_def_dir() / f"{model_id}.md"
             spec_path.parent.mkdir(parents=True, exist_ok=True)
-            spec_path.write_text(resource["raw_md"])
+            spec_path.write_text(resource["raw_md"], encoding="utf-8")
 
         return model_id
 

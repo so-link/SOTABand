@@ -125,9 +125,10 @@ class AgentRegistry(BaseRegistry):
             data.append(entry)
         self._write(data)
 
-        # 保存 MD 规范文档
+        # 保存 MD 规范文档——写只进私有根（与 tool/data/model 注册表一致），
+        # 内置根是随仓库分发的只读资产，运行期不得写入。
         if "raw_md" in resource:
-            spec_path = REGISTRY_DIR / "definitions" / f"{agent_id}.md"
+            spec_path = self._get_spec_dir() / f"{agent_id}.md"
             spec_path.parent.mkdir(parents=True, exist_ok=True)
             with open(spec_path, "w", encoding='utf-8') as f:
                 f.write(resource["raw_md"])
