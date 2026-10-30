@@ -113,7 +113,7 @@ agent_factory.execute_stream("interactive-agent", params, context)
 
 - **Step 1 描述需求**：自然语言输入，选择角色类型（interactive / task / web-service，带模板确认对话框）
 - **Step 2 审阅 MD 规范文档**：LLM 生成的 MD 全文可编辑，确认后进入代码生成
-- **Step 3 沙箱测试 & 核验**：展示生成代码与静态校验/沙箱结果列表（通过/失败）。与工具编辑器不同，Agent 编辑器只有核验清单，没有多轮自动调试循环；`agent-detail` 视图另行提供「AI 辅助修改」通道
+- **Step 3 沙箱测试 & 自动调试**：展示生成代码与静态校验结果列表（通过/失败），并提供按规范文档（task 输入规范表 / web-service ```apis 声明）解析出的测试参数表单，一键「自动调试」——后端沙箱试运行 Agent 子进程 → LLM 分析错误重写代码 → 再跑（SSE 流式展示每轮结果，最多 50 轮，可随时停止）；`agent-detail` 视图另行提供「AI 辅助修改」通道
 - **Step 4 注册 & 启动**：注册到 Agent 空间，可立即启动进程并做健康检查
 
 ### 3.3 Agent 编辑器状态机
