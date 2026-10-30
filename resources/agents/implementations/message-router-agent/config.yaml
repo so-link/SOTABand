@@ -1,0 +1,3 @@
+# 消息路由智能体运行时配置
+role: web-service
+version: 0.1.0

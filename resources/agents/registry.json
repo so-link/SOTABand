@@ -13,5 +13,24 @@
     "health": "healthy",
     "owner": "local-662a9da9",
     "visibility": "public"
+  },
+  {
+    "id": "message-router-agent",
+    "name": "消息路由智能体",
+    "version": "0.1.0",
+    "role": "web-service",
+    "status": "active",
+    "spec_path": "definitions/message-router-agent.md",
+    "impl_path": "implementations/message-router-agent/",
+    "tools": [],
+    "tags": [
+      "路由",
+      "API",
+      "消息路由"
+    ],
+    "created_at": "2026-10-30T15:30:39Z",
+    "health": "healthy",
+    "owner": "local",
+    "visibility": "public"
   }
 ]
