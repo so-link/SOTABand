@@ -41,6 +41,9 @@
   --color-maia-card-green: #0A2016;
   --color-maia-card-amber: #201808;
   --color-maia-card-purple: #14102A;
+  /* 代码编辑/预览区：语法高亮固定使用 vsDark，所以本区底色深浅主题都保持深色 */
+  --color-maia-code-bg: #1E1E1E;
+  --color-maia-code-text: #E7EAF0;
 }
 
 /* ── 浅色主题覆盖 ── */

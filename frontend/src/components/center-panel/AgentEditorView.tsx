@@ -595,7 +595,7 @@ function Step3Verify() {
                     onClick={() => syncSpecFromCode()}
                     disabled={!codeDirty || isGenerating}
                     title={codeDirty ? '让 AI 依据代码改动更新 MD 文档' : '代码未修改，无需同步'}
-                    className="text-[12px] text-purple-500 hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="text-[12px] text-maia-accent hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     同步代码改动到文档
                   </button>

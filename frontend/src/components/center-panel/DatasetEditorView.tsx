@@ -82,7 +82,7 @@ function Step1() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5 mb-1">
                       <span className="text-[13px] font-medium text-maia-text truncate">{f.fileName}</span>
-                      <Badge variant="default" className="text-[9px]">{f.format.toUpperCase()}</Badge>
+                      <Badge variant="default" className="text-[11px]">{f.format.toUpperCase()}</Badge>
                       <span className="text-[12px] text-maia-text-muted">{f.fileSize > 1024 ? `${(f.fileSize / 1024).toFixed(0)}KB` : `${f.fileSize}B`}</span>
                     </div>
                     <input

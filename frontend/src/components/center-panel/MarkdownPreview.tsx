@@ -18,7 +18,7 @@ function renderMarkdown(md: string): string {
   )
 
   // 行内代码 `...`
-  html = html.replace(/`([^`]+)`/g, '<code class="bg-maia-bg text-green-400 px-1 py-0.5 rounded text-[12px]">$1</code>')
+  html = html.replace(/`([^`]+)`/g, '<code class="bg-maia-bg text-maia-accent px-1 py-0.5 rounded text-[12px]">$1</code>')
 
   // 标题
   html = html.replace(/^#### (.+)$/gm, '<h4 class="text-sm font-semibold text-maia-text-heading mt-4 mb-1">$1</h4>')
@@ -129,7 +129,7 @@ export function MarkdownPreview({ datasetPath, mdFiles }: MarkdownPreviewProps) 
       <CardBody>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-1.5">
-            <FileText className="h-3.5 w-3.5 text-purple-400" />
+            <FileText className="h-3.5 w-3.5 text-maia-accent" />
             <span className="text-[13px] font-medium text-maia-text-secondary">
               {currentFile?.name as string}
             </span>

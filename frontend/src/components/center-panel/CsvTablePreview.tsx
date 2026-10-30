@@ -91,7 +91,7 @@ export function CsvTablePreview({ datasetPath, csvFiles }: CsvTablePreviewProps)
       <CardBody>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-1.5">
-            <Table2 className="h-3.5 w-3.5 text-green-400" />
+            <Table2 className="h-3.5 w-3.5 text-maia-success" />
             <span className="text-[13px] font-medium text-maia-text-secondary">
               CSV 表格预览 — {csvFiles[0].name as string}（{rows.length} 条记录）
             </span>

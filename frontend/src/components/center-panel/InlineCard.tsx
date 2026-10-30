@@ -106,7 +106,7 @@ function ToolMatchCard({
                 <div className="flex items-center gap-1.5">
                   <span className="text-[13px] font-medium truncate">{tool.name}</span>
                   <span className="text-[12px] text-maia-text-muted">v{tool.version}</span>
-                  {tool.isLocal && <Badge variant="accent" className="text-[9px]">⭐本地工具</Badge>}
+                  {tool.isLocal && <Badge variant="accent" className="text-[11px]">⭐本地工具</Badge>}
                 </div>
               </div>
               <Badge variant="default">{tool.match}% 匹配</Badge>
@@ -138,7 +138,7 @@ function OrchestrationPreviewCard({
     <Card className="border-maia-card-purple bg-maia-card-purple">
       <CardHeader>
         <div className="flex items-center gap-2">
-          <GitBranch className="h-4 w-4 text-purple-500" />
+          <GitBranch className="h-4 w-4 text-maia-accent" />
           <span className="text-[13px] font-medium">{title}</span>
         </div>
       </CardHeader>
@@ -295,7 +295,7 @@ function ImageOutput({ data }: { data: Record<string, unknown> }) {
   return (
     <div className="mt-2 rounded-lg overflow-hidden border border-maia-border">
       {error ? (
-        <div className="p-3 text-[13px] text-maia-danger bg-red-50">
+        <div className="p-3 text-[13px] text-maia-danger bg-maia-danger-bg">
           图片加载失败: {imagePath}
         </div>
       ) : (
@@ -441,7 +441,7 @@ function CreateToolCard({ title, summary, data }: { title: string; summary: stri
     <Card className="border-maia-card-purple bg-maia-card-purple">
       <CardHeader>
         <div className="flex items-center gap-2">
-          <Wrench className="h-4 w-4 text-purple-500" />
+          <Wrench className="h-4 w-4 text-maia-accent" />
           <span className="text-[13px] font-medium">{title}</span>
           <Badge variant="accent">新工具</Badge>
         </div>

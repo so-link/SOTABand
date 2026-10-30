@@ -83,7 +83,7 @@ export function TableEditView({ toolId, table, md, onApplied }: Props) {
         <span className="text-[12px] text-maia-text-secondary">
           {table.node_title || '参数表'}
         </span>
-        <span className="flex items-center gap-0.5 text-[9px] text-maia-success">
+        <span className="flex items-center gap-0.5 text-[11px] text-maia-success">
           <Zap className="h-2.5 w-2.5" />
           点单元格直接改，即时生效
         </span>

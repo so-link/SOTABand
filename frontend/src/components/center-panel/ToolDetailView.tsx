@@ -332,7 +332,7 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
           )}
           {hasReference && (
             <button onClick={() => { setShowReference(!showReference); setShowSpec(false); setShowCode(false); setShowDemand(false) }}
-              className="flex items-center gap-1 text-[12px] text-purple-500 hover:underline">
+              className="flex items-center gap-1 text-[12px] text-maia-accent hover:underline">
               <Code className="h-3 w-3" />{showReference ? '收起参考' : '查看参考代码'}
             </button>
           )}
@@ -404,10 +404,10 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
                   {isEditing ? (
                     <textarea value={editedCode} onChange={(e) => handleCodeChange(e.target.value)}
                       onKeyDown={onCodeTabIndent}
-                      className="flex-1 min-h-0 rounded border border-maia-border bg-maia-bg px-3 py-2 text-[13px] font-mono leading-[22px] outline-none resize-none focus:border-maia-accent/40"
+                      className="flex-1 min-h-0 rounded border border-maia-border bg-maia-code-bg text-maia-code-text px-3 py-2 text-[13px] font-mono leading-[22px] outline-none resize-none focus:border-maia-accent/40"
                       spellCheck={false} />
                   ) : (
-                    <div className="flex-1 min-h-0 rounded-lg border border-maia-border bg-[#1e1e1e] overflow-auto">
+                    <div className="flex-1 min-h-0 rounded-lg border border-maia-border bg-maia-code-bg overflow-auto">
                       <Highlight theme={themes.vsDark} code={editedCode || '# 暂无代码'} language="python">
                         {({ style, tokens, getLineProps, getTokenProps }) => (
                           <pre style={style} className="px-3 py-2 text-[13px] font-mono leading-[22px] m-0">
@@ -483,9 +483,9 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
               {/* AI 辅助修改 */}
               <div className="p-3 rounded-lg border border-purple-200 bg-purple-50/50">
                 <div className="flex items-center gap-1.5 mb-2">
-                  <Bot className="h-3.5 w-3.5 text-purple-500" />
-                  <span className="text-[12px] font-medium text-purple-700">AI 辅助修改</span>
-                  {isDebugging && <Loader2 className="h-3 w-3 animate-spin text-purple-500" />}
+                  <Bot className="h-3.5 w-3.5 text-maia-accent" />
+                  <span className="text-[12px] font-medium text-maia-accent">AI 辅助修改</span>
+                  {isDebugging && <Loader2 className="h-3 w-3 animate-spin text-maia-accent" />}
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <textarea
@@ -510,7 +510,7 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
                       <Square className="h-3 w-3" />停止调试
                     </Button>
                   ) : (
-                    <Button size="sm" className="bg-purple-500 hover:bg-purple-600 text-white h-7 text-[12px] w-full" onClick={handleModify} disabled={!modifyRequest.trim()}>
+                    <Button size="sm" className="bg-maia-accent hover:bg-maia-accent-hover text-white h-7 text-[12px] w-full" onClick={handleModify} disabled={!modifyRequest.trim()}>
                       修改
                     </Button>
                   )}
@@ -533,7 +533,7 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
                     {debugRounds.map((round, i) => (
                       <div key={i} className="border-b border-maia-border/30 pb-1.5 last:border-0">
                         {round.round === -1 ? (
-                          <div className="text-[12px] text-purple-400 font-semibold py-1">{round.analysis}</div>
+                          <div className="text-[12px] text-maia-accent font-semibold py-1">{round.analysis}</div>
                         ) : (
                           <div>
                             <div className="flex items-center gap-1 text-[12px] font-semibold">
@@ -549,7 +549,7 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
                               <pre className="whitespace-pre-wrap break-all leading-relaxed mt-0.5 text-maia-danger">{round.stderr}</pre>
                             )}
                             {round.analysis && (
-                              <pre className="text-green-400 whitespace-pre-wrap break-all mt-0.5 leading-relaxed">{round.analysis}</pre>
+                              <pre className="text-maia-success whitespace-pre-wrap break-all mt-0.5 leading-relaxed">{round.analysis}</pre>
                             )}
                           </div>
                         )}
@@ -560,7 +560,7 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
                 </div>
               )}
 
-              {error && <div className="p-3 rounded-lg border border-red-200 bg-red-50 text-[13px] text-maia-danger">{error}</div>}
+              {error && <div className="p-3 rounded-lg border border-maia-danger/30 bg-maia-danger-bg text-[13px] text-maia-danger">{error}</div>}
               {output && (<Card className="border-emerald-200 bg-emerald-50/30"><CardBody>
                 <div className="flex items-center gap-1.5 mb-2">
                   <div className={`h-2 w-2 rounded-full ${output.status === 'success' ? 'bg-maia-success' : 'bg-maia-danger'}`} />
@@ -582,7 +582,7 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
             <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto bg-maia-bg rounded p-3">{demandText}</pre>
           </CardBody></Card>)}
           {showReference && referenceCode && (<Card className="border-purple-200 bg-purple-50/30"><CardBody>
-            <div className="flex items-center justify-between mb-2"><span className="text-[13px] font-medium text-purple-700">参考代码</span><button onClick={() => setShowReference(false)}><X className="h-3 w-3 text-maia-text-muted" /></button></div>
+            <div className="flex items-center justify-between mb-2"><span className="text-[13px] font-medium text-maia-accent">参考代码</span><button onClick={() => setShowReference(false)}><X className="h-3 w-3 text-maia-text-muted" /></button></div>
             <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto bg-maia-bg rounded p-3 border border-maia-border">{referenceCode}</pre>
           </CardBody></Card>)}
           <div>
@@ -775,7 +775,7 @@ function ToolTagsEditor({ toolId, tags: initialTags }: { toolId: string; tags: s
   return (
     <div className="flex items-center gap-1">
       {tags.map(tag => (
-        <span key={tag} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[12px] bg-amber-100 text-amber-700 border border-amber-300 font-medium">
+        <span key={tag} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[12px] bg-maia-warning-bg text-maia-warning border border-maia-warning/30 font-medium">
           {tag}
           {editing && (
             <button onClick={() => saveTags(tags.filter(t => t !== tag))} className="hover:text-red-400">

@@ -135,7 +135,7 @@ export function DatasetImportDialog({ onImport, onClose }: Props) {
                     {(ds.formats || []).length > 0 && (
                       <div className="flex gap-1 mt-1">
                         {(ds.formats || []).slice(0, 3).map(f => (
-                          <Badge key={f} variant="default" className="text-[9px]">{f.toUpperCase()}</Badge>
+                          <Badge key={f} variant="default" className="text-[11px]">{f.toUpperCase()}</Badge>
                         ))}
                       </div>
                     )}

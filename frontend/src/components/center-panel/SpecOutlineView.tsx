@@ -370,7 +370,7 @@ export function SpecOutlineView({ outline, toolId, onApply }: Props) {
                         </span>
                       </div>
                       {streamText && (
-                        <pre className="text-[9px] font-mono text-maia-text whitespace-pre-wrap max-h-28 overflow-auto bg-maia-bg rounded p-1.5">
+                        <pre className="text-[12px] leading-[20px] font-mono text-maia-text whitespace-pre-wrap max-h-28 overflow-auto bg-maia-bg rounded p-1.5">
                           {streamText}
                         </pre>
                       )}
@@ -393,13 +393,13 @@ export function SpecOutlineView({ outline, toolId, onApply }: Props) {
                       <div className="grid grid-cols-2 gap-2">
                         <div>
                           <div className="text-[12px] text-maia-text-muted mb-0.5">改前</div>
-                          <pre className="text-[9px] font-mono text-maia-text-muted whitespace-pre-wrap max-h-32 overflow-auto bg-maia-bg rounded p-1.5">
+                          <pre className="text-[12px] leading-[20px] font-mono text-maia-text-muted whitespace-pre-wrap max-h-32 overflow-auto bg-maia-bg rounded p-1.5">
                             {result.diff.before}
                           </pre>
                         </div>
                         <div>
                           <div className="text-[12px] text-maia-success mb-0.5">改后</div>
-                          <pre className="text-[9px] font-mono text-maia-text whitespace-pre-wrap max-h-32 overflow-auto bg-maia-bg rounded p-1.5">
+                          <pre className="text-[12px] leading-[20px] font-mono text-maia-text whitespace-pre-wrap max-h-32 overflow-auto bg-maia-bg rounded p-1.5">
                             {result.diff.after}
                           </pre>
                         </div>

@@ -553,7 +553,7 @@ function Step2() {
       <div className="flex items-center gap-1 mb-3">
         <Tag className="h-3.5 w-3.5 text-amber-400 shrink-0" />
         {tags.map(tag => (
-          <span key={tag} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[12px] bg-amber-100 text-amber-700 border border-amber-300 font-medium">
+          <span key={tag} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[12px] bg-maia-warning-bg text-maia-warning border border-maia-warning/30 font-medium">
             {tag}
             <button onClick={() => removeTag(tag)} className="hover:text-red-400"><X className="h-2.5 w-2.5" /></button>
           </span>
@@ -696,7 +696,7 @@ function Step3() {
                     onClick={() => syncSpecFromCode()}
                     disabled={!codeDirty || isGenerating}
                     title={codeDirty ? '让 AI 依据代码改动更新 MD 文档' : '代码未修改，无需同步'}
-                    className="flex items-center gap-1 text-[12px] px-1.5 py-0.5 rounded border border-maia-border text-purple-500 hover:bg-purple-500/10 disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="flex items-center gap-1 text-[12px] px-1.5 py-0.5 rounded border border-maia-border text-maia-accent hover:bg-maia-accent/10 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     {isGenerating ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : null}
                     同步代码改动到文档
@@ -710,11 +710,11 @@ function Step3() {
                 onChange={handleCodeEdit}
                 onKeyDown={onCodeTabIndent}
                 spellCheck={false}
-                className="flex-1 min-h-0 rounded-lg border border-maia-border bg-[#1e1e1e] text-gray-100 px-3 py-2 text-[13px] font-mono leading-[22px] outline-none resize-none focus:border-maia-accent/40"
+                className="flex-1 min-h-0 rounded-lg border border-maia-border bg-maia-code-bg text-maia-code-text px-3 py-2 text-[13px] font-mono leading-[22px] outline-none resize-none focus:border-maia-accent/40"
                 style={{ maxHeight: codeHeight }}
               />
             ) : (
-            <div className="flex-1 min-h-0 rounded-lg border border-maia-border bg-[#1e1e1e] overflow-auto" style={{ maxHeight: codeHeight }}>
+            <div className="flex-1 min-h-0 rounded-lg border border-maia-border bg-maia-code-bg overflow-auto" style={{ maxHeight: codeHeight }}>
               <Highlight theme={themes.vsDark} code={generatedCode || '# 等待生成代码...'} language="python">
                 {({ style, tokens, getLineProps, getTokenProps }) => (
                   <pre style={style} className="px-3 py-2 text-[13px] font-mono leading-[22px] m-0">
@@ -868,7 +868,7 @@ function Step3() {
                     )}
                   </div>
                   {round.analysis && (
-                    <pre className="text-green-400 font-mono text-[12px] whitespace-pre-wrap break-all ml-14 mt-0.5 leading-relaxed">{round.analysis}</pre>
+                    <pre className="text-maia-success font-mono text-[12px] whitespace-pre-wrap break-all ml-14 mt-0.5 leading-relaxed">{round.analysis}</pre>
                   )}
                   {round.code && (
                     <details className="ml-14 mt-1">
@@ -1131,7 +1131,7 @@ function TestDetail({ detail }: { detail?: Record<string, unknown> }) {
       {error && (
         <div>
           <div className="text-[12px] text-maia-danger mb-0.5 uppercase">错误</div>
-          <pre className="rounded border border-red-200 bg-red-50/50 px-2 py-1.5 text-[12px] font-mono max-h-[80px] overflow-auto whitespace-pre-wrap">{error}</pre>
+          <pre className="rounded border border-maia-danger/30 bg-maia-danger-bg px-2 py-1.5 text-[12px] font-mono max-h-[80px] overflow-auto whitespace-pre-wrap">{error}</pre>
         </div>
       )}
     </div>

@@ -182,7 +182,7 @@ export function DataPreviewView() {
                         </div>
                       )}
                       <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-1.5 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <span className="text-[9px] text-white truncate block">{img.name as string}</span>
+                        <span className="text-[11px] text-white truncate block">{img.name as string}</span>
                       </div>
                     </div>
                   )
@@ -225,7 +225,7 @@ export function DataPreviewView() {
                       <span className="text-maia-text hover:text-maia-accent transition-colors">{f.name as string}</span>
                     </div>
                     <div className="flex items-center gap-3 text-maia-text-muted">
-                      <Badge variant="default" className="text-[9px]">{((f.format as string) || '').toUpperCase()}</Badge>
+                      <Badge variant="default" className="text-[11px]">{((f.format as string) || '').toUpperCase()}</Badge>
                       <span>{(f.size as number) > 1024 ? `${((f.size as number) / 1024).toFixed(0)} KB` : `${f.size} B`}</span>
                     </div>
                   </div>

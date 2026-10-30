@@ -152,11 +152,11 @@ export function FilePreviewView() {
         <div className="flex items-center gap-2 min-w-0">
           {isImage ? <Image className="h-4 w-4 text-amber-400 shrink-0" />
             : isVideo ? <Film className="h-4 w-4 text-blue-400 shrink-0" />
-            : isMarkdown ? <FileText className="h-4 w-4 text-purple-400 shrink-0" />
-            : isCsv ? <Table2 className="h-4 w-4 text-green-400 shrink-0" />
+            : isMarkdown ? <FileText className="h-4 w-4 text-maia-accent shrink-0" />
+            : isCsv ? <Table2 className="h-4 w-4 text-maia-success shrink-0" />
             : <File className="h-4 w-4 text-maia-text-muted shrink-0" />}
           <span className="text-sm font-semibold text-maia-text-heading truncate">{previewFile.name}</span>
-          <Badge variant="default" className="text-[9px] shrink-0">{ext.toUpperCase() || 'FILE'}</Badge>
+          <Badge variant="default" className="text-[11px] shrink-0">{ext.toUpperCase() || 'FILE'}</Badge>
           {previewFile.size != null && previewFile.size > 0 && (
             <span className="text-[12px] text-maia-text-muted shrink-0">
               {previewFile.size > 1048576 ? `${(previewFile.size / 1048576).toFixed(1)} MB` : `${(previewFile.size / 1024).toFixed(1)} KB`}
@@ -221,7 +221,7 @@ export function FilePreviewView() {
                   <>
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-1.5">
-                        <Table2 className="h-3.5 w-3.5 text-green-400" />
+                        <Table2 className="h-3.5 w-3.5 text-maia-success" />
                         <span className="text-[13px] font-medium text-maia-text-secondary">
                           CSV 表格预览（{rows.length} 条记录，{headers.length} 列）
                         </span>

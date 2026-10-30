@@ -235,8 +235,8 @@ export function DatasetRepositoryView() {
                       {ds.tags.map((tag) => (
                         <button key={tag} onClick={(e) => { e.stopPropagation(); store.toggleTag(tag); }}
                           className="inline-flex px-1.5 py-px rounded text-[12px] font-medium
-                            bg-cyan-500/10 text-cyan-700 border border-cyan-500/25
-                            hover:bg-cyan-500/20 transition-colors cursor-pointer">
+                            bg-maia-accent/10 text-maia-accent border border-maia-accent-border
+                            hover:bg-maia-accent/20 transition-colors cursor-pointer">
                           {tag}
                         </button>
                       ))}

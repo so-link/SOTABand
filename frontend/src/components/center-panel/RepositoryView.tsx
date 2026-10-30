@@ -196,8 +196,8 @@ export function RepositoryView() {
         {importMsg && (
           <div className={`flex items-center justify-between px-3 py-2 rounded border text-[13px] ${
             importMsg.ok
-              ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/25'
-              : 'bg-red-500/10 text-red-400 border-red-500/25'}`}>
+              ? 'bg-maia-success-bg text-maia-success border-maia-success/25'
+              : 'bg-maia-danger-bg text-maia-danger border-maia-danger/25'}`}>
             <span className="break-words">{importMsg.text}</span>
             <button className="shrink-0 ml-2 opacity-70 hover:opacity-100" onClick={() => setImportMsg(null)}>
               <X className="h-3.5 w-3.5" />
@@ -441,7 +441,7 @@ export function RepositoryView() {
                     </div>
                   )}
                   {depDialog.error && (
-                    <div className="text-[13px] text-red-400 break-words">{depDialog.error}</div>
+                    <div className="text-[13px] text-maia-danger break-words">{depDialog.error}</div>
                   )}
                 </>
               )}
