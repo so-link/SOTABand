@@ -432,7 +432,7 @@ impl/<assets>                  # 资产文件（如人脸检测的 cascade XML�
 
 - **导出** `GET /api/tool/{id}/export`：内置与私有工具均可；`.venv`/`__pycache__` 永不进包（虚拟环境由 uv 按 `requirements.txt` 秒级重建，包体仅含源码、文档与资产）。
 - **导入** `POST /api/tool/import`（multipart `file` + `overwrite`）：校验 manifest/registry/`tool.py` 必含、`tool_id` 白名单（`^[a-z0-9][a-z0-9_-]*$`）、manifest 与 registry id 一致、成员路径防 zip-slip、未压缩体积与成员数上限（zip 炸弹）。通过后复用 `register()` 落私有根——与重新注册语义一致；同名冲突未带 `overwrite` 返回 409，由 UI 确认后重试。导入内置同名 id 时私有副本遮蔽内置（响应 `overrode_builtin=true`，UI 警示；删除私有副本即恢复）。
-- 依赖不在导入时安装，与注册一致，由 check-deps / install-deps 懒安装接管。
+- 依赖不在导入时安装，与注册一致，由 check-deps / install-deps 懒安装接管。导入时对包内全部 `.py` 成员做静态审查（危险调用阻断返回 400 不落盘），并校验非标准库导入是否在 `requirements.txt` 中声明——未声明项以 `import_warnings` 随 200 响应返回（依赖漂移提示，不阻断），UI 在导入成功提示条中透明展示。
 
 ---
 
