@@ -49,7 +49,7 @@ function ViewTabBar() {
   const tools = useResourceStore((s) => s.toolResources)
 
   return (
-    <div className="flex border-b border-maia-border/30 bg-maia-bg/60 backdrop-blur-sm px-2 gap-1 shrink-0 select-none overflow-x-auto">
+    <div className="flex items-center h-9 border-b border-maia-border bg-maia-surface px-2 gap-1 shrink-0 select-none overflow-x-auto">
       {openViews.map((viewId) => {
         // 参数化视图（单个 Agent/工具）动态解析标题与图标
         const agentId = parseAgentDetailView(viewId)
@@ -74,10 +74,10 @@ function ViewTabBar() {
           <button
             key={viewId}
             onClick={() => setActiveView(viewId)}
-            className={`flex items-center gap-2 py-2.5 text-[13px] font-semibold tracking-wider transition-all duration-150 border-b-[1.5px] -mb-[1px] rounded-t-sm shrink-0 group ${isChat ? 'px-5 min-w-[80px]' : 'pl-5 pr-2 min-w-[80px]'} ${
+            className={`flex items-center gap-1.5 h-6 px-2.5 rounded text-[13px] transition-colors shrink-0 group ${isChat ? 'min-w-[72px]' : 'min-w-[72px]'} ${
               isActive
-                ? 'text-maia-accent border-maia-accent bg-maia-surface glow-subtle'
-                : 'text-maia-text-muted border-transparent hover:text-maia-text-secondary hover:bg-maia-sidebar-hover'
+                ? 'bg-maia-bg text-maia-text border border-maia-border'
+                : 'text-maia-text-muted hover:text-maia-text-secondary hover:bg-maia-sidebar-hover'
             }`}
           >
             <Icon className="h-3.5 w-3.5" />

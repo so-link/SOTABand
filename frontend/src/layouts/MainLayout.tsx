@@ -14,6 +14,7 @@ import { RightPanel } from '@/components/right-panel/RightPanel'
 import { useUIStore } from '@/stores/ui-store'
 import { useFileTreeStore } from '@/stores/file-tree-store'
 import { useResourceStore } from '@/stores/resource-store'
+import { useWorkspaceToolStore } from '@/stores/workspace-tool-store'
 
 const STORAGE_KEY = 'maia-layout'
 
@@ -44,40 +45,37 @@ export function MainLayout() {
   useEffect(() => {
     loadTree()
     fetchAllResources()
+    // 工作区工具清单在启动时就加载：状态栏 TOOLS 与左栏「工具空间」用的是同一份数据，
+    // 不能等到用户切到「资源空间」才拉取，否则首屏会显示 0。
+    useWorkspaceToolStore.getState().fetchFromApi()
   }, [loadTree, fetchAllResources])
 
   // Sync panel collapse/expand with TopBar toggle
-  const collapseLeft = useRef(false)
-  const collapseRight = useRef(false)
+  const prevLeftOpen = useRef(leftPanelOpen)
+  const prevRightOpen = useRef(rightPanelOpen)
 
   useEffect(() => {
-    if (collapseLeft.current === leftPanelOpen) return
-    collapseLeft.current = !leftPanelOpen
-    if (!leftPanelOpen) {
-      leftRef.current?.resize(0)
-    } else {
-      const layout = loadLayout()
-      leftRef.current?.resize(layout?.[0] ?? DEFAULT_LAYOUT[0])
-    }
+    if (prevLeftOpen.current === leftPanelOpen) return
+    prevLeftOpen.current = leftPanelOpen
+    if (leftPanelOpen) leftRef.current?.expand()
+    else leftRef.current?.collapse()
   }, [leftPanelOpen, leftRef])
 
   useEffect(() => {
-    if (collapseRight.current === rightPanelOpen) return
-    collapseRight.current = !rightPanelOpen
-    if (!rightPanelOpen) {
-      rightRef.current?.resize(0)
-    } else {
-      const layout = loadLayout()
-      rightRef.current?.resize(layout?.[2] ?? DEFAULT_LAYOUT[2])
-    }
+    if (prevRightOpen.current === rightPanelOpen) return
+    prevRightOpen.current = rightPanelOpen
+    if (rightPanelOpen) rightRef.current?.expand()
+    else rightRef.current?.collapse()
   }, [rightPanelOpen, rightRef])
 
   const handleLayoutChange = useCallback((layout: Layout) => {
-    const sizes = [
-      Math.round(layout['panel-left'] ?? DEFAULT_LAYOUT[0]),
-      Math.round(layout['panel-center'] ?? DEFAULT_LAYOUT[1]),
-      Math.round(layout['panel-right'] ?? DEFAULT_LAYOUT[2]),
+    const raw = [
+      layout['panel-left'] ?? DEFAULT_LAYOUT[0],
+      layout['panel-center'] ?? DEFAULT_LAYOUT[1],
+      layout['panel-right'] ?? DEFAULT_LAYOUT[2],
     ]
+    // 折叠中的面板尺寸为 0，不要把 0 写进存储，否则下次启动会一直是收起状态
+    const sizes = raw.map((v, i) => (Math.round(v) <= 0 ? DEFAULT_LAYOUT[i] : Math.round(v)))
     saveLayout(sizes)
   }, [])
 
@@ -93,8 +91,10 @@ export function MainLayout() {
           <Panel
             id="panel-left"
             panelRef={leftRef}
-            defaultSize={initialLayout.current[0]}
-            minSize={0}
+            defaultSize={`${initialLayout.current[0]}%`}
+            minSize={'18%'}
+            collapsible
+            collapsedSize={'0%'}
           >
             <LeftPanel />
           </Panel>
@@ -103,8 +103,8 @@ export function MainLayout() {
 
           <Panel
             id="panel-center"
-            defaultSize={initialLayout.current[1]}
-            minSize={20}
+            defaultSize={`${initialLayout.current[1]}%`}
+            minSize={'20%'}
           >
             <CenterPanel />
           </Panel>
@@ -114,8 +114,10 @@ export function MainLayout() {
           <Panel
             id="panel-right"
             panelRef={rightRef}
-            defaultSize={initialLayout.current[2]}
-            minSize={0}
+            defaultSize={`${initialLayout.current[2]}%`}
+            minSize={'18%'}
+            collapsible
+            collapsedSize={'0%'}
           >
             <RightPanel />
           </Panel>

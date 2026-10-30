@@ -1,12 +1,14 @@
-import { PanelLeft, PanelRight, Bell, Settings, Activity, Cpu, Sun, Moon } from 'lucide-react'
+import { PanelLeft, PanelRight, Bell, Settings, Sun, Moon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip } from '@/components/ui/tooltip'
 import { Avatar } from '@/components/ui/avatar'
 import { useUIStore } from '@/stores/ui-store'
+import { useFileTreeStore } from '@/stores/file-tree-store'
 
 export function TopBar() {
   const { leftPanelOpen, rightPanelOpen, toggleLeftPanel, toggleRightPanel, theme, toggleTheme, setActiveView } = useUIStore()
+  const workspaceName = useFileTreeStore((s) => s.root?.name)
 
   return (
     <header className="flex h-9 items-center justify-between px-3 shrink-0 select-none glass border-b border-white/[0.04] relative">
@@ -25,20 +27,17 @@ export function TopBar() {
               if (fallback) fallback.style.display = 'flex'
             }} />
           <div className="flex items-center justify-center w-5 h-5 rounded bg-maia-accent/10 border border-maia-accent-border" style={{ display: 'none' }}>
-            <Cpu className="h-3 w-3 text-maia-accent" />
+            <span className="h-3 w-3 text-maia-accent text-[12px] font-semibold flex items-center justify-center">S</span>
           </div>
-          <span className="text-[13px] font-semibold text-maia-text-heading tracking-wider">SOTABand 优智联邦</span>
+          <span className="text-[13px] font-semibold text-maia-text-heading">SOTABand</span>
         </div>
-        <span className="text-maia-text-muted mx-0.5 text-xs font-mono">/</span>
-        <span className="text-[12px] text-maia-text-secondary tracking-wide font-mono">my_project</span>
-        <Badge variant="accent" className="text-[10px] ml-1 tracking-wider font-mono">v0.1</Badge>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded border border-maia-border-glow bg-maia-accent-light/30">
-          <Activity className="h-3 w-3 text-maia-success" />
-          <span className="text-[10px] text-maia-text-muted tracking-wider font-mono">SYS.ONLINE · GPU:0</span>
-        </div>
+        {workspaceName && workspaceName !== '工作区间' && (
+          <>
+            <span className="text-maia-text-muted mx-0.5 text-[13px] font-mono">/</span>
+            <span className="text-[13px] text-maia-text-secondary font-mono">{workspaceName}</span>
+          </>
+        )}
+        <Badge variant="accent" className="text-[12px] ml-1 font-mono">v0.1</Badge>
       </div>
 
       <div className="flex items-center gap-0.5">
@@ -61,7 +60,7 @@ export function TopBar() {
             <PanelRight className="h-3.5 w-3.5" />
           </Button>
         </Tooltip>
-        <div className="ml-1.5"><Avatar fallback="J" className="h-6 w-6 text-[10px] tracking-wider" /></div>
+        <div className="ml-1.5"><Avatar fallback="J" className="h-6 w-6 text-[12px]" /></div>
       </div>
     </header>
   )

@@ -59,7 +59,7 @@ interface UIState {
 
 export const useUIStore = create<UIState>((set) => ({
   leftPanelOpen: true,
-  rightPanelOpen: false,
+  rightPanelOpen: true,
   activeView: 'chat',
   openViews: ['chat'],
   leftPanelTab: 'files',

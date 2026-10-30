@@ -152,7 +152,7 @@ export function WorkspaceFileTree() {
             placeholder="搜索文件..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-7 h-7 text-[12px] text-maia-text tracking-wide bg-maia-bg/70 border-maia-border focus:bg-maia-surface"
+            className="pl-7 h-7 text-[13px] text-maia-text bg-maia-bg/70 border-maia-border focus:bg-maia-surface"
           />
         </div>
       </div>
@@ -163,24 +163,24 @@ export function WorkspaceFileTree() {
         <div className="flex gap-1">
           <Button
             variant="outline" size="sm"
-            className="flex-1 text-[11px] tracking-wider h-7 border-maia-border text-maia-text-secondary hover:bg-maia-sidebar-hover"
+            className="flex-1 min-w-0 px-2 text-[13px] h-7 border-maia-border text-maia-text-secondary hover:bg-maia-sidebar-hover"
             onClick={() => fileInputRef.current?.click()} disabled={uploading}
           >
-            <Upload className="h-3 w-3" />
+            <Upload className="h-3.5 w-3.5" />
             {uploading ? '上传中...' : '上传'}
           </Button>
           <Button
             variant="outline" size="sm"
-            className="flex-1 text-[11px] tracking-wider h-7 border-maia-border text-maia-text-secondary hover:bg-maia-sidebar-hover"
+            className="flex-1 min-w-0 px-2 text-[13px] h-7 border-maia-border text-maia-text-secondary hover:bg-maia-sidebar-hover"
             onClick={() => setShowImport(true)}
             title="从数据空间导入已注册的数据集"
           >
-            <FolderInput className="h-3 w-3" />
+            <FolderInput className="h-3.5 w-3.5" />
             导入
           </Button>
           <Button
             variant="outline" size="sm"
-            className="flex-1 text-[11px] tracking-wider h-7 border-maia-border text-maia-text-secondary hover:bg-maia-sidebar-hover"
+            className="flex-1 min-w-0 px-2 text-[13px] h-7 border-maia-border text-maia-text-secondary hover:bg-maia-sidebar-hover"
             onClick={() => setShowOpenDir(true)}
             title="打开本地目录"
           >
@@ -191,7 +191,7 @@ export function WorkspaceFileTree() {
         {root?.children && root.children.length > 0 && (
           <Button
             variant="ghost" size="sm"
-            className="w-full text-[11px] tracking-wider h-6 text-maia-text-muted hover:text-maia-danger hover:bg-red-50"
+            className="w-full text-[13px] h-6 text-maia-text-muted hover:text-maia-danger hover:bg-maia-danger-bg"
             onClick={handleClear}
           >
             <Trash2 className="h-3 w-3" />
@@ -221,11 +221,19 @@ export function WorkspaceFileTree() {
           />
         ))}
         {displayTree?.children?.length === 0 && (
-          <p className="text-[11px] text-maia-text-muted text-center py-10 tracking-wide">
-            工作区间为空
-            <br />
-            <span className="text-[10px]">点击"上传数据"添加文件</span>
-          </p>
+          <div className="flex flex-col items-center text-center px-4 py-10">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-maia-border bg-maia-surface text-maia-text-muted">
+              <FolderOpen className="h-4.5 w-4.5" />
+            </span>
+            <p className="text-[13px] font-medium text-maia-text mt-2.5">工作区间为空</p>
+            <p className="text-[12px] leading-[18px] text-maia-text-muted mt-1 max-w-[220px]">
+              上传本地文件，或从数据空间导入已注册的数据集
+            </p>
+            <Button variant="outline" size="sm" className="mt-3 text-[12px]" onClick={() => fileInputRef.current?.click()}>
+              <Upload className="h-3.5 w-3.5" />
+              上传文件
+            </Button>
+          </div>
         )}
       </div>
 
@@ -255,15 +263,15 @@ export function WorkspaceFileTree() {
               <p className="text-[13px] text-maia-text leading-relaxed">
                 确定要永久删除文件 <span className="font-semibold text-maia-danger">{deleteTarget.name}</span> 吗？
               </p>
-              <p className="text-[11px] text-maia-text-muted mt-1.5 break-all font-mono">{deleteTarget.path}</p>
-              <p className="text-[11px] text-maia-text-muted mt-2 flex items-center gap-1">
+              <p className="text-[12px] text-maia-text-muted mt-1.5 break-all font-mono">{deleteTarget.path}</p>
+              <p className="text-[12px] text-maia-text-muted mt-2 flex items-center gap-1">
                 <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
                 此操作将从文件系统中永久删除该文件，且无法恢复。
               </p>
             </div>
             <div className="flex items-center justify-end gap-2 px-4 py-2.5 border-t border-maia-border bg-maia-bg/50">
-              <Button variant="outline" size="sm" onClick={() => setDeleteTarget(null)} disabled={deleting} className="text-[11px] h-7">取消</Button>
-              <Button variant="danger" size="sm" onClick={handleDelete} disabled={deleting} className="text-[11px] h-7">
+              <Button variant="outline" size="sm" onClick={() => setDeleteTarget(null)} disabled={deleting} className="text-[12px] h-7">取消</Button>
+              <Button variant="danger" size="sm" onClick={handleDelete} disabled={deleting} className="text-[12px] h-7">
                 {deleting ? <><Loader2 className="h-3 w-3 animate-spin" />删除中...</> : '确认删除'}
               </Button>
             </div>
@@ -312,7 +320,7 @@ function FileTreeItem({
         }}
         onDoubleClick={() => onDoubleClick(node)}
         className={cn(
-          'flex items-center gap-1 py-[3px] px-1.5 rounded cursor-pointer text-[12px] tracking-wide select-none',
+          'flex items-center gap-1 h-7 px-1.5 rounded cursor-pointer text-[13px] select-none',
           'hover:bg-maia-sidebar-hover transition-colors',
           isSelected && 'bg-maia-sidebar-active text-maia-text-heading',
         )}
@@ -339,7 +347,7 @@ function FileTreeItem({
         <span className="truncate flex-1">{node.name}</span>
 
         {node.type === 'file' && node.size && (
-          <span className="text-[10px] text-maia-text-muted shrink-0 tracking-tight">
+          <span className="text-[12px] text-maia-text-muted shrink-0">
             {formatSize(node.size)}
           </span>
         )}

@@ -32,7 +32,7 @@ const SECTIONS: ResourceSectionDef[] = [
   { type: 'tool', label: '工具空间', icon: Wrench, color: 'text-amber-500' },
   { type: 'model', label: '模型空间', icon: BrainCircuit, color: 'text-emerald-500' },
   { type: 'agent', label: 'Agent 空间', icon: Bot, color: 'text-purple-500' },
-  { type: 'task', label: '任务历史', icon: ListTodo, color: 'text-slate-500' },
+  { type: 'task', label: '任务历史', icon: ListTodo, color: 'text-maia-text-muted' },
 ]
 
 export function ResourceBrowser() {
@@ -166,7 +166,7 @@ export function ResourceBrowser() {
   }
 
   return (
-    <div className="flex flex-col py-1.5 px-1 gap-0">
+    <div className="flex flex-col py-2 px-2 gap-0.5">
       {SECTIONS.map((section) => {
         const resources = getResources(section.type)
         const isExpanded = expandedSections.has(section.type)
@@ -189,7 +189,14 @@ export function ResourceBrowser() {
                   toggleSection(section.type)
                 }
               }}
-              className="flex items-center gap-1.5 w-full py-1 px-2 rounded hover:bg-maia-sidebar-hover transition-colors text-[11px] font-medium tracking-wider uppercase cursor-pointer select-none"
+              className="flex items-center gap-1.5 w-full h-8 px-1.5 rounded hover:bg-maia-sidebar-hover transition-colors text-[13px] font-medium cursor-pointer select-none"
+              title={
+                section.type === 'tool'
+                  ? '已加载到当前工作区的工具（全部可用工具见「工具仓库」）'
+                  : section.type === 'data'
+                    ? '已注册的数据集'
+                    : undefined
+              }
             >
               {isExpanded ? (
                 <ChevronDown className="h-3 w-3 text-maia-text-muted" />
@@ -200,7 +207,7 @@ export function ResourceBrowser() {
               <span className="flex-1 text-left text-maia-text-secondary">
                 {section.label}
               </span>
-              <span className="text-[10px] text-maia-text-muted bg-maia-bg rounded-full px-1.5 py-0.5 tracking-tight">
+              <span className="text-[12px] text-maia-text-muted bg-maia-bg rounded-full px-1.5 py-0.5">
                 {resources.length}
               </span>
               {section.type === 'agent' && (
@@ -222,7 +229,7 @@ export function ResourceBrowser() {
                       e.stopPropagation()
                       useUIStore.getState().setActiveView('repository')
                     }}
-                    className="flex items-center justify-center h-4 w-4 rounded hover:bg-amber-500/10 text-maia-text-muted hover:text-amber-500 transition-colors"
+                    className="flex items-center justify-center h-4 w-4 rounded hover:bg-maia-accent/10 text-maia-text-muted hover:text-maia-accent transition-colors"
                     title="工具仓库"
                   >
                     <Package className="h-3 w-3" />
@@ -232,7 +239,7 @@ export function ResourceBrowser() {
                       e.stopPropagation()
                       useUIStore.getState().setActiveView('tool-editor')
                     }}
-                    className="flex items-center justify-center h-4 w-4 rounded hover:bg-amber-500/10 text-maia-text-muted hover:text-amber-500 transition-colors"
+                    className="flex items-center justify-center h-4 w-4 rounded hover:bg-maia-accent/10 text-maia-text-muted hover:text-maia-accent transition-colors"
                     title="创建新工具"
                   >
                     <Plus className="h-3 w-3" />
@@ -245,7 +252,7 @@ export function ResourceBrowser() {
                     e.stopPropagation()
                     useUIStore.getState().setActiveView('dataset-editor')
                   }}
-                  className="flex items-center justify-center h-4 w-4 rounded hover:bg-blue-500/10 text-maia-text-muted hover:text-blue-500 transition-colors"
+                  className="flex items-center justify-center h-4 w-4 rounded hover:bg-maia-accent/10 text-maia-text-muted hover:text-maia-accent transition-colors"
                   title="添加数据集"
                 >
                   <Plus className="h-3 w-3" />
@@ -256,6 +263,16 @@ export function ResourceBrowser() {
             {/* Section items — indented to align under parent label */}
             {isExpanded && (
               <div>
+                {section.type === 'tool' && toolResources.length > resources.length && (
+                  <button
+                    onClick={() => useUIStore.getState().setActiveView('repository')}
+                    className="flex items-center gap-1.5 w-full h-7 pl-7 pr-1.5 rounded text-[12px] text-maia-text-muted hover:text-maia-accent hover:bg-maia-sidebar-hover transition-colors text-left"
+                    title="查看全部可用工具"
+                  >
+                    <Package className="h-3 w-3 shrink-0" />
+                    工具仓库另有 {toolResources.length} 个可用工具
+                  </button>
+                )}
                 {resources.map((resource) => (
                   // 条目也必须是 div —— 行内的「删除/移除」按钮若嵌在
                   // <button> 里会触发 React 的非法 DOM 嵌套报错
@@ -270,9 +287,8 @@ export function ResourceBrowser() {
                         handleResourceClick(resource)
                       }
                     }}
-                    style={{ paddingLeft: '52px' }}
                     className={cn(
-                      'flex items-center gap-1.5 w-full py-[3px] pr-1.5 rounded text-[11px] tracking-wide',
+                      'group flex items-center gap-1.5 w-full h-7 pl-7 pr-1.5 rounded text-[13px]',
                       'hover:bg-maia-sidebar-hover transition-colors text-left',
                       'text-maia-text-secondary',
                       selectedResource?.id === resource.id &&
@@ -285,7 +301,7 @@ export function ResourceBrowser() {
                     {((resource.type === 'tool' && unsaved.tools.has(resource.id)) ||
                       (resource.type === 'agent' && unsaved.agents.has(resource.id))) && (
                       <span
-                        className="h-1.5 w-1.5 rounded-full shrink-0 bg-amber-500"
+                        className="h-1.5 w-1.5 rounded-full shrink-0 bg-maia-accent"
                         title="有未保存的改动"
                       />
                     )}
@@ -298,21 +314,21 @@ export function ResourceBrowser() {
                     {resource.type === 'tool' &&
                       (resource as ToolResource).isUserGenerated && (
                         <span title="用户本地工具">
-                          <Star className="h-3 w-3 shrink-0 text-amber-500" />
+                          <Star className="h-3 w-3 shrink-0 text-maia-accent" />
                         </span>
                       )}
                     {resource.type === 'agent' && (
                       <span className="h-1.5 w-1.5 rounded-full shrink-0 bg-maia-success" />
                     )}
                     {resource.type === 'task' && (
-                      <span className="text-[10px] text-maia-text-muted shrink-0 tracking-tight">
+                      <span className="text-[12px] text-maia-text-muted shrink-0">
                         v{resource.version}
                       </span>
                     )}
                     {/* Remove button — tool: 从空间移除, data/agent: 删除 */}
                     <button
                       onClick={(e) => handleDelete(resource, e)}
-                      className="opacity-0 group-hover:opacity-100 hover:!opacity-100 flex items-center justify-center h-4 w-4 rounded hover:bg-red-100 text-maia-text-muted hover:text-red-500 transition-all shrink-0"
+                      className="opacity-0 group-hover:opacity-100 hover:!opacity-100 flex items-center justify-center h-4 w-4 rounded hover:bg-maia-danger-bg text-maia-text-muted hover:text-maia-danger transition-all shrink-0"
                       title={section.type === 'tool' ? '从空间移除' : '删除'}
                     >
                       <Minus className="h-3 w-3" />
@@ -320,7 +336,7 @@ export function ResourceBrowser() {
                   </div>
                 ))}
                 {resources.length === 0 && (
-                  <p className="text-[10px] text-maia-text-muted py-1 px-1.5 tracking-wide">
+                  <p className="text-[12px] text-maia-text-muted py-1 px-1.5">
                     暂无资源
                   </p>
                 )}

@@ -6,26 +6,34 @@ import { ResourceBrowser } from './ResourceBrowser'
 export function LeftPanel() {
   const { leftPanelTab, setLeftPanelTab } = useUIStore()
 
+  const tabs = [
+    { id: 'files' as const, label: '工作区间', icon: FolderOpen },
+    { id: 'resources' as const, label: '资源空间', icon: Package },
+  ]
+
   return (
-    <div className="flex flex-col h-full bg-maia-sidebar border-r border-maia-border select-none relative">
-      <div className="absolute top-0 right-0 w-[1px] h-full bg-gradient-to-b from-maia-accent/30 via-transparent to-transparent" />
-      <div className="flex border-b border-maia-border bg-maia-sidebar px-1 pt-1 gap-0.5">
-        <button
-          onClick={() => setLeftPanelTab('files')}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-[11px] font-semibold tracking-wider rounded-t transition-all duration-150 ${
-            leftPanelTab === 'files'
-              ? 'text-maia-accent bg-maia-surface border-t border-x border-maia-border-glow glow-subtle'
-              : 'text-maia-text-muted hover:text-maia-text-secondary hover:bg-maia-sidebar-hover'
-          }`}
-        ><FolderOpen className="h-3.5 w-3.5" />工作区间</button>
-        <button
-          onClick={() => setLeftPanelTab('resources')}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-[11px] font-semibold tracking-wider rounded-t transition-all duration-150 ${
-            leftPanelTab === 'resources'
-              ? 'text-maia-accent bg-maia-surface border-t border-x border-maia-border-glow glow-subtle'
-              : 'text-maia-text-muted hover:text-maia-text-secondary hover:bg-maia-sidebar-hover'
-          }`}
-        ><Package className="h-3.5 w-3.5" />资源空间</button>
+    <div className="flex flex-col h-full bg-maia-sidebar border-r border-maia-border select-none">
+      <div className="flex items-center h-9 px-2 border-b border-maia-border shrink-0">
+        <div className="flex items-center gap-0.5 p-0.5 rounded-md bg-maia-bg/60 w-full">
+          {tabs.map((t) => {
+            const Icon = t.icon
+            const active = leftPanelTab === t.id
+            return (
+              <button
+                key={t.id}
+                onClick={() => setLeftPanelTab(t.id)}
+                className={`flex-1 flex items-center justify-center gap-1.5 h-6 rounded text-[13px] transition-colors ${
+                  active
+                    ? 'bg-maia-surface text-maia-text border border-maia-border'
+                    : 'text-maia-text-muted hover:text-maia-text-secondary hover:bg-maia-sidebar-hover'
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {t.label}
+              </button>
+            )
+          })}
+        </div>
       </div>
       <div className="flex-1 min-h-0 overflow-auto">
         {leftPanelTab === 'files' ? <WorkspaceFileTree /> : <ResourceBrowser />}
