@@ -16,7 +16,7 @@
 ## 3. 安全性
 
 - 3.1 代码安全约束：工具或 Agent 代码中所有涉及本地文件操作、系统调用的，一律只能通过 core 中定义的 API 接口完成
-- 3.2 🔶 静态安全审查：对自动调试中 LLM 生成的代码进行静态审查（已落地：`core/security/code_scan.py` AST 两级扫描——阻断 shell/动态执行/删除原语/ctypes/socket/动态导入，警告 subprocess/open/联网/`../` 上跳路径/指向本机内网的 URL/无退出死循环与巨量分配；落盘前闸门（工具注册/保存/导入 + Agent 注册/保存）+ 执行前 choke point（`ToolExecutor.execute/execute_sync` 统一复查，对话执行/沙箱测试/Agent 调用共享），命中即拒绝或回流自动调试重写。规划中：递归深度异常检测、导入模块白名单）
+- 3.2 🔶 静态安全审查：对自动调试中 LLM 生成的代码进行静态审查（已落地：`core/security/code_scan.py` AST 两级扫描——阻断 shell/动态执行/删除原语/ctypes/socket/动态导入，警告 subprocess/open/联网/`../` 上跳路径/指向本机内网的 URL/无退出死循环与巨量分配；落盘前闸门（工具注册/保存/导入 + Agent 注册/保存）+ 执行前 choke point（`ToolExecutor.execute/execute_sync` 统一复查，对话执行/沙箱测试/Agent 调用共享），命中即拒绝或回流自动调试重写；导入模块白名单（warning 级，导入时校验非标准库/非平台导入须在工具 requirements.txt 中有声明，提示依赖漂移）。规划中：递归深度异常检测）
 - 3.3 运行时安全审查：对自动调试中 LLM 生成的代码进行运行时动态审查
 
 ## 4. 智能体（Agent）
