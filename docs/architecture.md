@@ -113,7 +113,7 @@
 | 组件 | 文件 | 职责 |
 |------|------|------|
 | 密钥防护 | `secrets.py` | 密钥脱敏（mask/scrub/redact），防止 API Key 出现在调试日志与 LLM 提示词中 |
-| 代码核验器 | `code_scan.py` | AST 静态安全审查（todo 3.2）：两级结论——阻断 shell/动态执行/删除原语/ctypes/socket/动态导入，警告 subprocess/open/联网/`../` 上跳/内网 URL/无退出死循环/巨量分配；未声明导入校验（依赖漂移提示）。落盘前闸门（工具/Agent 注册、保存、导入）+ 执行前 choke point（`ToolExecutor` 统一复查） |
+| 代码核验器 | `code_scan.py` | AST 静态安全审查（todo 3.2）：两级结论——阻断 shell/动态执行/删除原语/ctypes/socket/动态导入，警告 subprocess/open/联网/`../` 上跳/内网 URL/无退出死循环/巨量分配/无守卫自递归；未声明导入校验（依赖漂移提示）。落盘前闸门（工具/Agent 注册、保存、导入）+ 执行前 choke point（`ToolExecutor` 统一复查） |
 
 看门狗与审计日志为设计目标，尚未实现；沙箱隔离当前由子进程执行 + 超时 + 代码核验器 + 用户核验环节共同承担。
 

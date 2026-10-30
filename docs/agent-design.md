@@ -445,7 +445,7 @@ resources/agents/implementations/   # agent.py + config.yaml（内置根；私�
 | 2 | 第一个 Agent | **交互Agent**，引擎启动自动拉起，同样支持手动关闭/重启 |
 | 3 | 用户添加 Agent 的入口 | 左侧资源空间 → Agent 空间 → **[+] 按钮** |
 | 4 | Agent 编辑流程 | 四步向导：描述→MD审阅→沙箱核验→注册 |
-| 5 | 角色体系 | 三类：interactive / task / web_service（早期四类设计中的 orchestrator/observer 已收敛） |
+| 5 | 角色体系 | 三类：interactive / task / web_service（早期四类设计中的 orchestrator/observer 已收敛为角色类型，不再单设；内置 `orchestrator-agent` 只是承担编排职责的 web_service 角色普通实例，不是第四种角色） |
 | 6 | 进程模型 | **所有 Agent 统一独立子进程**，stdin/stdout JSON-line 协议，交互 Agent 不再内嵌主进程 |
 | 7 | MD → 代码 | 固定模板 + 机械辅助方法 + LLM 生成 execute 体（按角色差异化 Prompt），静态校验 + 自动修正 |
 | 8 | 资源存储 | 双根模型：内置根 `resources/`（随仓库）+ 私有根 `../resources-private/`；读合并、写私有 |
