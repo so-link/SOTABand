@@ -120,8 +120,12 @@ def _call_tool(tool_name: str, **params) -> dict:
     if tool_dir is None:
         return {"status": "failed", "message": f"Tool '{tool_name}' (id={tool_id}) not found"}
     tool_file = tool_dir / "tool.py"
-    venv_py = tool_dir / ".venv" / "bin" / "python"
-    py_exe = str(venv_py) if venv_py.exists() else sys.executable
+    py_exe = sys.executable
+    for _rel in (("bin", "python"), ("Scripts", "python.exe")):
+        _cand = tool_dir.joinpath(".venv", *_rel)
+        if _cand.exists():
+            py_exe = str(_cand)
+            break
     script = f"import json, sys; sys.path.insert(0, {str(_PROJECT_ROOT)!r}); exec(open({str(tool_file)!r}, encoding='utf-8').read()); print(json.dumps(execute(**{params!r}), default=str, ensure_ascii=False))"
     # encoding/errors 必须显式：工具输出是含中文的 UTF-8 JSON，
     # Windows 下 text=True 默认按 GBK 解码会直接 UnicodeDecodeError
@@ -134,11 +138,17 @@ def _call_tool(tool_name: str, **params) -> dict:
 
 # ── 文件路径辅助 ──
 def _resolve_path(path: str) -> str:
-    """将相对/绝对路径转为绝对路径（基于 _PROJECT_ROOT）"""
-    p = Path(path)
-    if p.is_absolute():
-        return str(p)
-    return str(_PROJECT_ROOT / p)
+    """将相对/绝对路径转为绝对路径（基于 _PROJECT_ROOT）。
+
+    跨平台边界统一在此处理：展开 ~ 用户目录、Windows 反斜杠分隔符
+    一律归一为 /（posix 与 nt 的 pathlib 均可解析）、消除 . 与 .. 跳转、
+    剥离首尾空白与包裹引号。相对路径一律相对 _PROJECT_ROOT 解析。
+    """
+    s = str(path).strip().strip('"').strip("'").replace("\\", "/")
+    p = Path(s).expanduser()
+    if not p.is_absolute():
+        p = _PROJECT_ROOT / p
+    return str(Path(os.path.normpath(str(p))))
 
 # === 头部结束，以下由 LLM 生成 ===
 '''
