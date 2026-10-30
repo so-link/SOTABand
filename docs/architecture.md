@@ -160,10 +160,12 @@
 - **可见性**: Agent 与工具同为共享代码资产，默认全局可见
 - **实现位置**: 实现在 `resources/agents/implementations/`（非 `core/agent/`，后者是运行时框架）
 
-### 5.5 用户空间 (`resources/users/`)
+### 5.5 用户空间 (`<私有根>/users/`)
 
-- **管理内容**: 用户身份与资源归属上下文。当前为单用户本地模式：用户标识由 `core/user_context.py` 提供（`SOTABAND_USER_ID` 环境变量 → `storage/user.json` 持久化标识 → 兜底 `local`）
-- **记录信息**: 用户标识、资源 owner 归属；多租户、权限配额与操作审计为设计目标，尚未实现
+- **管理内容**: 本地用户身份与资源归属上下文。已提供本地多用户身份层（`core/auth/`）：注册/登录（PBKDF2-HMAC-SHA256 密码散列 + HMAC 签名令牌，零第三方依赖），用户数据存 `<私有根>/users/users.json`，令牌密钥 `secret.key`（0600，可用 `SOTABAND_AUTH_SECRET` 覆盖）
+- **请求身份**: `/api/auth/*` 登录后返回令牌；`Authorization: Bearer <token>` 经中间件解析写入请求级上下文（`core/auth/session.py`），`core/user_context.get_current_user_id()` 优先返回登录身份。未带令牌的请求回退实例身份（`SOTABAND_USER_ID` 环境变量 → `storage/user.json` → `local`），单用户本地使用行为不变；携带无效/过期令牌则直接 401，不静默降级
+- **角色**: 首个注册用户为 `admin`（可注册新用户、查看用户列表），其余为 `user`
+- **记录信息**: 用户标识、用户名、角色、资源 owner 归属；租户信息、资源配额与操作审计为设计目标，尚未实现
 
 ### 5.6 任务空间 (`resources/tasks/`)
 
