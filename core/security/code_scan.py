@@ -84,6 +84,58 @@ def _string_constants(tree: ast.AST):
             yield n.lineno, n.value
 
 
+# ── 导入白名单（todo 3.1 检查项 5，warning 级） ──
+#
+# 语义：非标准库、非平台命名空间的 import，必须能在工具自己的
+# requirements.txt 里找到对应依赖——否则该工具换机运行/重建 venv 时
+# 必然 ModuleNotFoundError（依赖漂移），提示补齐声明而不是阻断，
+# 因为「requirements 有但拼写不同」的误报代价高于漏报。
+# 匹配用宽松归一化（去 -_. 后前缀互含），复用 deps.PIP_NAME_MAP 做
+# import 名 → pip 包名转换（cv2→opencv-python-headless 等）。
+
+_PLATFORM_MODULES: frozenset[str] = frozenset({"core"})
+
+
+def check_undeclared_imports(code: str, requirements_text: str | None) -> list[str]:
+    """返回「import 了但 requirements.txt 未声明」的模块名列表（无则空）。
+
+    requirements_text 为 None/空时，所有非 stdlib/非平台导入都算未声明。
+    """
+    import sys as _sys
+    from core.resource.deps import pip_name
+
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return []
+
+    def _norm(s: str) -> str:
+        return re.sub(r"[-_.]", "", s.lower())
+
+    declared = set()
+    for line in (requirements_text or "").splitlines():
+        m = re.match(r"([A-Za-z0-9_.\-]+)", line.strip())
+        if m and not line.strip().startswith("#"):
+            declared.add(_norm(m.group(1)))
+
+    mods: set[str] = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Import):
+            mods |= {a.name.split(".")[0] for a in n.names}
+        elif isinstance(n, ast.ImportFrom) and n.module and n.level == 0:
+            mods.add(n.module.split(".")[0])
+
+    out: list[str] = []
+    for mod in sorted(mods):
+        if mod in _sys.stdlib_module_names or mod in _PLATFORM_MODULES:
+            continue
+        cand = _norm(pip_name(mod))
+        if any(cand == d or cand.startswith(d) or d.startswith(cand) for d in declared):
+            continue
+        out.append(mod)
+    return out
+
+
 class ScanResult:
     def __init__(self) -> None:
         self.errors: list[str] = []

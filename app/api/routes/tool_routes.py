@@ -2028,15 +2028,22 @@ async def import_tool(file: UploadFile = File(...), overwrite: bool = Form(False
 
     # 落盘前静态安全审查：与 /register 同一闸门，被阻断的代码不落盘。
     from core.security.code_scan import scan_code as _scan_code
+    from core.security.code_scan import check_undeclared_imports
+    _req_raw = pkg["impl_files"].get("requirements.txt")
+    _req_text = _req_raw.decode("utf-8", errors="replace") if _req_raw else None
+    import_warnings: list[str] = []
     for rel, raw in pkg["impl_files"].items():
         if not rel.endswith(".py"):
             continue
-        _scan = _scan_code(raw.decode("utf-8", errors="replace"))
+        _code = raw.decode("utf-8", errors="replace")
+        _scan = _scan_code(_code)
         if not _scan.ok:
             raise HTTPException(
                 400,
                 f"工具包 {rel} 静态安全审查未通过：\n" + "\n".join(_scan.errors),
             )
+        for _mod in check_undeclared_imports(_code, _req_text):
+            import_warnings.append(f"{rel}: import {_mod} 未在 requirements.txt 声明")
 
     tool_id = pkg["tool_id"]
     existed = await registry.get(tool_id)
@@ -2087,4 +2094,5 @@ async def import_tool(file: UploadFile = File(...), overwrite: bool = Form(False
         "overwrote": bool(existed),
         "overrode_builtin": overrode_builtin,
         "deps_installed": False,
+        "import_warnings": import_warnings,
     }
