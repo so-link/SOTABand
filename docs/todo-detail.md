@@ -107,6 +107,8 @@
 
 **内涵**：构建一个专门的「消息路由智能体」，作为 Web 请求与本地工具之间的桥梁。当外部系统（如 Web 前端、其他微服务）通过 HTTP 请求调用 SOTABand 能力时，路由智能体接收请求，解析意图，在工具空间中匹配合适的工具，调用执行，并将结果返回。这是 SOTABand 从「对话式交互」扩展为「API 式服务」的关键——让工具不仅能通过对话界面手动触发，也能被外部系统以标准 API 方式调用，为后续的平台间集成和自动化工作流打下基础。
 
+**落地形态**：内置 web-service Agent `message-router-agent`（`resources/agents/`，手写实现而非模板生成——动态路由超出模板的声明式 flow 能力）。声明两个 API：`POST /route`（请求体 `tool`/`message`/`params`）与 `GET /tools`（列出工具空间中活跃工具及参数定义）。匹配三级回退并在响应 `matched_by` 中如实标注：**explicit**（显式给出工具 id/名称，大小写不敏感；同时给 message 且缺 params 时由 LLM 从消息抽参）、**llm**（仅给 message：`ToolDiscoverer` 关键词初筛 top-8 候选，LLM 选定工具并抽取参数）、**keyword**（LLM 未配置/输出非法时回退初筛 top1）。未命中/未知工具/参数皆缺均返回结构化 JSON（`not_found`/`bad_request` + 近似候选），不抛 500。工具执行统一走 `BaseAgent.call_tool`（常驻 Worker 优先、`ToolExecutor` 一次性子进程回退），工具侧静态安全审查 choke point（3.2）照常生效。与所有 web-service Agent 同一信任模型：仅监听 127.0.0.1、端口无鉴权（遗留问题登记于 agent-types-design.md）。
+
 **关联架构**：
 - 通信总线（`bus.py`）：提供 Pub/Sub 和 RPC 两种通信模式
 - 角色协调器（`coordinator.py`）：根据智能体角色和能力进行任务分配

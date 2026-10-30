@@ -21,7 +21,7 @@
 
 ## 4. 智能体（Agent）
 
-- 4.1 🔶 消息路由智能体：Web 服务式 Agent（web-service 角色）可组合调用工具对外提供 HTTP API；通用「接收 Web 请求路由到本地工具」的消息路由 Agent 尚未提供
+- 4.1 ✅ 消息路由智能体：Web 服务式 Agent（web-service 角色）可组合调用工具对外提供 HTTP API；内置 `message-router-agent` 提供通用「接收 Web 请求路由到本地工具」能力（`POST /route` 显式指定工具或自然语言意图三级匹配 explicit/llm/keyword，`GET /tools` 列出可路由工具空间）
 - 4.2 🔶 任务编排：Agent 代码可机械辅助函数调用工具；Agent 间通信总线目前仅 InProcess 抽象，跨 Agent 编排为规划中
 - 4.3 智能体代码自动调试（参考工具编辑器的自动调试流程；当前仅有生成时的语法检查/自动修复/重建）
 - 4.4 ✅ 智能体独立进程运行（全部 Agent 以独立子进程 + stdin/stdout JSON-line 协议运行，工厂负责启停/健康检查/自动重建）

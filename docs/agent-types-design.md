@@ -154,6 +154,24 @@ apis:
 
 **常驻性**：与任务式的本质区别在于 —— Web 服务式 Agent 启动后**持续监听**，等待外部请求。
 
+**内置实例：消息路由智能体（`message-router-agent`）**
+
+平台内置一个不依赖声明式 flow 的手写 web-service Agent（`resources/agents/implementations/message-router-agent/`，todo 4.1），把「请求 → 工具」的路由对象从**该 Agent 声明的固定 API**泛化为**整个工具空间**：
+
+| API | 方法/路径 | 语义 |
+|-----|-----------|------|
+| `route` | `POST /route` | 请求体 `{tool?, message?, params?}`：显式 `tool`（id/名称）直接调用；`message` 走意图匹配（关键词初筛 top-8 → LLM 选定工具并抽参 → LLM 不可用时关键词 top1 兜底），响应 `matched_by` 标注 `explicit/llm/keyword` |
+| `tools` | `GET /tools` | 列出工具空间中活跃工具的 id/名称/描述/标签/参数定义 |
+
+```bash
+curl -X POST http://127.0.0.1:<port>/route -H 'Content-Type: application/json' \
+  -d '{"tool": "calc-square", "params": {"n": 5}}'      # 显式路由
+curl -X POST http://127.0.0.1:<port>/route -H 'Content-Type: application/json' \
+  -d '{"message": "计算 5 的平方"}'                       # 意图路由
+```
+
+未命中 / 未知工具 / 参数皆缺均返回结构化 JSON（`not_found` / `bad_request` + 近似候选），不抛 500。工具执行经 `BaseAgent.call_tool`（常驻 Worker 优先、`ToolExecutor` 回退），工具侧静态安全审查闸门照常生效。
+
 ---
 
 ## 四、三类 Agent 的执行界面设计
