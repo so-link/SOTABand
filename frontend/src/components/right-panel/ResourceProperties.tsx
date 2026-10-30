@@ -11,7 +11,7 @@ export function ResourceProperties({ resource }: ResourcePropertiesProps) {
   return (
     <div className="flex flex-col h-full overflow-auto">
       <div className="px-3 py-2 border-b border-maia-border bg-maia-bg">
-        <h3 className="text-xs font-semibold text-maia-text">资源详情</h3>
+        <h3 className="text-[13px] font-semibold text-maia-text">资源详情</h3>
       </div>
 
       <div className="p-3 space-y-3 text-sm">
@@ -36,10 +36,10 @@ export function ResourceProperties({ resource }: ResourcePropertiesProps) {
           <>
             <Separator />
             <div>
-              <span className="text-[10px] text-maia-text-muted uppercase block mb-1">标签</span>
+              <span className="text-[12px] text-maia-text-muted uppercase block mb-1">标签</span>
               <div className="flex flex-wrap gap-1">
                 {resource.tags.map((tag) => (
-                  <Badge key={tag} variant="default" className="text-[10px]">{tag}</Badge>
+                  <Badge key={tag} variant="default" className="text-[12px]">{tag}</Badge>
                 ))}
               </div>
             </div>
@@ -60,9 +60,9 @@ export function ResourceProperties({ resource }: ResourcePropertiesProps) {
 function Property({ label, value, mono, children }: { label: string; value?: string; mono?: boolean; children?: React.ReactNode }) {
   return (
     <div>
-      <span className="text-[10px] text-maia-text-muted uppercase">{label}</span>
+      <span className="text-[12px] text-maia-text-muted uppercase">{label}</span>
       {children || (
-        <p className={`text-sm ${mono ? 'font-mono text-xs text-maia-text-secondary' : 'text-maia-text-heading'}`}>
+        <p className={`text-sm ${mono ? 'font-mono text-[13px] text-maia-text-secondary' : 'text-maia-text-heading'}`}>
           {value || '—'}
         </p>
       )}
@@ -180,8 +180,11 @@ function typeLabel(type: string): string {
   return map[type] || type
 }
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString('zh-CN', {
+function formatDate(iso: string | undefined | null): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '—'
+  return d.toLocaleString('zh-CN', {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',

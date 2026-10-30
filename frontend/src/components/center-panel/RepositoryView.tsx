@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
   ArrowLeft, Search, ChevronLeft, ChevronRight,
   Trash2, Plus, Check, Package, Download, Upload, X, Loader2, AlertTriangle,
+  FileText, Image as ImageIcon, Table, Bot, Globe, Wrench, Music, Film, Folder,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardBody } from '@/components/ui/card'
@@ -14,18 +15,18 @@ import { toolApi } from '@/services/api/tool'
 const PAGE_SIZE_OPTIONS = [8, 12, 16, 24, 32]
 const BASE_URL = ''
 
-/** 工具图标映射 */
-function getToolIcon(id: string): string {
+/** 工具图标映射：用图标组件而不是 emoji，避免服务器缺 emoji 字体时显示成方块 */
+function getToolIcon(id: string) {
   const lower = id.toLowerCase()
-  if (lower.includes('image') || lower.includes('img') || lower.includes('photo')) return '🖼️'
-  if (lower.includes('csv') || lower.includes('table') || lower.includes('data') || lower.includes('excel')) return '📊'
-  if (lower.includes('pdf') || lower.includes('paper') || lower.includes('doc')) return '📄'
-  if (lower.includes('audio') || lower.includes('sound') || lower.includes('music') || lower.includes('voice')) return '🔊'
-  if (lower.includes('video') || lower.includes('movie')) return '🎬'
-  if (lower.includes('text') || lower.includes('nlp') || lower.includes('llm') || lower.includes('ai')) return '🤖'
-  if (lower.includes('web') || lower.includes('http') || lower.includes('api')) return '🌐'
-  if (lower.includes('file') || lower.includes('convert')) return '📁'
-  return '🔧'
+  if (lower.includes('image') || lower.includes('img') || lower.includes('photo')) return ImageIcon
+  if (lower.includes('csv') || lower.includes('table') || lower.includes('data') || lower.includes('excel')) return Table
+  if (lower.includes('pdf') || lower.includes('paper') || lower.includes('doc')) return FileText
+  if (lower.includes('audio') || lower.includes('sound') || lower.includes('music') || lower.includes('voice')) return Music
+  if (lower.includes('video') || lower.includes('movie')) return Film
+  if (lower.includes('text') || lower.includes('nlp') || lower.includes('llm') || lower.includes('ai')) return Bot
+  if (lower.includes('web') || lower.includes('http') || lower.includes('api')) return Globe
+  if (lower.includes('file') || lower.includes('convert')) return Folder
+  return Wrench
 }
 
 export function RepositoryView() {
@@ -166,16 +167,15 @@ export function RepositoryView() {
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-maia-border bg-maia-bg/50 shrink-0">
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]" onClick={() => setActiveView('chat')}>
+          <Button size="sm" variant="ghost" className="h-7 px-2 text-[13px]" onClick={() => setActiveView('chat')}>
             <ArrowLeft className="h-3.5 w-3.5 mr-1" />返回空间
           </Button>
-          <Package className="h-4 w-4 text-amber-400" />
-          <span className="text-sm font-semibold text-maia-text-heading tracking-wide">
-            工具仓库（共 {tools.length} 个工具）
+          <span className="text-[13px] font-semibold text-maia-text-heading">
+            工具仓库（共 {tools.length} 个）
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]"
+          <Button size="sm" variant="outline" className="h-7 px-2 text-[13px]"
             disabled={importing}
             onClick={() => importInputRef.current?.click()}>
             {importing
@@ -194,7 +194,7 @@ export function RepositoryView() {
 
       <div className="flex-1 p-4 max-w-7xl mx-auto space-y-3 w-full">
         {importMsg && (
-          <div className={`flex items-center justify-between px-3 py-2 rounded border text-[12px] ${
+          <div className={`flex items-center justify-between px-3 py-2 rounded border text-[13px] ${
             importMsg.ok
               ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/25'
               : 'bg-red-500/10 text-red-400 border-red-500/25'}`}>
@@ -212,13 +212,13 @@ export function RepositoryView() {
               value={searchQuery}
               onChange={e => setSearch(e.target.value)}
               placeholder="搜索工具名称、标签..."
-              className="w-full h-8 pl-7 pr-3 rounded border border-maia-border bg-maia-bg text-[12px] text-maia-text outline-none focus:border-maia-accent/40"
+              className="w-full h-8 pl-7 pr-3 rounded border border-maia-border bg-maia-bg text-[13px] text-maia-text outline-none focus:border-maia-accent/40"
             />
           </div>
           <select
             value={sortBy}
             onChange={e => setSort(e.target.value as 'name' | 'latest' | 'usage')}
-            className="h-8 rounded border border-maia-border bg-maia-bg text-[12px] text-maia-text px-2 outline-none focus:border-maia-accent/40"
+            className="h-8 rounded border border-maia-border bg-maia-bg text-[13px] text-maia-text px-2 outline-none focus:border-maia-accent/40"
           >
             <option value="latest">最新</option>
             <option value="name">名称</option>
@@ -231,7 +231,7 @@ export function RepositoryView() {
           <div className="flex flex-wrap items-center gap-1.5">
             <button
               onClick={() => { /* clear all */ useRepositoryStore.setState({ selectedTags: [], page: 1 }) }}
-              className={`px-2 py-0.5 rounded text-[11px] transition-colors ${selectedTags.length === 0 ? 'bg-maia-accent text-white' : 'bg-maia-bg text-maia-text-muted hover:bg-maia-sidebar-hover'}`}
+              className={`inline-flex items-center h-7 px-2.5 rounded text-[12px] transition-colors ${selectedTags.length === 0 ? 'bg-maia-accent text-white' : 'bg-maia-bg text-maia-text-muted hover:bg-maia-sidebar-hover'}`}
             >
               全部 ({tools.length})
             </button>
@@ -239,7 +239,7 @@ export function RepositoryView() {
               <button
                 key={tag}
                 onClick={() => toggleTag(tag)}
-                className={`px-2 py-0.5 rounded text-[11px] transition-colors ${selectedTags.includes(tag) ? 'bg-maia-accent text-white' : 'bg-maia-bg text-maia-text-muted hover:bg-maia-sidebar-hover'}`}
+                className={`inline-flex items-center h-7 px-2.5 rounded text-[12px] transition-colors ${selectedTags.includes(tag) ? 'bg-maia-accent text-white' : 'bg-maia-bg text-maia-text-muted hover:bg-maia-sidebar-hover'}`}
               >
                 #{tag} ({count})
               </button>
@@ -247,7 +247,7 @@ export function RepositoryView() {
             {allTags.length > 8 && (
               <button
                 onClick={() => setShowAllTags(!showAllTags)}
-                className="px-2 py-0.5 rounded text-[11px] bg-maia-bg text-maia-text-muted hover:bg-maia-sidebar-hover"
+                className="inline-flex items-center h-7 px-2.5 rounded text-[12px] bg-maia-bg text-maia-text-muted hover:bg-maia-sidebar-hover"
               >
                 {showAllTags ? '收起' : `+ ${allTags.length - 8} 更多...`}
               </button>
@@ -265,7 +265,7 @@ export function RepositoryView() {
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-2">
               {pageTools.map(tool => {
                 const loaded = isLoaded(tool.id)
                 return (
@@ -293,23 +293,29 @@ export function RepositoryView() {
                     }}>
                     <CardBody className="p-3 flex flex-col flex-1 min-h-0">
                       <div className="flex items-start justify-between mb-1.5 shrink-0">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <span className="text-base shrink-0">{getToolIcon(tool.id)}</span>
+                        <div className="flex items-center gap-2 min-w-0">
+                          {(() => {
+                            const Icon = getToolIcon(tool.id)
+                            return (
+                              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[7px] bg-maia-accent-light text-maia-accent">
+                                <Icon className="h-3.5 w-3.5" />
+                              </span>
+                            )
+                          })()}
                           <div className="min-w-0">
-                            <div className="text-[12px] font-semibold text-maia-text-heading truncate">{tool.name}</div>
-                            <div className="text-[10px] font-mono text-maia-text-muted truncate">{tool.id}</div>
+                            <div className="text-[13px] font-semibold text-maia-text-heading truncate">{tool.name}</div>
+                            <div className="text-[12px] font-mono text-maia-text-muted truncate">{tool.id}</div>
                           </div>
                         </div>
                       </div>
-                      <div className="flex-1 min-h-0 overflow-y-auto mb-1.5">
+                      <div className="flex flex-wrap gap-1 mb-2">
                         {tool.tags.length > 0 && (
                           <div className="flex flex-wrap gap-1">
                             {tool.tags.map(tag => (
                               <span key={tag}
-                                className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium cursor-pointer
-                                  bg-cyan-500/10 text-cyan-700 border border-cyan-500/25
-                                  dark:bg-cyan-500/15 dark:text-cyan-300 dark:border-cyan-500/25
-                                  hover:bg-cyan-500/20 dark:hover:bg-cyan-500/25 transition-colors"
+                                className="inline-flex items-center px-1.5 py-0.5 rounded text-[12px] font-medium cursor-pointer
+                                  bg-maia-accent-light text-maia-accent border border-maia-accent-border
+                                  hover:bg-maia-accent-light/80 transition-colors"
                                 onClick={(e) => { e.stopPropagation(); toggleTag(tag) }}>
                                 {tag}
                               </span>
@@ -317,31 +323,31 @@ export function RepositoryView() {
                           </div>
                         )}
                       </div>
-                      <div className="flex items-center justify-between text-[10px] text-maia-text-muted mb-1.5 shrink-0">
-                        <span>v{tool.version}</span>
+                      <div className="flex items-center justify-between text-[12px] text-maia-text-muted mb-1.5 mt-auto shrink-0">
+                        <span className="font-mono">v{tool.version}</span>
                         <span>已用 {tool.usage_count} 次</span>
                       </div>
-                      <div className="flex items-center justify-center gap-3 shrink-0 border-t border-maia-border/30 pt-1.5">
+                      <div className="flex items-center gap-1 shrink-0 border-t border-maia-border/40 pt-2 mt-0.5">
                         <a
                           href={toolApi.exportUrl(tool.id)}
                           download={`${tool.id}.zip`}
                           title="导出为 zip 工具包（含代码、文档、依赖清单，不含虚拟环境）"
                           onClick={(e) => e.stopPropagation()}
-                          className="inline-flex items-center h-6 px-2 text-[10px] text-maia-text-muted hover:text-maia-accent transition-colors">
-                          <Download className="h-3 w-3 mr-0.5" />导出
+                          className="flex-1 inline-flex items-center justify-center gap-1.5 h-7 rounded text-[12px] whitespace-nowrap text-maia-text-muted hover:text-maia-accent hover:bg-maia-sidebar-hover transition-colors">
+                          <Download className="h-3 w-3 shrink-0" />导出
                         </a>
-                        <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                        <Button size="sm" variant="ghost" className="flex-1 h-7 px-0 text-[12px] whitespace-nowrap text-maia-danger hover:text-maia-danger hover:bg-maia-danger-bg"
                           onClick={(e) => { e.stopPropagation(); handleDelete(tool) }}>
-                          <Trash2 className="h-3 w-3 mr-0.5" />删除
+                          <Trash2 className="h-3 w-3 shrink-0 mr-1" />删除
                         </Button>
                         {loaded ? (
-                          <span className="inline-flex items-center h-6 px-2 text-[10px] text-maia-text-muted">
-                            <Check className="h-3 w-3 mr-0.5" />已加载
+                          <span className="flex-1 inline-flex items-center justify-center gap-1.5 h-7 rounded text-[12px] whitespace-nowrap text-maia-text-muted">
+                            <Check className="h-3 w-3 shrink-0" />已加载
                           </span>
                         ) : (
-                          <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-maia-accent hover:text-maia-accent"
+                          <Button size="sm" variant="ghost" className="flex-1 h-7 px-0 text-[12px] whitespace-nowrap text-maia-accent hover:text-maia-accent"
                             onClick={(e) => { e.stopPropagation(); handleAddWithDepCheck(tool) }}>
-                            <Plus className="h-3 w-3 mr-0.5" />添加
+                            <Plus className="h-3 w-3 shrink-0 mr-1" />添加
                           </Button>
                         )}
                       </div>
@@ -365,7 +371,7 @@ export function RepositoryView() {
                     else { pageNum = safePage - 3 + i }
                     return (
                       <Button key={pageNum} size="sm" variant={pageNum === safePage ? 'default' : 'outline'}
-                        className="h-6 w-6 p-0 text-[11px]" onClick={() => setPage(pageNum)}>
+                        className="h-6 w-6 p-0 text-[12px]" onClick={() => setPage(pageNum)}>
                         {pageNum}
                       </Button>
                     )
@@ -374,7 +380,7 @@ export function RepositoryView() {
                     onClick={() => setPage(safePage + 1)}><ChevronRight className="h-3 w-3" /></Button>
                 </div>
                 <select value={pageSize} onChange={e => setPageSize(Number(e.target.value))}
-                  className="h-6 rounded border border-maia-border bg-maia-bg text-[11px] text-maia-text px-1 outline-none">
+                  className="h-6 rounded border border-maia-border bg-maia-bg text-[12px] text-maia-text px-1 outline-none">
                   {PAGE_SIZE_OPTIONS.map(n => (<option key={n} value={n}>{n} 个/页</option>))}
                 </select>
               </div>
@@ -413,7 +419,7 @@ export function RepositoryView() {
                 </div>
               ) : (
                 <>
-                  <p className="text-[12px] text-maia-text-muted leading-relaxed">
+                  <p className="text-[13px] text-maia-text-muted leading-relaxed">
                     工具 <span className="font-mono text-maia-text">{depDialog.tool.id}</span> 依赖以下
                     类库，当前执行环境
                     {depDialog.env && <span className="text-maia-text">（{depDialog.env}）</span>}
@@ -422,20 +428,20 @@ export function RepositoryView() {
                   <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
                     {depDialog.missing.map(dep => (
                       <span key={dep}
-                        className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono
+                        className="inline-flex items-center px-2 py-0.5 rounded text-[12px] font-mono
                           bg-amber-500/10 text-amber-500 border border-amber-500/25">
                         {dep}
                       </span>
                     ))}
                   </div>
                   {depDialog.installing && (
-                    <div className="flex items-center gap-2 text-[12px] text-maia-text-muted">
+                    <div className="flex items-center gap-2 text-[13px] text-maia-text-muted">
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       正在安装，请稍候（可能需要数分钟）...
                     </div>
                   )}
                   {depDialog.error && (
-                    <div className="text-[12px] text-red-400 break-words">{depDialog.error}</div>
+                    <div className="text-[13px] text-red-400 break-words">{depDialog.error}</div>
                   )}
                 </>
               )}
@@ -443,17 +449,17 @@ export function RepositoryView() {
 
             <div className="flex items-center justify-end gap-2 px-4 py-2.5 border-t border-maia-border">
               {depDialog.done ? (
-                <Button size="sm" className="h-7 text-[11px]" onClick={() => setDepDialog(null)}>
+                <Button size="sm" className="h-7 text-[12px]" onClick={() => setDepDialog(null)}>
                   完成
                 </Button>
               ) : (
                 <>
-                  <Button size="sm" variant="ghost" className="h-7 text-[11px]"
+                  <Button size="sm" variant="ghost" className="h-7 text-[12px]"
                     disabled={depDialog.installing}
                     onClick={() => { doImport(depDialog.tool); setDepDialog(null) }}>
                     跳过
                   </Button>
-                  <Button size="sm" className="h-7 text-[11px]"
+                  <Button size="sm" className="h-7 text-[12px]"
                     disabled={depDialog.installing}
                     onClick={handleInstallMissing}>
                     {depDialog.installing

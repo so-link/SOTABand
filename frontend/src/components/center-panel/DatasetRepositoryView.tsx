@@ -3,21 +3,22 @@ import { useUIStore } from '@/stores/ui-store'
 import { useResourceStore } from '@/stores/resource-store'
 import { useDatasetRepositoryStore, getFilteredDatasets, formatFileSize, type RepositoryDataset } from '@/stores/dataset-repository-store'
 import { useWorkspaceDatasetStore } from '@/stores/workspace-dataset-store'
-import { ArrowLeft, Search, Trash2, Plus, Package, ChevronLeft, ChevronRight, ChevronDown, Loader2, AlertTriangle } from 'lucide-react'
+import { ArrowLeft, Search, Trash2, Plus, Package, ChevronLeft, ChevronRight, ChevronDown, Loader2, AlertTriangle, Image as ImageIcon, Table, FileText, Brain, Tag, Folder } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 const BASE_URL = ''
 
-function getDatasetIcon(formats: string[]): string {
+/** 数据集图标映射：用图标组件而不是 emoji，避免服务器缺 emoji 字体时显示成方块 */
+function getDatasetIcon(formats: string[]) {
   const has = (ext: string) => formats.some(f => f.toLowerCase().includes(ext))
-  if (has('png') || has('jpg') || has('jpeg') || has('gif') || has('bmp') || has('tiff')) return '🖼️'
-  if (has('csv') || has('xlsx') || has('xls') || has('tsv')) return '📊'
-  if (has('pdf') || has('doc') || has('docx')) return '📄'
-  if (has('md') || has('txt')) return '📝'
-  if (has('wav') || has('mp3') || has('flac') || has('ogg')) return '🔊'
-  if (has('edf') || has('bdf') || has('nifti') || has('nii') || has('gz')) return '🧠'
-  if (has('json')) return '🏷️'
-  return '📁'
+  if (has('png') || has('jpg') || has('jpeg') || has('gif') || has('bmp') || has('tiff')) return ImageIcon
+  if (has('csv') || has('xlsx') || has('xls') || has('tsv')) return Table
+  if (has('pdf') || has('doc') || has('docx')) return FileText
+  if (has('md') || has('txt')) return FileText
+  if (has('wav') || has('mp3') || has('flac') || has('ogg')) return FileText
+  if (has('edf') || has('bdf') || has('nifti') || has('nii') || has('gz')) return Brain
+  if (has('json')) return Tag
+  return Folder
 }
 
 export function DatasetRepositoryView() {
@@ -112,7 +113,7 @@ export function DatasetRepositoryView() {
           </button>
           <Package className="h-4 w-4 text-maia-accent" />
           <span className="text-sm font-semibold text-maia-text">数据集仓库</span>
-          <span className="text-[11px] text-maia-text-muted">（共 {store.datasets.length} 个数据集）</span>
+          <span className="text-[12px] text-maia-text-muted">（共 {store.datasets.length} 个数据集）</span>
         </div>
         {store.loading && <Loader2 className="h-4 w-4 animate-spin text-maia-text-muted" />}
       </div>
@@ -123,12 +124,12 @@ export function DatasetRepositoryView() {
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-maia-text-muted" />
           <input value={store.searchQuery} onChange={(e) => store.setSearch(e.target.value)}
             placeholder="搜索数据集名称、标签..."
-            className="w-full h-8 pl-8 pr-3 rounded border border-maia-border bg-maia-surface text-[12px] text-maia-text placeholder:text-maia-text-muted focus:outline-none focus:border-maia-accent/50" />
+            className="w-full h-8 pl-8 pr-3 rounded border border-maia-border bg-maia-surface text-[13px] text-maia-text placeholder:text-maia-text-muted focus:outline-none focus:border-maia-accent/50" />
         </div>
         {/* 排序 */}
         <div className="relative">
           <button onClick={() => setShowSort(!showSort)}
-            className="flex items-center gap-1.5 h-8 px-3 rounded border border-maia-border bg-maia-surface text-[12px] text-maia-text-secondary hover:text-maia-text transition-colors">
+            className="flex items-center gap-1.5 h-8 px-3 rounded border border-maia-border bg-maia-surface text-[13px] text-maia-text-secondary hover:text-maia-text transition-colors">
             {sortLabels[store.sortBy] || '最新'}
             <ChevronDown className="h-3 w-3" />
           </button>
@@ -137,7 +138,7 @@ export function DatasetRepositoryView() {
               onMouseLeave={() => setShowSort(false)}>
               {Object.entries(sortLabels).map(([key, label]) => (
                 <button key={key} onClick={() => { store.setSort(key as typeof store.sortBy); setShowSort(false) }}
-                  className={`w-full text-left px-3 py-1.5 text-[12px] transition-colors ${store.sortBy === key ? 'text-maia-accent bg-maia-sidebar-hover' : 'text-maia-text-secondary hover:text-maia-text hover:bg-maia-sidebar-hover'}`}>
+                  className={`w-full text-left px-3 py-1.5 text-[13px] transition-colors ${store.sortBy === key ? 'text-maia-accent bg-maia-sidebar-hover' : 'text-maia-text-secondary hover:text-maia-text hover:bg-maia-sidebar-hover'}`}>
                   {label}
                 </button>
               ))}
@@ -151,7 +152,7 @@ export function DatasetRepositoryView() {
         <div className="flex flex-wrap items-center gap-1.5 px-5 py-2 border-b border-maia-border shrink-0">
           <button
             onClick={() => { store.selectedTags.forEach(t => store.toggleTag(t)) }}
-            className={`px-2 py-0.5 rounded text-[11px] transition-colors ${
+            className={`px-2 py-0.5 rounded text-[12px] transition-colors ${
               store.selectedTags.length === 0
                 ? 'bg-maia-accent text-white'
                 : 'bg-maia-bg text-maia-text-muted hover:bg-maia-sidebar-hover'
@@ -161,7 +162,7 @@ export function DatasetRepositoryView() {
           </button>
           {visibleTags.map(([tag, count]) => (
             <button key={tag} onClick={() => store.toggleTag(tag)}
-              className={`px-2 py-0.5 rounded text-[11px] transition-colors ${
+              className={`px-2 py-0.5 rounded text-[12px] transition-colors ${
                 store.selectedTags.includes(tag)
                   ? 'bg-maia-accent text-white'
                   : 'bg-maia-bg text-maia-text-muted hover:bg-maia-sidebar-hover'
@@ -171,7 +172,7 @@ export function DatasetRepositoryView() {
           ))}
           {tagEntries.length > MAX_TAGS && (
             <button onClick={() => setShowAllTags(!showAllTags)}
-              className="px-2 py-0.5 text-[11px] bg-maia-bg text-maia-text-muted hover:bg-maia-sidebar-hover rounded">
+              className="px-2 py-0.5 text-[12px] bg-maia-bg text-maia-text-muted hover:bg-maia-sidebar-hover rounded">
               {showAllTags ? '收起' : `+ ${tagEntries.length - MAX_TAGS} 更多...`}
             </button>
           )}
@@ -204,7 +205,9 @@ export function DatasetRepositoryView() {
                           onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
                         />
                       ) : (
-                        <span className="text-2xl shrink-0">{getDatasetIcon(ds.formats)}</span>
+                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] bg-maia-accent-light text-maia-accent">
+                          {(() => { const Icon = getDatasetIcon(ds.formats); return <Icon className="h-4 w-4" /> })()}
+                        </span>
                       )}
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5">
@@ -215,12 +218,12 @@ export function DatasetRepositoryView() {
                             </span>
                           )}
                         </div>
-                        <p className="text-[10px] text-maia-text-muted font-mono truncate">{ds.id}</p>
+                        <p className="text-[12px] text-maia-text-muted font-mono truncate">{ds.id}</p>
                       </div>
                     </div>
                     {/* 无缩略图时显示文字预览 */}
                     {!ds.thumbnail && ds.description_preview && (
-                      <p className="mt-2 text-[11px] text-maia-text-muted leading-relaxed line-clamp-2">
+                      <p className="mt-2 text-[12px] text-maia-text-muted leading-relaxed line-clamp-2">
                         {ds.description_preview}
                       </p>
                     )}
@@ -231,20 +234,20 @@ export function DatasetRepositoryView() {
                     <div className="flex flex-wrap gap-1">
                       {ds.tags.map((tag) => (
                         <button key={tag} onClick={(e) => { e.stopPropagation(); store.toggleTag(tag); }}
-                          className="inline-flex px-1.5 py-px rounded text-[10px] font-medium
+                          className="inline-flex px-1.5 py-px rounded text-[12px] font-medium
                             bg-cyan-500/10 text-cyan-700 border border-cyan-500/25
                             hover:bg-cyan-500/20 transition-colors cursor-pointer">
                           {tag}
                         </button>
                       ))}
                       {ds.tags.length === 0 && (
-                        <span className="text-[10px] text-maia-text-muted italic">无标签</span>
+                        <span className="text-[12px] text-maia-text-muted italic">无标签</span>
                       )}
                     </div>
                   </div>
 
                   {/* 元信息 */}
-                  <div className="px-3 py-1 text-[10px] text-maia-text-muted flex items-center justify-between">
+                  <div className="px-3 py-1 text-[12px] text-maia-text-muted flex items-center justify-between">
                     <span>v{ds.version}</span>
                     <span>{ds.file_count} 文件 · {formatFileSize(ds.total_size)}</span>
                   </div>
@@ -254,19 +257,19 @@ export function DatasetRepositoryView() {
                     {loaded ? (
                       <>
                         <Button size="sm" variant="outline" disabled
-                          className="flex-1 h-7 text-[11px] opacity-50">
+                          className="flex-1 h-7 text-[12px] opacity-50">
                           已添加
                         </Button>
                         <Button size="sm" variant="outline"
                           onClick={() => handleRemoveFromWorkspace(ds)}
-                          className="flex-1 h-7 text-[11px] border-maia-border text-maia-text-muted hover:text-maia-danger hover:border-maia-danger/50 transition-colors">
+                          className="flex-1 h-7 text-[12px] border-maia-border text-maia-text-muted hover:text-maia-danger hover:border-maia-danger/50 transition-colors">
                           移除
                         </Button>
                       </>
                     ) : (
                       <Button size="sm" variant="outline"
                         onClick={() => handleAddToWorkspace(ds)}
-                        className="flex-1 h-7 text-[11px] border-maia-accent/30 text-maia-accent hover:bg-maia-accent/10 transition-colors">
+                        className="flex-1 h-7 text-[12px] border-maia-accent/30 text-maia-accent hover:bg-maia-accent/10 transition-colors">
                         <Plus className="h-3 w-3" />添加
                       </Button>
                     )}
@@ -289,7 +292,7 @@ export function DatasetRepositoryView() {
         <div className="flex items-center justify-between px-5 py-2.5 border-t border-maia-border shrink-0">
           <div className="flex items-center gap-1">
             <select value={store.pageSize} onChange={(e) => store.setPageSize(Number(e.target.value))}
-              className="h-7 px-2 rounded border border-maia-border bg-maia-surface text-[11px] text-maia-text-secondary focus:outline-none">
+              className="h-7 px-2 rounded border border-maia-border bg-maia-surface text-[12px] text-maia-text-secondary focus:outline-none">
               {[8, 12, 16, 24, 32].map(n => (
                 <option key={n} value={n}>{n} 个/页</option>
               ))}
@@ -303,13 +306,13 @@ export function DatasetRepositoryView() {
             {pageStart > 1 && (
               <>
                 <button onClick={() => store.setPage(1)}
-                  className="w-7 h-7 rounded text-[11px] text-maia-text-muted hover:text-maia-text hover:bg-maia-sidebar-hover transition-colors">1</button>
-                {pageStart > 2 && <span className="text-[11px] text-maia-text-muted px-0.5">…</span>}
+                  className="w-7 h-7 rounded text-[12px] text-maia-text-muted hover:text-maia-text hover:bg-maia-sidebar-hover transition-colors">1</button>
+                {pageStart > 2 && <span className="text-[12px] text-maia-text-muted px-0.5">…</span>}
               </>
             )}
             {pages.map(p => (
               <button key={p} onClick={() => store.setPage(p)}
-                className={`w-7 h-7 rounded text-[11px] font-medium transition-colors ${
+                className={`w-7 h-7 rounded text-[12px] font-medium transition-colors ${
                   p === store.page
                     ? 'bg-maia-accent text-white'
                     : 'text-maia-text-muted hover:text-maia-text hover:bg-maia-sidebar-hover'
@@ -317,9 +320,9 @@ export function DatasetRepositoryView() {
             ))}
             {pageEnd < totalPages && (
               <>
-                {pageEnd < totalPages - 1 && <span className="text-[11px] text-maia-text-muted px-0.5">…</span>}
+                {pageEnd < totalPages - 1 && <span className="text-[12px] text-maia-text-muted px-0.5">…</span>}
                 <button onClick={() => store.setPage(totalPages)}
-                  className="w-7 h-7 rounded text-[11px] text-maia-text-muted hover:text-maia-text hover:bg-maia-sidebar-hover transition-colors">{totalPages}</button>
+                  className="w-7 h-7 rounded text-[12px] text-maia-text-muted hover:text-maia-text hover:bg-maia-sidebar-hover transition-colors">{totalPages}</button>
               </>
             )}
             <button onClick={() => store.setPage(Math.min(totalPages, store.page + 1))} disabled={store.page >= totalPages}

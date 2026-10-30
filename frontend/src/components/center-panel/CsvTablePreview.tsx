@@ -75,7 +75,7 @@ export function CsvTablePreview({ datasetPath, csvFiles }: CsvTablePreviewProps)
     return (
       <Card className="border-maia-border">
         <CardBody>
-          <div className="text-[11px] text-maia-text-muted py-4 text-center">无法解析 CSV 文件</div>
+          <div className="text-[12px] text-maia-text-muted py-4 text-center">无法解析 CSV 文件</div>
         </CardBody>
       </Card>
     )
@@ -92,20 +92,20 @@ export function CsvTablePreview({ datasetPath, csvFiles }: CsvTablePreviewProps)
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-1.5">
             <Table2 className="h-3.5 w-3.5 text-green-400" />
-            <span className="text-xs font-medium text-maia-text-secondary tracking-wide">
+            <span className="text-[13px] font-medium text-maia-text-secondary">
               CSV 表格预览 — {csvFiles[0].name as string}（{rows.length} 条记录）
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-[11px] text-maia-text-muted">每页</span>
+            <span className="text-[12px] text-maia-text-muted">每页</span>
             <select value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(1) }}
-              className="h-6 rounded border border-maia-border bg-maia-bg text-[11px] text-maia-text px-1 outline-none focus:border-maia-accent/40">
+              className="h-6 rounded border border-maia-border bg-maia-bg text-[12px] text-maia-text px-1 outline-none focus:border-maia-accent/40">
               {TABLE_PAGE_OPTIONS.map(n => (<option key={n} value={n}>{n} 条</option>))}
             </select>
             <div className="flex items-center gap-1 ml-2">
               <Button size="sm" variant="outline" className="h-6 w-6 p-0" disabled={safePage <= 1}
                 onClick={() => setPage(p => Math.max(1, p - 1))}><ChevronLeft className="h-3 w-3" /></Button>
-              <span className="text-[11px] text-maia-text-muted min-w-[40px] text-center">{safePage}/{totalPages}</span>
+              <span className="text-[12px] text-maia-text-muted min-w-[40px] text-center">{safePage}/{totalPages}</span>
               <Button size="sm" variant="outline" className="h-6 w-6 p-0" disabled={safePage >= totalPages}
                 onClick={() => setPage(p => Math.min(totalPages, p + 1))}><ChevronRight className="h-3 w-3" /></Button>
             </div>
@@ -113,10 +113,10 @@ export function CsvTablePreview({ datasetPath, csvFiles }: CsvTablePreviewProps)
         </div>
 
         <div className="overflow-auto max-h-[500px] border border-maia-border rounded">
-          <table className="w-full text-[11px] border-collapse">
+          <table className="w-full text-[13px] border-collapse">
             <thead className="sticky top-0 z-10">
               <tr className="bg-maia-bg">
-                <th className="text-left px-2 py-1.5 text-maia-text-muted font-medium border-b border-maia-border whitespace-nowrap w-10 text-[10px]">#</th>
+                <th className="text-left px-2.5 py-2 text-maia-text-muted font-medium border-b border-maia-border whitespace-nowrap w-10">#</th>
                 {headers.map((h, i) => (
                   <th key={i} className="text-left px-2 py-1.5 text-maia-text-muted font-medium border-b border-maia-border whitespace-nowrap">{h}</th>
                 ))}
@@ -125,9 +125,9 @@ export function CsvTablePreview({ datasetPath, csvFiles }: CsvTablePreviewProps)
             <tbody>
               {pageRows.map((row, ri) => (
                 <tr key={ri} className="hover:bg-maia-bg/50">
-                  <td className="px-2 py-1 text-maia-text-muted border-b border-maia-border/50 text-[10px]">{(safePage - 1) * pageSize + ri + 1}</td>
+                  <td className="px-2.5 py-1.5 text-maia-text-muted border-b border-maia-border/50 tnum">{(safePage - 1) * pageSize + ri + 1}</td>
                   {row.map((cell, ci) => (
-                    <td key={ci} className="px-2 py-1 text-maia-text border-b border-maia-border/50 max-w-[300px] truncate" title={cell}>{cell}</td>
+                    <td key={ci} className="px-2.5 py-1.5 text-maia-text border-b border-maia-border/50 max-w-[300px] truncate" title={cell}>{cell}</td>
                   ))}
                 </tr>
               ))}

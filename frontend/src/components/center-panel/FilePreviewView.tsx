@@ -46,9 +46,9 @@ function renderMarkdown(md: string): string {
   let html = md
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, _lang, code) =>
-    `<pre class="bg-maia-bg border border-maia-border rounded p-3 my-2 overflow-auto text-[11px] leading-relaxed"><code>${code.trim()}</code></pre>`
+    `<pre class="bg-maia-bg border border-maia-border rounded-lg p-3.5 my-2 overflow-x-auto font-mono text-[13px] leading-[22px] whitespace-pre"><code>${code.trim()}</code></pre>`
   )
-  html = html.replace(/`([^`]+)`/g, '<code class="bg-maia-bg text-green-400 px-1 py-0.5 rounded text-[11px]">$1</code>')
+  html = html.replace(/`([^`]+)`/g, '<code class="bg-maia-bg text-maia-accent px-1.5 py-0.5 rounded font-mono text-[13px] leading-[20px]">$1</code>')
   html = html.replace(/^#### (.+)$/gm, '<h4 class="text-sm font-semibold text-maia-text-heading mt-4 mb-1">$1</h4>')
   html = html.replace(/^### (.+)$/gm, '<h3 class="text-base font-semibold text-maia-text-heading mt-4 mb-1">$1</h3>')
   html = html.replace(/^## (.+)$/gm, '<h2 class="text-lg font-semibold text-maia-text-heading mt-5 mb-2 pb-1 border-b border-maia-border">$1</h2>')
@@ -56,20 +56,20 @@ function renderMarkdown(md: string): string {
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-maia-text">$1</strong>')
   html = html.replace(/\*(.+?)\*/g, '<em>$1</em>')
   html = html.replace(/^---$/gm, '<hr class="border-maia-border my-3" />')
-  html = html.replace(/^[\s]*[-*] (.+)$/gm, '<li class="text-maia-text ml-4 list-disc">$1</li>')
-  html = html.replace(/^[\s]*\d+\. (.+)$/gm, '<li class="text-maia-text ml-4 list-decimal">$1</li>')
+  html = html.replace(/^[\s]*[-*] (.+)$/gm, '<li class="text-maia-text text-[14px] leading-[24px] ml-4 list-disc">$1</li>')
+  html = html.replace(/^[\s]*\d+\. (.+)$/gm, '<li class="text-maia-text text-[14px] leading-[24px] ml-4 list-decimal">$1</li>')
   html = html.replace(/\|(.+)\|\n\|[-| :]+\|\n((?:\|.+\|\n?)*)/g, (_, header, rows) => {
     const headers = header.split('|').map((h: string) => h.trim()).filter(Boolean)
-    const ths = headers.map((h: string) => `<th class="border border-maia-border bg-maia-bg px-2 py-1 text-left text-[11px] font-medium text-maia-text-secondary">${h}</th>`).join('')
+    const ths = headers.map((h: string) => `<th class="border border-maia-border bg-maia-bg px-2 py-1 text-left text-[12px] font-medium text-maia-text-secondary">${h}</th>`).join('')
     const bodyRows = rows.trim().split('\n').map((row: string) => {
       const cells = row.split('|').map((c: string) => c.trim()).filter(Boolean)
-      return `<tr>${cells.map((c: string) => `<td class="border border-maia-border px-2 py-1 text-[11px] text-maia-text">${c}</td>`).join('')}</tr>`
+      return `<tr>${cells.map((c: string) => `<td class="border border-maia-border px-2 py-1 text-[12px] text-maia-text">${c}</td>`).join('')}</tr>`
     }).join('')
-    return `<table class="border-collapse my-2 w-full text-[11px]"><thead><tr>${ths}</tr></thead><tbody>${bodyRows}</tbody></table>`
+    return `<table class="border-collapse my-2 w-full text-[12px]"><thead><tr>${ths}</tr></thead><tbody>${bodyRows}</tbody></table>`
   })
   html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" class="text-maia-accent hover:underline">$1</a>')
   html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" class="max-w-full rounded my-2" />')
-  html = html.replace(/^> (.+)$/gm, '<blockquote class="border-l-2 border-maia-accent/50 pl-3 my-2 text-maia-text-muted text-[12px]">$1</blockquote>')
+  html = html.replace(/^> (.+)$/gm, '<blockquote class="border-l-2 border-maia-accent/50 pl-3 my-2 text-maia-text-muted text-[13px]">$1</blockquote>')
   const lines = html.split('\n')
   const result: string[] = []
   let paragraph: string[] = []
@@ -77,15 +77,15 @@ function renderMarkdown(md: string): string {
   for (const line of lines) {
     const trimmed = line.trim()
     if (!trimmed) {
-      if (paragraph.length > 0) { result.push(`<p class="text-maia-text text-[12px] leading-relaxed my-1">${paragraph.join(' ')}</p>`); paragraph = [] }
+      if (paragraph.length > 0) { result.push(`<p class="text-maia-text text-[14px] leading-[24px] my-1.5">${paragraph.join(' ')}</p>`); paragraph = [] }
       continue
     }
     if (isBlock(trimmed)) {
-      if (paragraph.length > 0) { result.push(`<p class="text-maia-text text-[12px] leading-relaxed my-1">${paragraph.join(' ')}</p>`); paragraph = [] }
+      if (paragraph.length > 0) { result.push(`<p class="text-maia-text text-[14px] leading-[24px] my-1.5">${paragraph.join(' ')}</p>`); paragraph = [] }
       result.push(trimmed)
     } else { paragraph.push(trimmed) }
   }
-  if (paragraph.length > 0) result.push(`<p class="text-maia-text text-[12px] leading-relaxed my-1">${paragraph.join(' ')}</p>`)
+  if (paragraph.length > 0) result.push(`<p class="text-maia-text text-[14px] leading-[24px] my-1.5">${paragraph.join(' ')}</p>`)
   return result.join('\n')
 }
 
@@ -158,17 +158,17 @@ export function FilePreviewView() {
           <span className="text-sm font-semibold text-maia-text-heading truncate">{previewFile.name}</span>
           <Badge variant="default" className="text-[9px] shrink-0">{ext.toUpperCase() || 'FILE'}</Badge>
           {previewFile.size != null && previewFile.size > 0 && (
-            <span className="text-[11px] text-maia-text-muted shrink-0">
+            <span className="text-[12px] text-maia-text-muted shrink-0">
               {previewFile.size > 1048576 ? `${(previewFile.size / 1048576).toFixed(1)} MB` : `${(previewFile.size / 1024).toFixed(1)} KB`}
             </span>
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <Button variant="outline" size="sm" className="text-[11px] h-7" onClick={() => window.open(downloadUrl, '_blank')}>
+          <Button variant="outline" size="sm" className="text-[12px] h-7" onClick={() => window.open(downloadUrl, '_blank')}>
             <ExternalLink className="h-3 w-3" />浏览器打开
           </Button>
           <a href={downloadUrl} download={previewFile.name}>
-            <Button variant="outline" size="sm" className="text-[11px] h-7">
+            <Button variant="outline" size="sm" className="text-[12px] h-7">
               <Download className="h-3 w-3" />下载
             </Button>
           </a>
@@ -198,7 +198,7 @@ export function FilePreviewView() {
             ) : mdHtml ? (
               <div className="markdown-body" dangerouslySetInnerHTML={{ __html: mdHtml }} />
             ) : (
-              <div className="text-[12px] text-maia-text-muted py-8 text-center">无法加载 Markdown 内容</div>
+              <div className="text-[13px] text-maia-text-muted py-8 text-center">无法加载 Markdown 内容</div>
             )}
           </div>
         )}
@@ -210,7 +210,7 @@ export function FilePreviewView() {
                 <Loader2 className="h-5 w-5 animate-spin text-maia-text-muted" />
               </div>
             ) : !csvData ? (
-              <div className="text-[12px] text-maia-text-muted py-8 text-center">无法解析 CSV 文件</div>
+              <div className="text-[13px] text-maia-text-muted py-8 text-center">无法解析 CSV 文件</div>
             ) : (
               (() => {
                 const { headers, rows } = csvData
@@ -222,20 +222,20 @@ export function FilePreviewView() {
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-1.5">
                         <Table2 className="h-3.5 w-3.5 text-green-400" />
-                        <span className="text-xs font-medium text-maia-text-secondary tracking-wide">
+                        <span className="text-[13px] font-medium text-maia-text-secondary">
                           CSV 表格预览（{rows.length} 条记录，{headers.length} 列）
                         </span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="text-[11px] text-maia-text-muted">每页</span>
+                        <span className="text-[12px] text-maia-text-muted">每页</span>
                         <select value={csvPageSize} onChange={e => { setCsvPageSize(Number(e.target.value)); setCsvPage(1) }}
-                          className="h-6 rounded border border-maia-border bg-maia-bg text-[11px] text-maia-text px-1 outline-none focus:border-maia-accent/40">
+                          className="h-6 rounded border border-maia-border bg-maia-bg text-[12px] text-maia-text px-1 outline-none focus:border-maia-accent/40">
                           {TABLE_PAGE_OPTIONS.map(n => (<option key={n} value={n}>{n} 条</option>))}
                         </select>
                         <div className="flex items-center gap-1 ml-2">
                           <Button size="sm" variant="outline" className="h-6 w-6 p-0" disabled={safePage <= 1}
                             onClick={() => setCsvPage(p => Math.max(1, p - 1))}><ChevronLeft className="h-3 w-3" /></Button>
-                          <span className="text-[11px] text-maia-text-muted min-w-[40px] text-center">{safePage}/{totalPages}</span>
+                          <span className="text-[12px] text-maia-text-muted min-w-[40px] text-center">{safePage}/{totalPages}</span>
                           <Button size="sm" variant="outline" className="h-6 w-6 p-0" disabled={safePage >= totalPages}
                             onClick={() => setCsvPage(p => Math.min(totalPages, p + 1))}><ChevronRight className="h-3 w-3" /></Button>
                         </div>
@@ -243,10 +243,10 @@ export function FilePreviewView() {
                     </div>
 
                     <div className="overflow-auto max-h-[600px] border border-maia-border rounded">
-                      <table className="w-full text-[11px] border-collapse">
+                      <table className="w-full text-[12px] border-collapse">
                         <thead className="sticky top-0 z-10">
                           <tr className="bg-maia-bg">
-                            <th className="text-left px-2 py-1.5 text-maia-text-muted font-medium border-b border-maia-border whitespace-nowrap w-10 text-[10px]">#</th>
+                            <th className="text-left px-2 py-1.5 text-maia-text-muted font-medium border-b border-maia-border whitespace-nowrap w-10 text-[12px]">#</th>
                             {headers.map((h, i) => (
                               <th key={i} className="text-left px-2 py-1.5 text-maia-text-muted font-medium border-b border-maia-border whitespace-nowrap">{h}</th>
                             ))}
@@ -255,7 +255,7 @@ export function FilePreviewView() {
                         <tbody>
                           {pageRows.map((row, ri) => (
                             <tr key={ri} className="hover:bg-maia-bg/50">
-                              <td className="px-2 py-1 text-maia-text-muted border-b border-maia-border/50 text-[10px]">{(safePage - 1) * csvPageSize + ri + 1}</td>
+                              <td className="px-2 py-1 text-maia-text-muted border-b border-maia-border/50 text-[12px]">{(safePage - 1) * csvPageSize + ri + 1}</td>
                               {row.map((cell, ci) => (
                                 <td key={ci} className="px-2 py-1 text-maia-text border-b border-maia-border/50 max-w-[300px] truncate" title={cell}>{cell}</td>
                               ))}
@@ -275,13 +275,13 @@ export function FilePreviewView() {
           <div className="flex flex-col items-center justify-center h-full gap-3 text-maia-text-muted p-6">
             <File className="h-12 w-12 opacity-20" />
             <p className="text-sm">该文件类型暂不支持内嵌预览</p>
-            <p className="text-[11px] font-mono text-maia-text-muted break-all max-w-lg text-center">{previewFile.path}</p>
+            <p className="text-[12px] font-mono text-maia-text-muted break-all max-w-lg text-center">{previewFile.path}</p>
             <div className="flex gap-2 mt-2">
-              <Button variant="outline" size="sm" className="text-[11px]" onClick={() => window.open(downloadUrl, '_blank')}>
+              <Button variant="outline" size="sm" className="text-[12px]" onClick={() => window.open(downloadUrl, '_blank')}>
                 <ExternalLink className="h-3 w-3" />浏览器打开
               </Button>
               <a href={downloadUrl} download={previewFile.name}>
-                <Button variant="outline" size="sm" className="text-[11px]">
+                <Button variant="outline" size="sm" className="text-[12px]">
                   <Download className="h-3 w-3" />下载
                 </Button>
               </a>

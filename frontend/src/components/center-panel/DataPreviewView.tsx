@@ -84,11 +84,11 @@ export function DataPreviewView() {
       <div className="flex items-center justify-between px-4 py-2 border-b border-maia-border bg-maia-bg/50 shrink-0">
         <div className="flex items-center gap-2">
           <Database className="h-4 w-4 text-blue-500" />
-          <span className="text-sm font-semibold text-maia-text-heading tracking-wide">{dataset.name}</span>
+          <span className="text-sm font-semibold text-maia-text-heading">{dataset.name}</span>
           <Badge variant="success">v{dataset.version}</Badge>
           <Badge variant="accent">{dataset.format?.toUpperCase()}</Badge>
         </div>
-        <div className="flex items-center gap-2 text-[11px] text-maia-text-muted">
+        <div className="flex items-center gap-2 text-[12px] text-maia-text-muted">
           {files.length > 0 && <span>{files.length} 个文件</span>}
           {imageFiles.length > 0 && <span>· {imageFiles.length} 张图片</span>}
           {dataset.fileSize > 0 && (
@@ -107,16 +107,16 @@ export function DataPreviewView() {
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-1.5">
                   <Image className="h-3.5 w-3.5 text-amber-400" />
-                  <span className="text-xs font-medium text-maia-text-secondary tracking-wide">
+                  <span className="text-[13px] font-medium text-maia-text-secondary">
                     图片预览（共 {imageFiles.length} 张）
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-[11px] text-maia-text-muted">每页</span>
+                  <span className="text-[12px] text-maia-text-muted">每页</span>
                   <select
                     value={pageSize}
                     onChange={e => { setPageSize(Number(e.target.value)); setPage(1) }}
-                    className="h-6 rounded border border-maia-border bg-maia-bg text-[11px] text-maia-text px-1 outline-none focus:border-maia-accent/40"
+                    className="h-6 rounded border border-maia-border bg-maia-bg text-[12px] text-maia-text px-1 outline-none focus:border-maia-accent/40"
                   >
                     {PAGE_SIZE_OPTIONS.map(n => (
                       <option key={n} value={n}>{n} 张</option>
@@ -131,7 +131,7 @@ export function DataPreviewView() {
                     >
                       <ChevronLeft className="h-3 w-3" />
                     </Button>
-                    <span className="text-[11px] text-maia-text-muted min-w-[40px] text-center">
+                    <span className="text-[12px] text-maia-text-muted min-w-[40px] text-center">
                       {safePage}/{totalPages}
                     </span>
                     <Button
@@ -170,7 +170,7 @@ export function DataPreviewView() {
                               el.style.display = 'none'
                               const parent = el.parentElement
                               if (parent) {
-                                parent.innerHTML = `<div class="flex flex-col items-center justify-center gap-1 text-maia-text-muted"><svg class="h-6 w-6 opacity-30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg><span class="text-[10px]">加载失败</span></div>`
+                                parent.innerHTML = `<div class="flex flex-col items-center justify-center gap-1 text-maia-text-muted"><svg class="h-6 w-6 opacity-30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg><span class="text-[12px]">加载失败</span></div>`
                               }
                             }}
                           />
@@ -178,7 +178,7 @@ export function DataPreviewView() {
                       ) : (
                         <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-maia-text-muted">
                           <Image className="h-6 w-6 opacity-30" />
-                          <span className="text-[10px]">{img.name as string}</span>
+                          <span className="text-[12px]">{img.name as string}</span>
                         </div>
                       )}
                       <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-1.5 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -208,7 +208,7 @@ export function DataPreviewView() {
             <CardBody>
               <div className="flex items-center gap-1.5 mb-2">
                 <File className="h-3.5 w-3.5 text-maia-text-muted" />
-                <span className="text-xs font-medium text-maia-text-secondary tracking-wide">文件列表（点击预览）</span>
+                <span className="text-[13px] font-medium text-maia-text-secondary">文件列表（点击预览）</span>
               </div>
               <div className="space-y-1">
                 {[...imageFiles, ...nonImageFiles].map((f, i) => {
@@ -216,7 +216,7 @@ export function DataPreviewView() {
                   return (
                   <div
                     key={i}
-                    className="flex items-center justify-between py-1 px-2 rounded hover:bg-maia-bg text-[11px] cursor-pointer"
+                    className="flex items-center justify-between py-1 px-2 rounded hover:bg-maia-bg text-[12px] cursor-pointer"
                     onClick={() => { if (url) window.open(url, '_blank') }}
                     title="点击预览"
                   >
@@ -240,7 +240,7 @@ export function DataPreviewView() {
         {specMd && (
           <Card className="border-maia-border">
             <CardBody>
-              <pre className="text-[11px] font-mono leading-relaxed text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto">
+              <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto">
                 {specMd.slice(0, 3000)}
               </pre>
             </CardBody>

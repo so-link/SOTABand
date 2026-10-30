@@ -170,7 +170,7 @@ export function SpecOutlineView({ outline, toolId, onApply }: Props) {
 
   if (!outline.nodes.length) {
     return (
-      <div className="text-xs text-maia-text-muted p-3 border border-maia-border rounded">
+      <div className="text-[13px] text-maia-text-muted p-3 border border-maia-border rounded">
         {outline.warning || '该文档暂无可解析的结构'}
       </div>
     )
@@ -182,12 +182,12 @@ export function SpecOutlineView({ outline, toolId, onApply }: Props) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <FileText className="h-3.5 w-3.5 text-maia-accent" />
-          <span className="text-xs font-medium text-maia-text-secondary">文档要点</span>
-          <span className="text-[10px] text-maia-text-muted">
+          <span className="text-[13px] font-medium text-maia-text-secondary">文档要点</span>
+          <span className="text-[12px] text-maia-text-muted">
             {outline.nodes.length} 个段落
           </span>
         </div>
-        <span className="text-[10px] text-maia-text-muted">
+        <span className="text-[12px] text-maia-text-muted">
           点「这段有问题」可只改这一段
         </span>
       </div>
@@ -209,14 +209,14 @@ export function SpecOutlineView({ outline, toolId, onApply }: Props) {
               <div key={n.id} className="pt-2 pb-0.5 px-2.5">
                 <div className="flex items-center gap-2">
                   <span className="w-3 shrink-0" />
-                  <span className={`text-[10px] font-medium ${meta.color}`}>
+                  <span className={`text-[12px] font-medium ${meta.color}`}>
                     {meta.label}
                   </span>
-                  <span className="text-[10px] text-maia-text-muted">
+                  <span className="text-[12px] text-maia-text-muted">
                     {cleanTitle(n.title)}
                   </span>
                   <span className="h-px flex-1 bg-maia-border" />
-                  <span className="text-[10px] text-maia-text-muted">
+                  <span className="text-[12px] text-maia-text-muted">
                     {n.children.length} 项
                   </span>
                 </div>
@@ -251,18 +251,18 @@ export function SpecOutlineView({ outline, toolId, onApply }: Props) {
                   <div className="flex items-center gap-1.5 flex-wrap">
                     {/* 子标题不再重复父级分组的类型标签，避免"给什么 给什么" */}
                     {!isSub && (
-                      <span className={`text-[10px] font-medium ${meta.color}`}>
+                      <span className={`text-[12px] font-medium ${meta.color}`}>
                         {meta.label}
                       </span>
                     )}
-                    <span className="text-[11px] text-maia-text">
+                    <span className="text-[12px] text-maia-text">
                       {n.summary || cleanTitle(n.title)}
                     </span>
                   </div>
                   {/* 未展开时显示原文前两行作为预览：
                       不展开也能大致判断这段内容，省去一次点击 */}
                   {!isOpen && (
-                    <div className="text-[10px] text-maia-text-muted mt-0.5 font-mono truncate">
+                    <div className="text-[12px] text-maia-text-muted mt-0.5 font-mono truncate">
                       {previewOf(n)}
                     </div>
                   )}
@@ -276,7 +276,7 @@ export function SpecOutlineView({ outline, toolId, onApply }: Props) {
                     setResult(null); setError('')
                   }}
                   title="针对这一段提修改意见"
-                  className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border border-maia-border text-amber-500 hover:bg-amber-500/10 shrink-0"
+                  className="flex items-center gap-1 text-[12px] px-1.5 py-0.5 rounded border border-maia-border text-amber-500 hover:bg-amber-500/10 shrink-0"
                 >
                   <MessageSquareWarning className="h-2.5 w-2.5" />
                   这段有问题
@@ -287,19 +287,19 @@ export function SpecOutlineView({ outline, toolId, onApply }: Props) {
               {isOpen && (
                 <div className="px-2.5 pb-2 ml-5">
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-[10px] text-maia-text-muted">
+                    <span className="text-[12px] text-maia-text-muted">
                       技术原文
                     </span>
                     <button
                       onClick={() => toggleRaw(n.id)}
-                      className="flex items-center gap-1 text-[10px] text-maia-text-muted hover:text-maia-accent"
+                      className="flex items-center gap-1 text-[12px] text-maia-text-muted hover:text-maia-accent"
                     >
                       {showRawMd
                         ? <><EyeOff className="h-2.5 w-2.5" />收起</>
                         : <><Eye className="h-2.5 w-2.5" />展开</>}
                     </button>
                   </div>
-                  <pre className={`text-[10px] font-mono text-maia-text-muted whitespace-pre-wrap bg-maia-bg/50 rounded p-2 ${
+                  <pre className={`text-[12px] font-mono text-maia-text-muted whitespace-pre-wrap bg-maia-bg/50 rounded p-2 ${
                     showRawMd ? 'max-h-96' : 'max-h-16'
                   } overflow-auto`}>
                     {n.content_md}
@@ -310,7 +310,7 @@ export function SpecOutlineView({ outline, toolId, onApply }: Props) {
               {/* 精化输入区 */}
               {isRefining && (
                 <div className="px-2.5 pb-2.5 ml-5 space-y-2">
-                  <div className="text-[10px] text-maia-text-muted">
+                  <div className="text-[12px] text-maia-text-muted">
                     说明「{n.summary || cleanTitle(n.title)}」有什么问题，例如
                     <span className="text-maia-text-secondary">
                       「并发数默认值改成 4」
@@ -336,13 +336,13 @@ export function SpecOutlineView({ outline, toolId, onApply }: Props) {
                     }}
                     placeholder="描述这一段哪里不对、希望改成什么样"
                     rows={3}
-                    className="w-full rounded border border-maia-border bg-maia-bg/50 px-2 py-1.5 text-[11px] outline-none resize-y focus:border-amber-500/40"
+                    className="w-full rounded border border-maia-border bg-maia-bg/50 px-2 py-1.5 text-[12px] outline-none resize-y focus:border-amber-500/40"
                   />
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => submitRefine(n)}
                       disabled={busy || !feedback.trim()}
-                      className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-maia-border text-amber-500 hover:bg-amber-500/10 disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="flex items-center gap-1 text-[12px] px-2 py-0.5 rounded border border-maia-border text-amber-500 hover:bg-amber-500/10 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       {busy
                         ? <Loader2 className="h-2.5 w-2.5 animate-spin" />
@@ -351,7 +351,7 @@ export function SpecOutlineView({ outline, toolId, onApply }: Props) {
                     </button>
                     <button
                       onClick={() => { setRefiningId(null); setResult(null); setError('') }}
-                      className="text-[10px] px-2 py-0.5 rounded border border-maia-border text-maia-text-muted"
+                      className="text-[12px] px-2 py-0.5 rounded border border-maia-border text-maia-text-muted"
                     >
                       取消
                     </button>
@@ -361,7 +361,7 @@ export function SpecOutlineView({ outline, toolId, onApply }: Props) {
                       该模型思考阶段可达 10~16 秒，无反馈会被认为卡住。 */}
                   {busy && (
                     <div className="space-y-1 rounded border border-maia-border/60 p-2 bg-maia-bg/20">
-                      <div className="flex items-center gap-1.5 text-[10px] text-maia-text-muted">
+                      <div className="flex items-center gap-1.5 text-[12px] text-maia-text-muted">
                         <Loader2 className="h-2.5 w-2.5 animate-spin text-amber-500" />
                         <span>
                           {streamText
@@ -378,27 +378,27 @@ export function SpecOutlineView({ outline, toolId, onApply }: Props) {
                   )}
 
                   {error && (
-                    <div className="text-[10px] text-maia-danger">{error}</div>
+                    <div className="text-[12px] text-maia-danger">{error}</div>
                   )}
 
                   {/* 改前/改后对比 */}
                   {result && result.node_id === n.id && (
                     <div className="space-y-1.5 rounded border border-maia-border p-2 bg-maia-bg/30">
                       {result.impact_hint && (
-                        <div className="flex items-start gap-1 text-[10px] text-amber-500">
+                        <div className="flex items-start gap-1 text-[12px] text-amber-500">
                           <Lightbulb className="h-3 w-3 shrink-0 mt-0.5" />
                           <span>{result.impact_hint}</span>
                         </div>
                       )}
                       <div className="grid grid-cols-2 gap-2">
                         <div>
-                          <div className="text-[10px] text-maia-text-muted mb-0.5">改前</div>
+                          <div className="text-[12px] text-maia-text-muted mb-0.5">改前</div>
                           <pre className="text-[9px] font-mono text-maia-text-muted whitespace-pre-wrap max-h-32 overflow-auto bg-maia-bg rounded p-1.5">
                             {result.diff.before}
                           </pre>
                         </div>
                         <div>
-                          <div className="text-[10px] text-maia-success mb-0.5">改后</div>
+                          <div className="text-[12px] text-maia-success mb-0.5">改后</div>
                           <pre className="text-[9px] font-mono text-maia-text whitespace-pre-wrap max-h-32 overflow-auto bg-maia-bg rounded p-1.5">
                             {result.diff.after}
                           </pre>
@@ -407,13 +407,13 @@ export function SpecOutlineView({ outline, toolId, onApply }: Props) {
                       <div className="flex items-center gap-1.5">
                         <button
                           onClick={applyResult}
-                          className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-maia-border text-maia-success hover:bg-maia-success/10"
+                          className="flex items-center gap-1 text-[12px] px-2 py-0.5 rounded border border-maia-border text-maia-success hover:bg-maia-success/10"
                         >
                           <Check className="h-2.5 w-2.5" />应用
                         </button>
                         <button
                           onClick={() => setResult(null)}
-                          className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-maia-border text-maia-text-muted"
+                          className="flex items-center gap-1 text-[12px] px-2 py-0.5 rounded border border-maia-border text-maia-text-muted"
                         >
                           <X className="h-2.5 w-2.5" />放弃
                         </button>

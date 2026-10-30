@@ -80,7 +80,7 @@ export function TableEditView({ toolId, table, md, onApplied }: Props) {
       {/* 头部：说明这是零延迟的确定性编辑 */}
       <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-maia-bg/40 border-b border-maia-border">
         <Table2 className="h-3 w-3 text-maia-accent" />
-        <span className="text-[10px] text-maia-text-secondary">
+        <span className="text-[12px] text-maia-text-secondary">
           {table.node_title || '参数表'}
         </span>
         <span className="flex items-center gap-0.5 text-[9px] text-maia-success">
@@ -90,7 +90,7 @@ export function TableEditView({ toolId, table, md, onApplied }: Props) {
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full text-[10px]">
+        <table className="w-full text-[12px]">
           <thead>
             <tr className="bg-maia-bg/30">
               {table.header.map((h, i) => (
@@ -117,7 +117,7 @@ export function TableEditView({ toolId, table, md, onApplied }: Props) {
                               if (e.key === 'Enter') { e.preventDefault(); void save() }
                               if (e.key === 'Escape') { e.preventDefault(); cancel() }
                             }}
-                            className="w-full min-w-[60px] rounded border border-maia-accent/40 bg-maia-bg px-1 py-0.5 text-[10px] outline-none"
+                            className="w-full min-w-[60px] rounded border border-maia-accent/40 bg-maia-bg px-1 py-0.5 text-[12px] outline-none"
                           />
                           <button
                             onClick={() => void save()}
@@ -155,7 +155,7 @@ export function TableEditView({ toolId, table, md, onApplied }: Props) {
       </div>
 
       {error && (
-        <div className="px-2.5 py-1 text-[10px] text-maia-danger border-t border-maia-border">
+        <div className="px-2.5 py-1 text-[12px] text-maia-danger border-t border-maia-border">
           {error}
         </div>
       )}
