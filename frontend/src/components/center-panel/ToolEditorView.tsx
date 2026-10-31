@@ -751,7 +751,7 @@ function Step3() {
   }, [])
 
   return (
-    <div className="max-w-5xl mx-auto h-full flex flex-col" ref={containerRef}>
+    <div className="max-w-5xl mx-auto h-full min-h-0 flex flex-col" ref={containerRef}>
       <div className="flex items-center justify-between mb-2 shrink-0">
         <h3 className="text-lg font-semibold text-maia-text-heading">Step 3: 代码预览 &amp; 沙箱测试</h3>
         {isEditMode && (
@@ -762,7 +762,7 @@ function Step3() {
       </div>
 
       {/* 上半部分：代码 + 测试区（水平分割） */}
-      <div className="flex-1 min-h-0 flex flex-col">
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         <div className="grid grid-cols-5 gap-4 flex-1 min-h-0">
           {/* 左：代码预览 / 手工微调 */}
           <div className="col-span-3 flex flex-col min-h-0">
@@ -976,7 +976,7 @@ function Step3() {
 
       {error && <div className="flex items-center gap-1.5 mt-2 text-[13px] text-maia-danger shrink-0"><XCircle className="h-3 w-3" />{error}</div>}
 
-      <div className="flex justify-between mt-4 shrink-0">
+      <div className="flex justify-between mt-3 pt-3 border-t border-maia-border shrink-0">
         <Button variant="outline" onClick={() => setStep(2)} disabled={isAutoDebugging}><ArrowLeft className="h-3.5 w-3.5" />返回修改 MD</Button>
         <div className="flex gap-2">
           <Button variant="danger" onClick={() => setStep(1)} disabled={isAutoDebugging}><XCircle className="h-3.5 w-3.5" />拒绝</Button>
