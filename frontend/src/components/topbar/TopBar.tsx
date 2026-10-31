@@ -1,4 +1,4 @@
-import { PanelLeft, PanelRight, Settings, Sun, Moon, LogIn, LogOut, User } from 'lucide-react'
+import { Settings, Sun, Moon, LogIn, LogOut, User } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip } from '@/components/ui/tooltip'
@@ -9,7 +9,7 @@ import { LoginDialog } from '@/components/topbar/LoginDialog'
 import { APP_VERSION } from '@/lib/utils'
 
 export function TopBar() {
-  const { leftPanelOpen, rightPanelOpen, toggleLeftPanel, toggleRightPanel, theme, toggleTheme, setActiveView } = useUIStore()
+  const { theme, toggleTheme, setActiveView } = useUIStore()
   const workspaceName = useFileTreeStore((s) => s.root?.name)
   const user = useAuthStore((s) => s.user)
   const openLogin = useAuthStore((s) => s.openLogin)
@@ -19,11 +19,6 @@ export function TopBar() {
     <header className="flex h-9 items-center justify-between px-3 shrink-0 select-none glass border-b border-white/[0.04] relative">
       <div className="absolute bottom-0 left-0 right-0 gradient-line" />
       <div className="flex items-center gap-2">
-        <Tooltip content={leftPanelOpen ? '隐藏侧边栏' : '显示侧边栏'}>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={toggleLeftPanel}>
-            <PanelLeft className="h-3.5 w-3.5" />
-          </Button>
-        </Tooltip>
         <div className="flex items-center gap-2 ml-1">
           <img src="/image.png" alt="Logo" className="w-5 h-5 rounded object-contain"
             onError={(e) => {
@@ -74,11 +69,6 @@ export function TopBar() {
         </Tooltip>
         <Tooltip content="设置">
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setActiveView('settings')}><Settings className="h-3.5 w-3.5" /></Button>
-        </Tooltip>
-        <Tooltip content={rightPanelOpen ? '隐藏属性面板' : '显示属性面板'}>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={toggleRightPanel}>
-            <PanelRight className="h-3.5 w-3.5" />
-          </Button>
         </Tooltip>
       </div>
       <LoginDialog />
