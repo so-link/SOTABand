@@ -52,11 +52,6 @@ export function ResourceBrowser() {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(['data', 'tool', 'agent'])
   )
-  // 模型添加表单状态
-  const [addingModel, setAddingModel] = useState(false)
-  const [newModelName, setNewModelName] = useState('')
-  const [newModelFramework, setNewModelFramework] = useState('')
-  const [newModelVersion, setNewModelVersion] = useState('0.1.0')
   // 各编辑器中的未保存改动，用于在资源树上打标记
   const unsaved = useUnsavedMarks()
 
@@ -119,31 +114,6 @@ export function ResourceBrowser() {
       case 'agent': return agentResources
       case 'task': return taskResources
       default: return []
-    }
-  }
-
-  const handleAddModel = async () => {
-    const name = newModelName.trim()
-    if (!name) return
-    const BASE_URL = ''
-    try {
-      const res = await fetch(`${BASE_URL}/api/model/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name,
-          framework: newModelFramework.trim(),
-          version: newModelVersion.trim() || '0.1.0',
-        }),
-      })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      setAddingModel(false)
-      setNewModelName('')
-      setNewModelFramework('')
-      setNewModelVersion('0.1.0')
-      fetchModelsFromApi()
-    } catch (e) {
-      console.error('注册模型失败:', e)
     }
   }
 
@@ -290,18 +260,6 @@ export function ResourceBrowser() {
                   <Plus className="h-3 w-3" />
                 </button>
               )}
-              {section.type === 'model' && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setAddingModel(true)
-                  }}
-                  className="flex items-center justify-center h-4 w-4 rounded hover:bg-maia-accent/10 text-maia-text-muted hover:text-maia-accent transition-colors"
-                  title="添加模型"
-                >
-                  <Plus className="h-3 w-3" />
-                </button>
-              )}
             </div>
 
             {/* Section items — indented to align under parent label */}
@@ -316,48 +274,6 @@ export function ResourceBrowser() {
                     <Package className="h-3 w-3 shrink-0" />
                     工具仓库另有 {toolResources.length} 个可用工具
                   </button>
-                )}
-                {section.type === 'model' && addingModel && (
-                  <div className="pl-7 pr-1.5 py-2 mb-1 rounded bg-maia-bg/60 border border-maia-border">
-                    <div className="space-y-1.5">
-                      <input
-                        value={newModelName}
-                        onChange={(e) => setNewModelName(e.target.value)}
-                        placeholder="模型名称"
-                        className="w-full text-[12px] border border-maia-border rounded px-2 py-1 bg-maia-surface outline-none focus:border-maia-accent/40"
-                        autoFocus
-                      />
-                      <div className="flex gap-1.5">
-                        <input
-                          value={newModelFramework}
-                          onChange={(e) => setNewModelFramework(e.target.value)}
-                          placeholder="框架（如 pytorch）"
-                          className="flex-1 text-[12px] border border-maia-border rounded px-2 py-1 bg-maia-surface outline-none focus:border-maia-accent/40"
-                        />
-                        <input
-                          value={newModelVersion}
-                          onChange={(e) => setNewModelVersion(e.target.value)}
-                          placeholder="版本"
-                          className="w-16 text-[12px] border border-maia-border rounded px-2 py-1 bg-maia-surface outline-none focus:border-maia-accent/40"
-                        />
-                      </div>
-                      <div className="flex gap-1.5">
-                        <button
-                          onClick={handleAddModel}
-                          disabled={!newModelName.trim()}
-                          className="px-2 py-1 rounded text-[12px] bg-maia-accent text-white hover:opacity-90 disabled:opacity-40"
-                        >
-                          注册
-                        </button>
-                        <button
-                          onClick={() => { setAddingModel(false); setNewModelName(''); setNewModelFramework(''); setNewModelVersion('') }}
-                          className="px-2 py-1 rounded text-[12px] text-maia-text-muted hover:text-maia-text"
-                        >
-                          取消
-                        </button>
-                      </div>
-                    </div>
-                  </div>
                 )}
                 {resources.map((resource) => (
                   // 条目也必须是 div —— 行内的「删除/移除」按钮若嵌在
