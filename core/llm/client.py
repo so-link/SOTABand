@@ -1,11 +1,17 @@
 """LLM 客户端 — 默认 DeepSeek v4，兼容任意 OpenAI 协议服务商"""
 
+import asyncio
 from abc import ABC, abstractmethod
 from typing import AsyncGenerator
 
 from openai import AsyncOpenAI
 
 from config.settings import LLMConfig, settings
+
+
+# 全局 LLM 并发锁：后端 LLM 网关不支持并发，同一时间只允许一个请求。
+# 所有 LLMClient 实例共享此信号量，避免多请求同时打到网关导致报错。
+_LLM_SEMAPHORE = asyncio.Semaphore(1)
 
 
 class LLMClient(ABC):
@@ -82,38 +88,43 @@ class OpenAICompatibleClient(LLMClient):
         原生字段名为 ``reasoning_content``，部分网关则用 ``reasoning``
         （openai SDK 会把它放进 ``delta.model_extra``）。两者都兼容。
         """
-        client = self._build_client()
-        cfg = self.config
-        stream = await client.chat.completions.create(
-            model=cfg.model,
-            messages=messages,
-            stream=True,
-            max_tokens=kwargs.get("max_tokens", cfg.max_tokens),
-            temperature=kwargs.get("temperature", cfg.temperature),
-            timeout=cfg.timeout,
-            stream_options={"include_usage": True},
-        )
-        finish_reason = None
-        async for chunk in stream:
-            # include_usage=True 时，流末尾会下发只含 usage 统计的 chunk，
-            # 其 choices 为空列表；部分服务商还会下发 delta 为 None 的空 chunk。
-            if not chunk.choices:
-                continue
-            delta = chunk.choices[0].delta
-            if delta is not None:
-                reasoning = getattr(delta, "reasoning_content", None)
-                if not reasoning:
-                    extra = getattr(delta, "model_extra", None) or {}
-                    reasoning = extra.get("reasoning")
-                if reasoning:
-                    yield ("reasoning", reasoning)
-                if delta.content:
-                    yield ("content", delta.content)
-            if chunk.choices[0].finish_reason:
-                finish_reason = chunk.choices[0].finish_reason
-        # 如果因为 token 限制被截断，yield 警告标记
-        if finish_reason == "length":
-            yield ("content", "\n\n# [WARNING] Response truncated due to max_tokens limit")
+        # 全局并发锁：网关不支持并发，排队等待
+        await _LLM_SEMAPHORE.acquire()
+        try:
+            client = self._build_client()
+            cfg = self.config
+            stream = await client.chat.completions.create(
+                model=cfg.model,
+                messages=messages,
+                stream=True,
+                max_tokens=kwargs.get("max_tokens", cfg.max_tokens),
+                temperature=kwargs.get("temperature", cfg.temperature),
+                timeout=cfg.timeout,
+                stream_options={"include_usage": True},
+            )
+            finish_reason = None
+            async for chunk in stream:
+                # include_usage=True 时，流末尾会下发只含 usage 统计的 chunk，
+                # 其 choices 为空列表；部分服务商还会下发 delta 为 None 的空 chunk。
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                if delta is not None:
+                    reasoning = getattr(delta, "reasoning_content", None)
+                    if not reasoning:
+                        extra = getattr(delta, "model_extra", None) or {}
+                        reasoning = extra.get("reasoning")
+                    if reasoning:
+                        yield ("reasoning", reasoning)
+                    if delta.content:
+                        yield ("content", delta.content)
+                if chunk.choices[0].finish_reason:
+                    finish_reason = chunk.choices[0].finish_reason
+            # 如果因为 token 限制被截断，yield 警告标记
+            if finish_reason == "length":
+                yield ("content", "\n\n# [WARNING] Response truncated due to max_tokens limit")
+        finally:
+            _LLM_SEMAPHORE.release()
 
     async def chat_stream(
         self, messages: list[dict], **kwargs
@@ -133,20 +144,25 @@ class OpenAICompatibleClient(LLMClient):
 
     async def chat(self, messages: list[dict], **kwargs) -> str:
         """非流式对话，返回完整响应"""
-        client = self._build_client()
-        cfg = self.config
-        response = await client.chat.completions.create(
-            model=cfg.model,
-            messages=messages,
-            stream=False,
-            max_tokens=kwargs.get("max_tokens", cfg.max_tokens),
-            temperature=kwargs.get("temperature", cfg.temperature),
-            timeout=kwargs.get("timeout", cfg.timeout),
-        )
-        content = response.choices[0].message.content or ""
-        if response.choices[0].finish_reason == "length":
-            content += "\n\n# [WARNING] Response truncated due to max_tokens limit"
-        return content
+        # 全局并发锁：网关不支持并发，排队等待
+        await _LLM_SEMAPHORE.acquire()
+        try:
+            client = self._build_client()
+            cfg = self.config
+            response = await client.chat.completions.create(
+                model=cfg.model,
+                messages=messages,
+                stream=False,
+                max_tokens=kwargs.get("max_tokens", cfg.max_tokens),
+                temperature=kwargs.get("temperature", cfg.temperature),
+                timeout=kwargs.get("timeout", cfg.timeout),
+            )
+            content = response.choices[0].message.content or ""
+            if response.choices[0].finish_reason == "length":
+                content += "\n\n# [WARNING] Response truncated due to max_tokens limit"
+            return content
+        finally:
+            _LLM_SEMAPHORE.release()
 
 
 # 向后兼容别名：历史生成的 Agent 代码可能直接引用 DeepSeekClient
