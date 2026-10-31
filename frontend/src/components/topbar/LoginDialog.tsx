@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import { X, LogIn, UserPlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -19,7 +20,9 @@ export function LoginDialog() {
     else await register(username, password)
   }
 
-  return (
+  // 必须挂到 body：TopBar 的 .glass 带 backdrop-filter，会让 header 成为
+  // fixed 定位的包含块，导致弹层被限制在顶栏内、遮罩和关闭按钮点不到
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={closeLogin}>
       <div className="w-[340px] bg-maia-surface rounded-lg border border-maia-border shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-maia-border">
@@ -53,6 +56,7 @@ export function LoginDialog() {
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
