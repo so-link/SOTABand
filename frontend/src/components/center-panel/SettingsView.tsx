@@ -16,6 +16,11 @@ export function SettingsView() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState('')
+  // 运行参数（可在界面调整，保存后写入 .env 并即时生效）
+  const [llmTimeout, setLlmTimeout] = useState('1200')
+  const [maxConcurrency, setMaxConcurrency] = useState('1')
+  const [debugExecTimeout, setDebugExecTimeout] = useState('60')
+  const [debugMaxRounds, setDebugMaxRounds] = useState('10')
 
   useEffect(() => {
     let cancelled = false
@@ -27,6 +32,10 @@ export function SettingsView() {
         setModel(cfg.model)
         // 不填入脱敏后的 key，保持空；placeholder 提示「已配置，输入新值以替换」
         setApiKey('')
+        setLlmTimeout(String(cfg.timeout ?? 1200))
+        setMaxConcurrency(String(cfg.max_concurrency ?? 1))
+        setDebugExecTimeout(String(cfg.debug_exec_timeout ?? 60))
+        setDebugMaxRounds(String(cfg.debug_max_rounds ?? 10))
       } catch (e) {
         if (!cancelled) setError(String(e))
       } finally {
@@ -45,7 +54,14 @@ export function SettingsView() {
     setSaveError('')
     try {
       // api_key 为空表示保留现有 key（后端会跳过 key 更新）
-      await configApi.updateLLM({ model, api_key: apiKey.trim() })
+      await configApi.updateLLM({
+        model,
+        api_key: apiKey.trim(),
+        timeout: Number(llmTimeout) || undefined,
+        max_concurrency: Number(maxConcurrency) || undefined,
+        debug_exec_timeout: Number(debugExecTimeout) || undefined,
+        debug_max_rounds: Number(debugMaxRounds) || undefined,
+      })
       setSaved(true)
       setConfig((prev) => prev ? { ...prev, model, has_api_key: true } : prev)
     } catch (e) {
@@ -142,6 +158,63 @@ export function SettingsView() {
                   <p className="text-[12px] text-maia-text-muted">
                     环境变量：<span className="font-mono">LLM_API_KEY</span>
                   </p>
+                </div>
+              </div>
+
+              {/* 运行参数：超时 / 并发 / 调试 */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-[13px] font-medium text-maia-text-secondary">运行参数</span>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[12px] text-maia-text-muted mb-1">LLM 请求超时（秒）</label>
+                    <Input
+                      type="number" min={30} max={7200}
+                      value={llmTimeout}
+                      onChange={(e) => setLlmTimeout(e.target.value)}
+                      className="font-mono"
+                    />
+                    <p className="text-[11px] text-maia-text-muted mt-1">
+                      长文本生成建议 ≥1200；环境变量 <span className="font-mono">LLM_TIMEOUT</span>
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-[12px] text-maia-text-muted mb-1">LLM 并发上限</label>
+                    <Input
+                      type="number" min={1} max={16}
+                      value={maxConcurrency}
+                      onChange={(e) => setMaxConcurrency(e.target.value)}
+                      className="font-mono"
+                    />
+                    <p className="text-[11px] text-maia-text-muted mt-1">
+                      网关仅支持串行时保持 1；环境变量 <span className="font-mono">LLM_MAX_CONCURRENCY</span>
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-[12px] text-maia-text-muted mb-1">调试单轮执行超时（秒）</label>
+                    <Input
+                      type="number" min={5} max={1800}
+                      value={debugExecTimeout}
+                      onChange={(e) => setDebugExecTimeout(e.target.value)}
+                      className="font-mono"
+                    />
+                    <p className="text-[11px] text-maia-text-muted mt-1">
+                      防工具死循环挂起；环境变量 <span className="font-mono">DEBUG_EXEC_TIMEOUT</span>
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-[12px] text-maia-text-muted mb-1">调试最大轮数</label>
+                    <Input
+                      type="number" min={1} max={100}
+                      value={debugMaxRounds}
+                      onChange={(e) => setDebugMaxRounds(e.target.value)}
+                      className="font-mono"
+                    />
+                    <p className="text-[11px] text-maia-text-muted mt-1">
+                      超过即停止；环境变量 <span className="font-mono">DEBUG_MAX_ROUNDS</span>
+                    </p>
+                  </div>
                 </div>
               </div>
 

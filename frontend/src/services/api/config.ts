@@ -13,6 +13,19 @@ export interface LLMConfig {
   provider: string
   base_url: string
   supported_models: SupportedModel[]
+  timeout: number
+  max_concurrency: number
+  debug_exec_timeout: number
+  debug_max_rounds: number
+}
+
+export interface LLMConfigUpdatePayload {
+  model: string
+  api_key: string
+  timeout?: number
+  max_concurrency?: number
+  debug_exec_timeout?: number
+  debug_max_rounds?: number
 }
 
 export const configApi = {
@@ -22,7 +35,7 @@ export const configApi = {
     return res.json()
   },
 
-  async updateLLM(payload: { model: string; api_key: string }) {
+  async updateLLM(payload: LLMConfigUpdatePayload) {
     const res = await fetch(`${BASE_URL}/api/config/llm`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
