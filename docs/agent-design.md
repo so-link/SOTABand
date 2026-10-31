@@ -13,7 +13,7 @@
 SOTABand Engine 启动时，**交互 Agent（Interactive Agent）作为第一个 Agent 自动拉起**。它是系统的默认入口，无需用户手动创建；同时它也支持被用户手动关闭 / 重启（见 `agent_routes` 的 start/stop/restart）。
 
 ```
-系统启动 (uvicorn app.main:app，端口由 .env 的 SOTABAND_API_HOST/PORT 配置，默认 0.0.0.0:8001)
+系统启动 (uvicorn app.main:app，端口由 .env 的 SOTABAND_API_HOST/PORT 配置，默认 0.0.0.0:8201)
     │
     ├── FastAPI lifespan 启动
     │   └── ensure_default_interactive_agent()（幂等）

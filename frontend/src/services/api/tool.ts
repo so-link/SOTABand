@@ -3,7 +3,7 @@ import type {
 } from '@/types/spec-outline'
 
 /**
- * API 基础 URL — 始终指向 Vite 开发服务器（通过 Vite proxy → 后端 8001）
+ * API 基础 URL — 始终指向 Vite 开发服务器（通过 Vite proxy → 后端 8201）
  */
 const BASE_URL = ''
 

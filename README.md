@@ -113,8 +113,8 @@ python scripts/serve.py dev --mirror https://pypi.tuna.tsinghua.edu.cn/simple
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `SOTABAND_API_HOST` | `0.0.0.0` | 后端监听地址。配反向代理/隧道时建议 `127.0.0.1` |
-| `SOTABAND_API_PORT` | `8001` | 后端端口 |
-| `SOTABAND_WEB_PORT` | `5173` | 前端端口（dev 与 preview 共用） |
+| `SOTABAND_API_PORT` | `8201` | 后端端口 |
+| `SOTABAND_WEB_PORT` | `8200` | 前端端口（dev 与 preview 共用） |
 
 前端 `/api` 请求自动代理到 `127.0.0.1:<SOTABAND_API_PORT>`，改端口后重启即生效。端口被占用时 `serve.py` 会启动前预检并给出明确提示。
 

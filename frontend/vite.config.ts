@@ -23,8 +23,8 @@ function loadDotEnv(): Record<string, string> {
 
 const dotEnv = loadDotEnv()
 const env = { ...dotEnv, ...process.env }
-const apiPort = env.SOTABAND_API_PORT || '8001'
-const webPort = Number(env.SOTABAND_WEB_PORT || 5173)
+const apiPort = env.SOTABAND_API_PORT || '8201'
+const webPort = Number(env.SOTABAND_WEB_PORT || 8200)
 const host = env.SOTABAND_WEB_HOST || '127.0.0.1'
 const proxy = { '/api': { target: `http://127.0.0.1:${apiPort}`, changeOrigin: true } }
 

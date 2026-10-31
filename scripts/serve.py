@@ -14,8 +14,8 @@ SOTABand 一键安装 / 启动脚本（Windows / macOS / Linux）
     --mirror <url>      pip/uv 统一镜像源 URL（如 https://pypi.tuna.tsinghua.edu.cn/simple）
 
 端口与监听地址在仓库根目录 .env 中配置:
-    SOTABAND_API_HOST / SOTABAND_API_PORT   后端（默认 0.0.0.0:8001）
-    SOTABAND_WEB_PORT                       前端（开发/预览共用，默认 5173）
+    SOTABAND_API_HOST / SOTABAND_API_PORT   后端（默认 0.0.0.0:8201）
+    SOTABAND_WEB_PORT                       前端（开发/预览共用，默认 8200）
 """
 
 import argparse
@@ -256,8 +256,8 @@ def serve(mode: str, skip_tools: bool, rebuild_frontend: bool, mirror: str | Non
         fail("未找到 .env 和 .env.example，无法确定 LLM 配置")
 
     host = env_cfg.get("SOTABAND_API_HOST", "0.0.0.0")
-    api_port = int(env_cfg.get("SOTABAND_API_PORT", "8001"))
-    web_port = int(env_cfg.get("SOTABAND_WEB_PORT", "5173"))
+    api_port = int(env_cfg.get("SOTABAND_API_PORT", "8201"))
+    web_port = int(env_cfg.get("SOTABAND_WEB_PORT", "8200"))
 
     py = step_venv()
     step_pip_config(py, mirror)
