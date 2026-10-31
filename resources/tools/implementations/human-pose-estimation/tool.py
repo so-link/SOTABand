@@ -1,6 +1,7 @@
 """Human Pose Estimation Tool — mediapipe 0.10.x Task API"""
 
 import os
+import tempfile
 import cv2
 import numpy as np
 from typing import Any
@@ -142,7 +143,7 @@ def execute(**kwargs) -> dict[str, Any]:
                 cv2.line(output_img, (x1, y1), (x2, y2), line_color, 2)  # 原为4，改为30更粗更醒目
 
         # 保存结果图像
-        result_dir = os.path.join(os.path.dirname(image_path) or "/tmp", "results")
+        result_dir = os.path.join(os.path.dirname(image_path) or tempfile.gettempdir(), "results")
         os.makedirs(result_dir, exist_ok=True)
         result_path = os.path.join(result_dir, f"pose_{os.path.basename(image_path)}")
         cv2.imwrite(result_path, output_img)

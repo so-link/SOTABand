@@ -77,7 +77,7 @@ def execute(**kwargs) -> Dict[str, Any]:
             cv2.rectangle(output_img, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
         # 保存标注图片到数据目录
-        output_dir = os.path.join(os.path.dirname(image_path) or "/tmp", "results")
+        output_dir = os.path.join(os.path.dirname(image_path) or tempfile.gettempdir(), "results")
         os.makedirs(output_dir, exist_ok=True)
         result_path = os.path.join(output_dir, f"face_detected_{os.path.basename(image_path)}")
         cv2.imwrite(result_path, output_img)
