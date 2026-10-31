@@ -759,9 +759,16 @@ async def test_agent_api(agent_id: str, req: TestApiRequest):
     # 在 API 定义中查找路径与方法
     entry = await registry.get(agent_id)
     api_def = None
-    base = registry._get_spec_dir()
     spec_path = entry.get("spec_path") if entry else None
-    for cand in ([base / spec_path] if spec_path else []) + [base / f"{agent_id}.md"]:
+    # 同时在内置(resources)与私有(resources-private)规范目录中查找 MD，
+    # 与 Agent 工厂解析保持一致——避免 MD 在内置目录但路由只读私有目录导致的 404。
+    search_dirs = registry.get_spec_search_dirs()
+    cands = []
+    for sd in search_dirs:
+        if spec_path:
+            cands.append(sd / spec_path)
+        cands.append(sd / f"{agent_id}.md")
+    for cand in cands:
         if cand and cand.exists():
             from core.agent.base import AgentSpec, AgentRole
             from core.agent.entrypoint import _parse_role_from_md

@@ -28,8 +28,32 @@ import time as _time
 from pathlib import Path
 from typing import AsyncGenerator
 
-# 项目根目录
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
+# 项目根目录（位置无关：优先从 sys.path 反查）
+def _detect_project_root() -> Path:
+    """定位项目根。
+
+    Agent 子进程由 core/agent/entrypoint.py 启动，后者已把真实项目根插入
+    sys.path，因此优先从 sys.path 反查 —— 不依赖资源根位于项目内还是项目同级
+    （私有资源根默认位于项目根的同级目录，用固定层数推导会偏一级，导致
+    本文件下方按 PROJECT_ROOT 扫描「内置 + 私有」双根时找错目录）。
+
+    sys.path 未命中时，再从文件位置向上查找：含 core/ 与 app/ 的目录即为项目根。
+    """
+    for _p in list(sys.path):
+        try:
+            _c = Path(_p).resolve()
+        except Exception:
+            continue
+        if (_c / "core").is_dir() and (_c / "app").is_dir():
+            return _c
+    _start = Path(__file__).resolve().parent
+    for _c in [_start, *_start.parents]:
+        if (_c / "core").is_dir() and (_c / "app").is_dir():
+            return _c
+    return _start.parent.parent.parent.parent  # 兜底：内置布局
+
+
+PROJECT_ROOT = _detect_project_root()
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 

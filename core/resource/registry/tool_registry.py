@@ -123,12 +123,16 @@ class ToolRegistry(BaseRegistry):
             return "", False
 
     def read_code_text(self, tool_id: str) -> str:
-        """读取工具实现代码（tool.py）；内置 / 私有均支持。"""
+        """读取工具实现代码（tool.py）；内置 / 私有均支持。
+
+        utf-8-sig：容忍 Windows 编辑器写入的 BOM，否则依赖检测的 AST
+        解析会失败（表现为「依赖永远显示齐备」）。
+        """
         d = self.find_impl_dir(tool_id)
         if d is None:
             return ""
         try:
-            return (d / "tool.py").read_text(encoding="utf-8")
+            return (d / "tool.py").read_text(encoding="utf-8-sig")
         except Exception:
             return ""
 
