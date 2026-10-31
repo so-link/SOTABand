@@ -1164,7 +1164,7 @@ stderr: {_safe_stderr}
             llm_task = None
             llm_exception = None
             get_task = None
-            LLM_TIMEOUT = int(_os.getenv("LLM_TIMEOUT", "300"))
+            LLM_TIMEOUT = int(_os.getenv("LLM_TIMEOUT", "1200"))
             try:
                 # 事件驱动泵：token 经 asyncio.Queue 直达消费侧，与停止信号、
                 # 整体超时三方竞态（与 tool_builder 调试循环同构）。

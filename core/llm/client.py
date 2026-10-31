@@ -51,6 +51,10 @@ class OpenAICompatibleClient(LLMClient):
         client = AsyncOpenAI(
             base_url=cfg.base_url,
             api_key=cfg.api_key,
+            # 关闭 SDK 自带重试：生成规范/代码这类长调用一旦超时，重试只会把
+            # 等待时间 ×3 并在网关制造重复请求；超时由 cfg.timeout 控制，
+            # 代理层 504 由路由的心跳流式响应兜底。
+            max_retries=0,
         )
         self._last_client = client
         return client

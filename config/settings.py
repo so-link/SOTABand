@@ -257,8 +257,8 @@ class LLMConfig:
     temperature: float = 0.7
     streaming: bool = True
     # LLM 请求超时（秒），可通过 .env 的 LLM_TIMEOUT 覆盖；
-    # 接 1M 长上下文旗舰模型时建议调大（默认 300 = 5 分钟）。
-    timeout: int = field(default_factory=lambda: int(os.getenv("LLM_TIMEOUT", "300")))
+    # Agent 代码生成需要 ~7 分钟，默认 1200（20 分钟）留足余量。
+    timeout: int = field(default_factory=lambda: int(os.getenv("LLM_TIMEOUT", "1200")))
 
     def __post_init__(self):
         """按优先级从环境变量补全 api_key / base_url / model"""

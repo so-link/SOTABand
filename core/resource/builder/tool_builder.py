@@ -1259,7 +1259,7 @@ stderr: {_safe_stderr}
             llm_task = None
             llm_exception = None
             get_task = None
-            LLM_TIMEOUT = int(_os.getenv("LLM_TIMEOUT", "300"))  # LLM 调用总超时（秒），默认 300，跟随 .env 可调大
+            LLM_TIMEOUT = int(_os.getenv("LLM_TIMEOUT", "1200"))  # LLM 调用总超时（秒），默认 1200，跟随 .env 可调大
             try:
                 # 事件驱动泵：token 经 asyncio.Queue 直达消费侧，与停止信号、
                 # 整体超时三方竞态（旧实现 sleep(0.05) 忙轮询 list，空转且延迟固定）。
