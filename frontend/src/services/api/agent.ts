@@ -1,16 +1,19 @@
 /** Agent CRUD API 服务 */
 const BASE_URL = ''
 
-/** 通用 SSE 解析：逐 event 分发，返回 done 事件的 data */
+/** 通用 SSE 解析：逐 event 分发，返回 done 事件的 data。
+ *  若流意外结束（网络中断等）但已收到正文，返回已累积的内容而非直接报错。 */
 async function _consumeSse(
   res: Response,
   onDelta?: (token: string) => void,
   onReasoning?: (token: string) => void,
+  contentKey: string = 'spec_md',
 ): Promise<Record<string, unknown>> {
   const reader = res.body?.getReader()
   if (!reader) throw new Error('No response body')
   const decoder = new TextDecoder()
   let buffer = '', currentEvent = ''
+  let content = ''
   while (true) {
     const { done, value } = await reader.read()
     if (done) break
@@ -22,6 +25,7 @@ async function _consumeSse(
         let data: Record<string, unknown>
         try { data = JSON.parse(line.slice(6)) } catch { continue }
         if (currentEvent === 'delta' && onDelta && typeof data.token === 'string') {
+          content += data.token
           onDelta(data.token)
         } else if (currentEvent === 'reasoning' && onReasoning && typeof data.token === 'string') {
           onReasoning(data.token)
@@ -33,6 +37,10 @@ async function _consumeSse(
         currentEvent = ''
       } else if (line === '') { currentEvent = '' }
     }
+  }
+  // 流意外结束：若已收到正文，返回已累积内容（网络中断时尽量保住成果）
+  if (content.trim()) {
+    return { [contentKey]: content, _partial: true }
   }
   throw new Error('流意外结束，未收到 done 事件')
 }
@@ -80,7 +88,7 @@ export const agentApi = {
       const err = await res.json().catch(() => ({ detail: res.statusText }))
       throw new Error(err.detail || `HTTP ${res.status}`)
     }
-    const data = await _consumeSse(res, onDelta, onReasoning)
+    const data = await _consumeSse(res, onDelta, onReasoning, 'code')
     return data as { code: string; sandbox_results: Record<string, unknown> }
   },
 
