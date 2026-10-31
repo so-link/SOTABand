@@ -432,10 +432,12 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
     const { description, agentRole } = get()
     if (!description.trim()) return
 
-    set({ isGenerating: true, error: null })
+    set({ isGenerating: true, error: null, generatedMd: '', step: 2 })
     try {
-      const result = await agentApi.generateSpec(description, agentRole || undefined)
-      set({ generatedMd: result.spec_md, step: 2, isGenerating: false })
+      const result = await agentApi.generateSpec(description, agentRole || undefined, (token) => {
+        set((s) => ({ generatedMd: s.generatedMd + token }))
+      })
+      set({ generatedMd: result.spec_md, isGenerating: false })
     } catch (e) {
       set({ error: String(e), isGenerating: false })
     }
@@ -445,16 +447,17 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
     const { generatedMd } = get()
     if (!generatedMd.trim()) return
 
-    set({ isGenerating: true, error: null })
+    set({ isGenerating: true, error: null, generatedCode: '', step: 3 })
     try {
-      const result = await agentApi.generateCode(generatedMd)
+      const result = await agentApi.generateCode(generatedMd, (token) => {
+        set((s) => ({ generatedCode: s.generatedCode + token }))
+      })
       set({
         generatedCode: result.code,
         sandboxResults: result.sandbox_results,
         testInputs: initTestInputs(generatedMd),
         debugRounds: [],
         debugStream: '',
-        step: 3,
         isGenerating: false,
       })
     } catch (e) {

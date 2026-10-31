@@ -1,8 +1,45 @@
 /** Agent CRUD API 服务 */
 const BASE_URL = ''
 
+/** 通用 SSE 解析：逐 event 分发，返回 done 事件的 data */
+async function _consumeSse(
+  res: Response,
+  onDelta?: (token: string) => void,
+): Promise<Record<string, unknown>> {
+  const reader = res.body?.getReader()
+  if (!reader) throw new Error('No response body')
+  const decoder = new TextDecoder()
+  let buffer = '', currentEvent = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n'); buffer = lines.pop() || ''
+    for (const line of lines) {
+      if (line.startsWith('event: ')) { currentEvent = line.slice(7).trim() }
+      else if (line.startsWith('data: ')) {
+        let data: Record<string, unknown>
+        try { data = JSON.parse(line.slice(6)) } catch { continue }
+        if (currentEvent === 'delta' && onDelta && typeof data.token === 'string') {
+          onDelta(data.token)
+        } else if (currentEvent === 'error') {
+          throw new Error(String(data.detail || '生成失败'))
+        } else if (currentEvent === 'done') {
+          return data
+        }
+        currentEvent = ''
+      } else if (line === '') { currentEvent = '' }
+    }
+  }
+  throw new Error('流意外结束，未收到 done 事件')
+}
+
 export const agentApi = {
-  async generateSpec(description: string, role?: string): Promise<{ spec_md: string }> {
+  async generateSpec(
+    description: string,
+    role?: string,
+    onDelta?: (token: string) => void,
+  ): Promise<{ spec_md: string }> {
     const res = await fetch(`${BASE_URL}/api/agent/generate-spec`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ description, role }),
@@ -11,15 +48,14 @@ export const agentApi = {
       const err = await res.json().catch(() => ({ detail: res.statusText }))
       throw new Error(err.detail || `HTTP ${res.status}`)
     }
-    const data = await res.json()
-    // 后端用「心跳 + 最终 JSON」流式返回，异常时以 200 + {"detail": "..."} 下发
-    if (data && typeof data === 'object' && 'detail' in data && !('spec_md' in data)) {
-      throw new Error(data.detail || '生成失败')
-    }
-    return data
+    const data = await _consumeSse(res, onDelta)
+    return data as { spec_md: string }
   },
 
-  async generateCode(specMd: string): Promise<{ code: string; sandbox_results: Record<string, unknown> }> {
+  async generateCode(
+    specMd: string,
+    onDelta?: (token: string) => void,
+  ): Promise<{ code: string; sandbox_results: Record<string, unknown> }> {
     const idMatch = specMd.match(/^id:\s*(.+)$/m)
     const nameMatch = specMd.match(/^name:\s*(.+)$/m)
     const roleMatch = specMd.match(/^role:\s*(.+)$/m)
@@ -35,11 +71,8 @@ export const agentApi = {
       const err = await res.json().catch(() => ({ detail: res.statusText }))
       throw new Error(err.detail || `HTTP ${res.status}`)
     }
-    const data = await res.json()
-    if (data && typeof data === 'object' && 'detail' in data && !('code' in data)) {
-      throw new Error(data.detail || '生成失败')
-    }
-    return data
+    const data = await _consumeSse(res, onDelta)
+    return data as { code: string; sandbox_results: Record<string, unknown> }
   },
 
   async register(specMd: string, code: string, demandDesc: string = ''): Promise<{ agent_id: string; entry: Record<string, unknown> }> {

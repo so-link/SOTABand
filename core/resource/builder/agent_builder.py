@@ -12,6 +12,7 @@ import re
 import shutil
 import sys
 import threading
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
@@ -311,8 +312,12 @@ class AgentCodeBuilder(BaseBuilder):
     # 代码组装（核心）
     # ══════════════════════════════════════════════════════════
 
-    async def build(self, spec: dict) -> str:
-        """组装完整 Agent 代码：模板头部 + 机械生成的辅助方法 + LLM 生成的 execute 体"""
+    async def build(self, spec: dict, on_token: Callable[[str], None] | None = None) -> str:
+        """组装完整 Agent 代码：模板头部 + 机械生成的辅助方法 + LLM 生成的 execute 体
+
+        on_token: 可选回调，每收到一个 LLM token（execute 体）时调用，
+                  用于前端流式展示。最终完整代码仍由返回值给出。
+        """
         raw_md = spec.get("raw_md", "")
         agent_id = spec.get("id", self._extract_frontmatter_field(raw_md, "id") or "custom-agent")
         agent_name = spec.get("name", self._extract_frontmatter_field(raw_md, "name") or "Custom Agent")
@@ -347,6 +352,7 @@ class AgentCodeBuilder(BaseBuilder):
             role=role,
             tool_refs=tool_refs,
             api_refs=api_refs,
+            on_token=on_token,
         )
 
         # 4. 组装
@@ -373,8 +379,12 @@ class AgentCodeBuilder(BaseBuilder):
         role: str,
         tool_refs: list[dict],
         api_refs: list[dict],
+        on_token: Callable[[str], None] | None = None,
     ) -> str:
-        """让 LLM 生成 execute() 方法体（仅函数体内部代码）"""
+        """让 LLM 生成 execute() 方法体（仅函数体内部代码）
+
+        on_token: 可选回调，每收到一个 LLM token 时调用（流式展示用）。
+        """
 
         # 构建可用方法清单
         tool_calls_desc = ""
@@ -482,11 +492,15 @@ yield {{"event": "content", "data": {{"text": response}}}}
 - 【禁止】绝对不要使用 pip install、subprocess.run 安装依赖包 — 依赖由系统自动管理
 - 直接返回 Python 代码，不要 markdown 代码块"""
 
-        response = await self.llm.chat(
+        response = ""
+        async for token in self.llm.chat_stream(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
             max_tokens=100000,
-        )
+        ):
+            response += token
+            if on_token is not None:
+                on_token(token)
         body = response.strip()
 
         # 去除可能的 markdown 代码块

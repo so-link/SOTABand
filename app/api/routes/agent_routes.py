@@ -6,7 +6,6 @@ import re
 import time
 from pathlib import Path
 from fastapi import APIRouter, Form, HTTPException
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -25,42 +24,6 @@ router = APIRouter()
 builder = AgentCodeBuilder()
 registry = AgentRegistry()
 llm = create_llm_client()
-
-
-async def _stream_with_heartbeat(coro, *, interval: float = 12.0):
-    """把一个长时间运行的协程包装成「心跳 + 最终 JSON」的流式响应。
-
-    生成规范 / 生成代码这类接口会等 LLM 跑完才能返回，中间代理（IDE 预览、
-    Nginx 等）常在 60s 无字节时主动断开并回 504。本生成器在协程运行期间
-    每隔 ``interval`` 秒下发一个换行（合法 JSON 前导空白，``JSON.parse``
-    会忽略），保持连接活跃；协程结束后再一次性输出 JSON 结果。
-    协程抛异常时输出 ``{"detail": "..."}``，前端按错误统一处理。
-    """
-    task = asyncio.create_task(coro)
-    # 用轮询而非 wait_for(shield(task))：后者会把 task 的异常直接重抛，
-    # 导致 HTTPException 逃出 StreamingResponse，触发 "response already started"。
-    elapsed = 0.0
-    granularity = 1.0
-    while not task.done():
-        await asyncio.sleep(granularity)
-        elapsed += granularity
-        if elapsed >= interval:
-            yield b"\n"
-            elapsed = 0.0
-    exc = task.exception()
-    if exc is not None:
-        # HTTPException 本身携带 status_code，但流式响应头已发出，只能把
-        # 信息塞进 detail 由前端展示；非 4xx 错误保留异常类型便于排障。
-        if isinstance(exc, HTTPException):
-            detail = exc.detail
-        else:
-            detail = f"{type(exc).__name__}: {exc}"
-        payload = {"detail": detail}
-    else:
-        payload = task.result()
-        if not isinstance(payload, dict):
-            payload = {"result": payload}
-    yield json.dumps(payload, ensure_ascii=False, default=str).encode()
 
 
 SPEC_GENERATION_PROMPT = """你是一个 Agent 规格文档生成器。根据用户的自然语言描述，生成标准化的 Agent MD 规范文档。
@@ -204,91 +167,99 @@ async def generate_spec(req: GenerateSpecRequest):
     if not req.description.strip():
         raise HTTPException(400, "description 不能为空")
 
-    async def _do():
-        # ── 解析用户描述中的【【工具名】】和【API名】引用，查询参数信息 ──
-        tool_refs = AgentCodeBuilder._extract_tool_refs(req.description)
-        api_refs = AgentCodeBuilder._extract_api_refs(req.description)
+    async def event_stream():
+        try:
+            # ── 解析用户描述中的【【工具名】】和【API名】引用，查询参数信息 ──
+            tool_refs = AgentCodeBuilder._extract_tool_refs(req.description)
+            api_refs = AgentCodeBuilder._extract_api_refs(req.description)
 
-        context_parts = []
+            context_parts = []
 
-        if tool_refs:
-            context_parts.append("## 引用的工具参数要求\n")
-            for tr in tool_refs:
-                params_desc = ""
-                for p in tr.get("params", []):
-                    req_mark = "（必填）" if p.get("required") else "（可选）"
-                    default = f"，默认值: {p['default']}" if p.get("default") else ""
-                    params_desc += f"- {p['name']} ({p.get('type', 'string')}) {req_mark}: {p.get('desc', '')}{default}\n"
-                if not params_desc:
-                    params_desc = "（无参数定义）\n"
+            if tool_refs:
+                context_parts.append("## 引用的工具参数要求\n")
+                for tr in tool_refs:
+                    params_desc = ""
+                    for p in tr.get("params", []):
+                        req_mark = "（必填）" if p.get("required") else "（可选）"
+                        default = f"，默认值: {p['default']}" if p.get("default") else ""
+                        params_desc += f"- {p['name']} ({p.get('type', 'string')}) {req_mark}: {p.get('desc', '')}{default}\n"
+                    if not params_desc:
+                        params_desc = "（无参数定义）\n"
 
-                # 尝试从工具 MD spec 读取输出格式说明（内置 + 私有目录检索）
-                from core.resource import paths as _paths
-                spec_file = None
-                for _root in _paths.resource_roots():
-                    _cand = _root / "tools" / "definitions" / f"{tr['id']}.md"
-                    if _cand.exists():
-                        spec_file = _cand
-                        break
-                output_info = ""
-                if spec_file is not None and spec_file.exists():
-                    spec_text = spec_file.read_text(encoding="utf-8")
-                    # 提取输出规范段落
-                    out_match = re.search(r'## 3\.\s*输出规范.*?(?=## \d\.|\Z)', spec_text, re.DOTALL)
-                    if out_match:
-                        out_section = out_match.group(0)
-                        # 提取 output_format
-                        fmt_match = re.search(r'output_format\s*\|\s*(\w+)', out_section)
-                        if fmt_match:
-                            output_info = f"，输出格式: {fmt_match.group(1)}"
+                    # 尝试从工具 MD spec 读取输出格式说明（内置 + 私有目录检索）
+                    from core.resource import paths as _paths
+                    spec_file = None
+                    for _root in _paths.resource_roots():
+                        _cand = _root / "tools" / "definitions" / f"{tr['id']}.md"
+                        if _cand.exists():
+                            spec_file = _cand
+                            break
+                    output_info = ""
+                    if spec_file is not None and spec_file.exists():
+                        spec_text = spec_file.read_text(encoding="utf-8")
+                        # 提取输出规范段落
+                        out_match = re.search(r'## 3\.\s*输出规范.*?(?=## \d\.|\Z)', spec_text, re.DOTALL)
+                        if out_match:
+                            out_section = out_match.group(0)
+                            # 提取 output_format
+                            fmt_match = re.search(r'output_format\s*\|\s*(\w+)', out_section)
+                            if fmt_match:
+                                output_info = f"，输出格式: {fmt_match.group(1)}"
 
-                context_parts.append(
-                    f"### 【【{tr['name']}】】（tool_id: {tr['id']}）\n"
-                    f"**输入参数**:\n{params_desc}"
-                    f"**工具返回**: dict，包含 status (success/failed), message (结果说明), data (输出数据){output_info}\n"
-                )
+                    context_parts.append(
+                        f"### 【【{tr['name']}】】（tool_id: {tr['id']}）\n"
+                        f"**输入参数**:\n{params_desc}"
+                        f"**工具返回**: dict，包含 status (success/failed), message (结果说明), data (输出数据){output_info}\n"
+                    )
 
-        if api_refs:
-            context_parts.append("\n## 引用的 API 参数要求\n")
-            for ar in api_refs:
-                params_desc = ""
-                for k, v in ar.get("params", {}).items():
-                    params_desc += f"- {k}: {v}\n"
-                if not params_desc:
-                    params_desc = "（无参数定义）\n"
-                context_parts.append(
-                    f"### 【{ar['name']}】（api_id: {ar['id']}）\n"
-                    f"**输入参数**:\n{params_desc}\n"
-                )
+            if api_refs:
+                context_parts.append("\n## 引用的 API 参数要求\n")
+                for ar in api_refs:
+                    params_desc = ""
+                    for k, v in ar.get("params", {}).items():
+                        params_desc += f"- {k}: {v}\n"
+                    if not params_desc:
+                        params_desc = "（无参数定义）\n"
+                    context_parts.append(
+                        f"### 【{ar['name']}】（api_id: {ar['id']}）\n"
+                        f"**输入参数**:\n{params_desc}\n"
+                    )
 
-        tool_context = "\n".join(context_parts) if context_parts else ""
+            tool_context = "\n".join(context_parts) if context_parts else ""
 
-        # ── 构建增强的 user prompt ──
-        user_prompt = req.description
-        if tool_context:
-            user_prompt += f"\n\n---\n## 系统提供的工具/API 参考信息（请据此填充 MD 中的参数和输出）\n\n{tool_context}"
+            # ── 构建增强的 user prompt ──
+            user_prompt = req.description
+            if tool_context:
+                user_prompt += f"\n\n---\n## 系统提供的工具/API 参考信息（请据此填充 MD 中的参数和输出）\n\n{tool_context}"
 
-        # ── 按 Agent 类型注入专属结构约束（见 docs/agent-types-design.md） ──
-        role_guidance = _role_spec_guidance(req.role)
-        if role_guidance:
-            user_prompt += f"\n\n---\n## Agent 类型约束（必须严格遵守）\n\n{role_guidance}"
+            # ── 按 Agent 类型注入专属结构约束（见 docs/agent-types-design.md） ──
+            role_guidance = _role_spec_guidance(req.role)
+            if role_guidance:
+                user_prompt += f"\n\n---\n## Agent 类型约束（必须严格遵守）\n\n{role_guidance}"
 
-        response = await llm.chat(
-            messages=[
-                {"role": "system", "content": SPEC_GENERATION_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.5,
-            max_tokens=100000,
-        )
+            # ── 流式调用 LLM，逐 token 下发 ──
+            full = ""
+            async for token in llm.chat_stream(
+                messages=[
+                    {"role": "system", "content": SPEC_GENERATION_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.5,
+                max_tokens=100000,
+            ):
+                full += token
+                yield {"event": "delta", "data": json.dumps({"token": token}, ensure_ascii=False)}
 
-        return {"spec_md": response.strip()}
+            yield {"event": "done", "data": json.dumps({"spec_md": full.strip()}, ensure_ascii=False)}
 
-    return StreamingResponse(
-        _stream_with_heartbeat(_do()),
-        media_type="application/json",
-        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
-    )
+        except Exception as exc:
+            if isinstance(exc, HTTPException):
+                detail = exc.detail
+            else:
+                detail = f"{type(exc).__name__}: {exc}"
+            yield {"event": "error", "data": json.dumps({"detail": detail}, ensure_ascii=False)}
+
+    return EventSourceResponse(event_stream())
 
 
 # 三类 Agent 的 MD 结构约束（role → 提示词片段）
@@ -346,7 +317,7 @@ def _role_spec_guidance(role: str | None) -> str:
 
 @router.post("/generate-code")
 async def generate_code(req: GenerateCodeRequest):
-    """MD 规范文档 → Python Agent 代码"""
+    """MD 规范文档 → Python Agent 代码（SSE 流式输出 execute 体）"""
     if not req.spec_md.strip():
         raise HTTPException(400, "specMd 不能为空")
 
@@ -357,23 +328,42 @@ async def generate_code(req: GenerateCodeRequest):
         "role": req.role,
     }
 
-    async def _do():
-        valid = await builder.validate_spec(spec)
-        if not valid:
-            raise HTTPException(400, "MD 规范文档不完整，缺少必需段落")
+    token_q: asyncio.Queue = asyncio.Queue()
 
-        code = await builder.build(spec)
+    def on_token(token: str):
+        token_q.put_nowait(token)
 
-        # 沙箱测试
-        sandbox = await builder.dry_run(code)
+    async def event_stream():
+        try:
+            valid = await builder.validate_spec(spec)
+            if not valid:
+                raise HTTPException(400, "MD 规范文档不完整，缺少必需段落")
 
-        return {"code": code, "sandbox_results": sandbox}
+            # 并发：build 内部通过 on_token 往队列塞 token，本协程消费队列下发 delta
+            build_task = asyncio.create_task(builder.build(spec, on_token=on_token))
 
-    return StreamingResponse(
-        _stream_with_heartbeat(_do()),
-        media_type="application/json",
-        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
-    )
+            while not build_task.done() or not token_q.empty():
+                try:
+                    token = await asyncio.wait_for(token_q.get(), timeout=0.5)
+                    yield {"event": "delta", "data": json.dumps({"token": token}, ensure_ascii=False)}
+                except asyncio.TimeoutError:
+                    continue
+
+            code = await build_task
+
+            # 沙箱测试
+            sandbox = await builder.dry_run(code)
+
+            yield {"event": "done", "data": json.dumps({"code": code, "sandbox_results": sandbox}, ensure_ascii=False, default=str)}
+
+        except Exception as exc:
+            if isinstance(exc, HTTPException):
+                detail = exc.detail
+            else:
+                detail = f"{type(exc).__name__}: {exc}"
+            yield {"event": "error", "data": json.dumps({"detail": detail}, ensure_ascii=False)}
+
+    return EventSourceResponse(event_stream())
 
 
 # ── 自动调试（todo 4.3）──
