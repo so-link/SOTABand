@@ -143,6 +143,10 @@ interface AgentEditorState {
   sandboxResults: Record<string, unknown> | null
   registeredId: string | null
   isGenerating: boolean
+  // 生成过程中的模型思考过程（reasoning 事件累加），用于前端展示
+  reasoningStream: string
+  // 是否正在提交注册（与"生成中"区分，避免按钮文案混淆）
+  isRegistering: boolean
   error: string | null
   // ── 编辑已有 Agent 模式 ──
   // editingAgentId 非空表示当前在编辑已发布的 Agent（而非新建），
@@ -215,6 +219,8 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
   sandboxResults: null,
   registeredId: null,
   isGenerating: false,
+  reasoningStream: '',
+  isRegistering: false,
   error: null,
   editingAgentId: null,
   editingAgentName: '',
@@ -432,11 +438,14 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
     const { description, agentRole } = get()
     if (!description.trim()) return
 
-    set({ isGenerating: true, error: null, generatedMd: '', step: 2 })
+    set({ isGenerating: true, error: null, generatedMd: '', reasoningStream: '', step: 2 })
     try {
-      const result = await agentApi.generateSpec(description, agentRole || undefined, (token) => {
-        set((s) => ({ generatedMd: s.generatedMd + token }))
-      })
+      const result = await agentApi.generateSpec(
+        description,
+        agentRole || undefined,
+        (token) => set((s) => ({ generatedMd: s.generatedMd + token })),
+        (token) => set((s) => ({ reasoningStream: s.reasoningStream + token })),
+      )
       set({ generatedMd: result.spec_md, isGenerating: false })
     } catch (e) {
       set({ error: String(e), isGenerating: false })
@@ -447,11 +456,13 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
     const { generatedMd } = get()
     if (!generatedMd.trim()) return
 
-    set({ isGenerating: true, error: null, generatedCode: '', step: 3 })
+    set({ isGenerating: true, error: null, generatedCode: '', reasoningStream: '', step: 3 })
     try {
-      const result = await agentApi.generateCode(generatedMd, (token) => {
-        set((s) => ({ generatedCode: s.generatedCode + token }))
-      })
+      const result = await agentApi.generateCode(
+        generatedMd,
+        (token) => set((s) => ({ generatedCode: s.generatedCode + token })),
+        (token) => set((s) => ({ reasoningStream: s.reasoningStream + token })),
+      )
       set({
         generatedCode: result.code,
         sandboxResults: result.sandbox_results,
@@ -583,17 +594,17 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
     const { generatedMd, generatedCode } = get()
     if (!generatedMd.trim()) return
 
-    set({ isGenerating: true, error: null })
+    set({ isRegistering: true, error: null })
     try {
       const result = await agentApi.register(generatedMd, generatedCode, get().description)
       set({
         registeredId: result.agent_id,
         step: 4,
-        isGenerating: false,
+        isRegistering: false,
       })
       // 刷新左侧 Agent 空间列表
       const { useResourceStore } = await import('@/stores/resource-store')
       useResourceStore.getState().fetchAgentsFromApi()
-    } catch (e) { set({ error: String(e), isGenerating: false }) }
+    } catch (e) { set({ error: String(e), isRegistering: false }) }
   },
 }))

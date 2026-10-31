@@ -312,11 +312,17 @@ class AgentCodeBuilder(BaseBuilder):
     # 代码组装（核心）
     # ══════════════════════════════════════════════════════════
 
-    async def build(self, spec: dict, on_token: Callable[[str], None] | None = None) -> str:
+    async def build(
+        self,
+        spec: dict,
+        on_token: Callable[[str], None] | None = None,
+        on_reasoning: Callable[[str], None] | None = None,
+    ) -> str:
         """组装完整 Agent 代码：模板头部 + 机械生成的辅助方法 + LLM 生成的 execute 体
 
-        on_token: 可选回调，每收到一个 LLM token（execute 体）时调用，
-                  用于前端流式展示。最终完整代码仍由返回值给出。
+        on_token: 可选回调，每收到一个 LLM 正文 token（execute 体）时调用。
+        on_reasoning: 可选回调，每收到一个思考过程 token 时调用。
+                  两者均用于前端流式展示；最终完整代码仍由返回值给出。
         """
         raw_md = spec.get("raw_md", "")
         agent_id = spec.get("id", self._extract_frontmatter_field(raw_md, "id") or "custom-agent")
@@ -353,6 +359,7 @@ class AgentCodeBuilder(BaseBuilder):
             tool_refs=tool_refs,
             api_refs=api_refs,
             on_token=on_token,
+            on_reasoning=on_reasoning,
         )
 
         # 4. 组装
@@ -380,10 +387,12 @@ class AgentCodeBuilder(BaseBuilder):
         tool_refs: list[dict],
         api_refs: list[dict],
         on_token: Callable[[str], None] | None = None,
+        on_reasoning: Callable[[str], None] | None = None,
     ) -> str:
         """让 LLM 生成 execute() 方法体（仅函数体内部代码）
 
-        on_token: 可选回调，每收到一个 LLM token 时调用（流式展示用）。
+        on_token: 可选回调，每收到一个正文 token 时调用（流式展示用）。
+        on_reasoning: 可选回调，每收到一个思考过程 token 时调用。
         """
 
         # 构建可用方法清单
@@ -493,11 +502,15 @@ yield {{"event": "content", "data": {{"text": response}}}}
 - 直接返回 Python 代码，不要 markdown 代码块"""
 
         response = ""
-        async for token in self.llm.chat_stream(
+        async for kind, token in self.llm.chat_stream_events(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
             max_tokens=100000,
         ):
+            if kind == "reasoning":
+                if on_reasoning is not None:
+                    on_reasoning(token)
+                continue
             response += token
             if on_token is not None:
                 on_token(token)

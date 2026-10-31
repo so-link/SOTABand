@@ -237,9 +237,9 @@ async def generate_spec(req: GenerateSpecRequest):
             if role_guidance:
                 user_prompt += f"\n\n---\n## Agent 类型约束（必须严格遵守）\n\n{role_guidance}"
 
-            # ── 流式调用 LLM，逐 token 下发 ──
+            # ── 流式调用 LLM，区分思考过程与正文，逐片下发 ──
             full = ""
-            async for token in llm.chat_stream(
+            async for kind, token in llm.chat_stream_events(
                 messages=[
                     {"role": "system", "content": SPEC_GENERATION_PROMPT},
                     {"role": "user", "content": user_prompt},
@@ -247,8 +247,11 @@ async def generate_spec(req: GenerateSpecRequest):
                 temperature=0.5,
                 max_tokens=100000,
             ):
-                full += token
-                yield {"event": "delta", "data": json.dumps({"token": token}, ensure_ascii=False)}
+                if kind == "reasoning":
+                    yield {"event": "reasoning", "data": json.dumps({"token": token}, ensure_ascii=False)}
+                else:
+                    full += token
+                    yield {"event": "delta", "data": json.dumps({"token": token}, ensure_ascii=False)}
 
             yield {"event": "done", "data": json.dumps({"spec_md": full.strip()}, ensure_ascii=False)}
 
@@ -328,10 +331,10 @@ async def generate_code(req: GenerateCodeRequest):
         "role": req.role,
     }
 
-    token_q: asyncio.Queue = asyncio.Queue()
+    event_q: asyncio.Queue = asyncio.Queue()
 
-    def on_token(token: str):
-        token_q.put_nowait(token)
+    def _emit(kind: str, token: str):
+        event_q.put_nowait((kind, token))
 
     async def event_stream():
         try:
@@ -339,13 +342,19 @@ async def generate_code(req: GenerateCodeRequest):
             if not valid:
                 raise HTTPException(400, "MD 规范文档不完整，缺少必需段落")
 
-            # 并发：build 内部通过 on_token 往队列塞 token，本协程消费队列下发 delta
-            build_task = asyncio.create_task(builder.build(spec, on_token=on_token))
+            # 并发：build 内部通过回调往队列塞 token，本协程消费队列下发事件
+            build_task = asyncio.create_task(
+                builder.build(
+                    spec,
+                    on_token=lambda t: _emit("delta", t),
+                    on_reasoning=lambda t: _emit("reasoning", t),
+                )
+            )
 
-            while not build_task.done() or not token_q.empty():
+            while not build_task.done() or not event_q.empty():
                 try:
-                    token = await asyncio.wait_for(token_q.get(), timeout=0.5)
-                    yield {"event": "delta", "data": json.dumps({"token": token}, ensure_ascii=False)}
+                    kind, token = await asyncio.wait_for(event_q.get(), timeout=0.5)
+                    yield {"event": kind, "data": json.dumps({"token": token}, ensure_ascii=False)}
                 except asyncio.TimeoutError:
                     continue
 

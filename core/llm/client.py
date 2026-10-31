@@ -23,6 +23,20 @@ class LLMClient(ABC):
         """非流式对话，返回完整响应"""
         ...
 
+    async def chat_stream_events(
+        self, messages: list[dict], **kwargs
+    ) -> AsyncGenerator[tuple[str, str], None]:
+        """流式事件流，逐片 yield ``(kind, text)``。
+
+        kind 取值：
+        - ``reasoning``：推理模型的思考过程（DeepSeek/网关的 reasoning 字段）
+        - ``content``：最终回答正文
+
+        默认实现退化为仅正文，子类可覆盖以暴露推理内容。
+        """
+        async for token in self.chat_stream(messages, **kwargs):
+            yield ("content", token)
+
 
 class OpenAICompatibleClient(LLMClient):
     """OpenAI 兼容协议客户端
@@ -59,10 +73,15 @@ class OpenAICompatibleClient(LLMClient):
         self._last_client = client
         return client
 
-    async def chat_stream(
+    async def chat_stream_events(
         self, messages: list[dict], **kwargs
-    ) -> AsyncGenerator[str, None]:
-        """流式对话"""
+    ) -> AsyncGenerator[tuple[str, str], None]:
+        """流式对话，区分「思考过程」与「正文」两类增量。
+
+        推理模型（如 DeepSeek 系）会在 delta 里返回 reasoning 字段：
+        原生字段名为 ``reasoning_content``，部分网关则用 ``reasoning``
+        （openai SDK 会把它放进 ``delta.model_extra``）。两者都兼容。
+        """
         client = self._build_client()
         cfg = self.config
         stream = await client.chat.completions.create(
@@ -81,13 +100,28 @@ class OpenAICompatibleClient(LLMClient):
             if not chunk.choices:
                 continue
             delta = chunk.choices[0].delta
-            if delta is not None and delta.content:
-                yield delta.content
+            if delta is not None:
+                reasoning = getattr(delta, "reasoning_content", None)
+                if not reasoning:
+                    extra = getattr(delta, "model_extra", None) or {}
+                    reasoning = extra.get("reasoning")
+                if reasoning:
+                    yield ("reasoning", reasoning)
+                if delta.content:
+                    yield ("content", delta.content)
             if chunk.choices[0].finish_reason:
                 finish_reason = chunk.choices[0].finish_reason
         # 如果因为 token 限制被截断，yield 警告标记
         if finish_reason == "length":
-            yield "\n\n# [WARNING] Response truncated due to max_tokens limit"
+            yield ("content", "\n\n# [WARNING] Response truncated due to max_tokens limit")
+
+    async def chat_stream(
+        self, messages: list[dict], **kwargs
+    ) -> AsyncGenerator[str, None]:
+        """流式对话，仅下发正文（思考过程被丢弃，保持旧调用方语义不变）"""
+        async for kind, text in self.chat_stream_events(messages, **kwargs):
+            if kind == "content":
+                yield text
 
     async def aclose(self) -> None:
         """关闭底层异步客户端（httpx 连接池），避免事件循环关闭时残留任务报错"""

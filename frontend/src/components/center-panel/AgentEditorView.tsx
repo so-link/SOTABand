@@ -472,11 +472,42 @@ function Step1Description() {
   )
 }
 
+// ── 模型思考过程面板（reasoning 事件流式展示） ───────────────
+
+function ReasoningPanel({ text, active }: { text: string; active: boolean }) {
+  const ref = useRef<HTMLPreElement>(null)
+  useEffect(() => {
+    if (active && ref.current) ref.current.scrollTop = ref.current.scrollHeight
+  }, [text, active])
+
+  if (!text && !active) return null
+
+  return (
+    <div className="mb-3 rounded-lg border border-maia-border bg-maia-bg/40">
+      <div className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] text-maia-text-muted border-b border-maia-border">
+        {active ? (
+          <Loader2 className="h-3 w-3 animate-spin text-maia-accent" />
+        ) : (
+          <span>🧠</span>
+        )}
+        <span>{active ? '模型思考中…' : '模型思考过程'}</span>
+        {active && <span className="text-maia-text-muted/70">（思考内容实时输出，正文完成后显示）</span>}
+      </div>
+      <pre
+        ref={ref}
+        className="px-3 py-2 max-h-[160px] overflow-auto text-[12px] font-mono whitespace-pre-wrap break-all text-maia-text-secondary leading-relaxed"
+      >
+        {text || '等待模型输出…'}
+      </pre>
+    </div>
+  )
+}
+
 // ── Step 2: 审阅 MD 文档 ─────────────────────────────────────
 
 function Step2Review() {
   const { generatedMd, setGeneratedMd, generateCode, setStep, isGenerating, error,
-          editingAgentId, editingAgentName } =
+          reasoningStream, editingAgentId, editingAgentName } =
     useAgentEditorStore()
   const isEditMode = Boolean(editingAgentId)
   // Markdown 用 2 空格缩进
@@ -497,6 +528,8 @@ function Step2Review() {
           ? <>正在编辑已有 Agent <span className="text-amber-500">{editingAgentName || editingAgentId}</span>，以下是其现有规范文档，可直接修改后重新生成代码。</>
           : '以下是 AI 生成的 Agent 规范文档，你可以直接编辑修改。'}
       </p>
+
+      <ReasoningPanel text={reasoningStream} active={isGenerating && !generatedMd.trim()} />
 
       <textarea
         value={generatedMd}
@@ -541,6 +574,7 @@ function Step2Review() {
 
 function Step3Verify() {
   const { generatedMd, generatedCode, sandboxResults, registerAgent, setStep, isGenerating, error,
+          reasoningStream, isRegistering,
           setGeneratedCode, editingAgentId, editingAgentName, baselineCode,
           syncSpecFromCode, saveCode,
           testInputs, setTestInput, debugRounds, debugStream,
@@ -583,9 +617,11 @@ function Step3Verify() {
         )}
       </div>
 
-      <div className="grid grid-cols-5 gap-4">
-        {/* Code panel */}
-        <div className="col-span-3">
+      <ReasoningPanel text={reasoningStream} active={isGenerating && !generatedCode.trim()} />
+
+      <div className="space-y-4">
+        {/* Code panel — 占满整行宽度，审阅代码更清晰 */}
+        <div>
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-1.5">
               <FileCode className="h-3.5 w-3.5 text-maia-accent" />
@@ -640,7 +676,7 @@ function Step3Verify() {
         </div>
 
         {/* 测试 & 自动调试面板 */}
-        <div className="col-span-2">
+        <div>
           <div className="flex items-center gap-1.5 mb-2">
             <Play className="h-3.5 w-3.5 text-maia-accent" />
             <span className="text-[13px] font-medium text-maia-text-secondary">
@@ -771,12 +807,17 @@ function Step3Verify() {
           </Button>
           <Button
             onClick={registerAgent}
-            disabled={isGenerating || isAutoDebugging || failed.length > 0}
+            disabled={isGenerating || isRegistering || isAutoDebugging || failed.length > 0}
           >
-            {isGenerating ? (
+            {isRegistering ? (
               <>
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 注册中...
+              </>
+            ) : isGenerating ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                生成中...
               </>
             ) : (
               <>

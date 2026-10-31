@@ -5,6 +5,7 @@ const BASE_URL = ''
 async function _consumeSse(
   res: Response,
   onDelta?: (token: string) => void,
+  onReasoning?: (token: string) => void,
 ): Promise<Record<string, unknown>> {
   const reader = res.body?.getReader()
   if (!reader) throw new Error('No response body')
@@ -22,6 +23,8 @@ async function _consumeSse(
         try { data = JSON.parse(line.slice(6)) } catch { continue }
         if (currentEvent === 'delta' && onDelta && typeof data.token === 'string') {
           onDelta(data.token)
+        } else if (currentEvent === 'reasoning' && onReasoning && typeof data.token === 'string') {
+          onReasoning(data.token)
         } else if (currentEvent === 'error') {
           throw new Error(String(data.detail || '生成失败'))
         } else if (currentEvent === 'done') {
@@ -39,6 +42,7 @@ export const agentApi = {
     description: string,
     role?: string,
     onDelta?: (token: string) => void,
+    onReasoning?: (token: string) => void,
   ): Promise<{ spec_md: string }> {
     const res = await fetch(`${BASE_URL}/api/agent/generate-spec`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -48,13 +52,14 @@ export const agentApi = {
       const err = await res.json().catch(() => ({ detail: res.statusText }))
       throw new Error(err.detail || `HTTP ${res.status}`)
     }
-    const data = await _consumeSse(res, onDelta)
+    const data = await _consumeSse(res, onDelta, onReasoning)
     return data as { spec_md: string }
   },
 
   async generateCode(
     specMd: string,
     onDelta?: (token: string) => void,
+    onReasoning?: (token: string) => void,
   ): Promise<{ code: string; sandbox_results: Record<string, unknown> }> {
     const idMatch = specMd.match(/^id:\s*(.+)$/m)
     const nameMatch = specMd.match(/^name:\s*(.+)$/m)
@@ -71,7 +76,7 @@ export const agentApi = {
       const err = await res.json().catch(() => ({ detail: res.statusText }))
       throw new Error(err.detail || `HTTP ${res.status}`)
     }
-    const data = await _consumeSse(res, onDelta)
+    const data = await _consumeSse(res, onDelta, onReasoning)
     return data as { code: string; sandbox_results: Record<string, unknown> }
   },
 
