@@ -555,7 +555,7 @@ function ReasoningPanel({ text, active }: { text: string; active: boolean }) {
 
 function Step2() {
   const { generatedMd, setGeneratedMd, tags, addTag, removeTag, generateCode, stopGeneration, setStep, isGenerating, error,
-          reasoningStream, editingToolId, editingToolName } = useToolEditorStore()
+          reasoningStream, generatedCode, editingToolId, editingToolName } = useToolEditorStore()
   const [editing, setEditing] = useState(false)
   const [newTag, setNewTag] = useState('')
   const isEditMode = Boolean(editingToolId)
@@ -563,11 +563,15 @@ function Step2() {
   const onTabIndent = useTabIndent('  ')
   const notifyEdit = useToolEditorStore((s) => s.notifyEdit)
   const mdRef = useRef<HTMLTextAreaElement>(null)
+  const codeRef = useRef<HTMLPreElement>(null)
 
   // 流式输出时自动滚动到底部
   useEffect(() => {
     if (mdRef.current) mdRef.current.scrollTop = mdRef.current.scrollHeight
   }, [generatedMd])
+  useEffect(() => {
+    if (codeRef.current) codeRef.current.scrollTop = codeRef.current.scrollHeight
+  }, [generatedCode])
 
   // 内容变更后标记「未保存」（仅对已注册工具生效）
   const handleMdChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -655,6 +659,23 @@ function Step2() {
           spellCheck={false}
         />
       )}
+
+      {/* 生成代码时的流式预览 */}
+      {isGenerating && generatedCode.trim().length > 0 && (
+        <div className="mt-4">
+          <div className="text-[12px] text-maia-text-secondary mb-1.5 flex items-center gap-1.5">
+            <Loader2 className="h-3 w-3 animate-spin text-maia-accent" />
+            正在生成代码...
+          </div>
+          <pre
+            ref={codeRef}
+            className="w-full max-h-[300px] overflow-auto rounded-lg border border-maia-border bg-maia-bg/50 px-4 py-3 text-[12px] font-mono text-maia-text-secondary whitespace-pre-wrap break-all"
+          >
+            {generatedCode}
+          </pre>
+        </div>
+      )}
+
       {error && <div className="flex items-center gap-1.5 mt-2 text-[13px] text-maia-danger"><XCircle className="h-3 w-3" />{error}</div>}
       <div className="flex justify-between mt-4">
         <Button variant="outline" onClick={() => setStep(1)} disabled={isGenerating}><ArrowLeft className="h-3.5 w-3.5" />返回修改需求</Button>

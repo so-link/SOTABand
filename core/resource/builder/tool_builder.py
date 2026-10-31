@@ -370,8 +370,14 @@ MD 文档:
         raw_md = spec.get("raw_md", "")
         return await self._llm_generate(raw_md)
 
-    async def _llm_generate(self, spec_md: str) -> str:
-        """LLM 生成完整工具代码"""
+    async def build_stream(self, spec: dict):
+        """流式版本：yield (kind, token)，kind ∈ {reasoning, content}"""
+        raw_md = spec.get("raw_md", "")
+        async for kind, token in self._llm_generate_stream(raw_md):
+            yield kind, token
+
+    def _build_code_prompt(self, spec_md: str) -> str:
+        """构建代码生成的 prompt（不含 LLM 调用，供流式/非流式复用）"""
         # 解析标记
         api_calls = re.findall(r'(?<!【)【(?!【)(.+?)(?<!】)】(?!】)', spec_md)
         tool_calls = re.findall(r'【【(.+?)】】', spec_md)
@@ -546,28 +552,41 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
 4. Modes may share module-level helpers/constants (e.g. model file path under _DATA_DIR).
 5. The train mode MUST save the model file to a stable path under _DATA_DIR; other modes load from that same path.
 """
+        return prompt
 
-        response = await self.llm.chat(
-            messages=[{"role":"user","content":prompt}],
-            temperature=0.3, max_tokens=100000,
-        )
+    @staticmethod
+    def _clean_code(response: str) -> str:
+        """清理 LLM 返回的代码（去除 markdown 代码块标记）"""
         code = response.strip()
-        # 清理开头的 markdown 代码块标记
         if code.startswith("```python"):
             code = code[len("```python"):]
         elif code.startswith("```"):
             code = code[3:]
-        # 清理末尾的 markdown 代码块标记
         if code.endswith("```"):
             code = code[:-3]
-        # 移除首尾空白行
         code = code.strip()
-        # 如果清理后以 ``` 开头或结尾（说明中间也有），再尝试整体提取
-        # 但只在确认是纯代码块包裹时才做 split
         if code.startswith("```") and code.count("```") == 2:
             parts = code.split("```")
             code = parts[1].strip() if len(parts) >= 2 else code
         return code
+
+    async def _llm_generate(self, spec_md: str) -> str:
+        """LLM 生成完整工具代码（非流式，向后兼容）"""
+        prompt = self._build_code_prompt(spec_md)
+        response = await self.llm.chat(
+            messages=[{"role":"user","content":prompt}],
+            temperature=0.3, max_tokens=100000,
+        )
+        return self._clean_code(response)
+
+    async def _llm_generate_stream(self, spec_md: str):
+        """LLM 流式生成工具代码，yield (kind, token)，kind ∈ {reasoning, content}"""
+        prompt = self._build_code_prompt(spec_md)
+        async for kind, token in self.llm.chat_stream_events(
+            messages=[{"role":"user","content":prompt}],
+            temperature=0.3, max_tokens=100000,
+        ):
+            yield kind, token
 
     # ── 沙箱执行 — 统一走 ToolExecutor，与对话界面完全一致 ──
 

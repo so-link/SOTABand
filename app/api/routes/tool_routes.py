@@ -219,18 +219,35 @@ async def generate_spec(req: GenerateToolSpecRequest):
 
 @router.post("/generate-code")
 async def generate_code(req: GenerateToolCodeRequest):
-    """MD → 完整 Python 代码（LLM 生成，无后处理）"""
+    """MD → 完整 Python 代码（SSE 流式，含思考过程）"""
     spec = {"raw_md": req.spec_md, "id": req.tool_id, "name": req.tool_name}
     if not req.spec_md.strip():
         raise HTTPException(400, "MD 规范文档不能为空")
     if not await builder.validate_spec(spec):
         raise HTTPException(400, "MD 规范文档不完整，缺少必需段落")
-    code = await builder.build(spec)
-    # 提取参数 schema 供前端生成输入表单
+
+    # 提取参数 schema 和模式列表（非 LLM 调用，可提前算好）
     params = builder._parse_spec_inputs(req.spec_md)
-    # 提取模式列表（单模式工具为空）
     modes = builder.parse_modes(req.spec_md)
-    return {"code": code, "params": params, "modes": modes}
+
+    async def event_stream():
+        try:
+            full = ""
+            async for kind, token in builder.build_stream(spec):
+                if kind == "reasoning":
+                    yield {"event": "reasoning", "data": _json.dumps({"token": token}, ensure_ascii=False)}
+                else:
+                    full += token
+                    yield {"event": "delta", "data": _json.dumps({"token": token}, ensure_ascii=False)}
+
+            code = builder._clean_code(full)
+            yield {"event": "done", "data": _json.dumps({"code": code, "params": params, "modes": modes}, ensure_ascii=False)}
+
+        except Exception as exc:
+            detail = exc.detail if isinstance(exc, HTTPException) else f"{type(exc).__name__}: {exc}"
+            yield {"event": "error", "data": _json.dumps({"detail": detail}, ensure_ascii=False)}
+
+    return EventSourceResponse(event_stream())
 
 
 # ── 沙箱测试 v2 — 用户输入测试数据 ──

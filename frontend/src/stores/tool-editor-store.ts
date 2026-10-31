@@ -295,23 +295,35 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
   generateCode: async () => {
     const { generatedMd } = get()
     if (!generatedMd.trim()) return
-    set({ isGenerating: true, error: null })
+
+    const abort = new AbortController()
+    set({ isGenerating: true, error: null, generatedCode: '', reasoningStream: '', generationAbort: abort })
     try {
-      const result = await toolApi.generateCode(generatedMd)
+      const result = await toolApi.generateCode(
+        generatedMd,
+        (token) => set((s) => ({ generatedCode: s.generatedCode + token })),
+        (token) => set((s) => ({ reasoningStream: s.reasoningStream + token })),
+        abort.signal,
+      )
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const params: any[] = result.params || []
       const modes = result.modes || []
-      // 初始化测试输入
       const inputs: Record<string, string> = {}
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       params.forEach((p: any) => { inputs[p.name] = p.default || '' })
       set({
         generatedCode: result.code, params, modes, selectedMode: modes.length ? modes[0].id : '',
         testInputs: inputs,
-        testOutput: null, step: 3, isGenerating: false,
+        testOutput: null, step: 3, isGenerating: false, generationAbort: null,
         debugRounds: [], debugStream: '',
       })
-    } catch (e) { set({ error: String(e), isGenerating: false }) }
+    } catch (e) {
+      if (abort.signal.aborted) {
+        set({ isGenerating: false, generationAbort: null })
+        return
+      }
+      set({ error: String(e), isGenerating: false, generationAbort: null })
+    }
   },
 
   runTest: async (files?: File[]) => {

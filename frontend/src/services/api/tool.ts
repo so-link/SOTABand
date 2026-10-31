@@ -75,14 +75,21 @@ export const toolApi = {
     return data as { spec_md: string; tags: string[] }
   },
 
-  async generateCode(specMd: string) {
+  async generateCode(
+    specMd: string,
+    onDelta?: (token: string) => void,
+    onReasoning?: (token: string) => void,
+    signal?: AbortSignal,
+  ): Promise<{ code: string; params: Array<Record<string, unknown>>; modes?: Array<{ id: string; name: string; desc?: string }> }> {
     const { toolId, toolName } = extractIdName(specMd)
     const res = await fetch(`${BASE_URL}/api/tool/generate-code`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ specMd, toolId, toolName }),
+      signal,
     })
     if (!res.ok) { const err = await res.json().catch(() => ({ detail: res.statusText })); throw new Error(err.detail) }
-    return res.json() as Promise<{ code: string; params: Array<Record<string, unknown>>; modes?: Array<{ id: string; name: string; desc?: string }> }>
+    const data = await _consumeSse(res, onDelta, onReasoning, 'code')
+    return data as { code: string; params: Array<Record<string, unknown>>; modes?: Array<{ id: string; name: string; desc?: string }> }
   },
 
   async testWithInput(specMd: string, code: string, testInputs: Record<string, string>, files?: File[], signal?: AbortSignal) {
