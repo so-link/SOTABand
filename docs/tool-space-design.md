@@ -378,10 +378,12 @@
   → 弹出确认弹窗
   → 用户点击 "确认删除"
   → 调用 DELETE /api/tool/{id}
-  → 后端删除:
-      · resources/tools/registry.json 中的记录
-      · resources/tools/implementations/{id}/ 整个目录
-      · resources/tools/definitions/{id}.md
+  → 后端删除（均位于私有资源根 resources-private/tools/ 下）:
+      · 私有 registry.json 中的记录
+      · implementations/{id}/ 整个目录
+      · definitions/{id}.md（含 {id}-demand.md、{id}-reference.md）
+      内置根 resources/tools/ 只读；若被删的是私有覆盖副本，
+      删除后内置根的同名条目重新可见
   → 前端:
       · 仓库列表移除该工具
       · 如果该工具已加载到工作空间，自动从空间移除

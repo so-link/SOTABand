@@ -65,7 +65,7 @@ except Exception as e:
 | 返回值 | 始终是 `dict`，方便 JSON 序列化 |
 | 无状态 | 每次调用独立，不依赖全局状态 |
 | 子进程隔离 | 工具代码写入临时脚本，在独立子进程中 `exec` 执行（永不与 FastAPI 同进程），统一注入 `TOOL_DIR`、强制 UTF-8 输出、屏蔽 `sys.argv` |
-| 超时控制 | `ToolExecutor.execute` 默认**无超时**（timeout=None，工具可能长耗时）；工具间调用 `_call_tool` 固定 30 秒 |
+| 超时控制 | `ToolExecutor.execute` 默认**无超时**（timeout=None，工具可能长耗时，`/api/tool/{id}/execute` 保持此语义）；沙箱测试与自动调试的单轮执行带超时（`DEBUG_EXEC_TIMEOUT`，默认 60 秒，可在系统设置调整），防止死循环把调试流永久挂起；工具间调用 `_call_tool` 固定 30 秒 |
 | 解释器选择 | 按「工具本地 `.venv` → 项目 `venv` → 当前解释器」优先级选择，避免污染系统全局 Python；每级同时探测 Unix `bin/python` 与 Windows `Scripts/python.exe` |
 
 ### 2.6 LLM 生成时的强约束（写入 Prompt）
@@ -115,7 +115,7 @@ except Exception as e:
 │  自动调试：                                                   │
 │    - 点击"自动调试"启动                                        │
 │    - 测试失败 → LLM 分析 → 重新生成代码 → 再测试               │
-│    - 最多 50 轮，可随时停止                                    │
+│    - 最多 10 轮（可在系统设置调整），可随时停止                 │
 │    - 下方滚动显示调试日志                                      │
 └──────────────────────────────────────────────────────────────┘
     ↓ 用户批准
@@ -258,8 +258,8 @@ def _resolve_path(path: str) -> str: ...
    - MD 规范文档全文
    - API 和工具的调用方式
    - 接口规范约束（含「LLM 调用必须用 `_llm_chat`，禁止硬编码服务商/模型名」）
-4. LLM 生成完整 Python 文件
-5. **不进行任何后处理**，直接返回
+4. LLM 流式生成完整 Python 文件（响应为 SSE：`reasoning` 思考过程 / `delta` 正文增量 / `done` 最终代码 / `error`）
+5. `done` 前对累积文本做 `_clean_code` 清理：剥离 Markdown 代码块围栏（```python 等）与多余前后缀后返回
 
 ### 5.4 调用方式区分
 
@@ -294,7 +294,7 @@ def _resolve_path(path: str) -> str: ...
 `POST /api/tool/test`（SSE 流式）：
 
 1. 代码为空时先调用 `builder.build()` 生成，随后**不落盘**，直接把代码字符串交给 `ToolExecutor.execute(code=...)`
-2. `ToolExecutor` 把代码包进统一临时脚本，子进程执行 `execute(**params)`，`timeout=None`
+2. `ToolExecutor` 把代码包进统一临时脚本，子进程执行 `execute(**params)`，单次执行附带超时（`DEBUG_EXEC_TIMEOUT`，默认 60 秒），死循环工具不会把测试无限挂起
 3. 从子进程 stdout 中倒序找最后一行 JSON 作为 `execute()` 的返回值
 4. SSE 推送 `{exit_code, stdout, stderr, success}`；客户端断开时取消执行任务
 
@@ -331,7 +331,7 @@ def _resolve_path(path: str) -> str: ...
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│  自动调试循环（最多 50 轮）                           │
+│  自动调试循环（默认最多 10 轮，可配置）              │
 │                                                     │
 │  1. 使用测试输入执行工具代码                           │
 │  2. 检查执行结果：                                    │
@@ -371,9 +371,10 @@ def _resolve_path(path: str) -> str: ...
 
 - 用户点击"停止调试"按钮 → 前端调用 `POST /api/tool/auto-debug/stop`（按 tool_id 设置全局停止标志，即使 SSE 连接已断开也能可靠停止后台调试）
 - 前端关闭 SSE 连接（`AbortController.abort()`）时后端同样设置停止标志并取消 producer
-- 达到 50 轮（`max_rounds=50`）仍未通过 → 自动停止，写入调试日志并提示用户手动介入
+- 达到配置的最大轮数（默认 10 轮，`.env` 的 `DEBUG_MAX_ROUNDS` 或系统设置可调，上限 100）仍未通过 → 自动停止，写入调试日志并提示用户手动介入
+- 每轮沙箱执行带超时（`.env` 的 `DEBUG_EXEC_TIMEOUT` 或系统设置可调，默认 60 秒）：工具代码陷入死循环时该轮直接按失败进入下一轮，不会永久挂起调试流
 
-调试过程与结果持久化到工具实现目录的调试日志文件，每轮的执行结果、LLM 分析、依赖安装事件都记入其中。
+调试过程与结果持久化到项目 `logs/{tool_id}_{timestamp}.md`（写入前经密钥脱敏），每轮的执行结果、LLM 分析、依赖安装事件都记入其中。
 
 ---
 
@@ -485,11 +486,11 @@ await self._call_tool_{tool_id}(**params)
 
 | 端点 | 方法 | 说明 |
 |------|------|------|
-| `/api/tool/generate-spec` | POST | NL → MD 工具描述 |
-| `/api/tool/generate-code` | POST | MD → 完整代码 |
-| `/api/tool/test` | POST | 沙箱执行测试（SSE 流式，无超时） |
+| `/api/tool/generate-spec` | POST (SSE) | NL → MD 工具描述（流式，含思考过程） |
+| `/api/tool/generate-code` | POST (SSE) | MD → 完整代码（流式，含思考过程） |
+| `/api/tool/test` | POST (SSE) | 沙箱执行测试（单次执行附超时 `DEBUG_EXEC_TIMEOUT`） |
 | `/api/tool/upload-test-file` | POST | 上传测试文件，返回临时路径 |
-| `/api/tool/auto-debug` | POST | SSE 自动化调试（最多 50 轮） |
+| `/api/tool/auto-debug` | POST (SSE) | 自动化调试（默认最多 10 轮，`DEBUG_MAX_ROUNDS` 可调） |
 | `/api/tool/auto-debug/stop` | POST | 按 tool_id 可靠停止后台调试 |
 | `/api/tool/register` | POST | 注册发布（不强制先过测试） |
 | `/api/tool/workspace` | GET/POST | 工作区间工具列表 / 添加到工作区间 |

@@ -100,7 +100,7 @@ type: function
 language: python
 status: active
 created: 2026-09-11
-modes: 2            # ← 新增：模式数量（可选，便于解析）
+modes: 2            # ← 新增：模式数量（可选，仅作人类阅读提示；解析以「模式定义」章节为准）
 ---
 
 # 数字识别
