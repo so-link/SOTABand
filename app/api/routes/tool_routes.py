@@ -282,6 +282,7 @@ async def test_tool(
         code = await builder.build(spec)
 
     from core.executor.tool_executor import ToolExecutor
+    from core.resource.builder.tool_builder import _debug_exec_timeout
 
     queue: _asyncio.Queue = _asyncio.Queue()
 
@@ -292,7 +293,8 @@ async def test_tool(
                 tool_id=tool_id or "test",
                 params=test_input,
                 code=code,
-                timeout=None,
+                # 单次执行超时（可在系统设置调整），避免工具死循环把测试无限挂起
+                timeout=_debug_exec_timeout(),
             )
             await queue.put({
                 "exit_code": 0 if result.get("status") == "success" else 1,

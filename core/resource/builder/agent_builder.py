@@ -710,6 +710,14 @@ yield {{"event": "content", "data": {{"text": response}}}}
             return {k: v for k, v in test_input.items() if k in declared}
         return dict(test_input)
 
+    @staticmethod
+    def _debug_round_timeout() -> float:
+        """自动调试单轮试运行超时（秒），可通过 .env 的 DEBUG_EXEC_TIMEOUT 调整。"""
+        try:
+            return max(5.0, float(_os.getenv("DEBUG_EXEC_TIMEOUT", "180") or 180))
+        except (TypeError, ValueError):
+            return 180.0
+
     async def _run_agent_once(
         self,
         code: str,
@@ -1009,13 +1017,19 @@ yield {{"event": "content", "data": {{"text": response}}}}
 
     async def auto_debug_stream(self, spec_md: str, code: str, test_input: dict,
                                 agent_id: str, role: str = "task",
-                                max_rounds: int = 50, stop_event=None):
+                                max_rounds: int = None, stop_event=None):
         """自动调试生成器：试运行→LLM分析→改代码→再试运行。
 
         事件名与工具自动调试一致（debug_start/round_start/exec_result/
         thinking/thinking_stream/analysis_result/llm_error/code_updated/
         stopped/done），前端无需新事件类型。无 deps_* 事件。
+        max_rounds 为 None 时读取 .env 的 DEBUG_MAX_ROUNDS（默认 10）。
         """
+        if max_rounds is None:
+            try:
+                max_rounds = max(1, int(_os.getenv("DEBUG_MAX_ROUNDS", "10") or 10))
+            except (TypeError, ValueError):
+                max_rounds = 10
         set_debug_running(agent_id)
         try:
             try:
@@ -1055,7 +1069,10 @@ yield {{"event": "content", "data": {{"text": response}}}}
 
             # ── ① 试运行（事件驱动等待：执行完成与停止信号同时挂起）──
             exec_task = asyncio.create_task(
-                self._run_agent_once(current_code, spec_md, role, test_input, agent_id)
+                self._run_agent_once(
+                    current_code, spec_md, role, test_input, agent_id,
+                    round_timeout=self._debug_round_timeout(),
+                )
             )
             stop_waiters = set()
             if stop_event:

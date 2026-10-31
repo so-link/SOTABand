@@ -12,6 +12,25 @@ from datetime import datetime
 
 from core.resource.builder.builder_base import BaseBuilder
 
+
+def _debug_exec_timeout() -> float:
+    """自动调试单轮沙箱执行超时（秒），可通过 .env 的 DEBUG_EXEC_TIMEOUT 调整。
+
+    工具代码若陷入死循环，没有超时会让整条调试流永久挂起。
+    """
+    try:
+        return max(5.0, float(_os.getenv("DEBUG_EXEC_TIMEOUT", "60") or 60))
+    except (TypeError, ValueError):
+        return 60.0
+
+
+def _debug_max_rounds() -> int:
+    """自动调试最大轮数，可通过 .env 的 DEBUG_MAX_ROUNDS 调整。"""
+    try:
+        return max(1, int(_os.getenv("DEBUG_MAX_ROUNDS", "10") or 10))
+    except (TypeError, ValueError):
+        return 10
+
 # ── 全局调试状态：线程安全的停止标志 ──
 # key=tool_id, value=True 表示正在运行
 _debug_states: dict[str, bool] = {}
@@ -1027,12 +1046,16 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
 
     # ── 自动调试 ──
 
-    async def auto_debug_stream(self, spec_md: str, code: str, test_input: dict, tool_id: str, max_rounds: int = 50, stop_event=None):
+    async def auto_debug_stream(self, spec_md: str, code: str, test_input: dict, tool_id: str, max_rounds: int = None, stop_event=None):
         """自动调试生成器：执行→LLM分析→改代码→再执行。
         stop_event: asyncio.Event，设置时中断调试。
         CancelledError: producer_task.cancel() 时抛出，立即退出。
+        max_rounds 为 None 时读取 .env 的 DEBUG_MAX_ROUNDS（默认 10）。
         """
         import asyncio
+
+        if max_rounds is None:
+            max_rounds = _debug_max_rounds()
 
         current_code = code
         set_debug_running(tool_id)
@@ -1100,7 +1123,7 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
             # 事件驱动等待：exec 完成与 stop_event 同时挂起，谁先到听谁的。
             # 旧实现每 0.1s 忙轮询一次，长执行下白耗调度且停止延迟固定。
             exec_task = asyncio.create_task(
-                self.sandbox_execute(current_code, test_input, tool_id)
+                self.sandbox_execute(current_code, test_input, tool_id, exec_timeout=_debug_exec_timeout())
             )
             stop_waiters = set()
             if stop_event:
