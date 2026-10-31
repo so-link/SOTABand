@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import {
-  Bot, Send, Play, Square, RefreshCw, Loader2, FileText, FileCode, X, Pencil, Save, FolderOpen,
+  Bot, Send, Play, Square, RefreshCw, Loader2, FileText, FileCode, X, Pencil, Save, FolderOpen, Download,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -68,6 +68,11 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   const [draftCode, setDraftCode] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
+
+  // 导出迁移包（.sotaagent.zip）的状态。必须声明在 `if (!agent) return` 之前，
+  // 否则 agent 由空变有会让 hooks 数量变化（React 会直接报错）。
+  const [exporting, setExporting] = useState(false)
+  const [exportInfo, setExportInfo] = useState<{ name: string; path: string; size: number } | null>(null)
 
   const setActiveView = useUIStore((s) => s.setActiveView)
 
@@ -194,6 +199,26 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
     } finally {
       setIsSaving(false)
       setTimeout(() => setSaveMsg(''), 3000)
+    }
+  }
+
+  // 导出为迁移包（.sotaagent.zip）
+  const handleExport = async () => {
+    if (!agent) return
+    setExporting(true)
+    try {
+      const res = await fetch(`${BASE_URL}/api/migrate/agent/export`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent_id: agent.id }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.detail || `导出失败 (${res.status})`)
+      setExportInfo({ name: data.file_name, path: data.bundle_path, size: data.size })
+    } catch (e) {
+      window.alert(`导出失败：${(e as Error).message}`)
+    } finally {
+      setExporting(false)
     }
   }
 
@@ -372,6 +397,15 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
           </Badge>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleExport}
+            disabled={exporting}
+            className="flex items-center gap-1 text-[11px] text-emerald-500 hover:underline disabled:opacity-50"
+            title="导出为 .sotaagent.zip，可在其它环境导入"
+          >
+            {exporting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+            {exporting ? '导出中…' : '导出'}
+          </button>
           {/* Detail toggle buttons */}
           {hasDemand && (
             <button
@@ -427,6 +461,28 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
           )}
         </div>
       </div>
+
+      {exportInfo && (
+        <div className="flex items-center gap-2 px-4 py-1.5 text-[11px] border-b border-maia-border bg-emerald-500/10 shrink-0">
+          <span className="text-emerald-600 shrink-0">
+            已导出 {Math.max(1, Math.round(exportInfo.size / 1024))} KB：
+          </span>
+          <a
+            className="text-maia-accent underline truncate"
+            href={`${BASE_URL}/api/migrate/agent/bundles/${encodeURIComponent(exportInfo.name)}`}
+            download
+            title={exportInfo.path}
+          >
+            {exportInfo.name}
+          </a>
+          <button
+            onClick={() => setExportInfo(null)}
+            className="ml-auto text-maia-text-muted hover:underline shrink-0"
+          >
+            关闭
+          </button>
+        </div>
+      )}
 
       {/* Content area */}
       <div className="flex-1 min-h-0 overflow-auto p-4">

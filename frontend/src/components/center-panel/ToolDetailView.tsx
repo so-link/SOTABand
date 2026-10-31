@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
-  Wrench, FileCode, FileText, X, Play, Loader2,
+  Wrench, FileCode, FileText, X, Play, Loader2, Download,
   CheckCheck, Save, Bot, Code, Pencil, Plus, Square,
   FolderOpen, Folder, File, ChevronRight, ChevronDown,
 } from 'lucide-react'
@@ -94,6 +94,10 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
   const [modifyHistory, setModifyHistory] = useState<string[]>([])
   const abortRef = useRef<AbortController | null>(null)
   const logEndRef = useRef<HTMLDivElement>(null)
+  // 导出迁移包（.sotatool.zip）的状态。必须声明在 `if (!tool) return` 之前，
+  // 否则 tool 由空变有会让 hooks 数量变化（React 会直接报错）。
+  const [exporting, setExporting] = useState(false)
+  const [exportInfo, setExportInfo] = useState<{ name: string; path: string; size: number } | null>(null)
 
   useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: 'auto' }) }, [debugRounds, debugStream])
 
@@ -133,6 +137,25 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
   }
 
   const inputs = parseInputs(specMd)
+
+  // ── 导出为迁移包（.sotatool.zip）：可在另一套部署里导入 ──
+  const handleExport = async () => {
+    setExporting(true)
+    try {
+      const res = await fetch(`${BASE_URL}/api/migrate/tool/export`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tool_id: tool.id }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.detail || `导出失败 (${res.status})`)
+      setExportInfo({ name: data.file_name, path: data.bundle_path, size: data.size })
+    } catch (e) {
+      window.alert(`导出失败：${(e as Error).message}`)
+    } finally {
+      setExporting(false)
+    }
+  }
 
   const handleCodeChange = (val: string) => {
     setEditedCode(val)
@@ -370,8 +393,39 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
           >
             <Pencil className="h-3 w-3" />编辑
           </button>
+          <button
+            onClick={handleExport}
+            disabled={exporting}
+            className="flex items-center gap-1 text-[11px] text-emerald-500 hover:underline ml-2 disabled:opacity-50"
+            title="导出为 .sotatool.zip，可在其它环境导入"
+          >
+            {exporting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+            {exporting ? '导出中…' : '导出'}
+          </button>
         </div>
       </div>
+
+      {exportInfo && (
+        <div className="flex items-center gap-2 px-4 py-1.5 text-[11px] border-b border-maia-border bg-emerald-500/10 shrink-0">
+          <span className="text-emerald-600 shrink-0">
+            已导出 {Math.max(1, Math.round(exportInfo.size / 1024))} KB：
+          </span>
+          <a
+            className="text-maia-accent underline truncate"
+            href={`${BASE_URL}/api/migrate/bundles/${encodeURIComponent(exportInfo.name)}`}
+            download
+            title={exportInfo.path}
+          >
+            {exportInfo.name}
+          </a>
+          <button
+            onClick={() => setExportInfo(null)}
+            className="ml-auto text-maia-text-muted hover:underline shrink-0"
+          >
+            关闭
+          </button>
+        </div>
+      )}
 
       <div className="flex-1 min-h-0 overflow-auto p-4">
         {showCode ? (

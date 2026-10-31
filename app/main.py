@@ -17,6 +17,7 @@ from app.api.routes.model_routes import router as model_router
 from app.api.routes.config_routes import router as config_router
 from app.api.routes.api_routes import router as api_list_router
 from app.api.routes.llm_routes import router as llm_router
+from app.api.routes.migrate_routes import router as migrate_router
 
 
 @asynccontextmanager
@@ -72,6 +73,7 @@ app.include_router(model_router, prefix="/api/model", tags=["model"])
 app.include_router(config_router, prefix="/api/config", tags=["config"])
 app.include_router(api_list_router, prefix="/api/apis", tags=["api"])
 app.include_router(llm_router, prefix="/api/llm", tags=["llm"])
+app.include_router(migrate_router, prefix="/api/migrate", tags=["migrate"])
 
 
 @app.get("/")

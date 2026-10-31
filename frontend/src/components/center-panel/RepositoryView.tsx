@@ -109,12 +109,18 @@ export function RepositoryView() {
         body: JSON.stringify({ dependencies: depDialog.install }),
       })
       const data = await res.json().catch(() => ({}))
-      const results: Array<{ dep: string; success: boolean }> = data.results || []
-      const failed = results.filter(r => !r.success).map(r => r.dep)
+      const results: Array<{ dep: string; success: boolean; reason?: string }> = data.results || []
+      const failed = results.filter(r => !r.success)
       if (failed.length > 0 && results.length > 0) {
+        // 把 pip 输出的最后几行带出来，否则只报包名无从定位
+        // （网络不通 / 权限不足 / 包名错误 的表现完全不同）
+        const detail = failed.map(r => {
+          const tail = String(r.reason || '').trim().split('\n').filter(Boolean).slice(-3).join(' | ')
+          return `· ${r.dep}${tail ? `：${tail.slice(0, 300)}` : ''}`
+        }).join('\n')
         setDepDialog({
           ...depDialog, installing: false, done: false,
-          error: `以下依赖安装失败：${failed.join(', ')}`,
+          error: `以下依赖安装失败：\n${detail}`,
         })
       } else {
         setDepDialog({ ...depDialog, installing: false, done: true, error: '' })
@@ -363,7 +369,9 @@ export function RepositoryView() {
                     </div>
                   )}
                   {depDialog.error && (
-                    <div className="text-[12px] text-red-400 break-words">{depDialog.error}</div>
+                    <div className="max-h-40 overflow-auto rounded bg-maia-bg/60 p-2 text-[11px] text-red-400 break-words whitespace-pre-wrap">
+                      {depDialog.error}
+                    </div>
                   )}
                 </>
               )}
