@@ -147,6 +147,12 @@ interface AgentEditorState {
   reasoningStream: string
   // 是否正在提交注册（与"生成中"区分，避免按钮文案混淆）
   isRegistering: boolean
+  // 同步代码→MD 文档中（与生成区分，避免按钮误显示"生成中"）
+  isSyncing: boolean
+  // 保存代码中
+  isSaving: boolean
+  // 生成规范/代码的中止控制器（点"停止生成"时 abort fetch）
+  generationAbort: AbortController | null
   error: string | null
   // ── 编辑已有 Agent 模式 ──
   // editingAgentId 非空表示当前在编辑已发布的 Agent（而非新建），
@@ -181,6 +187,7 @@ interface AgentEditorState {
   setGeneratedCode: (code: string) => void
   generateSpec: () => Promise<void>
   generateCode: () => Promise<void>
+  stopGeneration: () => void
   autoDebug: () => Promise<void>
   stopAutoDebug: () => void
   registerAgent: () => Promise<void>
@@ -221,6 +228,9 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
   isGenerating: false,
   reasoningStream: '',
   isRegistering: false,
+  isSyncing: false,
+  isSaving: false,
+  generationAbort: null,
   error: null,
   editingAgentId: null,
   editingAgentName: '',
@@ -262,6 +272,12 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
       generatedCode: '',
       sandboxResults: null,
       registeredId: null,
+      isGenerating: false,
+      reasoningStream: '',
+      isRegistering: false,
+      isSyncing: false,
+      isSaving: false,
+      generationAbort: null,
       error: null,
       apiItems: [],
       toolItems: [],
@@ -290,6 +306,11 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
       registeredId: agentId,
       error: null,
       isGenerating: false,
+      reasoningStream: '',
+      isRegistering: false,
+      isSyncing: false,
+      isSaving: false,
+      generationAbort: null,
       saveState: 'idle',
       saveError: null,
       testInputs: initTestInputs(specMd),
@@ -310,7 +331,7 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
       set({ error: '代码尚未修改，无需同步' })
       return
     }
-    set({ isGenerating: true, error: null })
+    set({ isSyncing: true, error: null })
     try {
       const result = await agentApi.syncSpecFromCode({
         agent_id: editingAgentId,
@@ -321,10 +342,10 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
       set((s) => ({
         generatedMd: result.spec_md || s.generatedMd,
         baselineCode: s.generatedCode, // 同步后重置基线，避免重复同步
-        isGenerating: false,
+        isSyncing: false,
       }))
     } catch (e) {
-      set({ error: String(e), isGenerating: false })
+      set({ error: String(e), isSyncing: false })
     }
   },
 
@@ -343,12 +364,12 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
       set({ error: '代码尚未修改' })
       return
     }
-    set({ isGenerating: true, error: null })
+    set({ isSaving: true, saveState: 'saving', error: null })
     try {
       await agentApi.saveCode(editingAgentId, generatedCode)
-      set((s) => ({ baselineCode: s.generatedCode, isGenerating: false }))
+      set((s) => ({ baselineCode: s.generatedCode, isSaving: false, saveState: 'saved' }))
     } catch (e) {
-      set({ error: String(e), isGenerating: false })
+      set({ error: String(e), isSaving: false, saveState: 'error', saveError: String(e) })
     }
   },
 
@@ -438,17 +459,24 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
     const { description, agentRole } = get()
     if (!description.trim()) return
 
-    set({ isGenerating: true, error: null, generatedMd: '', reasoningStream: '', step: 2 })
+    const abort = new AbortController()
+    set({ isGenerating: true, error: null, generatedMd: '', reasoningStream: '', step: 2, generationAbort: abort })
     try {
       const result = await agentApi.generateSpec(
         description,
         agentRole || undefined,
         (token) => set((s) => ({ generatedMd: s.generatedMd + token })),
         (token) => set((s) => ({ reasoningStream: s.reasoningStream + token })),
+        abort.signal,
       )
-      set({ generatedMd: result.spec_md, isGenerating: false })
+      set({ generatedMd: result.spec_md, isGenerating: false, generationAbort: null })
     } catch (e) {
-      set({ error: String(e), isGenerating: false })
+      // abort 不展示错误
+      if (abort.signal.aborted) {
+        set({ isGenerating: false, generationAbort: null })
+        return
+      }
+      set({ error: String(e), isGenerating: false, generationAbort: null })
     }
   },
 
@@ -456,12 +484,14 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
     const { generatedMd } = get()
     if (!generatedMd.trim()) return
 
-    set({ isGenerating: true, error: null, generatedCode: '', reasoningStream: '', step: 3 })
+    const abort = new AbortController()
+    set({ isGenerating: true, error: null, generatedCode: '', reasoningStream: '', step: 3, generationAbort: abort })
     try {
       const result = await agentApi.generateCode(
         generatedMd,
         (token) => set((s) => ({ generatedCode: s.generatedCode + token })),
         (token) => set((s) => ({ reasoningStream: s.reasoningStream + token })),
+        abort.signal,
       )
       set({
         generatedCode: result.code,
@@ -470,10 +500,21 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
         debugRounds: [],
         debugStream: '',
         isGenerating: false,
+        generationAbort: null,
       })
     } catch (e) {
-      set({ error: String(e), isGenerating: false })
+      if (abort.signal.aborted) {
+        set({ isGenerating: false, generationAbort: null })
+        return
+      }
+      set({ error: String(e), isGenerating: false, generationAbort: null })
     }
+  },
+
+  /** 中止正在进行的规范/代码生成 */
+  stopGeneration: () => {
+    const { generationAbort } = get()
+    generationAbort?.abort()
   },
 
   // ── 自动调试（todo 4.3）──

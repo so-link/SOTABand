@@ -473,32 +473,49 @@ function Step1Description() {
 }
 
 // ── 模型思考过程面板（reasoning 事件流式展示） ───────────────
+// 生成进行中展开并自动滚动；思考结束后自动折叠为一行摘要，点击可展开复核。
 
 function ReasoningPanel({ text, active }: { text: string; active: boolean }) {
   const ref = useRef<HTMLPreElement>(null)
+  const [collapsed, setCollapsed] = useState(false)
+
+  // 生成开始时展开；思考结束（active 由 true 变 false）时自动折叠
   useEffect(() => {
-    if (active && ref.current) ref.current.scrollTop = ref.current.scrollHeight
-  }, [text, active])
+    if (active) setCollapsed(false)
+    else setCollapsed(true)
+  }, [active])
+
+  useEffect(() => {
+    if (active && !collapsed && ref.current) ref.current.scrollTop = ref.current.scrollHeight
+  }, [text, active, collapsed])
 
   if (!text && !active) return null
 
   return (
     <div className="mb-3 rounded-lg border border-maia-border bg-maia-bg/40">
-      <div className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] text-maia-text-muted border-b border-maia-border">
+      <button
+        type="button"
+        onClick={() => setCollapsed((c) => !c)}
+        className="flex items-center gap-1.5 w-full px-3 py-1.5 text-[12px] text-maia-text-muted border-b border-maia-border hover:text-maia-text"
+      >
         {active ? (
           <Loader2 className="h-3 w-3 animate-spin text-maia-accent" />
         ) : (
           <span>🧠</span>
         )}
-        <span>{active ? '模型思考中…' : '模型思考过程'}</span>
-        {active && <span className="text-maia-text-muted/70">（思考内容实时输出，正文完成后显示）</span>}
-      </div>
-      <pre
-        ref={ref}
-        className="px-3 py-2 max-h-[160px] overflow-auto text-[12px] font-mono whitespace-pre-wrap break-all text-maia-text-secondary leading-relaxed"
-      >
-        {text || '等待模型输出…'}
-      </pre>
+        <span className="mr-auto">{active ? '模型思考中…' : `模型思考过程（${text.length} 字）`}</span>
+        {active
+          ? <span className="text-maia-text-muted/70">思考内容实时输出</span>
+          : <span className="text-maia-accent">{collapsed ? '展开' : '收起'}</span>}
+      </button>
+      {!collapsed && (
+        <pre
+          ref={ref}
+          className="px-3 py-2 max-h-[160px] overflow-auto text-[12px] font-mono whitespace-pre-wrap break-all text-maia-text-secondary leading-relaxed"
+        >
+          {text || '等待模型输出…'}
+        </pre>
+      )}
     </div>
   )
 }
@@ -506,7 +523,7 @@ function ReasoningPanel({ text, active }: { text: string; active: boolean }) {
 // ── Step 2: 审阅 MD 文档 ─────────────────────────────────────
 
 function Step2Review() {
-  const { generatedMd, setGeneratedMd, generateCode, setStep, isGenerating, error,
+  const { generatedMd, setGeneratedMd, generateCode, stopGeneration, setStep, isGenerating, error,
           reasoningStream, editingAgentId, editingAgentName } =
     useAgentEditorStore()
   const isEditMode = Boolean(editingAgentId)
@@ -519,7 +536,7 @@ function Step2Review() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto">
+    <div className="w-full max-w-5xl mx-auto">
       <h3 className="text-lg font-semibold text-maia-text-heading mb-2">
         Step 2: 审阅 &amp; 编辑 MD 规范文档
       </h3>
@@ -548,23 +565,31 @@ function Step2Review() {
       )}
 
       <div className="flex justify-between mt-4">
-        <Button variant="outline" onClick={() => setStep(1)}>
+        <Button variant="outline" onClick={() => setStep(1)} disabled={isGenerating}>
           <ArrowLeft className="h-3.5 w-3.5" />
           返回修改需求
         </Button>
-        <Button onClick={generateCode} disabled={!generatedMd.trim() || isGenerating}>
-          {isGenerating ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              生成中...
-            </>
-          ) : (
-            <>
-              生成 Agent
-              <ArrowRight className="h-3.5 w-3.5" />
-            </>
+        <div className="flex gap-2">
+          {isGenerating && (
+            <Button variant="danger" onClick={stopGeneration}>
+              <XCircle className="h-3.5 w-3.5" />
+              停止生成
+            </Button>
           )}
-        </Button>
+          <Button onClick={generateCode} disabled={!generatedMd.trim() || isGenerating}>
+            {isGenerating ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                生成中...
+              </>
+            ) : (
+              <>
+                生成 Agent
+                <ArrowRight className="h-3.5 w-3.5" />
+              </>
+            )}
+          </Button>
+        </div>
       </div>
     </div>
   )
@@ -573,8 +598,8 @@ function Step2Review() {
 // ── Step 3: 代码核验 ─────────────────────────────────────────
 
 function Step3Verify() {
-  const { generatedMd, generatedCode, sandboxResults, registerAgent, setStep, isGenerating, error,
-          reasoningStream, isRegistering,
+  const { generatedMd, generatedCode, sandboxResults, registerAgent, stopGeneration, setStep, isGenerating, error,
+          reasoningStream, isRegistering, isSyncing, isSaving,
           setGeneratedCode, editingAgentId, editingAgentName, baselineCode,
           syncSpecFromCode, saveCode,
           testInputs, setTestInput, debugRounds, debugStream,
@@ -605,7 +630,7 @@ function Step3Verify() {
   const paramDefs = parseTestParamDefs(generatedMd, role)
 
   return (
-    <div className="max-w-5xl mx-auto">
+    <div className="w-full max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-lg font-semibold text-maia-text-heading">
           Step 3: 代码预览 &amp; 沙箱核验
@@ -635,19 +660,19 @@ function Step3Verify() {
                 <>
                   <button
                     onClick={() => syncSpecFromCode()}
-                    disabled={!codeDirty || isGenerating}
+                    disabled={!codeDirty || isGenerating || isSyncing || isSaving}
                     title={codeDirty ? '让 AI 依据代码改动更新 MD 文档' : '代码未修改，无需同步'}
                     className="text-[12px] text-maia-accent hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    同步代码改动到文档
+                    {isSyncing ? '同步中…' : '同步代码改动到文档'}
                   </button>
                   <button
                     onClick={() => saveCode()}
-                    disabled={!codeDirty || isGenerating}
+                    disabled={!codeDirty || isGenerating || isSyncing || isSaving}
                     title="保存代码到该 Agent"
                     className="text-[12px] text-maia-accent hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    保存代码
+                    {isSaving ? '保存中…' : '保存代码'}
                   </button>
                 </>
               )}
@@ -796,12 +821,18 @@ function Step3Verify() {
       )}
 
       <div className="flex justify-between mt-4">
-        <Button variant="outline" onClick={() => setStep(2)} disabled={isAutoDebugging}>
+        <Button variant="outline" onClick={() => setStep(2)} disabled={isAutoDebugging || isGenerating}>
           <ArrowLeft className="h-3.5 w-3.5" />
           返回修改 MD
         </Button>
         <div className="flex gap-2">
-          <Button variant="danger" onClick={() => setStep(1)} disabled={isAutoDebugging}>
+          {isGenerating && (
+            <Button variant="danger" onClick={stopGeneration}>
+              <XCircle className="h-3.5 w-3.5" />
+              停止生成
+            </Button>
+          )}
+          <Button variant="danger" onClick={() => setStep(1)} disabled={isAutoDebugging || isGenerating}>
             <XCircle className="h-3.5 w-3.5" />
             拒绝
           </Button>

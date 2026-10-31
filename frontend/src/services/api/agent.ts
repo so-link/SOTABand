@@ -43,10 +43,12 @@ export const agentApi = {
     role?: string,
     onDelta?: (token: string) => void,
     onReasoning?: (token: string) => void,
+    signal?: AbortSignal,
   ): Promise<{ spec_md: string }> {
     const res = await fetch(`${BASE_URL}/api/agent/generate-spec`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ description, role }),
+      signal,
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }))
@@ -60,6 +62,7 @@ export const agentApi = {
     specMd: string,
     onDelta?: (token: string) => void,
     onReasoning?: (token: string) => void,
+    signal?: AbortSignal,
   ): Promise<{ code: string; sandbox_results: Record<string, unknown> }> {
     const idMatch = specMd.match(/^id:\s*(.+)$/m)
     const nameMatch = specMd.match(/^name:\s*(.+)$/m)
@@ -71,6 +74,7 @@ export const agentApi = {
         agentName: nameMatch?.[1]?.trim() || 'Custom Agent',
         role: roleMatch?.[1]?.trim() || 'task',
       }),
+      signal,
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }))

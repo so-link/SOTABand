@@ -337,6 +337,7 @@ async def generate_code(req: GenerateCodeRequest):
         event_q.put_nowait((kind, token))
 
     async def event_stream():
+        build_task: asyncio.Task | None = None
         try:
             valid = await builder.validate_spec(spec)
             if not valid:
@@ -371,6 +372,11 @@ async def generate_code(req: GenerateCodeRequest):
             else:
                 detail = f"{type(exc).__name__}: {exc}"
             yield {"event": "error", "data": json.dumps({"detail": detail}, ensure_ascii=False)}
+        finally:
+            # 客户端断开（前端中止生成）时，取消仍在运行的 LLM 构建任务，
+            # 避免在网关留下无主请求继续占用 token 配额。
+            if build_task is not None and not build_task.done():
+                build_task.cancel()
 
     return EventSourceResponse(event_stream())
 
