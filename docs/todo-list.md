@@ -23,7 +23,7 @@
 
 - 4.1 ✅ 消息路由智能体：Web 服务式 Agent（web-service 角色）可组合调用工具对外提供 HTTP API；内置 `message-router-agent` 提供通用「接收 Web 请求路由到本地工具」能力（`POST /route` 显式指定工具或自然语言意图三级匹配 explicit/llm/keyword，`GET /tools` 列出可路由工具空间）
 - 4.2 🔶 任务编排：Agent 代码可机械辅助函数调用工具；跨 Agent 委派编排首版落地——内置 `orchestrator-agent`（web-service）接收声明式步骤（DAG 线性特例），经本地总线（4.5 `call_agent`）逐步委派给运行中子 Agent，`{stepN.x}`/`{param.x}` 引用传递数据并聚合结果（`POST /plan`、`POST /call`、`GET /agents`）；自然语言自动生成编排文件与并行 DAG 执行为规划中
-- 4.3 ✅ 智能体代码自动调试：`POST /api/agent/auto-debug`（SSE）复用工具编辑器同款循环——沙箱试运行（entrypoint 子进程，按角色语义验证：task/interactive 走 execute 事件流、web-service 走回环 HTTP 逐 API 验证）→ LLM 分析错误整文件重写 → 再跑，最多 50 轮；每轮重写后重跑静态安全审查，事件名与工具调试一致，前端 Agent 编辑器第 3 步提供「自动调试/停止调试」
+- 4.3 ✅ 智能体代码自动调试：`POST /api/agent/auto-debug`（SSE）复用工具编辑器同款循环——沙箱试运行（entrypoint 子进程，按角色语义验证：task/interactive 走 execute 事件流、web-service 走回环 HTTP 逐 API 验证）→ LLM 分析错误整文件重写 → 再跑，默认最多 10 轮（`DEBUG_MAX_ROUNDS`/系统设置可调，上限 100），单轮试运行带执行超时（Agent 默认 180 秒）；每轮重写后重跑静态安全审查，事件名与工具调试一致，前端 Agent 编辑器第 3 步提供「自动调试/停止调试」
 - 4.4 ✅ 智能体独立进程运行（全部 Agent 以独立子进程 + stdin/stdout JSON-line 协议运行，工厂负责启停/健康检查/自动重建）
 - 4.5 🔶 智能体通信机制：本地通信已落地——主进程消息路由（工厂后台 reader 分流 v1 通信帧）+ Agent 侧 `self._bus`（Pub/Sub 订阅发布 + RPC 调用 call_agent），对外经 `POST /api/agent/bus/publish|call`、`GET /api/agent/bus/status` 接入；远程智能体通信（跨机 gRPC/WebSocket）为规划中
 - 4.6 智能体发布：可发布到智能体集市，或发布到虚拟局部网络中供对应成员发现和使用
@@ -45,6 +45,7 @@
 - 7.3 工具集市：维护全局共享的工具集市，用户可发布本地工具到集市，其他用户可在工具仓库中查看和获取
 - 7.4 数据集市：维护全局共享的数据集市，用户可发布本地数据到集市，支持虚拟化托管
 - 7.5 智能体集市：维护全局共享的智能体集市
+- 7.6 ✅ 系统设置：LLM 服务商/模型/密钥可视化配置；LLM 超时、并发上限、调试执行超时、调试最大轮数等运行参数，保存写入 `.env` 即时生效；支持自定义服务商（自建网关）
 
 ## 8. 用户空间与用户网络
 

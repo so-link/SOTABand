@@ -58,7 +58,7 @@
 
 **所属子系统**：资源生命周期管理子系统 → 资源构建器（`builder.py`）
 
-**内涵**：当前自动调试流程（`_auto_debug_loop`）最多 50 轮迭代，效率有提升空间。已落地：(a) 跨轮修复对话——修复请求改为累积的多轮 messages（首轮全量上下文，后续轮只补发最新失败结果，历史保留首条 + 最近 12 条），LLM 能看到自己此前的修复尝试，不再每轮全量重放代码、也不再重复已被否定的方案；(b) 执行等待与 token 消费事件驱动化（`asyncio.wait` / `asyncio.Queue` 取代 0.1s/0.05s 忙轮询），停止信号即时生效；(c) 执行前静态安全预判由 3.2 的 `code_scan` 闸门承担，命中安全阻断项直接回流 LLM 重写，省掉一轮无效沙箱执行；(d) ModuleNotFoundError 已有分类处理（系统自动装依赖、失败则告知 LLM 换替代方案）。仍可继续：(1) 更精准的失败上下文（结构化行号/变量值/调用栈）；(2) SyntaxError/TypeError/KeyError 等更多错误模式的分类修复策略；(4) 跨工具的修复模式经验复用。
+**内涵**：当前自动调试流程（`_auto_debug_loop`）默认最多 10 轮迭代（`DEBUG_MAX_ROUNDS` 可调，上限 100），效率有提升空间。已落地：(a) 跨轮修复对话——修复请求改为累积的多轮 messages（首轮全量上下文，后续轮只补发最新失败结果，历史保留首条 + 最近 12 条），LLM 能看到自己此前的修复尝试，不再每轮全量重放代码、也不再重复已被否定的方案；(b) 执行等待与 token 消费事件驱动化（`asyncio.wait` / `asyncio.Queue` 取代 0.1s/0.05s 忙轮询），停止信号即时生效；(c) 执行前静态安全预判由 3.2 的 `code_scan` 闸门承担，命中安全阻断项直接回流 LLM 重写，省掉一轮无效沙箱执行；(d) ModuleNotFoundError 已有分类处理（系统自动装依赖、失败则告知 LLM 换替代方案）。仍可继续：(1) 更精准的失败上下文（结构化行号/变量值/调用栈）；(2) SyntaxError/TypeError/KeyError 等更多错误模式的分类修复策略；(4) 跨工具的修复模式经验复用。
 
 **关联架构**：
 - 资源构建器（`builder.py`）：根据需求自动编写代码，是自动调试的入口
@@ -137,7 +137,7 @@
 
 **所属子系统**：多智能体协作子系统 + 资源生命周期管理子系统
 
-**内涵**：Agent 本身也是由代码定义的。参考工具编辑器中已实现的自动调试流程（生成 → 沙箱执行 → LLM 分析错误 → 修复 → 再执行，最多 50 轮），为 Agent 代码建立同样的自动调试能力。Agent 的调试比工具更复杂——因为 Agent 涉及通信、协作、状态管理，需要额外的测试场景构造（如模拟其他 Agent 的消息、模拟任务分配与冲突解决），需要构建 Agent 专属的测试沙箱环境。
+**内涵**：Agent 本身也是由代码定义的。参考工具编辑器中已实现的自动调试流程（生成 → 沙箱执行 → LLM 分析错误 → 修复 → 再执行，默认最多 10 轮、可配置），为 Agent 代码建立同样的自动调试能力。Agent 的调试比工具更复杂——因为 Agent 涉及通信、协作、状态管理，需要额外的测试场景构造（如模拟其他 Agent 的消息、模拟任务分配与冲突解决），需要构建 Agent 专属的测试沙箱环境。
 
 **落地形态**：`AgentCodeBuilder.auto_debug_stream`（`agent_builder.py`）移植工具侧调试循环骨架（全局停止标志、事件驱动的「执行 vs 停止」竞态、LLM token 泵三方竞态、`<analysis>/<code>` 解析、跨轮修复对话记忆、Prompt/日志脱敏），端点 `POST /api/agent/auto-debug`（SSE，Form 参数 spec_md/agent_id/role/code/test_input_json）与 `POST /api/agent/auto-debug/stop`，事件名与工具调试完全一致（debug_start/round_start/exec_result/thinking/thinking_stream/analysis_result/llm_error/code_updated/stopped/done）。Agent 侧差异：(1) 每轮试运行是完整的 `entrypoint.py` 子进程（`_run_agent_once`，写私有根 `_debug-{id}` 临时实现目录、跑完即删），刻意**不复用** `agent_factory`——factory 启动会 `_auto_fix` 改写代码并写盘，且进程表会混入调试条目；(2) 按角色语义验证——task/interactive 经 stdin 发一条 execute 任务、读事件流直到 done（error 事件/提前退出/超时即失败），web-service 等 `service_ready` 后用回环 HTTP 逐个调用 ```apis 声明的 API（spec 中的固定端口一律中和为 0 自动分配，绝不占用固定端口），全部 2xx 才算通过；(3) 静态安全审查（3.2）在每轮试运行前重跑，错误清单经 stderr 回流给 LLM；(4) 无依赖安装环节（Agent 运行于项目 venv，ModuleNotFoundError 反馈引导 LLM 改用已安装/标准库模块）；(5) LLM 整文件重写丢失模板机械生成的 `_call_tool_*`/`_call_api_*` 辅助方法时按模板自动补回。多 Agent 协作类测试场景（模拟其他 Agent 消息、任务冲突）尚未纳入首版，留待 4.5 通信机制落地后扩展。
 
