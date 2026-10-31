@@ -53,6 +53,8 @@ interface ToolEditorState {
   error: string | null
   debugRounds: DebugRound[]
   debugStream: string
+  reasoningStream: string  // 模型思考过程（reasoning 事件累加）
+  generationAbort: AbortController | null
 
   setDescription: (text: string) => void
   setReferenceCode: (code: string) => void
@@ -65,6 +67,7 @@ interface ToolEditorState {
   setSelectedMode: (mode: string) => void
   generateSpec: () => Promise<void>
   generateCode: () => Promise<void>
+  stopGeneration: () => void
   runTest: (files?: File[]) => Promise<void>
   stopTest: () => void
   autoDebug: (files?: File[]) => Promise<void>
@@ -99,7 +102,7 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
   step: 1, description: '', referenceCode: '', generatedMd: '', generatedCode: '', tags: [],
   params: [], modes: [], selectedMode: '', testInputs: {}, testOutput: null, registeredId: null,
   isGenerating: false, isTesting: false, isAutoDebugging: false, abortController: null, testAbortController: null, error: null,
-  debugRounds: [], debugStream: '',
+  debugRounds: [], debugStream: '', reasoningStream: '', generationAbort: null,
   editingToolId: null, editingToolName: '', baselineCode: '', baselineMd: '',
   saveState: 'idle', saveError: null,
 
@@ -240,6 +243,7 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
     testInputs: {}, testOutput: null, registeredId: null,
     isGenerating: false, isTesting: false, isAutoDebugging: false,
     error: null, debugRounds: [], debugStream: '', params: [], modes: [], selectedMode: '',
+    reasoningStream: '', generationAbort: null,
     editingToolId: null, editingToolName: '', baselineCode: '', baselineMd: '',
   saveState: 'idle', saveError: null,
   }),
@@ -247,16 +251,34 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
   generateSpec: async () => {
     const { description, referenceCode } = get()
     if (!description.trim()) return
-    set({ isGenerating: true, error: null })
+
+    const abort = new AbortController()
+    set({ isGenerating: true, error: null, generatedMd: '', reasoningStream: '', step: 2, generationAbort: abort })
     try {
-      const result = await toolApi.generateSpec(description, referenceCode)
-      set({ generatedMd: result.spec_md, tags: result.tags || [], step: 2, isGenerating: false })
+      const result = await toolApi.generateSpec(
+        description, referenceCode,
+        (token) => set((s) => ({ generatedMd: s.generatedMd + token })),
+        (token) => set((s) => ({ reasoningStream: s.reasoningStream + token })),
+        abort.signal,
+      )
+      set({ generatedMd: result.spec_md, tags: result.tags || [], isGenerating: false, generationAbort: null })
       // 文档生成后，后台预生成「人话摘要」。
       // 摘要需调用推理模型，实测约 30 秒——不能并入主流程（会让生成文档
       // 从 27 秒变成 57 秒，产生卡死感）。因此这里后台静默发起，
       // 结果由后端按文档内容缓存；使用者点开概览时通常已就绪。
       void get().prefetchSummaries()
-    } catch (e) { set({ error: String(e), isGenerating: false }) }
+    } catch (e) {
+      if (abort.signal.aborted) {
+        set({ isGenerating: false, generationAbort: null })
+        return
+      }
+      set({ error: String(e), isGenerating: false, generationAbort: null })
+    }
+  },
+
+  stopGeneration: () => {
+    const { generationAbort } = get()
+    generationAbort?.abort()
   },
 
   // 后台预生成摘要：不设置 isGenerating，避免阻塞界面交互

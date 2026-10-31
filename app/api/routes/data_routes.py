@@ -7,6 +7,7 @@ import json as _json
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
+from sse_starlette.sse import EventSourceResponse
 
 from app.api.schemas.data_schemas import (
     ScanDirectoryRequest,
@@ -142,7 +143,7 @@ async def scan_directory(req: ScanDirectoryRequest):
 
 @router.post("/generate-spec")
 async def generate_spec(req: GenerateDataSpecRequest):
-    """NL + 文件信息（含描述） → MD 数据集描述文档"""
+    """NL + 文件信息（含描述） → MD 数据集描述文档（SSE 流式）"""
     context_lines = ["数据文件列表:"]
     for f in req.files:
         size_str = f"{f['size'] / 1024:.1f}KB" if f.get('size', 0) < 1048576 else f"{f.get('size', 0) / 1048576:.1f}MB"
@@ -150,38 +151,53 @@ async def generate_spec(req: GenerateDataSpecRequest):
         desc_str = f" — {desc}" if desc else ""
         context_lines.append(f"- {f.get('name', 'unknown')} ({f.get('format', 'unknown')}, {size_str}){desc_str}")
 
-    response = await llm.chat(
-        messages=[
-            {"role": "system", "content": SPEC_PROMPT},
-            {"role": "user", "content": f"数据集描述: {req.description}\n\n" + "\n".join(context_lines)},
-        ],
-        temperature=0.3, max_tokens=100000,
-    )
-    spec_md = response.strip()
+    async def event_stream():
+        try:
+            full = ""
+            async for kind, token in llm.chat_stream_events(
+                messages=[
+                    {"role": "system", "content": SPEC_PROMPT},
+                    {"role": "user", "content": f"数据集描述: {req.description}\n\n" + "\n".join(context_lines)},
+                ],
+                temperature=0.3, max_tokens=100000,
+            ):
+                if kind == "reasoning":
+                    yield {"event": "reasoning", "data": _json.dumps({"token": token}, ensure_ascii=False)}
+                else:
+                    full += token
+                    yield {"event": "delta", "data": _json.dumps({"token": token}, ensure_ascii=False)}
 
-    # 同时生成标签
-    tags = []
-    try:
-        tag_response = await llm.chat(
-            messages=[{
-                "role": "user",
-                "content": f"""根据以下数据集信息，生成3-5个简短的中文标签（每个2-4字），用于数据集分类和检索。只输出 JSON 数组，不要输出任何其他内容。
+            spec_md = full.strip()
+
+            # 同时生成标签（小调用，非流式，在 done 里返回）
+            tags = []
+            try:
+                tag_response = await llm.chat(
+                    messages=[{
+                        "role": "user",
+                        "content": f"""根据以下数据集信息，生成3-5个简短的中文标签（每个2-4字），用于数据集分类和检索。只输出 JSON 数组，不要输出任何其他内容。
 
 数据集描述: {req.description}
 {spec_md[:300]}
 
 返回格式: ["标签1", "标签2", "标签3"]"""
-            }],
-            temperature=0.3, max_tokens=1000, timeout=30,
-        )
-        tags = _extract_tags_json(tag_response)
-        if not tags:
-            matches = re.findall(r'[\u4e00-\u9fff]{2,4}', tag_response)
-            tags = list(dict.fromkeys(matches))[:5]
-    except Exception:
-        pass
+                    }],
+                    temperature=0.3, max_tokens=1000, timeout=30,
+                )
+                tags = _extract_tags_json(tag_response)
+                if not tags:
+                    matches = re.findall(r'[\u4e00-\u9fff]{2,4}', tag_response)
+                    tags = list(dict.fromkeys(matches))[:5]
+            except Exception:
+                pass
 
-    return {"spec_md": spec_md, "tags": tags}
+            yield {"event": "done", "data": _json.dumps({"spec_md": spec_md, "tags": tags}, ensure_ascii=False)}
+
+        except Exception as exc:
+            detail = exc.detail if isinstance(exc, HTTPException) else f"{type(exc).__name__}: {exc}"
+            yield {"event": "error", "data": _json.dumps({"detail": detail}, ensure_ascii=False)}
+
+    return EventSourceResponse(event_stream())
 
 
 @router.post("/register")

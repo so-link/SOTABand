@@ -148,7 +148,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 @router.post("/generate-spec")
 async def generate_spec(req: GenerateToolSpecRequest):
-    """NL → MD 规范文档。如有 reference_code，完整复制到执行流程部分。"""
+    """NL → MD 规范文档（SSE 流式）。如有 reference_code，完整复制到执行流程部分。"""
     if not req.description.strip():
         raise HTTPException(400, "描述不能为空")
 
@@ -165,39 +165,56 @@ async def generate_spec(req: GenerateToolSpecRequest):
 """
 
     today = datetime.now().strftime("%Y-%m-%d")
-    # 动态注入当前日期，替换模板中的 {日期} 占位符
     system_prompt = SPEC_PROMPT.replace("{日期}", today)
 
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_content},
     ]
-    spec_md = await llm.chat(messages=messages, temperature=0.3, max_tokens=100000)
 
-    # 同时生成标签
-    tags: list[str] = []
-    try:
-        tag_prompt = f"""根据以下工具信息，生成3-5个简短的中文标签（每个2-4字），用于工具分类和检索。只输出 JSON 数组，不要输出任何其他内容。
+    async def event_stream():
+        try:
+            full = ""
+            async for kind, token in llm.chat_stream_events(
+                messages=messages, temperature=0.3, max_tokens=100000,
+            ):
+                if kind == "reasoning":
+                    yield {"event": "reasoning", "data": _json.dumps({"token": token}, ensure_ascii=False)}
+                else:
+                    full += token
+                    yield {"event": "delta", "data": _json.dumps({"token": token}, ensure_ascii=False)}
+
+            spec_md = full.strip()
+
+            # 同时生成标签（小调用，非流式，在 done 里返回）
+            tags: list[str] = []
+            try:
+                tag_prompt = f"""根据以下工具信息，生成3-5个简短的中文标签（每个2-4字），用于工具分类和检索。只输出 JSON 数组，不要输出任何其他内容。
 
 工具描述: {req.description[:500]}
 生成的 MD 规范: {spec_md[:300]}
 
 返回格式: ["标签1", "标签2", "标签3"]"""
-        tag_response = await llm.chat(
-            messages=[{"role": "user", "content": tag_prompt}],
-            temperature=0.3, max_tokens=1000,
-        )
-        tags = _extract_tags_json(tag_response) or []
-        if not tags:
-            import re
-            matches = re.findall(r'[\u4e00-\u9fff]{2,4}', tag_response)
-            tags = list(dict.fromkeys(matches))[:5]
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        print(f"[generate-spec] 标签生成失败: {e}")
+                tag_response = await llm.chat(
+                    messages=[{"role": "user", "content": tag_prompt}],
+                    temperature=0.3, max_tokens=1000,
+                )
+                tags = _extract_tags_json(tag_response) or []
+                if not tags:
+                    matches = re.findall(r'[\u4e00-\u9fff]{2,4}', tag_response)
+                    tags = list(dict.fromkeys(matches))[:5]
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                print(f"[generate-spec] 标签生成失败: {e}")
 
-    return {"spec_md": spec_md, "tags": tags}
+            yield {"event": "done", "data": _json.dumps({"spec_md": spec_md, "tags": tags}, ensure_ascii=False)}
+
+        except Exception as exc:
+            detail = exc.detail if isinstance(exc, HTTPException) else f"{type(exc).__name__}: {exc}"
+            yield {"event": "error", "data": _json.dumps({"detail": detail}, ensure_ascii=False)}
+
+    return EventSourceResponse(event_stream())
 
 
 @router.post("/generate-code")

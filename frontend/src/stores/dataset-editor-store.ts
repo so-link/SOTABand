@@ -24,6 +24,8 @@ interface DatasetEditorState {
   isGenerating: boolean
   error: string | null
   uploadSubdir: string  // 上传时间戳目录，同一数据集的多次上传共用
+  reasoningStream: string  // 模型思考过程（reasoning 事件累加）
+  generationAbort: AbortController | null
 
   setDescription: (text: string) => void
   setGeneratedMd: (md: string) => void
@@ -32,6 +34,7 @@ interface DatasetEditorState {
   uploadFile: (file: File) => Promise<void>
   removeFile: (fileId: string) => void
   generateSpec: () => Promise<void>
+  stopGeneration: () => void
   register: () => Promise<void>
   reset: () => void
 }
@@ -39,6 +42,7 @@ interface DatasetEditorState {
 export const useDatasetEditorStore = create<DatasetEditorState>((set, get) => ({
   step: 1, files: [], description: '', generatedMd: '', registeredId: null,
   isGenerating: false, error: null, uploadSubdir: '',
+  reasoningStream: '', generationAbort: null,
 
   setDescription: (text) => set({ description: text }),
   setGeneratedMd: (md) => set({ generatedMd: md }),
@@ -92,22 +96,40 @@ export const useDatasetEditorStore = create<DatasetEditorState>((set, get) => ({
   reset: () => set({
     step: 1, files: [], description: '', generatedMd: '', registeredId: null,
     isGenerating: false, error: null, uploadSubdir: '',
+    reasoningStream: '', generationAbort: null,
   }),
 
   generateSpec: async () => {
     const { description, files } = get()
     if (!description.trim() && files.length === 0) return
-    set({ isGenerating: true, error: null })
+
+    const abort = new AbortController()
+    set({ isGenerating: true, error: null, generatedMd: '', reasoningStream: '', step: 2, generationAbort: abort })
     try {
-      // 构建带文件描述的信息传给后端
       const fileDescs = files.map(f => ({
         name: f.fileName, format: f.format, size: f.fileSize,
         description: f.description || '',
         path: f.filePath,
       }))
-      const result = await dataApi.generateSpec(description, fileDescs as unknown as Record<string, unknown>[])
-      set({ generatedMd: result.spec_md, step: 2, isGenerating: false })
-    } catch (e) { set({ error: e instanceof Error ? e.message : String(e), isGenerating: false }) }
+      const result = await dataApi.generateSpec(
+        description, fileDescs as unknown as Record<string, unknown>[],
+        (token) => set((s) => ({ generatedMd: s.generatedMd + token })),
+        (token) => set((s) => ({ reasoningStream: s.reasoningStream + token })),
+        abort.signal,
+      )
+      set({ generatedMd: result.spec_md, isGenerating: false, generationAbort: null })
+    } catch (e) {
+      if (abort.signal.aborted) {
+        set({ isGenerating: false, generationAbort: null })
+        return
+      }
+      set({ error: e instanceof Error ? e.message : String(e), isGenerating: false, generationAbort: null })
+    }
+  },
+
+  stopGeneration: () => {
+    const { generationAbort } = get()
+    generationAbort?.abort()
   },
 
   register: async () => {

@@ -1,13 +1,57 @@
 const BASE_URL = ''
 
+/** 通用 SSE 解析：逐 event 分发，返回 done 事件的 data */
+async function _consumeSse(
+  res: Response,
+  onDelta?: (token: string) => void,
+  onReasoning?: (token: string) => void,
+): Promise<Record<string, unknown>> {
+  const reader = res.body?.getReader()
+  if (!reader) throw new Error('No response body')
+  const decoder = new TextDecoder()
+  let buffer = '', currentEvent = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n'); buffer = lines.pop() || ''
+    for (const line of lines) {
+      if (line.startsWith('event: ')) { currentEvent = line.slice(7).trim() }
+      else if (line.startsWith('data: ')) {
+        let data: Record<string, unknown>
+        try { data = JSON.parse(line.slice(6)) } catch { continue }
+        if (currentEvent === 'delta' && onDelta && typeof data.token === 'string') {
+          onDelta(data.token)
+        } else if (currentEvent === 'reasoning' && onReasoning && typeof data.token === 'string') {
+          onReasoning(data.token)
+        } else if (currentEvent === 'error') {
+          throw new Error(String(data.detail || '生成失败'))
+        } else if (currentEvent === 'done') {
+          return data
+        }
+        currentEvent = ''
+      } else if (line === '') { currentEvent = '' }
+    }
+  }
+  throw new Error('流意外结束，未收到 done 事件')
+}
+
 export const dataApi = {
-  async generateSpec(description: string, files: Array<Record<string, unknown>>) {
+  async generateSpec(
+    description: string,
+    files: Array<Record<string, unknown>>,
+    onDelta?: (token: string) => void,
+    onReasoning?: (token: string) => void,
+    signal?: AbortSignal,
+  ): Promise<{ spec_md: string; tags: string[] }> {
     const res = await fetch(`${BASE_URL}/api/data/generate-spec`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ description, files }),
+      signal,
     })
     if (!res.ok) throw new Error((await res.json().catch(() => ({ detail: res.statusText }))).detail)
-    return res.json() as Promise<{ spec_md: string }>
+    const data = await _consumeSse(res, onDelta, onReasoning)
+    return data as { spec_md: string; tags: string[] }
   },
 
   async scanDirectory(path: string) {

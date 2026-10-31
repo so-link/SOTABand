@@ -514,15 +514,61 @@ function OutlineSection({
   )
 }
 
+// ── 模型思考过程面板（reasoning 事件流式展示） ───────────────
+function ReasoningPanel({ text, active }: { text: string; active: boolean }) {
+  const ref = useRef<HTMLPreElement>(null)
+  const [collapsed, setCollapsed] = useState(false)
+
+  useEffect(() => {
+    if (active) setCollapsed(false)
+    else setCollapsed(true)
+  }, [active])
+
+  useEffect(() => {
+    if (active && !collapsed && ref.current) ref.current.scrollTop = ref.current.scrollHeight
+  }, [text, active, collapsed])
+
+  if (!text && !active) return null
+
+  return (
+    <div className="mb-3 rounded-lg border border-maia-border bg-maia-bg/40">
+      <button
+        type="button"
+        onClick={() => setCollapsed((c) => !c)}
+        className="flex items-center gap-1.5 w-full px-3 py-1.5 text-[12px] text-maia-text-muted border-b border-maia-border hover:text-maia-text"
+      >
+        {active ? <Loader2 className="h-3 w-3 animate-spin text-maia-accent" /> : <span>🧠</span>}
+        <span className="mr-auto">{active ? '模型思考中…' : `模型思考过程（${text.length} 字）`}</span>
+        {active ? <span className="text-maia-text-muted/70">思考内容实时输出</span> : <span className="text-maia-accent">{collapsed ? '展开' : '收起'}</span>}
+      </button>
+      {!collapsed && (
+        <pre
+          ref={ref}
+          className="px-3 py-2 max-h-[160px] overflow-auto text-[12px] font-mono whitespace-pre-wrap break-all text-maia-text-secondary leading-relaxed"
+        >
+          {text || '等待模型输出…'}
+        </pre>
+      )}
+    </div>
+  )
+}
+
 function Step2() {
-  const { generatedMd, setGeneratedMd, tags, addTag, removeTag, generateCode, setStep, isGenerating, error,
-          editingToolId, editingToolName } = useToolEditorStore()
+  const { generatedMd, setGeneratedMd, tags, addTag, removeTag, generateCode, stopGeneration, setStep, isGenerating, error,
+          reasoningStream, editingToolId, editingToolName } = useToolEditorStore()
   const [editing, setEditing] = useState(false)
   const [newTag, setNewTag] = useState('')
   const isEditMode = Boolean(editingToolId)
   // Markdown 用 2 空格缩进
   const onTabIndent = useTabIndent('  ')
   const notifyEdit = useToolEditorStore((s) => s.notifyEdit)
+  const mdRef = useRef<HTMLTextAreaElement>(null)
+
+  // 流式输出时自动滚动到底部
+  useEffect(() => {
+    if (mdRef.current) mdRef.current.scrollTop = mdRef.current.scrollHeight
+  }, [generatedMd])
+
   // 内容变更后标记「未保存」（仅对已注册工具生效）
   const handleMdChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setGeneratedMd(e.target.value)
@@ -540,6 +586,9 @@ function Step2() {
     if (t) { addTag(t); setNewTag(''); setEditing(false) }
   }
 
+  // 生成中且尚无正文时，只显示思考面板，不显示空白编辑区
+  const showEditor = !isGenerating || generatedMd.trim().length > 0
+
   return (
     <div className="max-w-3xl mx-auto">
       <h3 className="text-lg font-semibold text-maia-text-heading mb-2">Step 2: 审阅 &amp; 编辑 MD 规范文档</h3>
@@ -548,6 +597,8 @@ function Step2() {
           ? <>正在编辑已有工具 <span className="text-amber-500">{editingToolName || editingToolId}</span>，以下是其现有规范文档，可直接修改后重新生成代码。</>
           : '以下是 AI 生成的工具规范文档，你可以直接编辑修改。'}
       </p>
+
+      <ReasoningPanel text={reasoningStream} active={isGenerating} />
 
       {/* 标签 — 与 ToolDetailView 保持一致的内联风格 */}
       <div className="flex items-center gap-1 mb-3">
@@ -592,14 +643,30 @@ function Step2() {
         />
       )}
 
-      <textarea value={generatedMd} onChange={handleMdChange} onKeyDown={onTabIndent} rows={18}
-        className="w-full rounded-lg border border-maia-border bg-maia-bg/50 px-4 py-3 text-[13px] font-mono outline-none resize-y focus:border-maia-accent/40" spellCheck={false} />
+      {showEditor && (
+        <textarea
+          ref={mdRef}
+          value={generatedMd}
+          onChange={handleMdChange}
+          onKeyDown={onTabIndent}
+          rows={18}
+          readOnly={isGenerating}
+          className="w-full rounded-lg border border-maia-border bg-maia-bg/50 px-4 py-3 text-[13px] font-mono outline-none resize-y focus:border-maia-accent/40"
+          spellCheck={false}
+        />
+      )}
       {error && <div className="flex items-center gap-1.5 mt-2 text-[13px] text-maia-danger"><XCircle className="h-3 w-3" />{error}</div>}
       <div className="flex justify-between mt-4">
-        <Button variant="outline" onClick={() => setStep(1)}><ArrowLeft className="h-3.5 w-3.5" />返回修改需求</Button>
-        <Button onClick={generateCode} disabled={!generatedMd.trim() || isGenerating}>
-          {isGenerating ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />生成中...</> : <>生成代码和测试<ArrowRight className="h-3.5 w-3.5" /></>}
-        </Button>
+        <Button variant="outline" onClick={() => setStep(1)} disabled={isGenerating}><ArrowLeft className="h-3.5 w-3.5" />返回修改需求</Button>
+        {isGenerating ? (
+          <Button variant="outline" onClick={stopGeneration}>
+            <XCircle className="h-3.5 w-3.5" />中止生成
+          </Button>
+        ) : (
+          <Button onClick={generateCode} disabled={!generatedMd.trim()}>
+            生成代码和测试<ArrowRight className="h-3.5 w-3.5" />
+          </Button>
+        )}
       </div>
     </div>
   )
