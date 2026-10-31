@@ -465,7 +465,7 @@ POST /api/data/match-tools {dataset_id, request}
 | 端点 | 方法 | 说明 |
 |------|------|------|
 | `/api/data/scan-directory` | POST | 扫描目录，返回文件列表、总数、格式与逐个文件大小 |
-| `/api/data/generate-spec` | POST | NL + 文件信息（含描述）→ MD 数据集描述 + 3-5 个标签 |
+| `/api/data/generate-spec` | POST (SSE) | NL + 文件信息（含描述）→ MD 数据集描述 + 3-5 个标签（流式） |
 | `/api/data/register` | POST | 注册数据集（文件保持原位置不复制；后台匹配预览工具） |
 | `/api/data/repository` | GET | 数据集仓库列表，含标签统计与缩略图/首句预览 |
 | `/api/data/list` | GET | 按归属隔离列出数据集（`available_only` / `include_others` 可选） |
@@ -475,9 +475,9 @@ POST /api/data/match-tools {dataset_id, request}
 | `/api/data/match-tools` | POST | 根据数据集与需求，LLM 语义匹配可用工具 |
 | `/api/data/{id}/preview` | GET | 预览：解析文件列表 + 读缓存的 `preview_tool`（不自动执行） |
 | `/api/data/search/find` | GET | 按关键词/标签搜索数据集（`?q=&tags=`） |
-| `/api/data/{id}` | DELETE | 删除数据集（移除注册表条目、MD 文档，并删除数据目录） |
+| `/api/data/{id}` | DELETE | 删除数据集（移除注册表条目与 MD 文档；仅托管目录内的数据副本会被删除） |
 
-> `DELETE` 会删除 `data_path` 指向的原始数据目录（已解析为绝对路径，并兜底拒绝删除数据根目录本身）；注册不复制，因此删除即删除原文件，操作不可逆。
+> `DELETE` 只删除位于托管目录（私有根 `data/datasets/`）之内的数据副本；`data_path` 指向托管目录之外的源文件（如上传时的原位置）时仅注销条目、不动源文件。响应以 `files_removed` 标记文件是否真的被删除，并兜底拒绝删除数据根目录本身。
 
 ---
 

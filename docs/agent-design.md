@@ -13,7 +13,7 @@
 SOTABand Engine 启动时，**交互 Agent（Interactive Agent）作为第一个 Agent 自动拉起**。它是系统的默认入口，无需用户手动创建；同时它也支持被用户手动关闭 / 重启（见 `agent_routes` 的 start/stop/restart）。
 
 ```
-系统启动 (uvicorn app.main:app，端口由 .env 的 SOTABAND_API_HOST/PORT 配置，默认 0.0.0.0:8201)
+系统启动 (uvicorn app.main:app，端口由 .env 的 SOTABAND_API_HOST/PORT 配置，默认 127.0.0.1:8201)
     │
     ├── FastAPI lifespan 启动
     │   └── ensure_default_interactive_agent()（幂等）
@@ -113,7 +113,7 @@ agent_factory.execute_stream("interactive-agent", params, context)
 
 - **Step 1 描述需求**：自然语言输入，选择角色类型（interactive / task / web-service，带模板确认对话框）
 - **Step 2 审阅 MD 规范文档**：LLM 生成的 MD 全文可编辑，确认后进入代码生成
-- **Step 3 沙箱测试 & 自动调试**：展示生成代码与静态校验结果列表（通过/失败），并提供按规范文档（task 输入规范表 / web-service ```apis 声明）解析出的测试参数表单，一键「自动调试」——后端沙箱试运行 Agent 子进程 → LLM 分析错误重写代码 → 再跑（SSE 流式展示每轮结果，最多 50 轮，可随时停止）；`agent-detail` 视图另行提供「AI 辅助修改」通道
+- **Step 3 沙箱测试 & 自动调试**：展示生成代码与静态校验结果列表（通过/失败），并提供按规范文档（task 输入规范表 / web-service ```apis 声明）解析出的测试参数表单，一键「自动调试」——后端沙箱试运行 Agent 子进程（单轮超时 `DEBUG_EXEC_TIMEOUT`，Agent 默认 180 秒）→ LLM 分析错误重写代码 → 再跑（SSE 流式展示每轮结果，默认最多 10 轮，可经系统设置/`DEBUG_MAX_ROUNDS` 调整，上限 100）；可随时停止（前端 AbortController 断流 + `POST /api/agent/auto-debug/stop` 兜底）；`agent-detail` 视图另行提供「AI 辅助修改」通道
 - **Step 4 注册 & 启动**：注册到 Agent 空间，可立即启动进程并做健康检查
 
 ### 3.3 Agent 编辑器状态机
@@ -141,7 +141,7 @@ agent_factory.execute_stream("interactive-agent", params, context)
 frontend/src/components/center-panel/AgentEditorView.tsx   # Agent 编辑器主视图
 frontend/src/components/center-panel/AgentDetailView.tsx   # Agent 详情/运行/AI辅助修改
 frontend/src/stores/agent-editor-store.ts                   # 编辑器状态管理
-frontend/src/services/api/agent.ts                          # Agent CRUD API 调用
+frontend/src/services/api/agent.ts                          # Agent CRUD API 调用 + SSE 流式消费（AbortSignal 可中止）
 ```
 
 ---
@@ -167,11 +167,12 @@ frontend/src/services/api/agent.ts                          # Agent CRUD API 调
 
 点击 [生成 MD 文档]
     ↓
-前端 POST /api/agent/generate-spec { "description": "我需要一个能...", "role": "task" }
+前端 POST /api/agent/generate-spec { "description": "我需要一个能...", "role": "task" }（SSE）
     ↓
-FastAPI → 调用 LLM（规格化专用 Prompt，按所选角色附加针对性指引）
+FastAPI → 调用 LLM（规格化专用 Prompt，按所选角色附加针对性指引；
+描述中的【【工具名】】/【API名】引用会先查出参数信息注入上下文）
     ↓
-LLM 根据描述填充标准模板 → 返回完整 MD 文档
+LLM 流式生成 MD 文档 → 逐 token 下发 reasoning（思考）/ delta（正文）事件，done 事件带回完整 MD
     ↓
 前端 Agent 编辑器 Step 2 展示生成的 MD 文档，用户可编辑修改任何字段
     ↓
@@ -242,9 +243,10 @@ resources/agents/implementations/{agent-id}/   （内置根；用户生成的写
 ```
 用户点击 [→ 生成 Agent]
     ↓
-AgentBuilder 生成 agent.py
+前端 POST /api/agent/generate-code（SSE）→ AgentCodeBuilder.build() 生成 agent.py，
+execute 体逐 token 流式展示（reasoning / delta 事件）
     ↓
-静态校验（语法 / BaseAgent 子类存在 / 抽象方法实现）→ 常见错误自动修正
+静态校验（语法 / BaseAgent 子类存在 / 抽象方法实现）→ 常见错误自动修正 → 沙箱试运行（dry_run）
     ↓
 结果展示在 Agent 编辑器 Step 3:
   ├── 左侧: 代码预览（可手工微调）
@@ -259,17 +261,19 @@ AgentBuilder 生成 agent.py
 ```
 用户点击 [✅ 批准并注册上线]
     ↓
-AgentRegistry (core/resource/registry/agent_registry.py)
-    ├── 1. 校验 MD 规范文档与代码有效性
-    ├── 2. 分配唯一 Agent ID，写入 registry.json
-    ├── 3. 写入实现目录（agent.py / config.yaml）
+POST /api/agent/register（agent_routes）
+    ├── 1. Agent ID 取自 MD frontmatter 的 id 字段（缺省 custom-agent），
+    │      经 RESOURCE_ID_RE 校验拒绝路径穿越；代码先过静态安全审查
+    ├── 2. AgentRegistry.register 写入私有根 registry.json
+    │      （含从【【工具名】】引用解析出的 required_tools）
+    ├── 3. 路由写入实现目录（agent.py / spec.md / config.yaml，私有根）
     └── 4. Web 服务式 Agent 注册后自动生成对外 API 文档
          （api_doc_builder，见 /api/agent/{id}/api-doc）
     ↓
 Agent 空间自动刷新 → 前端左侧面板可看到新 Agent
 ```
 
-注册采用「读合并 / 写私有」模型：读取时合并内置根与私有根，写入只落私有根，内置资产不被覆盖。注册与 save-code 的代码先过 `core/security/code_scan.py` 静态安全审查（与工具同一闸门，todo 3.2），命中阻断项返回 400、不落盘。
+注册采用「读合并 / 写私有」模型：读取时合并内置根与私有根，注册写入只落私有根。例外是 `save-spec` / `save-code`：它们优先写回文件的原位置（内置资产就地更新），原位置不存在时才写私有根。注册与 save-code 的代码先过 `core/security/code_scan.py` 静态安全审查（与工具同一闸门，todo 3.2），命中阻断项返回 400、不落盘。
 
 ---
 
@@ -299,6 +303,7 @@ Agent 空间自动刷新 → 前端左侧面板可看到新 Agent
 
 - `/api/chat/send` 的对话流 `timeout=None`：不设总超时，由用户通过停止按钮（`/api/chat/stop`）主动中断
 - `AgentFactory.execute_stream` 默认总超时 120s，空闲容忍 `max(600s, timeout)`；长任务场景由调用方显式传 `timeout=None`
+- 自动调试的单轮沙箱试运行超时与最大轮数为运行参数：`DEBUG_EXEC_TIMEOUT`（Agent 默认 180 秒）、`DEBUG_MAX_ROUNDS`（默认 10，上限 100），可在系统设置页调整并写入 `.env` 热生效
 - 主进程退出（lifespan shutdown）时遍历停止全部 Agent 子进程
 
 ### 7.3 自动重建
@@ -335,8 +340,12 @@ model   : 代码赋值 > LLM_MODEL（仅默认 provider）> <PROVIDER>_MODEL > �
 |------|------|------|--------|
 | `/api/chat/send` | POST (SSE) | 与交互Agent 对话 | 前端对话视图 |
 | `/api/chat/stop` | POST | 停止指定 session 的对话 | 前端对话视图 |
-| `/api/agent/generate-spec` | POST | 自然语言 → MD 规范文档 | 前端 Agent 编辑器 (Step 1→2) |
-| `/api/agent/generate-code` | POST | MD 规范文档 → Python 代码 + 校验 | 前端 Agent 编辑器 (Step 2→3) |
+| `/api/agent/generate-spec` | POST (SSE) | 自然语言 → MD 规范文档（流式） | 前端 Agent 编辑器 (Step 1→2) |
+| `/api/agent/generate-code` | POST (SSE) | MD 规范文档 → Python 代码 + 校验（流式） | 前端 Agent 编辑器 (Step 2→3) |
+| `/api/agent/auto-debug` | POST (SSE) | 自动调试循环（沙箱试运行 → LLM 重写 → 再跑） | 前端 Agent 编辑器 (Step 3) |
+| `/api/agent/auto-debug/stop` | POST | 停止指定 Agent 的自动调试 | 前端 Agent 编辑器 (Step 3) |
+| `/api/agent/bus/publish` `/call` | POST | 外部系统接入 Agent 间通信总线 | 外部集成 |
+| `/api/agent/bus/status` | GET | 总线状态（频道 / 订阅 / RPC） | 外部集成 |
 | `/api/agent/register` | POST | 注册 Agent（落盘 + 写 registry） | 前端 Agent 编辑器 (Step 3→4) |
 | `/api/agent/list` | GET | 列出所有 Agent | 前端资源空间 |
 | `/api/agent/{id}` | GET | 单个 Agent 详情（spec/code/config） | 前端详情页 |
