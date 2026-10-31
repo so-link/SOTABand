@@ -4,7 +4,6 @@ import {
   Group,
   Separator,
   usePanelRef,
-  type Layout,
 } from 'react-resizable-panels'
 import { TopBar } from '@/components/topbar/TopBar'
 import { StatusBar } from '@/components/status-bar/StatusBar'
@@ -18,17 +17,26 @@ import { useWorkspaceToolStore } from '@/stores/workspace-tool-store'
 
 const STORAGE_KEY = 'maia-layout'
 
-const DEFAULT_LAYOUT = [38, 40, 22] // left, center, right in %
+// 侧栏用固定像素宽度，把剩余空间全部留给中间工作区。
+// 之前用 38/40/22 百分比，窗口一宽侧栏就跟着膨胀（2048 宽时左栏约 778px），
+// 中间栏反而被挤到 819px，Agent 审阅/代码区两侧出现大片空白。
+const DEFAULT_LAYOUT = { left: 320, right: 360 }
 
-function loadLayout(): number[] | null {
+function loadLayout(): { left: number; right: number } {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) return JSON.parse(raw)
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      // 兼容旧版百分比数组：不能直接当像素用，丢弃后走新默认值
+      if (parsed && !Array.isArray(parsed) && typeof parsed.left === 'number' && typeof parsed.right === 'number') {
+        return parsed
+      }
+    }
   } catch { /* ignore */ }
-  return null
+  return DEFAULT_LAYOUT
 }
 
-function saveLayout(layout: number[]) {
+function saveLayout(layout: { left: number; right: number }) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(layout))
   } catch { /* ignore */ }
@@ -40,7 +48,7 @@ export function MainLayout() {
   const fetchAllResources = useResourceStore((s) => s.fetchAllResources)
   const leftRef = usePanelRef()
   const rightRef = usePanelRef()
-  const initialLayout = useRef(loadLayout() || DEFAULT_LAYOUT)
+  const initialLayout = useRef(loadLayout())
 
   useEffect(() => {
     loadTree()
@@ -68,16 +76,17 @@ export function MainLayout() {
     else rightRef.current?.collapse()
   }, [rightPanelOpen, rightRef])
 
-  const handleLayoutChange = useCallback((layout: Layout) => {
-    const raw = [
-      layout['panel-left'] ?? DEFAULT_LAYOUT[0],
-      layout['panel-center'] ?? DEFAULT_LAYOUT[1],
-      layout['panel-right'] ?? DEFAULT_LAYOUT[2],
-    ]
-    // 折叠中的面板尺寸为 0，不要把 0 写进存储，否则下次启动会一直是收起状态
-    const sizes = raw.map((v, i) => (Math.round(v) <= 0 ? DEFAULT_LAYOUT[i] : Math.round(v)))
-    saveLayout(sizes)
-  }, [])
+  const handleLayoutChange = useCallback(() => {
+    // 百分比会随窗口尺寸变化，存下来恢复会失真；这里直接读面板的实际像素宽度。
+    // 折叠中的面板宽度为 0，此时保留上一次保存值，避免下次启动仍是收起状态。
+    const left = leftRef.current?.isCollapsed() ? null : leftRef.current?.getSize().inPixels
+    const right = rightRef.current?.isCollapsed() ? null : rightRef.current?.getSize().inPixels
+    const prev = loadLayout()
+    saveLayout({
+      left: left ? Math.round(left) : prev.left,
+      right: right ? Math.round(right) : prev.right,
+    })
+  }, [leftRef, rightRef])
 
   return (
     <div className="flex flex-col h-full">
@@ -91,10 +100,11 @@ export function MainLayout() {
           <Panel
             id="panel-left"
             panelRef={leftRef}
-            defaultSize={`${initialLayout.current[0]}%`}
-            minSize={'18%'}
+            defaultSize={initialLayout.current.left}
+            minSize={240}
+            maxSize={480}
             collapsible
-            collapsedSize={'0%'}
+            collapsedSize={0}
           >
             <LeftPanel />
           </Panel>
@@ -103,8 +113,7 @@ export function MainLayout() {
 
           <Panel
             id="panel-center"
-            defaultSize={`${initialLayout.current[1]}%`}
-            minSize={'20%'}
+            minSize={420}
           >
             <CenterPanel />
           </Panel>
@@ -114,10 +123,11 @@ export function MainLayout() {
           <Panel
             id="panel-right"
             panelRef={rightRef}
-            defaultSize={`${initialLayout.current[2]}%`}
-            minSize={'18%'}
+            defaultSize={initialLayout.current.right}
+            minSize={280}
+            maxSize={560}
             collapsible
-            collapsedSize={'0%'}
+            collapsedSize={0}
           >
             <RightPanel />
           </Panel>
