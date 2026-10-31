@@ -530,10 +530,18 @@ function Step2Review() {
   // Markdown 用 2 空格缩进
   const onTabIndent = useTabIndent('  ')
   const notifyEdit = useAgentEditorStore((s) => s.notifyEdit)
+  const mdRef = useRef<HTMLTextAreaElement>(null)
+  // 流式输出时自动滚动到底部，始终看到最新内容
+  useEffect(() => {
+    if (mdRef.current) mdRef.current.scrollTop = mdRef.current.scrollHeight
+  }, [generatedMd])
   const handleMdChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setGeneratedMd(e.target.value)
     notifyEdit()
   }
+
+  // 生成中且尚无正文时，只显示思考面板，不显示空白编辑区
+  const showEditor = !isGenerating || generatedMd.trim().length > 0
 
   return (
     <div className="w-full max-w-5xl mx-auto">
@@ -548,14 +556,17 @@ function Step2Review() {
 
       <ReasoningPanel text={reasoningStream} active={isGenerating && !generatedMd.trim()} />
 
-      <textarea
-        value={generatedMd}
-        onChange={handleMdChange}
-        onKeyDown={onTabIndent}
-        rows={20}
-        className="w-full rounded-lg border border-maia-border bg-maia-bg/50 px-4 py-3 text-[13px] font-mono outline-none resize-y focus:border-maia-accent/40"
-        spellCheck={false}
-      />
+      {showEditor && (
+        <textarea
+          ref={mdRef}
+          value={generatedMd}
+          onChange={handleMdChange}
+          onKeyDown={onTabIndent}
+          rows={20}
+          className="w-full rounded-lg border border-maia-border bg-maia-bg/50 px-4 py-3 text-[13px] font-mono outline-none resize-y focus:border-maia-accent/40"
+          spellCheck={false}
+        />
+      )}
 
       {error && (
         <div className="flex items-center gap-1.5 mt-2 text-[13px] text-maia-danger">
@@ -606,16 +617,24 @@ function Step3Verify() {
           isAutoDebugging, autoDebug, stopAutoDebug } =
     useAgentEditorStore()
   const [editingCode, setEditingCode] = useState(false)
+  const codeRef = useRef<HTMLTextAreaElement | HTMLPreElement>(null)
 
   // 直接读写 store 中的 generatedCode，确保手工微调后的内容
   // 能被 registerAgent 正确提交（此前用局部 state 会导致改动被丢弃）。
   const code = generatedCode
+
+  // 流式输出时自动滚动代码区到底部
+  useEffect(() => {
+    if (codeRef.current) codeRef.current.scrollTop = codeRef.current.scrollHeight
+  }, [code])
 
   const isEditMode = Boolean(editingAgentId)
   const codeDirty = code.trim() !== baselineCode.trim()
   // Python 代码用 4 空格缩进
   const onCodeTabIndent = useTabIndent('    ')
   const notifyEdit = useAgentEditorStore((s) => s.notifyEdit)
+  // 生成中且尚无代码时，只显示思考面板，不显示空白代码区
+  const showCode = !isGenerating || code.trim().length > 0
   // 代码变更后标记「未保存」
   const handleCodeEdit = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setGeneratedCode(e.target.value)
@@ -684,19 +703,25 @@ function Step3Verify() {
               </button>
             </div>
           </div>
-          {editingCode ? (
-            <textarea
-              value={code}
-              onChange={handleCodeEdit}
-              onKeyDown={onCodeTabIndent}
-              rows={18}
-              className="w-full rounded-lg border border-maia-border bg-maia-bg/50 px-3 py-2 text-[13px] font-mono leading-[22px] outline-none resize-y"
-              spellCheck={false}
-            />
-          ) : (
-            <pre className="rounded-lg border border-maia-border bg-maia-bg/50 px-3 py-2 text-[13px] font-mono leading-[22px] overflow-auto max-h-[350px] whitespace-pre-wrap">
-              {code}
-            </pre>
+          {showCode && (
+            editingCode ? (
+              <textarea
+                ref={codeRef as React.RefObject<HTMLTextAreaElement>}
+                value={code}
+                onChange={handleCodeEdit}
+                onKeyDown={onCodeTabIndent}
+                rows={18}
+                className="w-full rounded-lg border border-maia-border bg-maia-bg/50 px-3 py-2 text-[13px] font-mono leading-[22px] outline-none resize-y"
+                spellCheck={false}
+              />
+            ) : (
+              <pre
+                ref={codeRef as React.RefObject<HTMLPreElement>}
+                className="rounded-lg border border-maia-border bg-maia-bg/50 px-3 py-2 text-[13px] font-mono leading-[22px] overflow-auto max-h-[350px] whitespace-pre-wrap"
+              >
+                {code}
+              </pre>
+            )
           )}
         </div>
 

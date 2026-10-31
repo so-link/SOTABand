@@ -1270,11 +1270,11 @@ stderr: {_safe_stderr}
                 async def _collect_tokens():
                     nonlocal llm_exception
                     try:
-                        async for token in self.llm.chat_stream(
+                        async for kind, token in self.llm.chat_stream_events(
                             messages=debug_messages + [{"role": "user", "content": fix_prompt}],
                             temperature=0.2, max_tokens=32000,
                         ):
-                            await token_q.put(token)
+                            await token_q.put((kind, token))
                     except asyncio.CancelledError:
                         raise
                     except Exception as exc:
@@ -1315,10 +1315,12 @@ stderr: {_safe_stderr}
                         timed_out = True
                         break
                     if get_task in done:
-                        token = get_task.result()
-                        if token is _SENTINEL:
+                        item = get_task.result()
+                        if item is _SENTINEL:
                             break  # LLM 流正常结束（finally 保证 sentinel 必然入队）
-                        full_response += token
+                        kind, token = item
+                        if kind == "content":
+                            full_response += token
                         yield {"event": "thinking_stream", "round": round_num, "token": token}
                         get_task = asyncio.create_task(token_q.get())
 

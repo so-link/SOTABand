@@ -1202,11 +1202,13 @@ stderr: {_safe_stderr}
                 async def _collect_tokens():
                     nonlocal llm_exception
                     try:
-                        async for token in self.llm.chat_stream(
+                        # reasoning 和 content 都推到队列：reasoning 仅用于前端展示
+                        # 「分析中…」，full_response 只累计 content 供后续解析。
+                        async for kind, token in self.llm.chat_stream_events(
                             messages=debug_messages + [{"role": "user", "content": fix_prompt}],
                             temperature=0.2, max_tokens=32000,
                         ):
-                            await token_q.put(token)
+                            await token_q.put((kind, token))
                     except asyncio.CancelledError:
                         raise
                     except Exception as exc:
@@ -1245,10 +1247,13 @@ stderr: {_safe_stderr}
                         timed_out = True
                         break
                     if get_task in done:
-                        token = get_task.result()
-                        if token is _SENTINEL:
+                        item = get_task.result()
+                        if item is _SENTINEL:
                             break
-                        full_response += token
+                        kind, token = item
+                        if kind == "content":
+                            full_response += token
+                        # reasoning 与 content 都推到前端分析区，思考阶段即可见
                         yield {"event": "thinking_stream", "round": round_num, "token": token}
                         get_task = asyncio.create_task(token_q.get())
 
