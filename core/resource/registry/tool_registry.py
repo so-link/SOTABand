@@ -14,6 +14,7 @@
 """
 
 import json
+import re
 import time
 from pathlib import Path
 
@@ -27,6 +28,97 @@ def _write_json(path: Path, data) -> None:
     """写入 JSON 文件（自动创建父目录）。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+# ── 工具引用的归一化（id ↔ 显示名）────────────────────────────────────
+# MD 规范文档里，工具引用常写成显示名（需求描述输入 $ 选工具时自动带出
+# 【【问候程序】】）。而工具实现目录与执行层只认 id。registry 本身就是
+# 「id ↔ name」的唯一权威，故解析逻辑放在这里，供代码生成 / 规范解析 /
+# 接口层共用，避免各处各写一套 JSON 遍历。
+# 注意：这里只读文件，不建目录、不写 registry（可在只读部署下安全调用）。
+
+_CLEAN_RE = re.compile(r"^[\s`'\"【】\[\]]+|[\s`'\"【】\[\]]+$")
+
+
+def normalize_ref(ref) -> str:
+    """去掉【【】】/反引号/引号/首尾空白，得到干净的工具引用。"""
+    if not isinstance(ref, str):
+        return ""
+    s = ref.strip()
+    prev = None
+    while prev != s:
+        prev = s
+        s = _CLEAN_RE.sub("", s)
+    return s.strip()
+
+
+def iter_tool_entries() -> list[dict]:
+    """合并「内置 + 私有」两处 registry.json（私有同 id 覆盖内置）。
+
+    纯读取，不产生任何副作用（不 mkdir / 不写文件）。
+    """
+    merged: dict[str, dict] = {}
+    for root in paths.resource_roots():
+        rf = Path(root) / "tools" / "registry.json"
+        if not rf.exists():
+            continue
+        try:
+            entries = json.loads(rf.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(entries, list):
+            continue
+        for e in entries:
+            if isinstance(e, dict) and str(e.get("id") or "").strip():
+                merged[str(e["id"]).strip()] = e
+    return list(merged.values())
+
+
+def find_tool_entry(ref) -> dict | None:
+    """按「工具 id」或「显示名」查 registry 条目，查不到返回 None。"""
+    ref_n = normalize_ref(ref)
+    if not ref_n:
+        return None
+    entries = iter_tool_entries()
+
+    for e in entries:                                    # 1) id 精确
+        if str(e.get("id") or "").strip() == ref_n:
+            return e
+    for e in entries:                                    # 2) 显示名精确
+        if normalize_ref(e.get("name")) == ref_n:
+            return e
+    low = ref_n.lower()                                  # 3) 大小写不敏感
+    for e in entries:
+        if str(e.get("id") or "").strip().lower() == low:
+            return e
+    for e in entries:
+        if normalize_ref(e.get("name")).lower() == low:
+            return e
+    return None
+
+
+def _impl_exists(tool_id: str) -> bool:
+    for root in paths.resource_roots():
+        if (Path(root) / "tools" / "implementations" / tool_id / "tool.py").exists():
+            return True
+    return False
+
+
+def resolve_tool_id(ref) -> str:
+    """把工具引用（id 或显示名）解析为真实工具 id。
+
+    解析不到时原样返回 —— 由执行层给出「工具不存在」的明确报错，
+    不在这里吞掉错误。
+    """
+    ref_n = normalize_ref(ref)
+    if not ref_n:
+        return ref_n
+    entry = find_tool_entry(ref_n)
+    if entry is not None:
+        return str(entry.get("id") or "").strip() or ref_n
+    if _impl_exists(ref_n):
+        return ref_n
+    return ref_n
 
 
 # 内置资源根（随仓库分发）与私有资源根（本地新建，不入 git）
@@ -58,18 +150,7 @@ class ToolRegistry(BaseRegistry):
 
     def _read(self) -> list[dict]:
         """合并内置与私有 registry（私有同 id 覆盖内置）。"""
-        merged: dict[str, dict] = {}
-        for root in paths.resource_roots():
-            rf = root / "tools" / "registry.json"
-            if not rf.exists():
-                continue
-            try:
-                for e in json.loads(rf.read_text(encoding="utf-8")):
-                    if isinstance(e, dict) and e.get("id"):
-                        merged[e["id"]] = e
-            except Exception:
-                continue
-        return list(merged.values())
+        return iter_tool_entries()
 
     def _write(self, data: list[dict]):
         """写入私有 registry（内置资源不在此维护）。"""

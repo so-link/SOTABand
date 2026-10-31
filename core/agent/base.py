@@ -85,18 +85,22 @@ class AgentSpec:
             ```apis        （Web 服务式：API 列表，JSON 数组）
 
         解析失败时保持原值不变（不抛异常），保证 Agent 仍可加载。
+
+        解析后会把 `flow[].tool` / `apis[].flow[].tool` 里的工具引用统一
+        解析为真实工具 id —— MD 里常写【【显示名】】，而实现目录是按 id
+        命名的，直接用显示名会报「工具代码不存在: .../问候程序/tool.py」。
         """
         if not self.raw_md:
             return
         flow = _extract_fenced_json(self.raw_md, "flow")
         if isinstance(flow, list):
-            self.flow = flow
+            self.flow = _resolve_flow_tools(flow)
         server = _extract_fenced_json(self.raw_md, "server")
         if isinstance(server, dict):
             self.server = server
         apis = _extract_fenced_json(self.raw_md, "apis")
         if isinstance(apis, list):
-            self.apis = apis
+            self.apis = _resolve_api_tools(apis)
 
 
 class BaseAgent(ABC):
@@ -182,6 +186,9 @@ class BaseAgent(ABC):
         优先走本 Agent 的**常驻 Worker**（若该工具已常驻且就绪）——
         省去每次调用重复 import 重型库与加载模型的开销；
         常驻不可用时回退到 ToolExecutor 的一次性子进程执行，保证可用性。
+
+        tool_id 必须是真实工具 id：MD 的 flow/apis 在解析阶段
+        （`parse_structured_fields`）已把显示名归一化成 id。
         """
         params = dict(params or {})
 
@@ -200,25 +207,32 @@ class BaseAgent(ABC):
 
     @staticmethod
     def resolve_refs(value, scope: dict):
-        """解析参数中的 "{...}" 引用（供流程步骤之间传递数据）。
+        """解析参数中的引用（供流程步骤之间传递数据）。
 
-        支持：
-          - 整体引用："{step1.data.model_path}" → 直接取该值（保留原始类型）
-          - 内嵌引用："prefix-{input.name}"  → 字符串插值
+        同时支持单花括号与双花括号两种写法（MD 规范文档中统一用双花括号
+        ``{{...}}``，历史代码里也出现过单花括号）：
+
+          - 整体引用："{{step1.data.model_path}}" → 直接取该值（保留原始类型）
+          - 内嵌引用："prefix-{{input.name}}"      → 字符串插值
         """
         if isinstance(value, str):
-            # 整体引用：整个字符串就是一个 {..} 表达式 → 返回原始值
             stripped = value.strip()
+            # 整体引用（双花括号）→ 返回原始值，保留类型
+            if stripped.startswith("{{") and stripped.endswith("}}") \
+                    and stripped.count("{{") == 1 and stripped.count("}}") == 1:
+                return BaseAgent._lookup(stripped[2:-2].strip(), scope)
+            # 整体引用（单花括号）
             if stripped.startswith("{") and stripped.endswith("}") and stripped.count("{") == 1:
                 ref = stripped[1:-1].strip()
                 return BaseAgent._lookup(ref, scope)
-            # 内嵌引用：逐个替换
+            # 内嵌引用：逐个替换（双花括号优先匹配）
             import re as _re
 
             def _sub(m):
-                return str(BaseAgent._lookup(m.group(1).strip(), scope))
+                ref = m.group(1) if m.group(1) is not None else m.group(2)
+                return str(BaseAgent._lookup(ref.strip(), scope))
 
-            return _re.sub(r"\{([^{}]+)\}", _sub, value)
+            return _re.sub(r"\{\{([^{}]+)\}\}|\{([^{}]+)\}", _sub, value)
         if isinstance(value, dict):
             return {k: BaseAgent.resolve_refs(v, scope) for k, v in value.items()}
         if isinstance(value, list):
@@ -277,6 +291,35 @@ class BaseAgent(ABC):
     async def health_check(self) -> bool:
         """健康检查（子类可覆盖）"""
         return self._running
+
+
+def _resolve_flow_tools(flow):
+    """把流程步骤里的工具引用（可能是【【显示名】】）解析为真实工具 id。
+
+    解析不到时原样返回，交由执行层报明确错误（不在这里吞掉）。
+    """
+    try:
+        from core.resource.registry.tool_registry import resolve_tool_id
+
+        return [
+            {**step, "tool": resolve_tool_id(step.get("tool"))}
+            if isinstance(step, dict) and step.get("tool") else step
+            for step in flow
+        ]
+    except Exception:
+        return flow
+
+
+def _resolve_api_tools(apis):
+    """把每个 API 的 flow 里的工具引用解析为真实工具 id。"""
+    try:
+        return [
+            {**api, "flow": _resolve_flow_tools(api.get("flow"))}
+            if isinstance(api, dict) and isinstance(api.get("flow"), list) else api
+            for api in apis
+        ]
+    except Exception:
+        return apis
 
 
 def _extract_fenced_json(md: str, tag: str):
