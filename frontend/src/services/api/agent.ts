@@ -11,7 +11,12 @@ export const agentApi = {
       const err = await res.json().catch(() => ({ detail: res.statusText }))
       throw new Error(err.detail || `HTTP ${res.status}`)
     }
-    return res.json()
+    const data = await res.json()
+    // 后端用「心跳 + 最终 JSON」流式返回，异常时以 200 + {"detail": "..."} 下发
+    if (data && typeof data === 'object' && 'detail' in data && !('spec_md' in data)) {
+      throw new Error(data.detail || '生成失败')
+    }
+    return data
   },
 
   async generateCode(specMd: string): Promise<{ code: string; sandbox_results: Record<string, unknown> }> {
@@ -30,7 +35,11 @@ export const agentApi = {
       const err = await res.json().catch(() => ({ detail: res.statusText }))
       throw new Error(err.detail || `HTTP ${res.status}`)
     }
-    return res.json()
+    const data = await res.json()
+    if (data && typeof data === 'object' && 'detail' in data && !('code' in data)) {
+      throw new Error(data.detail || '生成失败')
+    }
+    return data
   },
 
   async register(specMd: string, code: string, demandDesc: string = ''): Promise<{ agent_id: string; entry: Record<string, unknown> }> {
