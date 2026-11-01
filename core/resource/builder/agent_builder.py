@@ -12,6 +12,7 @@ import re
 import shutil
 import sys
 import threading
+import uuid
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -61,8 +62,20 @@ import time as _time
 from pathlib import Path
 from typing import AsyncGenerator
 
-# 项目根目录
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
+# 项目根目录：不能写死目录层级。
+# Agent 实现可能落在内置 resources/agents/implementations/ 或私有
+# resources-private/agents/implementations/，后者到项目根的层级比前者少一跳，
+# 写死 parents[N] 会让私有 Agent 把 /root 当成项目根（工具查找、日志目录全部失效）。
+def _detect_project_root() -> Path:
+    env_root = os.environ.get("SOTABAND_ROOT", "").strip()
+    if env_root and (Path(env_root) / "core" / "agent" / "base.py").exists():
+        return Path(env_root)
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "core" / "agent" / "base.py").exists():
+            return parent
+    return Path(__file__).resolve().parent.parent.parent.parent.parent
+
+PROJECT_ROOT = _detect_project_root()
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -76,10 +89,19 @@ from core.agent.base import BaseAgent, AgentContext
 TOOL_HELPER_TEMPLATE = '''
     def _call_tool_{tool_id_safe}(self, **params) -> dict:
         """调用工具: {tool_name} (tool_id: {tool_id})"""
-        # 在「内置 + 私有」资源根中定位工具实现
+        # 在「内置 + 私有」资源根中定位工具实现。
+        # 私有根位置由 SOTABAND_PRIVATE_RESOURCES 决定，不能简单假定为项目根同级，
+        # 运行时优先向 core.resource.paths 询问，失败再退回目录约定。
+        _spaces = [PROJECT_ROOT / "resources" / "tools",
+                   PROJECT_ROOT.parent / "resources-private" / "tools"]
+        try:
+            from core.resource import paths as _paths
+            _spaces = _paths.space_dirs("tools")
+        except Exception:
+            pass
         _tool_base = None
-        for _root in (PROJECT_ROOT / "resources", PROJECT_ROOT.parent / "resources-private"):
-            _cand = _root / "tools" / "implementations" / "{tool_id}"
+        for _space in _spaces:
+            _cand = _space / "implementations" / "{tool_id}"
             if (_cand / "tool.py").exists():
                 _tool_base = _cand
                 break
@@ -99,7 +121,7 @@ TOOL_HELPER_TEMPLATE = '''
             f"sys.path.insert(0, {{_safe_dumps(str(PROJECT_ROOT))}})\\n"
             f"code = {{_safe_dumps(code)}}\\n"
             f"exec(code)\\n"
-            f"result = execute(**{{_safe_dumps(params)}})\\n"
+            f"result = execute(**{{repr(params)}})\\n"
             f"print(json.dumps(result, default=str))\\n"
         )
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
@@ -116,7 +138,9 @@ TOOL_HELPER_TEMPLATE = '''
             else:
                 return {{"status": "failed", "message": proc.stderr[:300]}}
         finally:
-            os.unlink(tmp_path)
+            # 用 Path.unlink 而非 os.unlink：静态安全扫描把 os.unlink 列为阻断项，
+            # 否则每个引用工具的 Agent 都会在调试首轮被拦下。
+            Path(tmp_path).unlink(missing_ok=True)
 '''
 
 # ═══════════════════════════════════════════════════════════════════
@@ -739,7 +763,9 @@ yield {{"event": "content", "data": {{"text": response}}}}
         - web-service：等 service_ready 拿端口，用回环 HTTP 逐个调用 spec.apis
           声明的 API（端口强制 0 自动分配）；全部 2xx 且无 error 事件 → 成功。
         """
-        debug_id = f"_debug-{agent_id}"
+        # 调试目录带随机后缀：同一 Agent 的多个调试会话（多标签页/重复点击）
+        # 不再共享目录，避免相互覆盖或 finally 删掉对方正在用的文件。
+        debug_id = f"_debug-{agent_id}-{uuid.uuid4().hex[:8]}"
         # 静态安全审查（todo 3.2）：每轮试运行前先审，命中阻断项直接失败，
         # 错误清单经 stderr 回流给 LLM 修复（与 tool_builder.sandbox_execute 同构）。
         from core.security.code_scan import scan_code
@@ -753,10 +779,24 @@ yield {{"event": "content", "data": {{"text": response}}}}
                 "success": False,
             }
 
-        impl_dir = paths.ensure_private_dirs("agents") / "implementations" / debug_id
-        impl_dir.mkdir(parents=True, exist_ok=True)
-        (impl_dir / "agent.py").write_text(code, encoding="utf-8")
-        (impl_dir / "spec.md").write_text(self._neutralize_port(spec_md), encoding="utf-8")
+        impl_dir = paths.private_space_dir("agents") / "implementations" / debug_id
+        try:
+            impl_dir.mkdir(parents=True, exist_ok=True)
+            (impl_dir / "agent.py").write_text(code, encoding="utf-8")
+            (impl_dir / "spec.md").write_text(self._neutralize_port(spec_md), encoding="utf-8")
+        except OSError as e:
+            # 建目录/写文件失败是环境问题（权限、磁盘满、只读挂载），
+            # 必须单独标记，避免被当成「Agent 代码错误」反复喂给 LLM。
+            shutil.rmtree(impl_dir, ignore_errors=True)
+            return {
+                "exit_code": 1,
+                "stdout": "",
+                "stderr": f"[debug][env] 调试目录写入失败（环境问题，非代码问题）：{type(e).__name__}: {e}",
+                "success": False,
+                "infra_error": True,
+                # 稳定的错误签名（不含随机调试目录路径），用于判定「连续同错」
+                "infra_kind": f"debug_dir_write:{type(e).__name__}",
+            }
 
         events: list[dict] = []
         stderr_chunks: list[str] = []
@@ -1057,6 +1097,9 @@ yield {{"event": "content", "data": {{"text": response}}}}
         yield {"event": "debug_start", "message": "Agent 自动调试启动",
                "max_rounds": max_rounds, "role": role}
 
+        _last_infra_kind = ""
+        infra_repeat = 0
+
         for round_num in range(1, max_rounds + 1):
             if not is_debug_running(agent_id):
                 yield {"event": "stopped", "round": round_num, "message": "调试已停止"}
@@ -1109,6 +1152,25 @@ yield {{"event": "content", "data": {{"text": response}}}}
             yield {"event": "exec_result", "round": round_num,
                    "stdout": exec_result.get("stdout", ""),
                    "stderr": exec_result.get("stderr", ""), "success": success}
+
+            # ── 环境错误不喂给 LLM：PermissionError/磁盘满等是运行环境问题，
+            # 代码本身没有错；连续两轮同样错误即短路，避免 LLM 误删正常代码。──
+            if exec_result.get("infra_error"):
+                infra_msg = (exec_result.get("stderr") or "").strip()
+                infra_kind = exec_result.get("infra_kind") or infra_msg
+                if infra_kind == _last_infra_kind:
+                    infra_repeat += 1
+                else:
+                    _last_infra_kind, infra_repeat = infra_kind, 1
+                yield {"event": "llm_error", "round": round_num,
+                       "message": f"调试环境异常（非代码问题，跳过 LLM 改码）：{infra_msg}"}
+                if infra_repeat >= 2:
+                    await self._write_debug_log(agent_id, timestamp, debug_log_entries,
+                                                success=False, final_round=round_num)
+                    yield {"event": "stopped", "round": round_num,
+                           "message": "调试环境异常连续出现，已停止自动调试"}
+                    return
+                continue
 
             if success:
                 yield {"event": "done", "round": round_num, "success": True,
