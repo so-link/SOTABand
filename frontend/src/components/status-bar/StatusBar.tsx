@@ -83,10 +83,6 @@ export function StatusBar() {
           <Database className="h-3.5 w-3.5 text-maia-accent/70" />
           DATA:<span className="font-mono text-maia-text-secondary">{dataCount}</span>
         </span>
-        <span className="inline-flex items-center gap-1.5 pl-3 border-l border-maia-border text-maia-text-muted/70">
-          <Terminal className="h-3.5 w-3.5 text-maia-accent/50" />
-          <span className="font-mono">SOTABand v{APP_VERSION}</span>
-        </span>
       </div>
     </footer>
   )

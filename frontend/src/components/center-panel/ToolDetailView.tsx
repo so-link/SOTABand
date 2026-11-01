@@ -13,6 +13,7 @@ import { useWorkspaceDatasetStore } from '@/stores/workspace-dataset-store'
 import { useUIStore } from '@/stores/ui-store'
 import { useToolEditorStore } from '@/stores/tool-editor-store'
 import { useTabIndent } from '@/hooks/use-tab-indent'
+import { cn } from '@/lib/utils'
 import type { ToolResource } from '@/types/resources'
 
 const BASE_URL = ''
@@ -317,33 +318,82 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
 
   return (
     <div className="flex flex-col h-full bg-maia-surface">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-maia-border bg-maia-bg/50 shrink-0 gap-2">
-        <div className="flex items-center gap-2">
-          <Wrench className="h-4 w-4 text-amber-500" />
-          <span className="text-sm font-semibold text-maia-text-heading">{tool.name}</span>
-          <Badge variant="success">v{tool.version}</Badge>
+      {/* Header：第一行身份与操作，第二行文档/代码工具条（与 Agent 详情页对齐） */}
+      <div className="shrink-0 border-b border-maia-border bg-maia-bg/40">
+        <div className="flex items-center gap-2 px-4 h-11 min-w-0">
+          <Wrench className="h-4 w-4 text-amber-500 shrink-0" />
+          <span className="text-[14px] font-semibold text-maia-text-heading truncate min-w-0">
+            {tool.name}
+          </span>
+          <Badge variant="success" className="shrink-0">v{tool.version}</Badge>
+
+          <div className="ml-auto flex items-center gap-2 shrink-0">
+            <a
+              href={`${BASE_URL}/api/tool/${encodeURIComponent(tool.id)}/export`}
+              download={`${tool.id}.zip`}
+              title="导出为 zip 工具包（含代码、文档、依赖清单，不含虚拟环境）"
+              className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-[12px] whitespace-nowrap border border-transparent text-maia-text-muted hover:bg-maia-sidebar-hover hover:text-maia-text transition-colors shrink-0"
+            >
+              <Download className="h-3.5 w-3.5" />
+              导出
+            </a>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
+
+        <div className="flex items-center gap-1 px-3 h-9 border-t border-maia-border/60 overflow-x-auto">
           {demandText && (
-            <button onClick={() => { setShowDemand(!showDemand); setShowSpec(false); setShowCode(false); setShowReference(false) }}
-              className="flex items-center gap-1 text-[12px] text-maia-accent hover:underline">
-              <FileText className="h-3 w-3" />{showDemand ? '收起需求' : '查看需求描述'}
+            <button
+              onClick={() => setShowDemand(!showDemand)}
+              className={cn(
+                'inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-[12px] whitespace-nowrap border transition-colors shrink-0',
+                showDemand
+                  ? 'bg-maia-accent-light text-maia-accent border-maia-accent-border'
+                  : 'text-maia-text-muted border-transparent hover:bg-maia-sidebar-hover hover:text-maia-text',
+              )}
+              title="需求描述"
+            >
+              <FileText className="h-3.5 w-3.5" />
+              {showDemand ? '收起需求' : '需求描述'}
             </button>
           )}
-          {hasReference && (
-            <button onClick={() => { setShowReference(!showReference); setShowSpec(false); setShowCode(false); setShowDemand(false) }}
-              className="flex items-center gap-1 text-[12px] text-maia-accent hover:underline">
-              <Code className="h-3 w-3" />{showReference ? '收起参考' : '查看参考代码'}
-            </button>
-          )}
-          <button onClick={() => { setShowSpec(!showSpec); setShowCode(false); setShowDemand(false); setShowReference(false) }}
-            className="flex items-center gap-1 text-[12px] text-maia-accent hover:underline">
-            <FileText className="h-3 w-3" />{showSpec ? '收起 MD' : '查看 MD 文档'}
+          <button
+            onClick={() => setShowSpec(!showSpec)}
+            className={cn(
+              'inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-[12px] whitespace-nowrap border transition-colors shrink-0',
+              showSpec
+                ? 'bg-maia-accent-light text-maia-accent border-maia-accent-border'
+                : 'text-maia-text-muted border-transparent hover:bg-maia-sidebar-hover hover:text-maia-text',
+            )}
+          >
+            <FileText className="h-3.5 w-3.5" />
+            {showSpec ? '收起 MD 文档' : 'MD 文档'}
           </button>
-          <button onClick={() => { setShowCode(!showCode); setShowSpec(false); setShowDemand(false); setShowReference(false) }}
-            className="flex items-center gap-1 text-[12px] text-maia-accent hover:underline">
-            <FileCode className="h-3 w-3" />{showCode ? '收起代码' : '查看代码'}
+          {hasReference && (
+            <button
+              onClick={() => setShowReference(!showReference)}
+              className={cn(
+                'inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-[12px] whitespace-nowrap border transition-colors shrink-0',
+                showReference
+                  ? 'bg-maia-accent-light text-maia-accent border-maia-accent-border'
+                  : 'text-maia-text-muted border-transparent hover:bg-maia-sidebar-hover hover:text-maia-text',
+              )}
+              title="参考代码"
+            >
+              <Code className="h-3.5 w-3.5" />
+              {showReference ? '收起参考' : '参考代码'}
+            </button>
+          )}
+          <button
+            onClick={() => setShowCode(!showCode)}
+            className={cn(
+              'inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-[12px] whitespace-nowrap border transition-colors shrink-0',
+              showCode
+                ? 'bg-maia-accent-light text-maia-accent border-maia-accent-border'
+                : 'text-maia-text-muted border-transparent hover:bg-maia-sidebar-hover hover:text-maia-text',
+            )}
+          >
+            <FileCode className="h-3.5 w-3.5" />
+            {showCode ? '收起代码' : '代码'}
           </button>
           <button
             onClick={() => {
@@ -367,18 +417,12 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
               })
               setActiveView('tool-editor')
             }}
-            className="flex items-center gap-1 text-[12px] text-amber-500 hover:underline ml-2"
+            className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-[12px] whitespace-nowrap border border-transparent text-maia-text-muted hover:bg-maia-sidebar-hover hover:text-maia-text transition-colors shrink-0 ml-auto"
+            title="带齐现有文档与代码，从审阅步进入编辑"
           >
-            <Pencil className="h-3 w-3" />编辑
+            <Pencil className="h-3.5 w-3.5" />
+            编辑
           </button>
-          <a
-            href={`${BASE_URL}/api/tool/${encodeURIComponent(tool.id)}/export`}
-            download={`${tool.id}.zip`}
-            title="导出为 zip 工具包（含代码、文档、依赖清单，不含虚拟环境）"
-            className="flex items-center gap-1 text-[12px] text-maia-accent hover:underline ml-2"
-          >
-            <Download className="h-3 w-3" />导出
-          </a>
         </div>
       </div>
 

@@ -43,7 +43,7 @@ function saveLayout(layout: { left: number; right: number }) {
 }
 
 export function MainLayout() {
-  const { leftPanelOpen, rightPanelOpen } = useUIStore()
+  const { leftPanelOpen, rightPanelOpen, setLeftPanelOpen, setRightPanelOpen } = useUIStore()
   const loadTree = useFileTreeStore((s) => s.loadTree)
   const fetchAllResources = useResourceStore((s) => s.fetchAllResources)
   const leftRef = usePanelRef()
@@ -105,6 +105,8 @@ export function MainLayout() {
             maxSize={480}
             collapsible
             collapsedSize={0}
+            onCollapse={() => setLeftPanelOpen(false)}
+            onExpand={() => setLeftPanelOpen(true)}
           >
             <LeftPanel />
           </Panel>
@@ -128,6 +130,8 @@ export function MainLayout() {
             maxSize={560}
             collapsible
             collapsedSize={0}
+            onCollapse={() => setRightPanelOpen(false)}
+            onExpand={() => setRightPanelOpen(true)}
           >
             <RightPanel />
           </Panel>
