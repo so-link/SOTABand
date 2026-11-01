@@ -21,6 +21,8 @@ export type ActiveView =
   | `agent-detail:${string}`
   // 每个工具独立的详情视图：形如 "tool-detail:{toolId}"
   | `tool-detail:${string}`
+  // 每个模型独立的详情视图：形如 "model-detail:{modelId}"
+  | `model-detail:${string}`
 
 /** 判断视图是否为「单 Agent 详情」并取出其 agentId。 */
 export function parseAgentDetailView(view: string): string | null {
@@ -30,6 +32,11 @@ export function parseAgentDetailView(view: string): string | null {
 /** 判断视图是否为「单工具详情」并取出其 toolId。 */
 export function parseToolDetailView(view: string): string | null {
   return view.startsWith('tool-detail:') ? view.slice('tool-detail:'.length) : null
+}
+
+/** 判断视图是否为「单模型详情」并取出其 modelId。 */
+export function parseModelDetailView(view: string): string | null {
+  return view.startsWith('model-detail:') ? view.slice('model-detail:'.length) : null
 }
 
 export type Theme = 'dark' | 'light'
@@ -52,6 +59,8 @@ interface UIState {
 
   toggleLeftPanel: () => void
   toggleRightPanel: () => void
+  setLeftPanelOpen: (open: boolean) => void
+  setRightPanelOpen: (open: boolean) => void
   setActiveView: (view: ActiveView) => void
   closeView: (view: ActiveView) => void
   setLeftPanelTab: (tab: 'files' | 'resources') => void
@@ -70,6 +79,8 @@ export const useUIStore = create<UIState>()(
 
       toggleLeftPanel: () => set((s) => ({ leftPanelOpen: !s.leftPanelOpen })),
       toggleRightPanel: () => set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
+      setLeftPanelOpen: (open) => set({ leftPanelOpen: open }),
+      setRightPanelOpen: (open) => set({ rightPanelOpen: open }),
 
       setActiveView: (view) =>
         set((s) => ({

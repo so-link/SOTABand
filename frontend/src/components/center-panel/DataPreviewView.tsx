@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
-import { Database, File, Image, Loader2, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Database, File, Image, Loader2, ChevronLeft, ChevronRight, Plus, Package } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardBody } from '@/components/ui/card'
 import { useResourceStore } from '@/stores/resource-store'
+import { useUIStore } from '@/stores/ui-store'
 import { CsvTablePreview } from './CsvTablePreview'
 import { MarkdownPreview } from './MarkdownPreview'
 import type { DataResource } from '@/types/resources'
@@ -21,6 +22,9 @@ function isImageFile(file: Record<string, unknown>): boolean {
 export function DataPreviewView() {
   const selectedResource = useResourceStore((s) => s.selectedResource)
   const cachedDataset = useResourceStore((s) => s.cachedDatasetForDetail)
+  const dataResources = useResourceStore((s) => s.dataResources)
+  const selectResource = useResourceStore((s) => s.selectResource)
+  const { setActiveView } = useUIStore()
   const dataset = selectedResource?.type === 'data' ? (selectedResource as DataResource) : cachedDataset
   const [loading, setLoading] = useState(false)
   const [detail, setDetail] = useState<Record<string, unknown> | null>(null)
@@ -38,10 +42,57 @@ export function DataPreviewView() {
   }, [dataset])
 
   if (!dataset) {
+    // 空态：充分利用中栏空间。有数据集则列出供选择；没有则引导创建/管理。
     return (
-      <div className="flex flex-col items-center justify-center h-full text-maia-text-muted gap-2">
-        <Database className="h-10 w-10 opacity-20" />
-        <p className="text-sm">请在左侧选择数据集查看预览</p>
+      <div className="flex flex-col items-center justify-center h-full text-maia-text-muted gap-4 p-6">
+        <Database className="h-12 w-12 opacity-20" />
+        {dataResources.length > 0 ? (
+          <>
+            <p className="text-sm">选择一个数据集查看预览</p>
+            <div className="w-full max-w-md space-y-1">
+              {dataResources.map((d) => (
+                <button
+                  key={d.id}
+                  onClick={() => selectResource(d)}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded border border-maia-border bg-maia-bg hover:border-maia-accent/40 hover:bg-maia-sidebar-hover text-left transition-colors"
+                >
+                  <Database className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                  <span className="text-[13px] text-maia-text truncate flex-1">{d.name}</span>
+                  {d.format && (
+                    <Badge variant="default" className="text-[11px] shrink-0">{d.format.toUpperCase()}</Badge>
+                  )}
+                </button>
+              ))}
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="text-center">
+              <p className="text-sm text-maia-text-heading font-medium">暂无数据集</p>
+              <p className="text-[12px] mt-1">创建数据集或从数据集仓库导入后，在此查看预览</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5"
+                onClick={() => setActiveView('dataset-editor')}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                新建数据集
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5"
+                onClick={() => setActiveView('dataset-repository')}
+              >
+                <Package className="h-3.5 w-3.5" />
+                数据集仓库
+              </Button>
+            </div>
+          </>
+        )}
       </div>
     )
   }

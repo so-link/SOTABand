@@ -34,6 +34,9 @@ const SECTIONS: ResourceSectionDef[] = [
   { type: 'task', label: '任务历史', icon: ListTodo, color: 'text-maia-text-muted' },
 ]
 
+// 资源空间各分区的展开/收起状态持久化键
+const EXPANDED_SECTIONS_KEY = 'sotaband-expanded-sections'
+
 export function ResourceBrowser() {
   const {
     dataResources,
@@ -50,7 +53,17 @@ export function ResourceBrowser() {
   } = useResourceStore()
   const { rightPanelOpen, toggleRightPanel, setActiveView } = useUIStore()
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
-    new Set(['data', 'tool', 'agent'])
+    // 惰性初始化：从 localStorage 恢复上次展开的分区，避免刷新后全部重置。
+    () => {
+      try {
+        const raw = localStorage.getItem(EXPANDED_SECTIONS_KEY)
+        if (raw) {
+          const arr = JSON.parse(raw)
+          if (Array.isArray(arr)) return new Set(arr.filter((x) => typeof x === 'string'))
+        }
+      } catch { /* ignore */ }
+      return new Set(['data', 'tool', 'agent'])
+    }
   )
   // 各编辑器中的未保存改动，用于在资源树上打标记
   const unsaved = useUnsavedMarks()
@@ -70,6 +83,10 @@ export function ResourceBrowser() {
       const next = new Set(prev)
       if (next.has(type)) next.delete(type)
       else next.add(type)
+      // 同步持久化：刷新后保持展开/收起状态
+      try {
+        localStorage.setItem(EXPANDED_SECTIONS_KEY, JSON.stringify([...next]))
+      } catch { /* ignore */ }
       return next
     })
   }
@@ -172,6 +189,9 @@ export function ResourceBrowser() {
       setActiveView(`agent-detail:${resource.id}` as never)
     } else if (resource.type === 'tool') {
       setActiveView(`tool-detail:${resource.id}` as never)
+    } else if (resource.type === 'model') {
+      // 模型与 Agent/工具对齐：中栏打开独立详情视图，充分利用大空间
+      setActiveView(`model-detail:${resource.id}` as never)
     } else if (resource.type === 'data') {
       setActiveView('data-preview')
     } else if (!rightPanelOpen) {

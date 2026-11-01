@@ -3,6 +3,7 @@
 from fastapi import APIRouter, HTTPException
 
 from core.resource.registry.model_registry import ModelRegistry
+from core.resource import paths
 
 router = APIRouter(tags=["model"])
 registry = ModelRegistry()
@@ -15,13 +16,25 @@ async def list_models():
     return {"models": models}
 
 
+def _read_model_spec(model_id: str) -> str:
+    """读取模型规范 MD：内置与私有根都查，私有优先（与工具详情行为一致）。"""
+    for root in reversed(paths.resource_roots()):
+        f = root / "models" / "definitions" / f"{model_id}.md"
+        if f.exists():
+            try:
+                return f.read_text(encoding="utf-8")
+            except OSError:
+                return ""
+    return ""
+
+
 @router.get("/{model_id}")
 async def get_model(model_id: str):
-    """获取模型详情"""
+    """获取模型详情（含 MD 规范内容）"""
     model = await registry.get(model_id)
     if not model:
         raise HTTPException(404, f"Model '{model_id}' not found")
-    return {"model": model}
+    return {"model": {**model, "spec_md": _read_model_spec(model_id)}}
 
 
 @router.delete("/{model_id}")

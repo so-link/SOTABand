@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useUIStore, type ActiveView, parseAgentDetailView, parseToolDetailView } from '@/stores/ui-store'
+import { useUIStore, type ActiveView, parseAgentDetailView, parseToolDetailView, parseModelDetailView } from '@/stores/ui-store'
 import { useResourceStore } from '@/stores/resource-store'
 import { ChatView } from './ChatView'
 import { DataPreviewView } from './DataPreviewView'
@@ -11,11 +11,12 @@ import { AgentEditorView } from './AgentEditorView'
 import { AgentDetailView } from './AgentDetailView'
 import { ToolEditorView } from './ToolEditorView'
 import { ToolDetailView } from './ToolDetailView'
+import { ModelDetailView } from './ModelDetailView'
 import { DatasetEditorView } from './DatasetEditorView'
 import { RepositoryView } from './RepositoryView'
 import { DatasetRepositoryView } from './DatasetRepositoryView'
 import { SettingsView } from './SettingsView'
-import { MessageSquare, BarChart3, Search, GitBranch, Radio, Bot, X, Package, Settings, PanelLeft, PanelRight, ChevronLeft, ChevronRight } from 'lucide-react'
+import { MessageSquare, BarChart3, Search, GitBranch, Radio, Bot, X, Package, Settings, PanelLeft, PanelRight, ChevronLeft, ChevronRight, BrainCircuit } from 'lucide-react'
 
 const TAB_CONFIG: Record<ActiveView, { label: string; icon: typeof MessageSquare }> = {
   chat:            { label: '对话',    icon: MessageSquare },
@@ -49,6 +50,7 @@ function ViewTabBar() {
           leftPanelOpen, rightPanelOpen, toggleLeftPanel, toggleRightPanel } = useUIStore()
   const agents = useResourceStore((s) => s.agentResources)
   const tools = useResourceStore((s) => s.toolResources)
+  const modelResources = useResourceStore((s) => s.modelResources)
 
   // 标签过多时用左右箭头滚动，不出原生水平滚动条
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -78,6 +80,15 @@ function ViewTabBar() {
   const scrollTabs = (dir: number) =>
     scrollRef.current?.scrollBy({ left: dir * 160, behavior: 'smooth' })
 
+  // 激活标签变化（打开新资源/点左侧资源）时，把对应标签滚动进可视区。
+  // 标签超出容器宽度时新标签会落在视口外，不滚过去用户看不到刚打开的标签。
+  useEffect(() => {
+    const container = scrollRef.current
+    if (!container) return
+    const el = container.querySelector(`[data-view="${CSS.escape(activeView)}"]`)
+    el?.scrollIntoView({ behavior: 'smooth', inline: 'nearest', block: 'nearest' })
+  }, [activeView, openViews.length])
+
   return (
     <div className="flex items-center h-9 border-b border-maia-border bg-maia-surface px-1 gap-1 shrink-0 select-none">
       <button
@@ -102,9 +113,10 @@ function ViewTabBar() {
         className="flex-1 min-w-0 flex items-center gap-1 overflow-x-hidden"
       >
         {openViews.map((viewId) => {
-          // 参数化视图（单个 Agent/工具）动态解析标题与图标
+          // 参数化视图（单个 Agent/工具/模型）动态解析标题与图标
           const agentId = parseAgentDetailView(viewId)
           const toolId = parseToolDetailView(viewId)
+          const modelId = parseModelDetailView(viewId)
           let cfg = TAB_CONFIG[viewId as keyof typeof TAB_CONFIG] as
             | { label: string; icon: typeof MessageSquare }
             | undefined
@@ -115,6 +127,9 @@ function ViewTabBar() {
             } else if (toolId) {
               const t = tools.find((x: { id: string }) => x.id === toolId)
               cfg = { label: t?.name || toolId, icon: Bot }
+            } else if (modelId) {
+              const m = modelResources.find((x: { id: string }) => x.id === modelId)
+              cfg = { label: m?.name || modelId, icon: BrainCircuit }
             }
           }
           if (!cfg) return null
@@ -124,6 +139,7 @@ function ViewTabBar() {
           return (
             <button
               key={viewId}
+              data-view={viewId}
               onClick={() => setActiveView(viewId)}
               className={`flex items-center gap-1.5 h-6 px-2.5 rounded text-[13px] transition-colors shrink-0 group ${isChat ? 'min-w-[72px]' : 'min-w-[72px]'} ${
                 isActive
@@ -173,6 +189,8 @@ function ViewRouter({ view }: { view: ActiveView }) {
   if (agentId) return <AgentDetailView key={`agent:${agentId}`} agentId={agentId} />
   const toolId = parseToolDetailView(view)
   if (toolId) return <ToolDetailView key={`tool:${toolId}`} toolId={toolId} />
+  const modelId = parseModelDetailView(view)
+  if (modelId) return <ModelDetailView key={`model:${modelId}`} modelId={modelId} />
 
   switch (view) {
     case 'chat': return <ChatView />
