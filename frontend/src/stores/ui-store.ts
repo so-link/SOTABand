@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 
 export type ActiveView =
   | 'chat'
@@ -57,42 +58,56 @@ interface UIState {
   toggleTheme: () => void
 }
 
-export const useUIStore = create<UIState>((set) => ({
-  leftPanelOpen: true,
-  rightPanelOpen: true,
-  activeView: 'chat',
-  openViews: ['chat'],
-  leftPanelTab: 'files',
-  theme: getInitialTheme(),
+export const useUIStore = create<UIState>()(
+  persist(
+    (set) => ({
+      leftPanelOpen: true,
+      rightPanelOpen: true,
+      activeView: 'chat',
+      openViews: ['chat'],
+      leftPanelTab: 'files',
+      theme: getInitialTheme(),
 
-  toggleLeftPanel: () => set((s) => ({ leftPanelOpen: !s.leftPanelOpen })),
-  toggleRightPanel: () => set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
+      toggleLeftPanel: () => set((s) => ({ leftPanelOpen: !s.leftPanelOpen })),
+      toggleRightPanel: () => set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
 
-  setActiveView: (view) =>
-    set((s) => ({
-      activeView: view,
-      openViews: s.openViews.includes(view) ? s.openViews : [...s.openViews, view],
-    })),
+      setActiveView: (view) =>
+        set((s) => ({
+          activeView: view,
+          openViews: s.openViews.includes(view) ? s.openViews : [...s.openViews, view],
+        })),
 
-  closeView: (view) =>
-    set((s) => {
-      if (view === 'chat') return s
-      const next = s.openViews.filter((v) => v !== view)
-      let nextActive = s.activeView
-      if (s.activeView === view) {
-        const idx = s.openViews.indexOf(view)
-        nextActive = next[Math.min(idx, next.length - 1)] || 'chat'
-      }
-      return { openViews: next, activeView: nextActive }
+      closeView: (view) =>
+        set((s) => {
+          if (view === 'chat') return s
+          const next = s.openViews.filter((v) => v !== view)
+          let nextActive = s.activeView
+          if (s.activeView === view) {
+            const idx = s.openViews.indexOf(view)
+            nextActive = next[Math.min(idx, next.length - 1)] || 'chat'
+          }
+          return { openViews: next, activeView: nextActive }
+        }),
+
+      setLeftPanelTab: (tab) => set({ leftPanelTab: tab }),
+
+      toggleTheme: () =>
+        set((s) => {
+          const next: Theme = s.theme === 'dark' ? 'light' : 'dark'
+          document.documentElement.setAttribute('data-theme', next)
+          try { localStorage.setItem('sotaband-theme', next) } catch {}
+          return { theme: next }
+        }),
     }),
-
-  setLeftPanelTab: (tab) => set({ leftPanelTab: tab }),
-
-  toggleTheme: () =>
-    set((s) => {
-      const next: Theme = s.theme === 'dark' ? 'light' : 'dark'
-      document.documentElement.setAttribute('data-theme', next)
-      try { localStorage.setItem('sotaband-theme', next) } catch {}
-      return { theme: next }
-    }),
-}))
+    {
+      name: 'sotaband-ui',
+      // 只持久化与「刷新后恢复界面」相关的字段：左侧标签、中栏打开的标签与激活标签。
+      // 面板开关、主题等不放入（主题已有独立 sotaband-theme，面板开关每次默认打开更合理）。
+      partialize: (s) => ({
+        activeView: s.activeView,
+        openViews: s.openViews,
+        leftPanelTab: s.leftPanelTab,
+      }),
+    },
+  ),
+)

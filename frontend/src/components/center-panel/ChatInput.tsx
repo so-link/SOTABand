@@ -193,7 +193,7 @@ export function ChatInput() {
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
-            placeholder={isSending ? '工具执行中…' : '输入你的需求…'}
+            placeholder={isSending ? '工具执行中…' : '输入你的需求…（Enter 发送，Shift+Enter 换行，拖拽文件自动填入路径）'}
             rows={1}
             className="flex-1 bg-transparent px-1 py-1.5 text-[14px] leading-[22px] text-maia-text outline-none focus-visible:outline-none resize-none min-h-[32px] max-h-[150px] placeholder:text-maia-text-muted"
             disabled={isSending}
@@ -218,20 +218,12 @@ export function ChatInput() {
           )}
         </div>
 
-        <div className="flex items-center gap-3 mt-2 text-[12px] text-maia-text-muted min-w-0">
-          {isUploading ? (
-            <span className="flex items-center gap-1 whitespace-nowrap">
-              <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
-              正在上传…
-            </span>
-          ) : (
-            <span className="flex items-center gap-1 whitespace-nowrap min-w-0">
-              <Folder className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">拖拽文件自动填入路径</span>
-            </span>
-          )}
-          <span className="ml-auto whitespace-nowrap hidden sm:inline">Enter 发送 · Shift+Enter 换行</span>
-        </div>
+        {isUploading && (
+          <div className="flex items-center gap-1 mt-2 text-[12px] text-maia-text-muted">
+            <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+            正在上传…
+          </div>
+        )}
       </div>
     </div>
   )

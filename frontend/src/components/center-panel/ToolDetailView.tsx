@@ -62,7 +62,7 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
   const [specMd, setSpecMd] = useState('')
   const [code, setCode] = useState('')
   const [editedCode, setEditedCode] = useState('')
-  const [showSpec, setShowSpec] = useState(false)
+  const [showSpec, setShowSpec] = useState(true)
   const [showCode, setShowCode] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [showDemand, setShowDemand] = useState(true)
@@ -123,14 +123,6 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
       })
       .catch(() => {})
   }, [tool])
-
-  if (!tool) {
-    return (
-      <div className="flex items-center justify-center h-full text-maia-text-muted text-sm">
-        请在左侧工具空间选择一个工具
-      </div>
-    )
-  }
 
   const inputs = parseInputs(specMd)
 
@@ -313,6 +305,16 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
     }).catch(() => {})
   }, [tool])
 
+  // 所有 hooks 必须在提前 return 之前声明，否则 tool 从 null 变为有值时
+  // hooks 调用数量变化会触发 React "Rendered more hooks than during the previous render"
+  if (!tool) {
+    return (
+      <div className="flex items-center justify-center h-full text-maia-text-muted text-sm">
+        请在左侧工具空间选择一个工具
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col h-full bg-maia-surface">
       {/* Header */}
@@ -321,7 +323,6 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
           <Wrench className="h-4 w-4 text-amber-500" />
           <span className="text-sm font-semibold text-maia-text-heading">{tool.name}</span>
           <Badge variant="success">v{tool.version}</Badge>
-          <ToolTagsEditor toolId={tool.id} tags={tool.tags || []} />
         </div>
         <div className="flex items-center gap-2">
           {demandText && (
@@ -573,6 +574,11 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
         ) : (
           /* 单栏 */
           <div className="max-w-2xl mx-auto space-y-4">
+          {/* 标签行：从标题栏移到这里，避免与工具名/版本号/操作按钮挤在一起 */}
+          <div className="flex items-center gap-2">
+            <span className="text-[12px] text-maia-text-muted shrink-0">标签</span>
+            <ToolTagsEditor toolId={tool.id} tags={tool.tags || []} />
+          </div>
           {showSpec && (<Card className="border-maia-border"><CardBody>
             <div className="flex items-center justify-between mb-2"><span className="text-[13px] font-medium text-maia-text-secondary">MD 规范文档</span><button onClick={() => setShowSpec(false)}><X className="h-3 w-3 text-maia-text-muted" /></button></div>
             <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto bg-maia-bg rounded p-3">{specMd || '加载中...'}</pre>

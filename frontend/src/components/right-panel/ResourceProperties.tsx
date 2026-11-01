@@ -12,8 +12,8 @@ export function ResourceProperties({ resource }: ResourcePropertiesProps) {
   const selectResource = useResourceStore((s) => s.selectResource)
 
   return (
-    <div className="flex flex-col h-full overflow-auto">
-      <div className="flex items-center justify-between h-9 px-3 shrink-0 border-b border-maia-border">
+    <div className="flex flex-col h-full">
+      <div className="flex items-center justify-between h-9 px-3 shrink-0 border-b border-maia-border bg-maia-bg">
         <h3 className="text-[13px] font-semibold text-maia-text">资源详情</h3>
         <button
           onClick={() => selectResource(null)}
@@ -24,7 +24,7 @@ export function ResourceProperties({ resource }: ResourcePropertiesProps) {
         </button>
       </div>
 
-      <div className="p-3 space-y-3 text-sm">
+      <div className="flex-1 min-h-0 overflow-auto p-3 space-y-3 text-sm">
         {/* Common fields */}
         <Property label="名称" value={resource.name} />
         <Property label="类型">
