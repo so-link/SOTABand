@@ -37,11 +37,29 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   // Agent runtime state
   const [running, setRunning] = useState(false)
   const [input, setInput] = useState('')
-  const [messages, setMessages] = useState<Array<{ role: string; content: string; cards?: InlineCardType[] }>>([])
+  // 对话消息：挂载时直接从 localStorage 惰性初始化（按 agentId 隔离），
+  // 避免「加载 effect 异步 setMessages + 保存 effect 同步写 []」的竞态导致历史被清空。
+  const [messages, setMessages] = useState<Array<{ role: string; content: string; cards?: InlineCardType[] }>>(() => {
+    if (!agentId) return []
+    try {
+      const saved = localStorage.getItem(`sotaband-agent-messages-${agentId}`)
+      return saved ? JSON.parse(saved) : []
+    } catch { return [] }
+  })
+
+  // 消息变化时持久化到 localStorage
+  useEffect(() => {
+    if (!agentId) return
+    try {
+      localStorage.setItem(`sotaband-agent-messages-${agentId}`, JSON.stringify(messages))
+    } catch { /* ignore */ }
+  }, [messages, agentId])
   const [streaming, setStreaming] = useState('')
   const [streamCards, setStreamCards] = useState<InlineCardType[]>([])
   const [isSending, setIsSending] = useState(false)
   const [loading, setLoading] = useState(false)
+  // Agent 工作流程步骤（来自后端 step 事件）
+  const [steps, setSteps] = useState<Array<{ id: string; text: string; status: 'running' | 'done' | 'error' }>>([])
 
   // 任务式 Agent：启动参数（由 spec.inputs 渲染）
   const [taskParams, setTaskParams] = useState<Record<string, string>>({})
@@ -73,6 +91,12 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   const setActiveView = useUIStore((s) => s.setActiveView)
 
   const bottomRef = useRef<HTMLDivElement>(null)
+  // 中间面板滚动容器与展开面板的滚动位置记忆
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const panelScrollRef = useRef<number>(0)
+  const specPanelRef = useRef<HTMLDivElement>(null)
+  const demandPanelRef = useRef<HTMLDivElement>(null)
+  const codePanelRef = useRef<HTMLDivElement>(null)
 
   // Fetch agent details on mount / agent change
   useEffect(() => {
@@ -155,6 +179,12 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   }
 
   const togglePanel = (panel: 'spec' | 'code' | 'demand') => {
+    const container = scrollContainerRef.current
+    // 切换前记录当前滚动位置：展开后滚到面板，收起后恢复到此位置
+    if (container) panelScrollRef.current = container.scrollTop
+
+    const isOpening = panel === 'spec' ? !showSpec : panel === 'code' ? !showCode : !showDemand
+
     if (panel === 'spec') { setShowSpec(!showSpec); setShowCode(false); setShowDemand(false) }
     else if (panel === 'code') {
       setShowCode(!showCode); setShowSpec(false); setShowDemand(false)
@@ -162,6 +192,26 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
       if (!showCode) { setDraftCode(code); setIsEditingCode(false); setSaveMsg('') }
     }
     else { setShowDemand(!showDemand); setShowSpec(false); setShowCode(false) }
+
+    // 等待 DOM 更新后再滚动（两层 rAF 确保面板已挂载/卸载）
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const el = scrollContainerRef.current
+      if (!el) return
+      if (isOpening) {
+        const panelEl = panel === 'spec' ? specPanelRef.current
+          : panel === 'demand' ? demandPanelRef.current : codePanelRef.current
+        if (panelEl) {
+          // 用 getBoundingClientRect 计算面板相对滚动容器的偏移，避免 offsetParent 不一致
+          const panelRect = panelEl.getBoundingClientRect()
+          const containerRect = el.getBoundingClientRect()
+          el.scrollTo({ top: el.scrollTop + (panelRect.top - containerRect.top) - 16, behavior: 'smooth' })
+        }
+      } else {
+        // 收起后内容变短，clamp 到可滚动范围
+        const maxTop = el.scrollHeight - el.clientHeight
+        el.scrollTo({ top: Math.min(panelScrollRef.current, Math.max(0, maxTop)), behavior: 'smooth' })
+      }
+    }))
   }
 
   const codeDirty = draftCode.trim() !== code.trim()
@@ -216,7 +266,6 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
     try {
       await fetch(`${BASE_URL}/api/agent/${agent.id}/start`, { method: 'POST' })
       setRunning(true)
-      setMessages([])
       setStreaming('')
       setStreamCards([])
       if (isWebService) await loadServiceInfo()
@@ -239,7 +288,6 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
     try {
       await fetch(`${BASE_URL}/api/agent/${agent.id}/restart`, { method: 'POST' })
       setRunning(true)
-      setMessages([])
       setStreaming('')
       setStreamCards([])
     } catch { /* ignore */ }
@@ -255,6 +303,7 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
     setIsSending(true)
     setStreaming('')
     setStreamCards([])
+    setSteps([])
 
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 120_000)
@@ -293,7 +342,7 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
           if (line.startsWith('data: ')) {
             try {
               const payload = JSON.parse(line.slice(6))
-              if (eventType === 'content' || !eventType) {
+              if (eventType === 'content' || eventType === 'delta' || !eventType) {
                 full += payload.text || ''
                 setStreaming(full)
               } else if (eventType === 'card') {
@@ -313,6 +362,18 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                 setStreaming('')
                 setStreamCards([])
                 streamDone = true
+              } else if (eventType === 'step') {
+                // 工作流程步骤：按 id 合并状态（running→done/error）
+                setSteps((prev) => {
+                  const idx = prev.findIndex((s) => s.id === payload.id)
+                  const item = { id: payload.id, text: payload.text, status: payload.status || 'running' }
+                  if (idx >= 0) {
+                    const next = [...prev]
+                    next[idx] = item
+                    return next
+                  }
+                  return [...prev, item]
+                })
               } else if (eventType === 'error') {
                 setMessages((m) => [...m, { role: 'system', content: `[WARN] ${payload.message || '执行错误'}` }])
                 streamDone = true
@@ -445,12 +506,13 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
       </div>
 
       {/* Content area */}
-      <div className="flex-1 min-h-0 overflow-auto p-4">
+      <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-auto p-4">
         <div className="max-w-2xl mx-auto space-y-4">
 
           {/* MD Spec panel */}
           {showSpec && (
-            <Card className="border-maia-border">
+            <div ref={specPanelRef}>
+              <Card className="border-maia-border">
               <CardBody>
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-[13px] font-medium text-maia-text-secondary">MD 规范文档</span>
@@ -461,11 +523,13 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                 </pre>
               </CardBody>
             </Card>
+            </div>
           )}
 
           {/* Demand description panel */}
           {showDemand && demandMd && (
-            <Card className="border-maia-border">
+            <div ref={demandPanelRef}>
+              <Card className="border-maia-border">
               <CardBody>
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-[13px] font-medium text-maia-text-secondary">用户需求描述</span>
@@ -476,11 +540,13 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                 </pre>
               </CardBody>
             </Card>
+            </div>
           )}
 
           {/* Code panel */}
           {showCode && (
-            <Card className="border-maia-border">
+            <div ref={codePanelRef}>
+              <Card className="border-maia-border">
               <CardBody>
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
@@ -525,6 +591,7 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                 )}
               </CardBody>
             </Card>
+            </div>
           )}
 
           {/* 任务式 Agent：启动参数 + 启动任务按钮 */}
@@ -666,6 +733,21 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
           )}
 
           {/* Messages area */}
+          {messages.length > 0 && (
+            <div className="flex justify-end mb-1">
+              <button
+                onClick={() => {
+                  if (confirm('确定清空当前对话历史？此操作不可恢复。')) {
+                    setMessages([])
+                    localStorage.removeItem(`sotaband-agent-messages-${agentId}`)
+                  }
+                }}
+                className="text-[12px] text-maia-text-muted hover:text-maia-danger transition-colors"
+              >
+                清空对话
+              </button>
+            </div>
+          )}
           {messages.length === 0 && !streaming && (
             <div className="flex flex-col items-center justify-center py-14 text-center">
               <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-maia-border bg-maia-sidebar text-maia-text-muted">
@@ -685,6 +767,28 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                   点击右上角「启动」运行 Agent 后即可交互
                 </p>
               )}
+            </div>
+          )}
+
+          {/* 工作流程步骤条 */}
+          {steps.length > 0 && (
+            <div className="rounded-lg border border-maia-border bg-maia-bg/50 px-3 py-2 space-y-1.5">
+              <div className="text-[11px] uppercase tracking-wide text-maia-text-muted">工作流程</div>
+              {steps.map((s) => (
+                <div key={s.id} className="flex items-center gap-2 text-[12px]">
+                  <span className={cn(
+                    'inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px]',
+                    s.status === 'done' && 'bg-maia-success/20 text-maia-success',
+                    s.status === 'error' && 'bg-maia-danger/20 text-maia-danger',
+                    s.status === 'running' && 'bg-maia-accent/20 text-maia-accent animate-pulse',
+                  )}>
+                    {s.status === 'done' ? '✓' : s.status === 'error' ? '✕' : '•'}
+                  </span>
+                  <span className={cn(
+                    s.status === 'done' ? 'text-maia-text-muted' : 'text-maia-text',
+                  )}>{s.text}</span>
+                </div>
+              ))}
             </div>
           )}
 
@@ -761,7 +865,7 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                   sendMessage()
                 }
               }}
-              placeholder={`向 ${agent.name} 发送消息…`}
+              placeholder={`向 ${agent.name} 发送消息…（Enter 发送，Shift+Enter 换行）`}
               rows={1}
               className="flex-1 bg-transparent px-1 py-1.5 text-[14px] leading-[22px] outline-none resize-none min-h-[32px] max-h-[140px] placeholder:text-maia-text-muted"
               disabled={isSending}
@@ -778,9 +882,6 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                 <Send className="h-4 w-4" />
               )}
             </Button>
-          </div>
-          <div className="max-w-2xl mx-auto mt-2 text-[12px] text-maia-text-muted">
-            Enter 发送 · Shift+Enter 换行
           </div>
         </div>
       )}
