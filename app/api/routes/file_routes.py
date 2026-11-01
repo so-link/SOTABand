@@ -2,6 +2,7 @@
 
 import json as _json
 import os
+import re
 import shutil
 import time
 from pathlib import Path
@@ -11,6 +12,34 @@ from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from pydantic import BaseModel
 
 router = APIRouter()
+
+# 上传子目录名：只允许单层字母/数字/._-（如 2026-10-31、dataset_1759...），
+# 拒绝 "/" 与 ".."——否则 subdir 可把上传文件写到任意绝对路径。
+_UPLOAD_SUBDIR_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+# 经文件接口一律不可读/删的敏感位置（密钥与身份数据）。
+# 这是防御纵深：根因仍需「接口鉴权 + 执行隔离」，不能只靠名单。
+_SENSITIVE_NAME_PREFIXES = (".env",)
+_SENSITIVE_NAMES = {"secret.key", "id_rsa", "id_ed25519", "authorized_keys", "credentials", "credentials.json"}
+
+
+def _sensitive_dirs() -> set[Path]:
+    from core.resource import paths as _paths
+
+    return {(_paths.PRIVATE_ROOT / "users").resolve(), (Path.home() / ".ssh").resolve()}
+
+
+def _assert_path_allowed(path: Path) -> None:
+    """拒绝读取/删除密钥与身份文件，并禁止穿越到敏感目录。"""
+    resolved = path.resolve()
+    if resolved.name.lower() in _SENSITIVE_NAMES or resolved.name.lower().startswith(_SENSITIVE_NAME_PREFIXES):
+        raise HTTPException(403, "不允许访问该路径")
+    for blocked in _sensitive_dirs():
+        try:
+            resolved.relative_to(blocked)
+        except ValueError:
+            continue
+        raise HTTPException(403, "不允许访问该路径")
 
 # 上传文件存储根目录
 UPLOAD_ROOT = Path(__file__).resolve().parent.parent.parent.parent / "data" / "uploads"
@@ -128,8 +157,10 @@ async def upload_file(file: UploadFile = File(...), subdir: str = Form("")):
 
     # 安全文件名
     safe_name = Path(file.filename).name
-    # 子目录：优先用传入的 subdir，否则按日期
-    dir_name = subdir if subdir else time.strftime("%Y-%m-%d")
+    # 子目录：优先用传入的 subdir，否则按日期；只允许安全单层目录名
+    dir_name = subdir.strip() if subdir else time.strftime("%Y-%m-%d")
+    if not _UPLOAD_SUBDIR_RE.fullmatch(dir_name):
+        raise HTTPException(400, "子目录名非法：只允许字母、数字、点、下划线、连字符")
     dest_dir = UPLOAD_ROOT / dir_name
     dest_dir.mkdir(parents=True, exist_ok=True)
 
@@ -164,6 +195,7 @@ async def delete_file(req: dict):
         raise HTTPException(400, "缺少文件路径")
 
     file_path = Path(path).expanduser().resolve()
+    _assert_path_allowed(file_path)
     if not file_path.exists():
         raise HTTPException(404, "文件不存在")
 
@@ -191,6 +223,7 @@ async def serve_image(path: str):
     from fastapi.responses import FileResponse
     import mimetypes
     img_path = _Path(path)
+    _assert_path_allowed(img_path)
     if not img_path.exists():
         raise HTTPException(404, "图片不存在")
     mime_type, _ = mimetypes.guess_type(str(img_path))
@@ -204,6 +237,7 @@ async def download_file(path: str):
     from fastapi.responses import FileResponse as _FileResponse
     import mimetypes
     file_path = _Path(path)
+    _assert_path_allowed(file_path)
     if not file_path.exists():
         raise HTTPException(404, "文件不存在")
     mime_type, _ = mimetypes.guess_type(str(file_path))
@@ -233,6 +267,7 @@ async def serve_audio(path: str):
     from fastapi.responses import FileResponse as _FileResponse
     import mimetypes
     file_path = _Path(path)
+    _assert_path_allowed(file_path)
     if not file_path.exists():
         raise HTTPException(404, "音频文件不存在")
     mime_type, _ = mimetypes.guess_type(str(file_path))

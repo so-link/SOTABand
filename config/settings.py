@@ -399,7 +399,9 @@ class AppConfig:
 
     app_name: str = "SOTABand"
     debug: bool = field(default_factory=lambda: os.getenv("SOTABAND_DEBUG", "").lower() in ("1", "true", "yes"))
-    api_host: str = field(default_factory=lambda: os.getenv("SOTABAND_API_HOST", "0.0.0.0"))
+    # 默认只监听回环：代码执行/文件接口无鉴权时，绑 0.0.0.0 等于把 RCE 暴露给全网。
+    # 服务器部署须显式设置 SOTABAND_API_HOST 并配置鉴权。
+    api_host: str = field(default_factory=lambda: os.getenv("SOTABAND_API_HOST", "127.0.0.1"))
     api_port: int = field(default_factory=lambda: int(os.getenv("SOTABAND_API_PORT", "8201")))
     web_port: int = field(default_factory=lambda: int(os.getenv("SOTABAND_WEB_PORT", "8200")))
     # CORS 允许的来源。默认空列表 = 仅放行同源/无 Origin 请求（curl、服务端、

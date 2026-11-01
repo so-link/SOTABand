@@ -17,6 +17,7 @@ SOTABand 的资源分为两类：
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 # 项目根：core/resource/paths.py → core/resource → core → 项目根
@@ -38,6 +39,17 @@ def _default_private_root() -> Path:
 
 
 PRIVATE_ROOT = Path(_PRIVATE_ENV) if _PRIVATE_ENV else _default_private_root()
+
+
+# 资源 id 命名约束：小写字母/数字开头，仅含小写字母、数字、-、_，长度 ≤100。
+# 资源 id 会被直接拼进实现目录路径（implementations/<id>），必须拒绝
+# "../" 等穿越字符——否则注册接口可把代码写到任意目录（路径穿越）。
+RESOURCE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,99}$")
+
+
+def is_valid_resource_id(value: str) -> bool:
+    """判断资源 id 是否安全可用作目录名。"""
+    return isinstance(value, str) and bool(RESOURCE_ID_RE.fullmatch(value))
 
 
 def resource_roots() -> list[Path]:
