@@ -435,50 +435,58 @@ class InteractiveAgentBase(BaseAgent):
     async def _execute_and_reply(self, ctx: AgentContext, tool: dict, params: dict, st: dict):
         """执行工具并用 LLM 汇总结果回复。"""
         tool_id = tool.get("id")
-        # 执行提示：工具可能耗时较长，先反馈，避免界面无响应被误认为卡死。
-        yield {"event": "content",
-               "data": {"text": f"正在执行 **{tool.get('name', tool_id)}**，请稍候……"}}
+        tool_name = tool.get('name', tool_id)
+
+        # 步骤 1：准备调用工具
+        yield {"event": "step", "data": {"id": "call_tool", "text": f"调用工具「{tool_name}」", "status": "running"}}
+
         result = await self.run_tool(tool_id, params)
 
         if not isinstance(result, dict) or result.get("status") != "success":
             msg = result.get("message") if isinstance(result, dict) else "未知错误"
+            yield {"event": "step", "data": {"id": "call_tool", "text": f"调用工具「{tool_name}」失败", "status": "error"}}
             yield {"event": "error",
                    "data": {"code": "TOOL_FAILED", "message": f"执行失败：{msg}"}}
             yield {"event": "done", "data": {"messageId": ctx.session_id}}
             return
 
-        # 结果卡片：承载完整的工具返回数据（前端据此完整渲染表格/图片/文件等）
+        yield {"event": "step", "data": {"id": "call_tool", "text": f"调用工具「{tool_name}」完成", "status": "done"}}
+
+        # 结果卡片：承载完整的工具返回数据
         yield {
             "event": "card",
             "data": {
                 "type": "result-summary",
-                "title": f"工具执行: {tool.get('name', tool_id)}",
+                "title": f"工具执行: {tool_name}",
                 "summary": result.get("message", ""),
                 "data": {"tool_id": tool_id, "result": result},
             },
         }
 
-        # 与系统交互 Agent 保持一致：表格 / 图片 / 文件 类结果直接由前端卡片
-        # 完整渲染，不再经 LLM 生成文本——否则 LLM 会截断/摘要，导致信息不完整，
-        # 且与卡片内容重复展示。仅文本类结果才调 LLM 生成自然语言回复。
+        # 表格 / 图片 / 文件 类结果直接由前端卡片完整渲染，不再经 LLM 摘要
         if result.get("output_format") in ("image", "table", "file"):
             yield {"event": "done", "data": {"messageId": ctx.session_id}}
             return
 
-        # 文本类结果 → LLM 生成自然语言回复
+        # 文本类结果 → LLM 生成自然语言回复（流式）
+        yield {"event": "step", "data": {"id": "reply", "text": "正在整理结果……", "status": "running"}}
+        full = ""
         try:
-            reply = await self.get_llm().chat(
+            async for token in self.get_llm().chat_stream(
                 messages=[{"role": "user", "content": (
-                    f"用户需求已通过工具「{tool.get('name', tool_id)}」完成。"
+                    f"用户需求已通过工具「{tool_name}」完成。"
                     f"请用简洁自然的中文向用户说明结果。\n"
                     f"工具返回：{json.dumps(result, ensure_ascii=False, default=str)[:4000]}"
                 )}],
                 max_tokens=2000,
-            )
-            yield {"event": "content", "data": {"text": reply or result.get("message", "")}}
+            ):
+                full += token
+                yield {"event": "delta", "data": {"text": token}}
         except Exception:
-            yield {"event": "content", "data": {"text": result.get("message", "")}}
+            full = result.get("message", "")
+            yield {"event": "delta", "data": {"text": full}}
 
+        yield {"event": "step", "data": {"id": "reply", "text": "整理完成", "status": "done"}}
         yield {"event": "done", "data": {"messageId": ctx.session_id}}
 
     async def _chat_reply(self, ctx: AgentContext, content: str, st: dict):
@@ -487,13 +495,16 @@ class InteractiveAgentBase(BaseAgent):
         if not history:
             history.append({"role": "system", "content": self.build_system_prompt()})
         history.append({"role": "user", "content": content})
+        full = ""
         try:
-            resp = await self.get_llm().chat(messages=history, max_tokens=800)
+            async for token in self.get_llm().chat_stream(messages=history, max_tokens=800):
+                full += token
+                yield {"event": "delta", "data": {"text": token}}
         except Exception as e:
-            resp = f"抱歉，处理您的请求时出错：{str(e)[:120]}"
-        history.append({"role": "assistant", "content": resp or ""})
+            full = f"抱歉，处理您的请求时出错：{str(e)[:120]}"
+            yield {"event": "delta", "data": {"text": full}}
+        history.append({"role": "assistant", "content": full or ""})
         # 保持历史不无限增长
         if len(history) > 21:
             del history[1:3]
-        yield {"event": "content", "data": {"text": resp or ""}}
         yield {"event": "done", "data": {"messageId": ctx.session_id}}

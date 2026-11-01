@@ -193,9 +193,22 @@ class ToolRegistry(BaseRegistry):
         return tool_id
 
     async def unregister(self, tool_id: str):
-        data = self._read()
-        data = [e for e in data if e["id"] != tool_id]
-        self._write(data)
+        """从内置与私有两个 registry 中移除该工具。
+
+        旧实现只写私有 registry：若工具在内置 registry 中存在，刷新后
+        ``_read`` 合并内置条目又会把它加载回来，表现为「删除后刷新又出现」。
+        """
+        for root in paths.resource_roots():
+            rf = root / "tools" / "registry.json"
+            if not rf.exists():
+                continue
+            try:
+                data = json.loads(rf.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            next_data = [e for e in data if isinstance(e, dict) and e.get("id") != tool_id]
+            if len(next_data) != len(data):
+                _write_json(rf, next_data)
 
     async def get(self, tool_id: str) -> dict | None:
         for e in self._read():

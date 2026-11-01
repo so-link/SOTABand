@@ -1998,22 +1998,17 @@ async def search_tools(q: str = "", tags: str = ""):
 
 @router.delete("/{tool_id}")
 async def delete_tool(tool_id: str):
+    """从工具空间（registry）移除该工具。
+
+    这是「取消收藏」语义：只从 registry 中移除条目，实现目录与定义文件
+    保留在工具仓库中，后续可通过「添加到工具空间」重新注册回来。
+    若工具不存在于 registry 则返回 404。
+    """
     entry = await registry.get(tool_id)
-    if not entry: raise HTTPException(404, f"Tool '{tool_id}' not found")
-    def_dir = registry._get_def_dir()
-    impl_dir = registry._get_impl_dir() / tool_id
+    if not entry:
+        raise HTTPException(404, f"Tool '{tool_id}' not found")
 
-    # 删除实现目录
-    if impl_dir.exists():
-        shutil.rmtree(impl_dir, ignore_errors=True)
-
-    # 删除所有关联文件：spec.md, demand.md, reference.md 等
-    for suffix in [".md", "-demand.md", "-reference.md"]:
-        p = def_dir / f"{tool_id}{suffix}"
-        if p.exists():
-            p.unlink()
-
-    # 从 registry 中移除
+    # 仅从内置与私有 registry 中移除条目，不删除仓库中的实现文件
     await registry.unregister(tool_id)
     return {"deleted": tool_id}
 
