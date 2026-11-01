@@ -255,7 +255,7 @@ def serve(mode: str, skip_tools: bool, rebuild_frontend: bool, mirror: str | Non
             sys.exit(1)
         fail("未找到 .env 和 .env.example，无法确定 LLM 配置")
 
-    host = env_cfg.get("SOTABAND_API_HOST", "0.0.0.0")
+    host = env_cfg.get("SOTABAND_API_HOST", "127.0.0.1")
     api_port = int(env_cfg.get("SOTABAND_API_PORT", "8201"))
     web_port = int(env_cfg.get("SOTABAND_WEB_PORT", "8200"))
 
@@ -282,7 +282,11 @@ def serve(mode: str, skip_tools: bool, rebuild_frontend: bool, mirror: str | Non
         "SOTABAND_WEB_PORT": str(web_port),
     }
 
-    backend = spawn([py, "-m", "uvicorn", "app.main:app", "--host", host, "--port", api_port],
+    # --no-proxy-headers：保持 request.client 为真实直连方（本机 Vite 代理），
+    # 否则 uvicorn 会把 X-Forwarded-For 里的外部 IP 当成客户端，导致
+    # 「未登录仅允许本机」的判断失效；浏览器侧原始 Host 另由 X-Forwarded-Host 传递。
+    backend = spawn([py, "-m", "uvicorn", "app.main:app", "--host", host,
+                     "--port", api_port, "--no-proxy-headers"],
                     ROOT, RUN_DIR / "backend.log", child_env)
     if not wait_http(f"http://127.0.0.1:{api_port}/api/health", timeout=30):
         backend.terminate()

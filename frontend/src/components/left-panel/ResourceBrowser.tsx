@@ -148,9 +148,21 @@ export function ResourceBrowser() {
     if (!confirm(`确定删除 "${resource.name}"？此操作不可恢复。`)) return
     const BASE_URL = ''
     try {
-      await fetch(`${BASE_URL}/api/agent/${resource.id}`, { method: 'DELETE' })
+      const res = await fetch(`${BASE_URL}/api/agent/${resource.id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        // 失败必须提示，否则用户只看到列表没变化、不知道原因
+        let detail = `HTTP ${res.status}`
+        try {
+          const body = await res.json()
+          detail = body?.detail || detail
+        } catch { /* 非 JSON 响应沿用状态码 */ }
+        alert(`删除失败：${detail}`)
+        return
+      }
       fetchAgentsFromApi()
-    } catch { /* ignore */ }
+    } catch (err) {
+      alert(`删除失败：${err instanceof Error ? err.message : String(err)}`)
+    }
   }
 
   const handleResourceClick = (resource: Resource) => {

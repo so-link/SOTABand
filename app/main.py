@@ -4,8 +4,11 @@
 """
 
 from contextlib import asynccontextmanager
+from urllib.parse import urlsplit
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from config.settings import settings
 from app.api.routes.chat_routes import router as chat_router
@@ -18,7 +21,7 @@ from app.api.routes.config_routes import router as config_router
 from app.api.routes.api_routes import router as api_list_router
 from app.api.routes.llm_routes import router as llm_router
 from app.api.routes.auth_routes import router as auth_router
-from core.auth import verify_token
+from core.auth import list_users, verify_token
 from core.auth.session import AuthUser, reset_current_user, set_current_user
 
 
@@ -66,31 +69,126 @@ app.add_middleware(
 )
 
 
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+# 读类接口里涉及密钥/配置/文件读写的路径；其余 GET 仍按只读放行
+_READ_SENSITIVE_PREFIXES = ("/api/file", "/api/config", "/api/llm", "/api/apis")
+
+
+def _is_loopback_host(host: str | None) -> bool:
+    return (host or "").strip().lower() in _LOOPBACK_HOSTS
+
+
+def _origin_hostname(origin: str) -> str:
+    try:
+        return (urlsplit(origin).hostname or "").lower()
+    except ValueError:
+        return ""
+
+
+def _has_users() -> bool:
+    try:
+        return bool(list_users())
+    except Exception:
+        return False
+
+
+def _forwarded_hostname(request: Request) -> str:
+    """经本机反向代理（Vite dev server 等）转发时，返回浏览器侧的原始 Host。
+
+    仅在直连方为本机回环时才信任该头——远端请求无法借此伪装来源。
+    """
+    client_host = request.client.host if request.client else ""
+    if not _is_loopback_host(client_host):
+        return ""
+    xfh = (request.headers.get("x-forwarded-host") or "").split(",")[0].strip()
+    if not xfh:
+        return ""
+    return _origin_hostname(f"http://{xfh}")
+
+
+def _is_sensitive_endpoint(path: str, method: str) -> bool:
+    """写/执行类接口一律敏感；读类仅文件/配置/密钥相关。"""
+    if not path.startswith("/api/"):
+        return False
+    if path.startswith("/api/auth/") or path == "/api/health":
+        return False
+    if method in ("GET", "HEAD", "OPTIONS"):
+        return path.startswith(_READ_SENSITIVE_PREFIXES)
+    return True
+
+
+def _browser_guard(request: Request, method: str):
+    """浏览器侧攻击防护（与是否登录无关）。
+
+    - 本机监听时拒绝非回环 Host：DNS rebinding 会把攻击者域名的请求打到
+      127.0.0.1，但 Host/Origin 里仍是攻击者域名。
+    - 状态变更请求校验 Origin：CORS 只挡「读响应」，挡不住简单请求送达。
+    """
+    if _is_loopback_host(settings.app.api_host) and not _is_loopback_host(request.url.hostname):
+        return JSONResponse(status_code=403, content={"detail": "仅接受本机 Host 的请求"})
+
+    if method not in ("GET", "HEAD", "OPTIONS"):
+        origin = (request.headers.get("origin") or "").strip()
+        if origin:
+            if origin.lower() == "null":
+                return JSONResponse(status_code=403, content={"detail": "不允许的来源"})
+            origin_host = _origin_hostname(origin)
+            same_host = origin_host == (request.url.hostname or "").lower()
+            forwarded_host = _forwarded_hostname(request)
+            if not (
+                same_host
+                or _is_loopback_host(origin_host)
+                or (forwarded_host and origin_host == forwarded_host)
+                or origin in settings.app.cors_origins
+            ):
+                return JSONResponse(status_code=403, content={"detail": "跨站来源被拒绝"})
+    return None
+
+
 @app.middleware("http")
 async def auth_identity_middleware(request: Request, call_next):
-    """解析 Bearer 令牌写入请求级身份；无令牌 = 匿名（回退实例身份）。
+    """解析 Bearer 令牌写入请求级身份，并做请求防护。
 
-    携带了**无效/过期**令牌则直接 401——静默降级成匿名会让过期会话
-    以实例身份写数据，归属反而更难追踪。
+    - 携带了**无效/过期**令牌则直接 401——静默降级成匿名会让过期会话
+      以实例身份写数据，归属反而更难追踪。
+    - 已注册用户的实例：写/执行类接口必须登录。
+    - 无用户的实例：写/执行类接口只允许本机回环客户端（远端一律拒绝）。
     """
+    path = request.url.path
+    method = request.method.upper()
     header = request.headers.get("authorization", "")
+    payload = None
+
     if header.lower().startswith("bearer "):
         payload = verify_token(header[7:].strip())
         if payload is None:
-            from fastapi.responses import JSONResponse
             return JSONResponse(
                 status_code=401,
                 content={"detail": "登录凭证无效或已过期，请重新登录"},
             )
-        token = set_current_user(AuthUser(
-            id=payload["uid"], username=payload.get("username", ""),
-            role=payload.get("role", "user"),
-        ))
-        try:
-            return await call_next(request)
-        finally:
-            reset_current_user(token)
-    return await call_next(request)
+
+    guard = _browser_guard(request, method)
+    if guard is not None:
+        return guard
+
+    if payload is None and _is_sensitive_endpoint(path, method):
+        if _has_users():
+            return JSONResponse(status_code=401, content={"detail": "该操作需要登录"})
+        client_host = request.client.host if request.client else ""
+        if not _is_loopback_host(client_host):
+            return JSONResponse(status_code=403, content={"detail": "未登录时仅允许本机访问"})
+
+    if payload is None:
+        return await call_next(request)
+
+    token = set_current_user(AuthUser(
+        id=payload["uid"], username=payload.get("username", ""),
+        role=payload.get("role", "user"),
+    ))
+    try:
+        return await call_next(request)
+    finally:
+        reset_current_user(token)
 
 
 # 注册路由

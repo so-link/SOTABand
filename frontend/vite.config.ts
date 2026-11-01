@@ -26,7 +26,15 @@ const env = { ...dotEnv, ...process.env }
 const apiPort = env.SOTABAND_API_PORT || '8201'
 const webPort = Number(env.SOTABAND_WEB_PORT || 8200)
 const host = env.SOTABAND_WEB_HOST || '127.0.0.1'
-const proxy = { '/api': { target: `http://127.0.0.1:${apiPort}`, changeOrigin: true } }
+const proxy = {
+  '/api': {
+    target: `http://127.0.0.1:${apiPort}`,
+    changeOrigin: true,
+    // 透传浏览器侧原始 Host（X-Forwarded-Host），供后端做来源校验：
+    // 通过 IDE/预览域名访问时，Origin 与后端 Host 不同，需要该头才能判定同源。
+    xfwd: true,
+  },
+}
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],

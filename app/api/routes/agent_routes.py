@@ -4,6 +4,7 @@ import asyncio
 import json
 import re
 import time
+from datetime import date
 from pathlib import Path
 from fastapi import APIRouter, Form, HTTPException
 from pydantic import BaseModel
@@ -24,6 +25,22 @@ router = APIRouter()
 builder = AgentCodeBuilder()
 registry = AgentRegistry()
 llm = create_llm_client()
+
+
+def _remove_tree(path: Path) -> None:
+    """递归删除目录，使用路径级 unlink / rmdir。
+
+    不用 ``shutil.rmtree``：它在删除时走 dir_fd 版本的系统调用，
+    在受限运行环境（沙箱）中会被拒绝，表现为 Permission denied。
+    """
+    if not path.exists():
+        return
+    for child in path.iterdir():
+        if child.is_dir() and not child.is_symlink():
+            _remove_tree(child)
+        else:
+            child.unlink()
+    path.rmdir()
 
 
 SPEC_GENERATION_PROMPT = """你是一个 Agent 规格文档生成器。根据用户的自然语言描述，生成标准化的 Agent MD 规范文档。
@@ -237,11 +254,15 @@ async def generate_spec(req: GenerateSpecRequest):
             if role_guidance:
                 user_prompt += f"\n\n---\n## Agent 类型约束（必须严格遵守）\n\n{role_guidance}"
 
+            # 模板里的 {今天日期} 必须替换成真实日期：直接交给 LLM 会
+            # 被当成普通占位符，模型自行编造日期（实测生成了 2025-01-07）。
+            system_prompt = SPEC_GENERATION_PROMPT.replace("{今天日期}", date.today().isoformat())
+
             # ── 流式调用 LLM，区分思考过程与正文，逐片下发 ──
             full = ""
             async for kind, token in llm.chat_stream_events(
                 messages=[
-                    {"role": "system", "content": SPEC_GENERATION_PROMPT},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0.5,
@@ -408,6 +429,10 @@ async def agent_auto_debug(
         raise HTTPException(400, "test_input_json 必须是 JSON 对象")
 
     agent_id = (agent_id or "").strip() or "custom-agent"
+    from core.resource import paths as _paths
+
+    if not _paths.is_valid_resource_id(agent_id):
+        raise HTTPException(400, "agent_id 非法：只允许小写字母/数字开头，及小写字母、数字、-、_")
     role = (role or "task").strip().lower()
     if role in ("web_service", "webservice"):
         role = "web-service"
@@ -529,6 +554,22 @@ async def register_agent(req: RegisterAgentRequest):
         if not scan.ok:
             raise HTTPException(400, "静态安全审查未通过：\n" + "\n".join(scan.errors))
 
+    # agent_id 直接拼进 implementations/<id> 目录，必须拒绝 "../" 等路径穿越
+    from core.resource import paths as _paths
+    if not _paths.is_valid_resource_id(agent_id):
+        raise HTTPException(400, "agent_id 非法：只允许小写字母/数字开头，及小写字母、数字、-、_")
+
+    # 从 MD 中的【【工具名】】引用解析依赖工具 ID。
+    # 旧实现从未写入 required_tools，导致所有引用工具的 Agent 在界面上
+    # 都显示为「通用任务」（tools 恒为空）。
+    tool_ids: list[str] = []
+    try:
+        for tr in AgentCodeBuilder._extract_tool_refs(req.spec_md):
+            if tr.get("id") and tr["id"] not in tool_ids:
+                tool_ids.append(tr["id"])
+    except Exception:
+        tool_ids = []
+
     resource = {
         "id": agent_id,
         "name": req.agent_name,
@@ -536,6 +577,7 @@ async def register_agent(req: RegisterAgentRequest):
         "role": req.role,
         "raw_md": req.spec_md,
         "tags": req.tags,
+        "required_tools": tool_ids,
     }
 
     registered_id = await registry.register(resource)
@@ -878,21 +920,37 @@ async def restart_agent(agent_id: str):
 
 @router.delete("/{agent_id}")
 async def delete_agent(agent_id: str):
-    """删除 Agent（registry + code + 停止进程）"""
+    """删除 Agent（registry + 代码 + 规范 + 停止进程）。
+
+    规则：
+    - 内置 Agent（仅在内置资源根中存在）不可删除，避免「删掉又出现」；
+    - 文件删除失败时返回明确的 500 错误，前端可提示，而不是裸 traceback。
+    """
     entry = await registry.get(agent_id)
     if not entry:
         raise HTTPException(404, f"Agent '{agent_id}' not found")
-    import shutil
+
+    from core.resource import paths as resource_paths
+
+    private_dir = resource_paths.private_space_dir("agents")
+    private_spec = private_dir / "definitions" / f"{agent_id}.md"
+    private_demand = private_dir / "definitions" / f"{agent_id}-demand.md"
+    private_impl = private_dir / "implementations" / agent_id
+    builtin_spec = resource_paths.builtin_space_dir("agents") / "definitions" / f"{agent_id}.md"
+
+    if builtin_spec.exists() and not private_spec.exists():
+        raise HTTPException(400, f"'{agent_id}' 属于内置 Agent，不能删除")
+
     # 停止进程
     await agent_factory.stop(agent_id)
-    # 删除代码
-    impl_dir = registry._get_impl_dir() / agent_id
-    if impl_dir.exists():
-        shutil.rmtree(impl_dir, ignore_errors=True)
-    # 删除 MD
-    spec_path = registry._get_spec_dir() / f"{agent_id}.md"
-    if spec_path.exists():
-        spec_path.unlink()
+    # 删除代码与规范（含生成期产生的 -demand.md）
+    try:
+        _remove_tree(private_impl)
+        for f in (private_spec, private_demand):
+            if f.exists():
+                f.unlink()
+    except OSError as e:
+        raise HTTPException(500, f"删除 Agent '{agent_id}' 的文件失败：{type(e).__name__}: {e}")
     await registry.unregister(agent_id)
     return {"deleted": agent_id}
 
