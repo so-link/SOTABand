@@ -406,6 +406,10 @@ async def check_deps(tool_id: str):
 @router.post("/{tool_id}/install-deps")
 async def install_deps(tool_id: str, req: dict):
     """安装依赖到工具独立 .venv（uv 管理，缺失时自动引导创建）"""
+    from core.resource import paths as _paths
+
+    if not _paths.is_valid_resource_id(tool_id):
+        raise HTTPException(400, "tool_id 非法")
     deps = req.get("dependencies", [])
     if not deps:
         raise HTTPException(400, "dependencies 不能为空")
@@ -430,6 +434,9 @@ async def auto_debug(
     import asyncio
 
     test_input = _json.loads(test_input_json)
+    from core.resource import paths as _paths
+    if tool_id and not _paths.is_valid_resource_id(tool_id):
+        raise HTTPException(400, "tool_id 非法：只允许小写字母/数字开头，及小写字母、数字、-、_")
     for f in files:
         if f.filename:
             # 只取文件名部分，防止 ../ 穿越出上传目录
@@ -500,6 +507,13 @@ async def stop_auto_debug(req: dict):
 @router.post("/register")
 async def register_tool(req: RegisterToolRequest):
     """注册工具"""
+    # tool_id 会被拼进 implementations/<id> 与 definitions/<id>.md，
+    # 必须拒绝 "../" 等路径穿越
+    from core.resource import paths as _paths
+
+    if not _paths.is_valid_resource_id(req.tool_id):
+        raise HTTPException(400, "tool_id 非法：只允许小写字母/数字开头，及小写字母、数字、-、_")
+
     spec = {"raw_md": req.spec_md, "id": req.tool_id, "name": req.tool_name}
     code = req.code or (await builder.build(spec))
 
@@ -547,8 +561,8 @@ async def register_tool(req: RegisterToolRequest):
 async def _auto_generate_tags(tool_id: str, name: str, spec_md: str):
     """LLM 自动生成工具标签，更新到 registry"""
     try:
-        from core.llm.client import get_llm_client
-        llm = get_llm_client()
+        # 复用模块级客户端：core.llm.client 并没有 get_llm_client 导出，
+        # 旧写法会 ImportError 导致标签自动生成永远失败。
         prompt = f"""根据以下工具信息，生成3-5个简短的中文标签（每个2-4字），用于工具分类和检索。直接返回 JSON 数组。
 
 工具名称: {name}
@@ -1477,9 +1491,11 @@ async def modify_and_debug(tool_id: str, req: "ModifyAndDebugRequest"):
 
             # ── 步骤 2：LLM 生成完整代码（只更新代码面板，不显示在日志）──
             try:
+                # 不传 timeout：硬编码 60s 对全量重写十几 KB 的工具代码必然超时，
+                # 回退到 settings.llm.timeout（LLM_TIMEOUT，默认 1200s）。
                 response = await llm.chat(
                     messages=[{"role": "user", "content": base_prompt}],
-                    temperature=0.3, max_tokens=100000, timeout=60,
+                    temperature=0.3, max_tokens=100000,
                 )
             except Exception as e:
                 with open(_log_file, "a", encoding="utf-8") as lf:

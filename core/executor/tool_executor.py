@@ -53,15 +53,17 @@ class ToolExecutor:
     def _resolve_impl_dir(cls, tool_id: str) -> Path:
         """在「内置 + 私有」资源根中定位工具实现目录。
 
-        返回第一个含 tool.py 的实现目录；均不存在时返回内置默认路径
-        （便于上层给出明确的“工具不存在”错误）。
+        返回第一个含 tool.py 的实现目录；均不存在时返回私有根默认路径
+        （便于上层给出明确的“工具不存在”错误，同时保证兜底路径可写）。
         """
         for space in cls._tool_space_dirs():
             d = space / "implementations" / tool_id
             if (d / "tool.py").exists():
                 return d
-        # 兜底：返回内置默认路径
-        return cls._project_root() / "resources" / "tools" / "implementations" / tool_id
+        # 兜底：未注册工具（如自动调试阶段）落到私有根，避免写入内置只读资产
+        from core.resource import paths as _paths
+
+        return _paths.private_space_dir("tools") / "implementations" / tool_id
 
     @staticmethod
     def _tool_space_dirs() -> list[Path]:
@@ -102,6 +104,21 @@ class ToolExecutor:
 
         return sys.executable
 
+    @staticmethod
+    def _params_literal(params: dict) -> str:
+        """把参数字典渲染成合法的 Python 源码字面量。
+
+        JSON 的 true/false/null 不是 Python 字面量，直接 json.dumps 拼进源码
+        会触发 ``NameError: name 'true' is not defined``；repr() 产出的
+        True/False/None 才是合法表达式。
+        """
+        text = repr(params)
+        try:
+            text.encode("utf-8")
+        except UnicodeEncodeError:
+            text = text.encode("utf-8", errors="replace").decode("utf-8")
+        return text
+
     @classmethod
     def _build_script(cls, code: str, params: dict, tool_dir: str, project_root: str) -> str:
         """构造统一的临时执行脚本。
@@ -126,7 +143,7 @@ class ToolExecutor:
             f"code = {_safe_dumps(code)}\n"
             f"try:\n"
             f"    exec(code)\n"
-            f"    result = execute(**{json.dumps(params)})\n"
+            f"    result = execute(**{cls._params_literal(params)})\n"
             f"    print(json.dumps(result, default=str, ensure_ascii=False))\n"
             f"except ModuleNotFoundError as e:\n"
             f"    print(json.dumps({{'status':'failed','message':f'Missing module: {{e.name}}','error':'ModuleNotFoundError','missing_module':e.name}}))\n"

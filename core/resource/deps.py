@@ -141,7 +141,7 @@ def read_requirements(tool_dir: Path) -> list[str]:
 def resolve_tool_dir(tool_id: str) -> Path:
     """按执行器一致的顺序（内置 → 私有）定位工具实现目录。
 
-    均不存在时返回内置默认路径（与 ToolExecutor._resolve_impl_dir 兜底一致）。
+    均不存在时返回私有根默认路径（与 ToolExecutor._resolve_impl_dir 兜底一致）。
     """
     from core.resource import paths
 
@@ -149,7 +149,9 @@ def resolve_tool_dir(tool_id: str) -> Path:
         d = space / "implementations" / tool_id
         if (d / "tool.py").exists():
             return d
-    return paths.BUILTIN_ROOT / "tools" / "implementations" / tool_id
+    # 兜底：工具尚未注册（如自动调试阶段），落到私有根——可写，且正是注册后的落点。
+    # 旧实现落到内置根，会在仓库内生成 .venv/requirements.txt，污染随仓库分发的只读资产。
+    return paths.private_space_dir("tools") / "implementations" / tool_id
 
 
 def create_tool_venv(tool_dir: Path, specs: list[str] | None = None,
