@@ -167,9 +167,12 @@ function ViewTabBar() {
 function ViewRouter({ view }: { view: ActiveView }) {
   // 单个 Agent / 工具的独立视图
   const agentId = parseAgentDetailView(view)
-  if (agentId) return <AgentDetailView agentId={agentId} />
+  // key 强制按 agentId 重新挂载：否则切换 Agent 时 React 复用同一实例，
+  // messages/input/running/specMd 等状态会残留上一个 Agent 的内容，
+  // 表现为切到 ETF Agent 仍显示城市查询 Agent 的对话。
+  if (agentId) return <AgentDetailView key={`agent:${agentId}`} agentId={agentId} />
   const toolId = parseToolDetailView(view)
-  if (toolId) return <ToolDetailView toolId={toolId} />
+  if (toolId) return <ToolDetailView key={`tool:${toolId}`} toolId={toolId} />
 
   switch (view) {
     case 'chat': return <ChatView />
