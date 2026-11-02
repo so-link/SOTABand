@@ -1,12 +1,9 @@
 import { create } from 'zustand'
 import type { Resource, ResourceType, AgentResource, ToolResource, DataResource, TaskResource } from '@/types/resources'
-import { MockResourceService } from '@/services/mock/resources'
 import { agentApi } from '@/services/api/agent'
 import { toolApi } from '@/services/api/tool'
 import { dataApi } from '@/services/api/data'
 import { taskApi, type TaskRecord, type RecentAgentRecord } from '@/services/api/task'
-
-const resourceService = new MockResourceService()
 
 /** 后端任务记录 → 左栏「任务历史」Resource 形状 */
 function taskToResource(t: TaskRecord): TaskResource {
@@ -110,17 +107,16 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
     set({ isLoading: true })
     if (type === 'task') {
       await get().fetchTasksFromApi()
-      set({ isLoading: false })
-      return
+    } else if (type === 'tool') {
+      await get().fetchToolsFromApi()
+    } else if (type === 'agent') {
+      await get().fetchAgentsFromApi()
+    } else if (type === 'data') {
+      await get().fetchDatasetsFromApi()
+    } else if (type === 'model') {
+      await get().fetchModelsFromApi()
     }
-    const resources = await resourceService.list(type)
-    const key = type === 'data' ? 'dataResources'
-      : type === 'tool' ? 'toolResources'
-      : type === 'model' ? 'modelResources'
-      : type === 'agent' ? 'agentResources'
-      : type === 'task' ? 'taskResources'
-      : 'dataResources'
-    set({ [key]: resources, isLoading: false } as Partial<ResourceState>)
+    set({ isLoading: false })
   },
 
   fetchAllResources: async () => {
@@ -201,21 +197,9 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
       set({ recentAgentUsage: recentAgentsResult.value })
     }
 
-    // Mock 兜底：空的类型用 Mock 数据填充
-    const s = get()
-    const types: ResourceType[] = []
-    if (s.modelResources.length === 0) types.push('model')
-    if (s.toolResources.length === 0) types.push('tool')
-    if (s.agentResources.length === 0) types.push('agent')
-    if (s.dataResources.length === 0) types.push('data')
-
-    const mockResults = await Promise.all(types.map((t) => resourceService.list(t)))
-    const updates: Partial<ResourceState> = {}
-    types.forEach((t, i) => {
-      const key = t === 'data' ? 'dataResources' : t === 'tool' ? 'toolResources' : t === 'model' ? 'modelResources' : t === 'agent' ? 'agentResources' : 'taskResources'
-      updates[key as keyof ResourceState] = mockResults[i] as never
-    })
-    set({ ...updates, isLoading: false } as Partial<ResourceState>)
+    // 后端不可达时保持空列表（展示空态），绝不用 Mock 假数据填充，
+    // 否则用户会把演示数据误认为真实资源。
+    set({ isLoading: false })
   },
 
   fetchAgentsFromApi: async () => {
