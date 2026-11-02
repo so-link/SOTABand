@@ -1,11 +1,32 @@
 import { create } from 'zustand'
-import type { Resource, ResourceType, AgentResource, ToolResource, DataResource } from '@/types/resources'
+import type { Resource, ResourceType, AgentResource, ToolResource, DataResource, TaskResource } from '@/types/resources'
 import { MockResourceService } from '@/services/mock/resources'
 import { agentApi } from '@/services/api/agent'
 import { toolApi } from '@/services/api/tool'
 import { dataApi } from '@/services/api/data'
+import { taskApi, type TaskRecord, type RecentAgentRecord } from '@/services/api/task'
 
 const resourceService = new MockResourceService()
+
+/** 后端任务记录 → 左栏「任务历史」Resource 形状 */
+function taskToResource(t: TaskRecord): TaskResource {
+  const iso = (sec: number | null) => (sec ? new Date(sec * 1000).toISOString() : '')
+  const dur = t.duration_ms != null
+    ? (t.duration_ms < 1000 ? `${t.duration_ms}ms` : `${(t.duration_ms / 1000).toFixed(1)}s`)
+    : ''
+  return {
+    id: `task-${t.id}`, name: t.input ? t.input.slice(0, 40) : t.agent_id,
+    description: `${t.agent_name || t.agent_id}${dur ? ` · ${dur}` : ''}`,
+    type: 'task', version: '', status: 'active',
+    createdAt: iso(t.started_at), updatedAt: iso(t.finished_at), tags: [],
+    state: t.status === 'running' ? 'running' : t.status === 'failed' ? 'failed' : 'done',
+    currentStep: 0, totalSteps: 0,
+    progress: t.status === 'success' ? 100 : 0,
+    startedAt: iso(t.started_at), finishedAt: iso(t.finished_at),
+    relatedResourceIds: [t.agent_id],
+    executionLog: t.error ? [t.error] : [],
+  }
+}
 
 interface ResourceState {
   selectedResource: Resource | null
@@ -16,16 +37,29 @@ interface ResourceState {
   modelResources: Resource[]
   agentResources: Resource[]
   taskResources: Resource[]
+  recentAgentUsage: RecentAgentRecord[]
   isLoading: boolean
+
+  // 数据集预览的文件清单：由中栏预览拉取后共享给右栏文件列表，
+  // 右栏点选文件即可切换中栏预览的 CSV / Markdown。
+  previewDatasetId: string | null
+  previewDatasetPath: string
+  previewFiles: Array<Record<string, unknown>>
+  activeCsvIndex: number
+  activeMdIndex: number
 
   selectResource: (resource: Resource | null) => void
   setCachedToolForDetail: (tool: ToolResource | null) => void
+  setPreviewFiles: (datasetId: string, datasetPath: string, files: Array<Record<string, unknown>>) => void
+  setActiveCsvIndex: (idx: number) => void
+  setActiveMdIndex: (idx: number) => void
   fetchResources: (type: ResourceType) => Promise<void>
   fetchAllResources: () => Promise<void>
   fetchAgentsFromApi: () => Promise<void>
   fetchToolsFromApi: () => Promise<void>
   fetchDatasetsFromApi: () => Promise<void>
   fetchModelsFromApi: () => Promise<void>
+  fetchTasksFromApi: () => Promise<void>
 }
 
 export const useResourceStore = create<ResourceState>((set, get) => ({
@@ -35,9 +69,25 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
   modelResources: [],
   agentResources: [],
   taskResources: [],
+  recentAgentUsage: [],
   isLoading: false,
   cachedToolForDetail: null,
   cachedDatasetForDetail: null,
+  previewDatasetId: null,
+  previewDatasetPath: '',
+  previewFiles: [],
+  activeCsvIndex: 0,
+  activeMdIndex: 0,
+
+  setPreviewFiles: (datasetId, datasetPath, files) => set({
+    previewDatasetId: datasetId,
+    previewDatasetPath: datasetPath,
+    previewFiles: files,
+    activeCsvIndex: 0,
+    activeMdIndex: 0,
+  }),
+  setActiveCsvIndex: (idx) => set({ activeCsvIndex: idx }),
+  setActiveMdIndex: (idx) => set({ activeMdIndex: idx }),
 
   selectResource: (resource) => {
     const state: Partial<ResourceState> = { selectedResource: resource }
@@ -53,6 +103,11 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
 
   fetchResources: async (type) => {
     set({ isLoading: true })
+    if (type === 'task') {
+      await get().fetchTasksFromApi()
+      set({ isLoading: false })
+      return
+    }
     const resources = await resourceService.list(type)
     const key = type === 'data' ? 'dataResources'
       : type === 'tool' ? 'toolResources'
@@ -73,8 +128,10 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
       agentApi.list(),
       dataApi.list(true),   // 只加载本机有数据的数据集
       fetch(`${BASE_URL}/api/model/list`).then(r => r.json()),
+      taskApi.list(30),
+      taskApi.recentAgents(10),
     ])
-    const [toolResult, agentResult, dataResult, modelResult] = apiResults
+    const [toolResult, agentResult, dataResult, modelResult, taskResult, recentAgentsResult] = apiResults
 
     // 工具
     if (toolResult.status === 'fulfilled' && Array.isArray(toolResult.value?.tools) && toolResult.value.tools.length > 0) {
@@ -131,9 +188,17 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
       })
     }
 
+    // 任务历史（真实 API）
+    if (taskResult.status === 'fulfilled') {
+      set({ taskResources: taskResult.value.map(taskToResource) })
+    }
+    if (recentAgentsResult.status === 'fulfilled') {
+      set({ recentAgentUsage: recentAgentsResult.value })
+    }
+
     // Mock 兜底：空的类型用 Mock 数据填充
     const s = get()
-    const types: ResourceType[] = ['task']
+    const types: ResourceType[] = []
     if (s.modelResources.length === 0) types.push('model')
     if (s.toolResources.length === 0) types.push('tool')
     if (s.agentResources.length === 0) types.push('agent')
@@ -212,6 +277,15 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
           filePath: (m.model_path as string) || '', fileSize: 0, source: 'upload' as const, lineage: [],
         })) })
       }
+    } catch { /* ignore */ }
+  },
+
+  fetchTasksFromApi: async () => {
+    try {
+      const [tasks, recent] = await Promise.all([
+        taskApi.list(30), taskApi.recentAgents(10),
+      ])
+      set({ taskResources: tasks.map(taskToResource), recentAgentUsage: recent })
     } catch { /* ignore */ }
   },
 }))

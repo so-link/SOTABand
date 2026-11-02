@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import {
-  Bot, Send, Play, Square, RefreshCw, Loader2, FileText, FileCode, X, Pencil, Save, FolderOpen,
+  Bot, Send, Play, Square, RefreshCw, Loader2, FileText, FileCode, X, Pencil, Save, FolderOpen, Eraser,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -17,6 +17,18 @@ import { InlineCard } from './InlineCard'
 import { WorkspaceFilePicker } from './WorkspaceFilePicker'
 
 const BASE_URL = ''
+
+// 工作流程步骤（后端 step 事件）；startedAt/durationMs 用于记录每步耗时
+type Step = {
+  id: string
+  text: string
+  status: 'running' | 'done' | 'error'
+  startedAt?: number
+  durationMs?: number
+}
+
+// 一条对话消息；steps 为该轮执行的工作流程步骤（跟在该轮用户输入后面）
+type ChatMessage = { role: string; content: string; cards?: InlineCardType[]; steps?: Step[] }
 
 export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   const selectedResource = useResourceStore((s) => s.selectedResource)
@@ -39,7 +51,7 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   const [input, setInput] = useState('')
   // 对话消息：挂载时直接从 localStorage 惰性初始化（按 agentId 隔离），
   // 避免「加载 effect 异步 setMessages + 保存 effect 同步写 []」的竞态导致历史被清空。
-  const [messages, setMessages] = useState<Array<{ role: string; content: string; cards?: InlineCardType[] }>>(() => {
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
     if (!agentId) return []
     try {
       const saved = localStorage.getItem(`sotaband-agent-messages-${agentId}`)
@@ -58,8 +70,8 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   const [streamCards, setStreamCards] = useState<InlineCardType[]>([])
   const [isSending, setIsSending] = useState(false)
   const [loading, setLoading] = useState(false)
-  // Agent 工作流程步骤（来自后端 step 事件）
-  const [steps, setSteps] = useState<Array<{ id: string; text: string; status: 'running' | 'done' | 'error' }>>([])
+  // Agent 工作流程步骤（流式中的实时步骤；done 后存入该轮 assistant 消息）
+  const [steps, setSteps] = useState<Step[]>([])
 
   // 任务式 Agent：启动参数（由 spec.inputs 渲染）
   const [taskParams, setTaskParams] = useState<Record<string, string>>({})
@@ -114,9 +126,10 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
       .catch(() => {})
   }, [agent])
 
+  // 新消息、流式文本、工作流程步骤输出时，都自动滚动到底部
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, streaming])
+  }, [messages, streaming, steps])
 
   // Web 服务式 Agent：加载服务信息（未启动时也拉取 API 声明用于展示）
   useEffect(() => {
@@ -309,6 +322,8 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
     const timeout = setTimeout(() => controller.abort(), 120_000)
     let cardSeq = 0
     const localCards: InlineCardType[] = []
+    // 本轮执行的工作流程步骤（实时显示用全局 steps，done 后存入消息）
+    const localSteps: Step[] = []
 
     try {
       const res = await fetch(`${BASE_URL}/api/agent/${agent.id}/execute`, {
@@ -358,22 +373,33 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                 localCards.push(card)
                 setStreamCards([...localCards])
               } else if (eventType === 'done') {
-                setMessages((m) => [...m, { role: 'agent', content: full, cards: [...localCards] }])
+                setMessages((m) => [...m, { role: 'agent', content: full, cards: [...localCards], steps: [...localSteps] }])
                 setStreaming('')
                 setStreamCards([])
+                setSteps([])
                 streamDone = true
               } else if (eventType === 'step') {
-                // 工作流程步骤：按 id 合并状态（running→done/error）
-                setSteps((prev) => {
-                  const idx = prev.findIndex((s) => s.id === payload.id)
-                  const item = { id: payload.id, text: payload.text, status: payload.status || 'running' }
-                  if (idx >= 0) {
-                    const next = [...prev]
-                    next[idx] = item
-                    return next
-                  }
-                  return [...prev, item]
-                })
+                // 工作流程步骤：按 id 合并状态（running→done/error），实时显示；
+                // running 时记录开始时间，done/error 时计算该步耗时
+                const status: Step['status'] = payload.status || 'running'
+                const now = Date.now()
+                const idx = localSteps.findIndex((s) => s.id === payload.id)
+                if (idx >= 0) {
+                  const prev = localSteps[idx]
+                  const item: Step = { ...prev, text: payload.text, status }
+                  if (status === 'running' && item.startedAt === undefined) item.startedAt = now
+                  if (status !== 'running' && prev.startedAt !== undefined) item.durationMs = now - prev.startedAt
+                  localSteps[idx] = item
+                } else {
+                  localSteps.push({
+                    id: payload.id,
+                    text: payload.text,
+                    status,
+                    startedAt: status === 'running' ? now : undefined,
+                    durationMs: status === 'running' ? undefined : 0,
+                  })
+                }
+                setSteps([...localSteps])
               } else if (eventType === 'error') {
                 setMessages((m) => [...m, { role: 'system', content: `[WARN] ${payload.message || '执行错误'}` }])
                 streamDone = true
@@ -385,9 +411,10 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
       }
 
       if (!streamDone && (full || localCards.length)) {
-        setMessages((m) => [...m, { role: 'agent', content: full, cards: [...localCards] }])
+        setMessages((m) => [...m, { role: 'agent', content: full, cards: [...localCards], steps: [...localSteps] }])
         setStreaming('')
         setStreamCards([])
+        setSteps([])
       }
     } catch (e: unknown) {
       if ((e as Error).name === 'AbortError') {
@@ -399,6 +426,11 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
     } finally {
       clearTimeout(timeout)
       setIsSending(false)
+      // 刷新任务历史与最近使用（后端在流结束时已写入 SQLite）
+      try {
+        const { useResourceStore } = await import('@/stores/resource-store')
+        useResourceStore.getState().fetchTasksFromApi()
+      } catch { /* ignore */ }
     }
   }
 
@@ -419,6 +451,33 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
     setMessages([])
     await runExecute({ ...taskParams })
   }
+
+  // 渲染一轮的工作流程步骤条（用在每轮对话的用户输入之后）
+  const renderSteps = (list: Step[]) => (
+    <div className="rounded-lg border border-maia-border bg-maia-bg/50 px-3 py-2 space-y-1.5">
+      <div className="text-[11px] uppercase tracking-wide text-maia-text-muted">工作流程</div>
+      {list.map((s) => (
+        <div key={s.id} className="flex items-center gap-2 text-[12px]">
+          <span className={cn(
+            'inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px]',
+            s.status === 'done' && 'bg-maia-success/20 text-maia-success',
+            s.status === 'error' && 'bg-maia-danger/20 text-maia-danger',
+            s.status === 'running' && 'bg-maia-accent/20 text-maia-accent animate-pulse',
+          )}>
+            {s.status === 'done' ? '✓' : s.status === 'error' ? '✕' : '•'}
+          </span>
+          <span className={cn(
+            s.status === 'done' ? 'text-maia-text-muted' : 'text-maia-text',
+          )}>{s.text}</span>
+          {s.durationMs !== undefined && (
+            <span className="text-[11px] text-maia-text-muted tabular-nums">
+              {s.durationMs < 1000 ? `${s.durationMs}ms` : `${(s.durationMs / 1000).toFixed(1)}s`}
+            </span>
+          )}
+        </div>
+      ))}
+    </div>
+  )
 
   return (
     <div className="flex flex-col h-full bg-maia-surface">
@@ -495,8 +554,22 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
             {showCode ? '收起代码' : '代码'}
           </button>
           <button
+            onClick={() => {
+              if (messages.length > 0 && confirm('确定清空当前对话历史？此操作不可恢复。')) {
+                setMessages([])
+                localStorage.removeItem(`sotaband-agent-messages-${agentId}`)
+              }
+            }}
+            disabled={messages.length === 0}
+            className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-[12px] whitespace-nowrap border border-transparent text-maia-text-muted hover:bg-maia-sidebar-hover hover:text-maia-danger transition-colors shrink-0 ml-auto disabled:opacity-40 disabled:pointer-events-none"
+            title="清空当前 Agent 的对话历史"
+          >
+            <Eraser className="h-3.5 w-3.5" />
+            清空对话
+          </button>
+          <button
             onClick={handleEditInEditor}
-            className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-[12px] whitespace-nowrap border border-transparent text-maia-text-muted hover:bg-maia-sidebar-hover hover:text-maia-text transition-colors shrink-0 ml-auto"
+            className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-[12px] whitespace-nowrap border border-transparent text-maia-text-muted hover:bg-maia-sidebar-hover hover:text-maia-text transition-colors shrink-0"
             title="带齐现有文档与代码，从审阅步进入编辑"
           >
             <Pencil className="h-3.5 w-3.5" />
@@ -733,21 +806,6 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
           )}
 
           {/* Messages area */}
-          {messages.length > 0 && (
-            <div className="flex justify-end mb-1">
-              <button
-                onClick={() => {
-                  if (confirm('确定清空当前对话历史？此操作不可恢复。')) {
-                    setMessages([])
-                    localStorage.removeItem(`sotaband-agent-messages-${agentId}`)
-                  }
-                }}
-                className="text-[12px] text-maia-text-muted hover:text-maia-danger transition-colors"
-              >
-                清空对话
-              </button>
-            </div>
-          )}
           {messages.length === 0 && !streaming && (
             <div className="flex flex-col items-center justify-center py-14 text-center">
               <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-maia-border bg-maia-sidebar text-maia-text-muted">
@@ -767,28 +825,6 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                   点击右上角「启动」运行 Agent 后即可交互
                 </p>
               )}
-            </div>
-          )}
-
-          {/* 工作流程步骤条 */}
-          {steps.length > 0 && (
-            <div className="rounded-lg border border-maia-border bg-maia-bg/50 px-3 py-2 space-y-1.5">
-              <div className="text-[11px] uppercase tracking-wide text-maia-text-muted">工作流程</div>
-              {steps.map((s) => (
-                <div key={s.id} className="flex items-center gap-2 text-[12px]">
-                  <span className={cn(
-                    'inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px]',
-                    s.status === 'done' && 'bg-maia-success/20 text-maia-success',
-                    s.status === 'error' && 'bg-maia-danger/20 text-maia-danger',
-                    s.status === 'running' && 'bg-maia-accent/20 text-maia-accent animate-pulse',
-                  )}>
-                    {s.status === 'done' ? '✓' : s.status === 'error' ? '✕' : '•'}
-                  </span>
-                  <span className={cn(
-                    s.status === 'done' ? 'text-maia-text-muted' : 'text-maia-text',
-                  )}>{s.text}</span>
-                </div>
-              ))}
             </div>
           )}
 
@@ -812,6 +848,8 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
               }
               return (
                 <div key={i} className="flex flex-col gap-2">
+                  {/* 该轮执行的工作流程步骤（跟在该轮用户输入后面） */}
+                  {msg.steps && msg.steps.length > 0 && renderSteps(msg.steps)}
                   {msg.content && (
                     <div className="text-[14px] leading-[24px] text-maia-text whitespace-pre-wrap">
                       {msg.content}
@@ -829,12 +867,16 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
               )
             })}
 
-            {streaming && (
-              <div>
-                <div className="text-[14px] leading-[24px] text-maia-text whitespace-pre-wrap">
-                  {streaming}
-                  <span className="inline-block w-1.5 h-4 bg-maia-accent ml-0.5 animate-pulse" />
-                </div>
+            {(streaming || steps.length > 0) && (
+              <div className="flex flex-col gap-2">
+                {/* 流式中实时显示当前轮的工作流程步骤（跟在最后的用户输入后面） */}
+                {steps.length > 0 && renderSteps(steps)}
+                {streaming && (
+                  <div className="text-[14px] leading-[24px] text-maia-text whitespace-pre-wrap">
+                    {streaming}
+                    <span className="inline-block w-1.5 h-4 bg-maia-accent ml-0.5 animate-pulse" />
+                  </div>
+                )}
               </div>
             )}
 
@@ -855,7 +897,7 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
       {/* Input — 仅交互式 Agent 显示对话输入框 */}
       {running && !isTask && !isWebService && (
         <div className="border-t border-maia-border bg-maia-surface px-4 pt-3 pb-2.5 shrink-0">
-          <div className="flex items-end gap-2 max-w-2xl mx-auto bg-maia-sidebar rounded-xl border border-maia-border p-2 focus-within:border-maia-accent/50 transition-colors">
+          <div className="flex items-end gap-2 w-full bg-maia-sidebar rounded-xl border border-maia-border p-2 focus-within:border-maia-accent/50 transition-colors">
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}

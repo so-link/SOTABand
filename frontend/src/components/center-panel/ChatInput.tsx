@@ -138,7 +138,7 @@ export function ChatInput() {
 
   return (
     <div className="border-t border-maia-border bg-maia-surface px-4 pt-3 pb-2.5">
-      <div className="max-w-3xl mx-auto">
+      <div className="w-full">
         {/* Attachment bar */}
         {(attachedFiles.length > 0 || pathRefs.length > 0) && (
           <div className="flex flex-wrap gap-1.5 mb-2">

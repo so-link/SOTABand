@@ -878,13 +878,27 @@ async def execute_agent(agent_id: str, req: AgentExecuteRequest):
 
     import json as _json
 
+    from core.observability import task_history
+    _entry = await registry.get(agent_id)
+    task_id = task_history.start(
+        agent_id, req.content if isinstance(req.content, str) else str(req.content),
+        agent_name=(_entry or {}).get("name", ""))
+    task_finished = False
+
     async def event_gen():
+        nonlocal task_finished
         seen_done = False
         try:
             async for event in agent_factory.execute(agent_id, req.content):
                 ev_type = event.get("event", "content")
                 if ev_type == "done":
                     seen_done = True
+                    task_history.finish(task_id, "success")
+                    task_finished = True
+                elif ev_type == "error":
+                    msg = str(event.get("data", {}).get("message", ""))[:200]
+                    task_history.finish(task_id, "failed", msg)
+                    task_finished = True
                 yield {
                     "event": ev_type,
                     "data": _json.dumps(event.get("data", {}), ensure_ascii=False),
@@ -892,12 +906,17 @@ async def execute_agent(agent_id: str, req: AgentExecuteRequest):
         except Exception as e:
             import traceback, logging
             logging.getLogger("sotaband").error(f"Agent {agent_id} 执行异常: {e}", exc_info=True)
+            if not task_finished:
+                task_history.finish(task_id, "failed", str(e)[:200])
+                task_finished = True
             yield {
                 "event": "error",
                 "data": _json.dumps({"message": f"Agent 执行异常: {str(e)[:200]}"}, ensure_ascii=False),
             }
         # 仅在 Agent 未自行发送 done 时补发，避免前端收到两个 done 导致消息重复展示。
         if not seen_done:
+            if not task_finished:
+                task_history.finish(task_id, "success")
             yield {
                 "event": "done",
                 "data": _json.dumps({"messageId": f"msg-{int(time.time() * 1000)}"}, ensure_ascii=False),

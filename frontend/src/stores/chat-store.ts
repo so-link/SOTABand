@@ -18,6 +18,10 @@ interface ChatState {
   isSending: boolean
   attachedFiles: FileAttachment[]
   inputText: string
+  /** 当前会话 ID：新会话创建时生成唯一 ID，切换历史会话时替换 */
+  sessionId: string
+  /** 会话列表/标题变更计数，右侧「对话历史」据此刷新 */
+  sessionsVersion: number
   /** 拖拽进来的文件/目录路径引用（@文件名 → 完整路径） */
   pathRefs: PathRef[]
 
@@ -32,6 +36,19 @@ interface ChatState {
   stopMessage: () => void
   addMessage: (msg: Message) => void
   clearMessages: () => void
+  loadMessagesFromApi: () => Promise<void>
+  /** 加载指定历史会话的消息并切换为当前会话 */
+  switchSession: (sessionId: string) => Promise<void>
+  /** 删除一个历史会话 */
+  deleteSession: (sessionId: string) => Promise<void>
+}
+
+/** 生成会话唯一 ID（浏览器无 crypto.randomUUID 时退化为时间戳 + 随机数） */
+function newSessionId(): string {
+  try {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID()
+  } catch { /* ignore */ }
+  return `sess-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 let nextId = 1
@@ -44,6 +61,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isSending: false,
   attachedFiles: [],
   inputText: '',
+  sessionId: newSessionId(),
+  sessionsVersion: 0,
   pathRefs: [],
 
   setInputText: (text) => set({ inputText: text }),
@@ -97,8 +116,59 @@ export const useChatStore = create<ChatState>((set, get) => ({
   addMessage: (msg) =>
     set((s) => ({ messages: [...s.messages, msg] })),
 
-  clearMessages: () =>
-    set({ messages: [] }),
+  // 清空对话 = 开一个新会话（旧会话保留在「对话历史」里，可随时点回来继续）
+  clearMessages: () => {
+    set((s) => ({
+      messages: [],
+      sessionId: newSessionId(),
+      sessionsVersion: s.sessionsVersion + 1,
+    }))
+  },
+
+  // 启动时从后端恢复最近一次会话（此前只存 localStorage，换浏览器即丢）
+  loadMessagesFromApi: async () => {
+    if (get().messages.length > 0) return
+    try {
+      const res = await fetch('/api/chat/sessions?limit=1')
+      if (!res.ok) return
+      const data = await res.json()
+      const latest = (data.sessions || [])[0]
+      if (latest?.session_id) await get().switchSession(latest.session_id)
+    } catch { /* 后端不可用时保持空对话 */ }
+  },
+
+  // 点击「对话历史」中的会话：加载消息并把当前会话切过去，后续消息接在该会话上
+  switchSession: async (sessionId) => {
+    if (!sessionId) return
+    try {
+      const res = await fetch(`/api/chat/sessions/${encodeURIComponent(sessionId)}`)
+      if (!res.ok) return
+      const data = await res.json()
+      const restored: Message[] = (data.messages || []).map(
+        (m: { id: number; role: string; content: string; cards?: unknown[]; created_at: number }) => ({
+          id: `db-${m.id}`,
+          role: m.role === 'agent' ? 'agent' : 'user',
+          content: m.content,
+          timestamp: new Date(m.created_at * 1000).toISOString(),
+          cards: Array.isArray(m.cards) && m.cards.length > 0 ? m.cards as Message['cards'] : undefined,
+        }),
+      )
+      set({ messages: restored, sessionId, isSending: false })
+    } catch { /* ignore */ }
+  },
+
+  // 删除历史会话；若删的是当前会话，则回到新会话
+  deleteSession: async (sessionId) => {
+    try {
+      await fetch(`/api/chat/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' })
+    } catch { /* ignore */ }
+    set((s) => ({
+      sessionsVersion: s.sessionsVersion + 1,
+      ...(s.sessionId === sessionId
+        ? { messages: [], sessionId: newSessionId() }
+        : {}),
+    }))
+  },
 
   stopMessage: () => {
     chatService.stopChat().catch(() => {})
@@ -149,7 +219,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const { useWorkspaceToolStore } = await import('@/stores/workspace-tool-store')
         workspaceToolIds = useWorkspaceToolStore.getState().tools.map(t => t.id)
       } catch { /* ignore */ }
-      const stream = chatService.sendMessage({ content: finalText, attachments: attachedFiles, workspaceToolIds })
+      const stream = chatService.sendMessage({ content: finalText, attachments: attachedFiles, workspaceToolIds, sessionId: get().sessionId })
 
       for await (const chunk of stream) {
         // 检查是否有新数据集注册，自动刷新数据空间列表
@@ -191,7 +261,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }))
       }
     } finally {
-      set({ isSending: false })
+      set((s) => ({ isSending: false, sessionsVersion: s.sessionsVersion + 1 }))
+      // 标题由后端 LLM 异步总结，稍后再刷一次会话列表让标题显示出来
+      setTimeout(() => set((s) => ({ sessionsVersion: s.sessionsVersion + 1 })), 3000)
+      // 刷新任务历史与最近使用（后端在 done 事件前已写入 SQLite）
+      try {
+        const { useResourceStore } = await import('@/stores/resource-store')
+        useResourceStore.getState().fetchTasksFromApi()
+      } catch { /* ignore */ }
     }
   },
 }))

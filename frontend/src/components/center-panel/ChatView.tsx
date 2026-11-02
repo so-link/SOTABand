@@ -2,7 +2,7 @@ import { useChatStore } from '@/stores/chat-store'
 import { MessageList } from './MessageList'
 import { ChatInput } from './ChatInput'
 import { ChatEmptyState } from './ChatEmptyState'
-import { Trash2 } from 'lucide-react'
+import { MessageSquarePlus } from 'lucide-react'
 
 export function ChatView() {
   const messages = useChatStore((s) => s.messages)
@@ -15,10 +15,11 @@ export function ChatView() {
         <div className="flex items-center justify-end px-4 pt-2 shrink-0">
           <button
             onClick={() => clearMessages()}
-            className="inline-flex items-center gap-1 h-6 px-1.5 rounded text-[13px] text-maia-text-muted hover:text-maia-danger hover:bg-maia-danger-bg transition-colors"
+            className="inline-flex items-center gap-1 h-6 px-1.5 rounded text-[13px] text-maia-text-muted hover:text-maia-accent hover:bg-maia-sidebar-hover transition-colors"
+            title="开启一个新会话（当前会话仍保留在右侧对话历史）"
           >
-            <Trash2 className="h-3 w-3" />
-            清空对话
+            <MessageSquarePlus className="h-3 w-3" />
+            新建对话
           </button>
         </div>
       )}

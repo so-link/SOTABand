@@ -12,6 +12,7 @@
 import json
 import asyncio
 import threading
+import time
 from fastapi import APIRouter, HTTPException
 from sse_starlette.sse import EventSourceResponse
 
@@ -61,6 +62,40 @@ async def ensure_default_interactive_agent():
     )
 
 
+async def _summarize_title(session_id: str) -> None:
+    """首轮对话结束后用 LLM 总结会话标题。
+
+    会话标题不再直接截取用户第一句话，而是交给 LLM 概括主题。只在首轮
+    （用户消息 + Agent 回复两条）结束时执行一次；失败或无内容时保留
+    chat_store 里首条消息截断的兜底标题，不影响对话本身。
+    """
+    from core.observability import chat_store
+    try:
+        if chat_store.message_count(session_id) != 2:
+            return
+        msgs = chat_store.get_messages(session_id, limit=4)
+        convo = "\n".join(
+            f"{'用户' if m['role'] == 'user' else '助手'}: {str(m['content'])[:300]}"
+            for m in msgs if m.get("content")
+        )
+        if not convo:
+            return
+        from core.llm.client import create_llm_client
+        title = await create_llm_client().chat([
+            {"role": "system",
+             "content": "你是会话标题生成器。根据对话内容生成一个不超过 20 个字的中文标题，"
+                        "概括用户想做的事。只输出标题本身，不要引号、标点或解释。"},
+            {"role": "user", "content": convo},
+        ])
+        title = (title or "").strip().strip('"“”\'').splitlines()
+        title = title[0].strip() if title else ""
+        if title:
+            chat_store.set_title(session_id, title[:30])
+    except Exception:
+        # 标题总结是锦上添花，失败不能影响对话主流程
+        pass
+
+
 @router.post("/send")
 async def chat_send(request: ChatRequest):
     """
@@ -92,7 +127,33 @@ async def chat_send(request: ChatRequest):
 
     _set_chat_running(session_id)
 
+    from core.observability import task_history, chat_store
+    # 对话不按每条用户输入记一条任务历史，而是整个会话聚合成一条
+    # （input 为会话主题 = 该会话首条输入），每轮结束累计轮数与耗时。
+    task_id = task_history.start_or_touch(
+        DEFAULT_INTERACTIVE_AGENT_ID, request.content, session_id=session_id,
+        agent_name="交互 Agent")
+    task_finished = False
+    round_started = time.time()
+
+    def _round(status: str, error: str = "") -> None:
+        task_history.accumulate(
+            task_id, int((time.time() - round_started) * 1000), status, error)
+
+    # 对话持久化：用户消息即时落库；Agent 回复在流结束时聚合落库
+    chat_store.append_message(session_id, DEFAULT_INTERACTIVE_AGENT_ID,
+                              "user", request.content)
+    reply_parts: list[str] = []
+    reply_cards: list[dict] = []
+
+    def _persist_reply() -> None:
+        text = "".join(reply_parts)
+        if text or reply_cards:
+            chat_store.append_message(session_id, DEFAULT_INTERACTIVE_AGENT_ID,
+                                      "agent", text, reply_cards)
+
     async def event_generator():
+        nonlocal task_finished
         try:
             async for event in agent_factory.execute_stream(
                 DEFAULT_INTERACTIVE_AGENT_ID,
@@ -108,19 +169,65 @@ async def chat_send(request: ChatRequest):
             ):
                 # 每 yield 一次检查是否被停止
                 if not is_chat_running(session_id):
+                    _round("failed", "用户停止")
+                    task_finished = True
+                    _persist_reply()
                     yield {
                         "event": "stopped",
                         "data": json.dumps({"message": "对话已停止"}, ensure_ascii=False),
                     }
                     return
+                ev_type = event.get("event", "content")
+                data = event.get("data", {}) or {}
+                if ev_type == "content":
+                    reply_parts.append(str(data.get("text", "")))
+                elif ev_type == "card":
+                    reply_cards.append(data)
+                elif ev_type == "done" and not task_finished:
+                    _round("success")
+                    task_finished = True
+                    _persist_reply()
+                    # 首轮结束后异步总结会话标题（不阻塞流结束）
+                    asyncio.create_task(_summarize_title(session_id))
+                elif ev_type == "error" and not task_finished:
+                    msg = str(data.get("message", ""))[:200]
+                    _round("failed", msg)
+                    task_finished = True
+                    _persist_reply()
                 yield {
-                    "event": event.get("event", "content"),
-                    "data": json.dumps(event.get("data", {}), ensure_ascii=False),
+                    "event": ev_type,
+                    "data": json.dumps(data, ensure_ascii=False),
                 }
         finally:
+            if not task_finished:
+                # 流未正常收到 done/error（客户端断开或异常中断）
+                _round("failed", "流中断")
+                _persist_reply()
             _set_chat_stopped(session_id)
 
     return EventSourceResponse(event_generator())
+
+
+@router.get("/sessions")
+async def list_sessions(limit: int = 50):
+    """会话列表（按最近更新倒序）。"""
+    from core.observability import chat_store
+    return {"sessions": chat_store.list_sessions(limit=limit)}
+
+
+@router.get("/sessions/{session_id}")
+async def get_session(session_id: str, limit: int = 200):
+    """会话消息（时间正序）。"""
+    from core.observability import chat_store
+    return {"messages": chat_store.get_messages(session_id, limit=limit)}
+
+
+@router.delete("/sessions/{session_id}")
+async def delete_session(session_id: str):
+    """删除会话及其全部消息（前端「清空对话」也走这里）。"""
+    from core.observability import chat_store
+    chat_store.delete_session(session_id)
+    return {"ok": True}
 
 
 @router.post("/stop")
