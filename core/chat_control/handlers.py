@@ -472,3 +472,207 @@ async def register_model(args: RegisterModelArgs, ctx: CallContext) -> dict:
         "framework": args.framework.strip(), "model_path": model_path,
         "tags": result.get("tags") or [],
     }
+
+
+# ────────────────────────── 工具生成链（P2，写） ──────────────────────────
+#
+# create_tool 完整走现有生成链路：generate-spec → generate-code → scan_code
+# 静态安全审查 → registry.register，与 /api/tool/register 同标准，不因
+# "对话触发"降低任何审查。SPEC_PROMPT / builder / registry 全部复用
+# tool_routes 的模块级单例，零复制。
+
+class CreateToolArgs(StrictArgs):
+    description: str = Field(description="工具需求描述（要做什么、输入输出是什么）")
+    tool_name: str = Field(default="", description="工具名称（留空则由系统根据描述生成）")
+    reference_code: str = Field(default="", description="参考实现代码（可选）")
+
+
+def _clip_view(s: str, n: int = 600) -> str:
+    return s if len(s) <= n else s[:n] + f"…（共 {len(s)} 字符，已截断展示）"
+
+
+async def _collect_stream(agen) -> str:
+    """把 (kind, token) 流式事件累积为完整文本。
+
+    生成链必须走流式：非流式 chat() 配 max_tokens=100000 时，长响应会
+    把单次 read timeout 全部耗光导致请求永久挂起（P2 冒烟实测）。
+    流式持续有数据返回，timeout 只对"相邻数据间隔"生效，稳定可靠。
+    """
+    parts = []
+    async for kind, token in agen:
+        if kind == "content":
+            parts.append(token)
+    return "".join(parts)
+
+
+@platform_tool(
+    "create_tool",
+    "按需求描述创建一个新数据处理工具：自动生成规格与代码、经静态安全审查后注册到工具空间。"
+    "耗时较长（约 1 分钟），一次对话建议只创建一个。",
+    CreateToolArgs, RISK_WRITE,
+    summary_fn=lambda a: f"创建工具：{_clip_view(a.get('description', ''), 80)}",
+    args_view_fn=lambda a: {
+        "description": _clip_view(a.get("description", "")),
+        "tool_name": a.get("tool_name", ""),
+        "reference_code": _clip_view(a.get("reference_code", "")) if a.get("reference_code") else "",
+    },
+)
+async def create_tool(args: CreateToolArgs, ctx: CallContext) -> dict:
+    from datetime import datetime
+
+    from app.api.routes import tool_routes
+    from core.resource import paths as res_paths
+    from core.security.code_scan import scan_code
+
+    builder = tool_routes.builder
+    tool_reg = tool_routes.registry
+    desc = args.description.strip()
+    if not desc:
+        return {"error": "工具需求描述不能为空"}
+
+    await ctx.progress({"type": "tool-gen", "step": "spec", "message": "正在生成工具规格…"})
+    user_content = desc
+    if args.reference_code.strip():
+        user_content += (
+            "\n\n---\n以下为用户提供的参考代码，请完整复制到生成的 MD 文档中"
+            "「5. 运行机制」部分（用 ```python 代码块包裹）：\n\n"
+            f"```python\n{args.reference_code.strip()}\n```\n"
+        )
+    spec_md = await _collect_stream(tool_routes.llm.chat_stream_events(
+        messages=[
+            {"role": "system", "content": tool_routes.SPEC_PROMPT.replace(
+                "{日期}", datetime.now().strftime("%Y-%m-%d"))},
+            {"role": "user", "content": user_content},
+        ],
+        temperature=0.3, max_tokens=100000,
+    ))
+    spec_md = spec_md.strip()
+    if not spec_md:
+        return {"error": "规格生成失败（LLM 返回为空），请稍后重试"}
+
+    name = args.tool_name.strip() or desc[:24].strip() or "对话创建的工具"
+    tool_id = f"{_slug(name)}_{int(time.time())}"
+    if not res_paths.is_valid_resource_id(tool_id):
+        tool_id = f"tool-{int(time.time())}"
+
+    await ctx.progress({"type": "tool-gen", "step": "code", "message": "正在生成工具代码…"})
+    try:
+        raw_code = await _collect_stream(builder.build_stream(
+            {"raw_md": spec_md, "id": tool_id, "name": name}))
+        code = builder._clean_code(raw_code)
+    except Exception as e:
+        return {"error": f"代码生成失败: {type(e).__name__}: {e}"}
+    if not code.strip():
+        return {"error": "代码生成失败（LLM 返回为空），请稍后重试"}
+
+    # 与 /api/tool/register 完全相同的审查闸门
+    scan = scan_code(code)
+    if not scan.ok:
+        return {"error": "静态安全审查未通过，工具未注册：\n" + "\n".join(scan.errors)}
+
+    await ctx.progress({"type": "tool-gen", "step": "register", "message": "正在注册工具…"})
+    param_meta = []
+    try:
+        param_meta = await builder.extract_param_metadata(spec_md)
+    except Exception:
+        pass
+    if not param_meta:
+        param_meta = builder._parse_spec_inputs(spec_md)
+    resource = {
+        "id": tool_id, "name": name, "version": "0.1.0",
+        "raw_md": spec_md, "code": code, "tags": [],
+        "param_meta": param_meta, "modes": builder.parse_modes(spec_md),
+    }
+    registered_id = await tool_reg.register(resource)
+    return {"tool_id": registered_id, "name": name, "scan_passed": True}
+
+
+class ModifyToolArgs(StrictArgs):
+    tool_id: str = Field(description="要修改的工具 id（先用 list_tools 确认）")
+    request: str = Field(description="修改需求（对现有代码要做什么改动，描述清楚）")
+
+
+@platform_tool(
+    "modify_tool",
+    "按修改需求改写已注册工具的代码：LLM 修改 → 静态安全审查 → 写回实现文件。"
+    "修改前会向用户展示确认卡片。",
+    ModifyToolArgs, RISK_WRITE,
+    summary_fn=lambda a: f"修改工具 {a.get('tool_id', '')}：{_clip_view(a.get('request', ''), 80)}",
+)
+async def modify_tool(args: ModifyToolArgs, ctx: CallContext) -> dict:
+    from app.api.routes import tool_routes
+    from core.security.code_scan import scan_code
+
+    builder = tool_routes.builder
+    tool_reg = tool_routes.registry
+
+    entry = await tool_reg.get(args.tool_id)
+    if not entry:
+        return {"error": f"工具不存在: {args.tool_id}"}
+    request = args.request.strip()
+    if not request:
+        return {"error": "修改描述不能为空"}
+    current_code = tool_reg.read_code_text(args.tool_id)
+    if not current_code.strip():
+        return {"error": f"读不到工具现有代码: {args.tool_id}"}
+
+    prompt = f"""Modify the following Python tool code according to the user's request.
+IMPORTANT: Keep execute(**kwargs)->dict signature and return format. Return ONLY the complete modified code.
+
+Current code:
+```python
+{current_code}
+```
+
+User's request:
+{request}
+
+Modified code:"""
+    full = await _collect_stream(tool_routes.llm.chat_stream_events(
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.3, max_tokens=100000,
+    ))
+    modified = builder._clean_code(full)
+    if not modified.strip():
+        return {"error": "代码修改失败（LLM 返回为空），请稍后重试"}
+
+    # 与 /api/tool/{id}/save-code 相同的审查闸门
+    scan = scan_code(modified)
+    if not scan.ok:
+        return {"error": "静态安全审查未通过，修改未写入：\n" + "\n".join(scan.errors)}
+
+    impl_dir = tool_reg._get_impl_dir() / args.tool_id
+    impl_dir.mkdir(parents=True, exist_ok=True)
+    (impl_dir / "tool.py").write_text(modified, encoding="utf-8")
+    return {
+        "tool_id": args.tool_id, "saved": True,
+        "code_summary": f"新代码共 {len(modified.splitlines())} 行",
+    }
+
+
+class RunToolArgs(StrictArgs):
+    tool_id: str = Field(description="要执行的工具 id（只能跑已注册且 active 的工具）")
+    params: dict = Field(default_factory=dict, description="工具参数（键按工具规格文档）")
+
+
+@platform_tool(
+    "run_tool",
+    "执行一个已注册的工具（子进程沙箱内运行）。参数会在确认卡片中全量展示。",
+    RunToolArgs, RISK_WRITE,
+    summary_fn=lambda a: f"执行工具 {a.get('tool_id', '')}",
+)
+async def run_tool(args: RunToolArgs, ctx: CallContext) -> dict:
+    from core.executor.tool_executor import ToolExecutor
+    from core.resource.registry.tool_registry import ToolRegistry
+
+    entry = await ToolRegistry().get(args.tool_id)
+    if not entry:
+        return {"error": f"工具不存在: {args.tool_id}"}
+    if entry.get("status") != "active":
+        return {"error": f"工具 {args.tool_id} 状态为 {entry.get('status')}，不可执行"}
+    result = await ToolExecutor.execute(tool_id=args.tool_id, params=args.params)
+    # ToolExecutor 统一返回 {status, message, data}；失败转成 error 让 LLM 能自我修正
+    if result.get("status") != "success":
+        return {"error": f"执行失败: {clip(str(result.get('message', '')), 500)}",
+                "detail": result.get("data")}
+    return result
