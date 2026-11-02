@@ -11,6 +11,8 @@ import time
 from pathlib import Path
 from typing import AsyncGenerator
 
+from core.proc_utils import no_window_kwargs
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
@@ -89,6 +91,7 @@ class AgentFactory:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(PROJECT_ROOT),
+                **no_window_kwargs(),
             )
             self._processes[agent_id] = proc
 

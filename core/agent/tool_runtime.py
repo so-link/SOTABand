@@ -25,6 +25,8 @@ import json
 import sys
 from pathlib import Path
 
+from core.proc_utils import no_window_kwargs
+
 
 # 常驻 Worker 的宿主脚本：先预热常用重型库，再循环处理任务。
 _WORKER_SCRIPT = r"""
@@ -174,6 +176,7 @@ class ToolRuntime:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     env={**__import__("os").environ, **env},
+                    **no_window_kwargs(),
                 )
                 # 等待 ready 事件（预热可能耗时数秒，给足超时）
                 ready = False

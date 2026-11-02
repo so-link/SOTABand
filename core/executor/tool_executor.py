@@ -17,6 +17,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from core.proc_utils import no_window_kwargs
+
 
 class ToolExecutor:
     """工具执行器单例。
@@ -156,7 +158,7 @@ class ToolExecutor:
             impl_file = impl_dir / "tool.py"
             if not impl_file.exists():
                 return {"status": "failed", "message": f"工具代码不存在: {impl_file}"}
-            code = impl_file.read_text(encoding='utf-8')
+            code = impl_file.read_text(encoding='utf-8-sig')
 
         tool_dir = str(impl_dir)
         script = cls._build_script(code, params, tool_dir, project_root)
@@ -170,6 +172,7 @@ class ToolExecutor:
                 python_exe, tmp_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                **no_window_kwargs(),
             )
             try:
                 if timeout is None:
@@ -231,7 +234,7 @@ class ToolExecutor:
             impl_file = impl_dir / "tool.py"
             if not impl_file.exists():
                 return {"status": "failed", "message": f"工具代码不存在: {impl_file}"}
-            code = impl_file.read_text(encoding='utf-8')
+            code = impl_file.read_text(encoding='utf-8-sig')
 
         tool_dir = str(impl_dir)
         script = cls._build_script(code, params, tool_dir, project_root)
@@ -245,6 +248,7 @@ class ToolExecutor:
                 [python_exe, tmp_path],
                 capture_output=True, text=True, timeout=timeout,
                 encoding='utf-8', errors='replace',
+                **no_window_kwargs(),
             )
             result = cls._parse_output(proc.stdout.strip())
             if proc.returncode != 0 and result.get("status") != "success":

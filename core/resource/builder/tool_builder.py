@@ -10,10 +10,12 @@ import threading
 from pathlib import Path
 from datetime import datetime
 
+from core.deps import import_name_for, pip_name_for
 from core.resource.builder.builder_base import BaseBuilder
 
 # ── 全局调试状态：线程安全的停止标志 ──
-# key=tool_id, value=True 表示正在运行
+# key=tool_id, value=True 表示正在运行；False 表示调试中被请求停止；
+# 键不存在 = 当前不在调试上下文（独立安装依赖等场景）。
 _debug_states: dict[str, bool] = {}
 _debug_lock = threading.Lock()
 
@@ -37,6 +39,17 @@ def stop_debug(tool_id: str):
     with _debug_lock:
         if tool_id in _debug_states:
             _debug_states[tool_id] = False
+
+
+def is_debug_stop_requested(tool_id: str) -> bool:
+    """是否「处于调试上下文且被请求停止」。
+
+    与 is_debug_running 的区别：键不存在（None）表示根本不在调试里——
+    独立安装依赖、仓库加载工具等场景都属于这一类，不能当成"已停止"。
+    只有 stop_debug() 显式把值设为 False 才算停止请求。
+    """
+    with _debug_lock:
+        return _debug_states.get(tool_id, None) is False
 from core.llm.client import create_llm_client
 
 
@@ -50,12 +63,39 @@ from pathlib import Path
 from typing import Any
 import requests
 
-# ── 项目根路径 ──
+# ── 项目根路径（位置无关：优先从 sys.path 反查）──
 _tool_dir = os.environ.get("TOOL_DIR", "")
-if _tool_dir:
-    _PROJECT_ROOT = Path(_tool_dir).resolve().parent.parent.parent.parent
-else:
-    _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
+
+
+def _detect_project_root() -> Path:
+    """定位项目根。
+
+    执行器（ToolExecutor / Agent 的 _call_tool_X）启动子进程时，已把真实的
+    项目根注入 sys.path，因此优先从 sys.path 反查 —— 这样不依赖资源根位于
+    项目内还是项目同级（私有资源根默认位于项目根的同级目录，用固定层数推导
+    会偏一级，导致 _resolve_path / _call_tool 找错目录）。
+
+    sys.path 未命中时，再从工具目录 / 文件位置向上查找：含 core/ 与 app/ 的
+    目录即为项目根。
+    """
+    for _p in list(sys.path):
+        try:
+            _c = Path(_p).resolve()
+        except Exception:
+            continue
+        if (_c / "core").is_dir() and (_c / "app").is_dir():
+            return _c
+    for _start in (Path(_tool_dir).resolve().parent if _tool_dir else None,
+                   Path(__file__).resolve().parent):
+        if _start is None:
+            continue
+        for _c in [_start, *_start.parents]:
+            if (_c / "core").is_dir() and (_c / "app").is_dir():
+                return _c
+    return Path(__file__).resolve().parent.parent.parent.parent.parent  # 兜底：内置布局
+
+
+_PROJECT_ROOT = _detect_project_root()
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
@@ -743,12 +783,26 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
         import asyncio, threading
 
         exec_python = self._get_exec_python(tool_id)
-        exec_pip = self._get_exec_pip(tool_id)
-        is_local = ".venv" in exec_python
+        is_local = ".venv" in exec_python.replace("\\", "/")
         env_label = "local" if is_local else "project_venv"
 
-        # 如果不是工具独立 venv，安装到项目 venv 的 site-packages
-        install_target = "" if is_local else self._get_install_target()
+        # pip 命令一律用**列表**拼装，全程不做字符串切分：
+        # Windows 路径里的反斜杠会被 shlex 当转义符、含空格的路径会被拆散。
+        pip_base: list[str] = [exec_python, "-m", "pip"]
+        if is_local:
+            # 工具独立 .venv 时优先用自带的 pip 可执行文件
+            py_dir = Path(exec_python).parent
+            for cand in ("pip", "pip3", "pip.exe"):
+                candidate = py_dir / cand
+                if candidate.exists():
+                    pip_base = [str(candidate)]
+                    break
+
+        # 不再使用 --target：安装目标就是 exec_python 所属的那个 venv。
+        # 原实现把 --target 指向 venv/lib/python3.12/site-packages：
+        #   * Windows 的目录是 Lib/site-packages（大写），探测恒失败；
+        #   * --target 会绕过 pip 的安装记录，容易留下重复/半损坏的包。
+        install_target = ""
 
         yield {"event": "deps_start", "deps": list(dependencies), "env": env_label}
 
@@ -759,9 +813,13 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
             )
             return proc.returncode == 0
 
-        def _pip_worker(pip_cmd: str, dep: str, target: str, output_queue: asyncio.Queue):
-            """在线程中执行 pip install，逐行推入 queue"""
-            parts = pip_cmd.split() + ["install", dep]
+        def _pip_worker(pip_base: list[str], dep: str, target: str, output_queue: asyncio.Queue):
+            """在线程中执行 pip install，逐行推入 queue。
+
+            pip_base 已是列表（[python, "-m", "pip"]），全程不做字符串切分：
+            Windows 路径的反斜杠会被 shlex 当转义符，含空格路径也会被拆散。
+            """
+            parts = list(pip_base) + ["install", dep]
             if target:
                 parts += ["--target", target]
             try:
@@ -786,7 +844,9 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
             dep = dep.strip()
             if not dep: continue
 
-            module_name = dep.split("==")[0].split(">=")[0].split("<=")[0].strip()
+            # 依赖串可能是 pip 包名（opencv-python / pillow），不能直接拿去做
+            # `import opencv-python`（语法错误 → 永远判为未安装 → 每次重装）。
+            module_name = import_name_for(dep)
 
             if _is_installed(exec_python, module_name):
                 yield {"event": "dep_already", "dep": dep, "env": env_label}
@@ -801,7 +861,7 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
             for attempt in range(max_retries + 1):
                 q = asyncio.Queue()
                 all_output = ""
-                thread = threading.Thread(target=_pip_worker, args=(exec_pip, current_dep, install_target, q), daemon=True)
+                thread = threading.Thread(target=_pip_worker, args=(pip_base, current_dep, install_target, q), daemon=True)
                 thread.start()
 
                 # 从 queue 读取输出，短超时轮询 + 停止检查
@@ -809,8 +869,10 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
                 pip_start = asyncio.get_event_loop().time()
                 PIP_TOTAL_TIMEOUT = 300  # pip 总超时 5 分钟
                 while True:
-                    # 检查停止信号
-                    if not is_debug_running(tool_id):
+                    # 只在「确实处于调试上下文且被请求停止」时中断；
+                    # 键不存在表示根本不在调试里（仓库加载 / 导入后安装依赖），
+                    # 不能当成已停止，否则独立安装永远失败。
+                    if is_debug_stop_requested(tool_id):
                         all_output += "\n[已停止] 调试已停止\n"
                         retcode = -1
                         break
@@ -842,11 +904,11 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
 
                 thread.join(timeout=5)
                 if retcode == 0:
-                    yield {"event": "pip_result", "ok": True, "output": all_output[-1000:]}
+                    yield {"event": "pip_result", "ok": True, "output": all_output[-2000:]}
                     break
 
                 if attempt >= max_retries:
-                    yield {"event": "pip_result", "ok": False, "output": all_output[-1000:]}
+                    yield {"event": "pip_result", "ok": False, "output": all_output[-2000:]}
                     break
 
                 # 安装失败，LLM 分析
@@ -856,7 +918,7 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
                 if analysis.get("adjusted_command"):
                     current_dep = analysis["adjusted_command"]
                 else:
-                    yield {"event": "pip_result", "ok": False, "output": all_output[-1000:]}
+                    yield {"event": "pip_result", "ok": False, "output": all_output[-2000:]}
                     break
 
             # 汇总结果
@@ -864,8 +926,10 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
                 results.append({"dep": dep, "success": True, "env": env_label})
                 yield {"event": "dep_installed", "dep": dep, "env": env_label}
             else:
-                results.append({"dep": dep, "success": False, "env": env_label, "reason": all_output[-300:]})
-                yield {"event": "dep_failed", "dep": dep, "env": env_label, "reason": all_output[-300:]}
+                results.append({"dep": dep, "success": False, "env": env_label,
+                                "reason": all_output[-1500:]})
+                yield {"event": "dep_failed", "dep": dep, "env": env_label,
+                       "reason": all_output[-1500:]}
 
         data = {"python": exec_python, "results": results}
         yield {"event": "deps_done", "data": data}

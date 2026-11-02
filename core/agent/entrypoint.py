@@ -114,6 +114,7 @@ async def main():
         agent_loaded = False
 
     # 通过 stdin/stdout JSON-line 协议通信；Windows 的 Proactor 无法连接这里的标准流管道。
+    # 因此读写都走线程（asyncio.to_thread），完全绕开 pipe transport。
     write_lock = asyncio.Lock()
 
     def write_line(line: bytes):
