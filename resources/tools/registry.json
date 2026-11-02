@@ -4422,5 +4422,120 @@
     "created_at": "2026-09-28T00:00:00Z",
     "visibility": "public",
     "owner": "system"
+  },
+  {
+    "id": "tool-transfer",
+    "name": "工具迁移器",
+    "version": "1.0.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/tool-transfer.md",
+    "impl_path": "implementations/tool-transfer/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "action",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "export / import / list / info",
+        "hints": [
+          "动作",
+          "操作"
+        ]
+      },
+      {
+        "name": "tool_id",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "导出时的工具 id",
+        "hints": [
+          "工具id",
+          "工具"
+        ]
+      },
+      {
+        "name": "bundle_path",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "导入时的迁移包路径",
+        "hints": [
+          "包路径",
+          "zip"
+        ]
+      }
+    ],
+    "modes": [],
+    "tags": [
+      "迁移",
+      "导出",
+      "导入",
+      "工具打包",
+      "跨环境"
+    ],
+    "usage_count": 0,
+    "created_at": "2026-10-29T00:00:00Z",
+    "visibility": "public"
+  },
+  {
+    "id": "agent-transfer",
+    "name": "Agent 迁移器",
+    "version": "1.0.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/agent-transfer.md",
+    "impl_path": "implementations/agent-transfer/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "action",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "export / import / list / info",
+        "hints": [
+          "动作",
+          "操作"
+        ]
+      },
+      {
+        "name": "agent_id",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "导出时的 Agent id",
+        "hints": [
+          "agent id",
+          "Agent"
+        ]
+      },
+      {
+        "name": "bundle_path",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "导入时的迁移包路径",
+        "hints": [
+          "包路径",
+          "zip"
+        ]
+      }
+    ],
+    "modes": [],
+    "tags": [
+      "Agent迁移",
+      "导出",
+      "导入",
+      "跨环境"
+    ],
+    "usage_count": 0,
+    "created_at": "2026-10-29T00:00:00Z",
+    "visibility": "public"
   }
 ]

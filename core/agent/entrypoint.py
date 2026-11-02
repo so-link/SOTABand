@@ -117,10 +117,26 @@ async def main():
     reader = asyncio.StreamReader()
     protocol = asyncio.StreamReaderProtocol(reader)
     await asyncio.get_event_loop().connect_read_pipe(lambda: protocol, sys.stdin)
-    w_transport, _ = await asyncio.get_event_loop().connect_write_pipe(
-        asyncio.streams.FlowControlMixin, sys.stdout
-    )
-    writer = asyncio.StreamWriter(w_transport, protocol, reader, asyncio.get_event_loop())
+
+    # 写入端：Windows(ProactorEventLoop) 下 connect_write_pipe 对父进程重定向的
+    # sys.stdout 会抛 OSError WinError 6「句柄无效」。改用同步写入 + flush 即可，
+    # 对 JSON-line 协议足够（主进程按行读取，带 flush 即能及时送达），且跨平台通用。
+    class _StdoutWriter:
+        def write(self, data: bytes):
+            try:
+                sys.stdout.buffer.write(data)
+                sys.stdout.buffer.flush()
+            except Exception:
+                try:
+                    sys.stdout.write(data.decode("utf-8", "replace"))
+                    sys.stdout.flush()
+                except Exception:
+                    pass
+
+        async def drain(self):
+            return None
+
+    writer = _StdoutWriter()
 
     async def send_event(event: dict):
         """发送 JSON 行到主进程。

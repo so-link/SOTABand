@@ -126,8 +126,12 @@ class AgentRegistry(BaseRegistry):
         self._write(data)
 
         # 保存 MD 规范文档
+        # 写入【私有】目录（与 _get_spec_dir() 保持一致）：新建 / 更新的 Agent
+        # 一律写入私有目录，内置目录只放随仓库分发的资源。
+        # 注：此前误用 REGISTRY_DIR（= BUILTIN_ROOT/agents），会把用户新建的
+        #     Agent 规范写进内置目录 —— 既污染内置，也在只读部署下直接失败。
         if "raw_md" in resource:
-            spec_path = REGISTRY_DIR / "definitions" / f"{agent_id}.md"
+            spec_path = self._get_spec_dir() / f"{agent_id}.md"
             spec_path.parent.mkdir(parents=True, exist_ok=True)
             with open(spec_path, "w", encoding='utf-8') as f:
                 f.write(resource["raw_md"])

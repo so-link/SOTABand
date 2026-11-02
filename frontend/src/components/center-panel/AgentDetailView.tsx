@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import {
-  Bot, Send, Play, Square, RefreshCw, Loader2, FileText, FileCode, X, Pencil, Save, FolderOpen,
+  Bot, Send, Play, Square, RefreshCw, Loader2, FileText, FileCode, X, Pencil, Save, FolderOpen, Download,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -68,6 +68,11 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   const [draftCode, setDraftCode] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
+
+  // 导出迁移包（.sotaagent.zip）的状态。必须声明在 `if (!agent) return` 之前，
+  // 否则 agent 由空变有会让 hooks 数量变化（React 会直接报错）。
+  const [exporting, setExporting] = useState(false)
+  const [exportInfo, setExportInfo] = useState<{ name: string; path: string; size: number } | null>(null)
 
   const setActiveView = useUIStore((s) => s.setActiveView)
 
@@ -165,18 +170,39 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
 
   const codeDirty = draftCode.trim() !== code.trim()
 
-  // 任务式 Agent：从 MD 规范文档的「## 输入」段落解析启动参数名
-  // 支持 "## 输入" / "## 参数" 段落下的 "- name: ..." 列表
+  // 任务式 Agent：从 MD 规范文档的输入段解析启动参数名。
+  // 与后端 AgentCodeBuilder._parse_spec_inputs 保持一致，支持：
+  //   - 标题："## 输入" / "## 3. 输入规范" / "### 参数"
+  //   - 列表："- name: 说明（string，必填）"
+  //   - 表格："| name | string | 是 | 说明 |"
+  // 解析不到参数名时，启动面板会显示「无启动参数」，Agent 便只能收到空参数。
   const taskInputNames: string[] = (() => {
     if (!isTask || !specMd) return []
-    const m = specMd.match(/^##+\s*(输入|参数|启动参数)\s*$([\s\S]*?)(^##+\s|\Z)/m)
-    if (!m) return []
-    const body = m[2] || ''
+    const lines = specMd.split('\n')
+    const headRe = /^#{2,3}\s*(?:[\d一二三四五六七八九十]+[.、)．]?\s*)?(输入|输入规范|参数|启动参数)\s*$/
     const names: string[] = []
-    const re = /^\s*[-*]\s*([A-Za-z_][\w-]*)\s*[:：]/gm
-    let mm: RegExpExecArray | null
-    while ((mm = re.exec(body)) !== null) names.push(mm[1])
-    return names
+    let inSection = false
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim()
+      if (!inSection) {
+        if (headRe.test(line)) inSection = true
+        continue
+      }
+      // 遇到同级或更高级标题即结束
+      if (/^#{1,3}\s+\S/.test(line)) break
+      if (!line) continue
+      const lm = line.match(/^[-*]\s*`?([A-Za-z_][\w-]*)`?\s*[:：]/)
+      if (lm) { names.push(lm[1]); continue }
+      if (line.startsWith('|')) {
+        const cells = line.replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim())
+        if (!cells[0] || /^[-:\s]+$/.test(cells[0])) continue          // 分隔行
+        const next = lines.slice(i + 1).map((l) => l.trim()).find(Boolean) || ''
+        if (/^\|[\s:|-]+\|?$/.test(next)) continue                     // 表头行
+        const cm = cells[0].replace(/`/g, '').match(/^[A-Za-z_][\w-]*$/)
+        if (cm) names.push(cm[0])
+      }
+    }
+    return Array.from(new Set(names))
   })()
 
   const handleSaveCode = async () => {
@@ -194,6 +220,26 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
     } finally {
       setIsSaving(false)
       setTimeout(() => setSaveMsg(''), 3000)
+    }
+  }
+
+  // 导出为迁移包（.sotaagent.zip）
+  const handleExport = async () => {
+    if (!agent) return
+    setExporting(true)
+    try {
+      const res = await fetch(`${BASE_URL}/api/migrate/agent/export`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent_id: agent.id }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.detail || `导出失败 (${res.status})`)
+      setExportInfo({ name: data.file_name, path: data.bundle_path, size: data.size })
+    } catch (e) {
+      window.alert(`导出失败：${(e as Error).message}`)
+    } finally {
+      setExporting(false)
     }
   }
 
@@ -372,6 +418,15 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
           </Badge>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleExport}
+            disabled={exporting}
+            className="flex items-center gap-1 text-[11px] text-emerald-500 hover:underline disabled:opacity-50"
+            title="导出为 .sotaagent.zip，可在其它环境导入"
+          >
+            {exporting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+            {exporting ? '导出中…' : '导出'}
+          </button>
           {/* Detail toggle buttons */}
           {hasDemand && (
             <button
@@ -427,6 +482,28 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
           )}
         </div>
       </div>
+
+      {exportInfo && (
+        <div className="flex items-center gap-2 px-4 py-1.5 text-[11px] border-b border-maia-border bg-emerald-500/10 shrink-0">
+          <span className="text-emerald-600 shrink-0">
+            已导出 {Math.max(1, Math.round(exportInfo.size / 1024))} KB：
+          </span>
+          <a
+            className="text-maia-accent underline truncate"
+            href={`${BASE_URL}/api/migrate/agent/bundles/${encodeURIComponent(exportInfo.name)}`}
+            download
+            title={exportInfo.path}
+          >
+            {exportInfo.name}
+          </a>
+          <button
+            onClick={() => setExportInfo(null)}
+            className="ml-auto text-maia-text-muted hover:underline shrink-0"
+          >
+            关闭
+          </button>
+        </div>
+      )}
 
       {/* Content area */}
       <div className="flex-1 min-h-0 overflow-auto p-4">

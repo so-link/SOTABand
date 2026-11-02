@@ -320,51 +320,14 @@ async def check_deps(tool_id: str):
 
     code = registry.read_code_text(tool_id)
     if not code.strip():
-        return {"tool_id": tool_id, "deps": [], "missing": [], "install": [], "python": "", "env": ""}
+        return {"tool_id": tool_id, "deps": [], "missing": [], "install": [],
+                "pairs": [], "python": "", "env": ""}
 
-    deps = builder._extract_imports(code)
+    # 统一走 core.deps：import 名 ↔ pip 包名的映射只有一份，
+    # 避免检测用一套、安装用另一套导致 "装了还缺 / 每次都重装"。
+    from core.deps import check_tool_dependencies
 
-    from core.executor.tool_executor import ToolExecutor
-    import subprocess as _sp
-
-    python_exe = ToolExecutor._get_python_exe(tool_id)
-    env_label = "tool_venv" if ".venv" in python_exe else (
-        "project_venv" if "/venv/" in python_exe else "system"
-    )
-
-    # import 名 → pip 包名 的常见映射。
-    # 检测用 import 名（如 PIL），安装却必须用 pip 包名（pillow），
-    # 否则 pip install PIL 会失败。
-    _PIP_NAME = {
-        "PIL": "pillow", "cv2": "opencv-python", "sklearn": "scikit-learn",
-        "skimage": "scikit-image", "yaml": "pyyaml", "dotenv": "python-dotenv",
-        "bs4": "beautifulsoup4", "fit_zoo": "scipy", "dateutil": "python-dateutil",
-        "serial": "pyserial", "OpenSSL": "pyopenssl", "jwt": "pyjwt",
-        "win32com": "pywin32", "soundfile": "soundfile", "pkg_resources": "setuptools",
-    }
-
-    missing: list[str] = []
-    for mod in deps:
-        try:
-            proc = _sp.run(
-                [python_exe, "-c", f"import {mod}"],
-                capture_output=True, text=True, timeout=15,
-            )
-            if proc.returncode != 0:
-                missing.append(mod)
-        except Exception:
-            # 检测本身失败（超时/解释器不可用）不计入缺失，避免误报
-            continue
-
-    return {
-        "tool_id": tool_id,
-        "deps": deps,
-        "missing": missing,
-        # 安装时使用的 pip 包名（与 missing 一一对应）
-        "install": [_PIP_NAME.get(m, m) for m in missing],
-        "python": python_exe,
-        "env": env_label,
-    }
+    return check_tool_dependencies(tool_id, code)
 
 
 @router.post("/{tool_id}/install-deps")
