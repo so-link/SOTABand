@@ -56,7 +56,7 @@ def stop_debug(tool_id: str):
     with _debug_lock:
         if tool_id in _debug_states:
             _debug_states[tool_id] = False
-from core.llm.client import create_llm_client
+from core.llm.client import create_gen_llm_client
 
 
 # ================================================================
@@ -247,7 +247,9 @@ class ToolCodeBuilder(BaseBuilder):
     """v2: LLM 生成完整文件 + 仅沙箱执行 + 自动调试"""
 
     def __init__(self, llm_client=None):
-        self.llm = llm_client or create_llm_client()
+        # 代码生成走「生成模型」（LLM_GEN_*，未配置时回退全局）；
+        # 客户端每次调用时才解析配置，设置页改动即时生效
+        self.llm = llm_client or create_gen_llm_client()
 
     async def dry_run(self, code: str) -> dict:
         """兼容 BaseBuilder 抽象方法"""

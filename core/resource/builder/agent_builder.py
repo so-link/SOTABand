@@ -19,7 +19,7 @@ from pathlib import Path
 
 from core.resource.builder.builder_base import BaseBuilder
 from core.resource import paths
-from core.llm.client import create_llm_client
+from core.llm.client import create_gen_llm_client
 
 # ── 全局调试状态：线程安全的停止标志（与 tool_builder 同构，key=agent_id）──
 _debug_states: dict[str, bool] = {}
@@ -244,7 +244,9 @@ class AgentCodeBuilder(BaseBuilder):
     """从 Agent MD 规范文档生成 Agent Python 代码"""
 
     def __init__(self, llm_client=None):
-        self.llm = llm_client or create_llm_client()
+        # 代码生成走「生成模型」（LLM_GEN_*，未配置时回退全局）；
+        # 客户端每次调用时才解析配置，设置页改动即时生效
+        self.llm = llm_client or create_gen_llm_client()
 
     # ══════════════════════════════════════════════════════════
     # MD 解析 — 提取工具/API 引用

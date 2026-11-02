@@ -303,6 +303,34 @@ class LLMConfig:
         )
 
 
+def resolve_gen_llm_config() -> LLMConfig:
+    """解析「生成/推理增强模型」配置（工具与 Agent 的规格/代码生成链专用）。
+
+    背景：交互式对话的模型必须支持 function calling，而写代码/长逻辑推理
+    往往想用另一家更强的模型。两者分开配置：
+        对话（chat）  = settings.llm（LLM_PROVIDER / LLM_API_KEY / LLM_MODEL）
+        生成（gen）   = LLM_GEN_* 环境变量，未配置 provider 时回退 settings.llm
+
+    读取的变量（全部可选）：
+        LLM_GEN_PROVIDER  服务商 id；留空 = 跟随全局对话模型
+        LLM_GEN_MODEL     模型名；留空 = <PROVIDER>_MODEL 或服务商预设默认
+        LLM_GEN_API_KEY   Key；留空 = <PROVIDER>_API_KEY（复用同厂商已有 Key）
+        LLM_GEN_BASE_URL  端点；留空 = 按 Key 前缀自动匹配 / 服务商预设默认
+
+    每次调用都重新读环境变量，因此 .env 改动后 _refresh_settings 同步
+    os.environ 即可即时生效，不存在启动快照被固化的问题。
+    """
+    provider = os.getenv("LLM_GEN_PROVIDER", "").strip()
+    if not provider:
+        return settings.llm
+    return LLMConfig(
+        provider=provider,
+        api_key=os.getenv("LLM_GEN_API_KEY", "").strip(),
+        base_url=os.getenv("LLM_GEN_BASE_URL", "").strip(),
+        model=os.getenv("LLM_GEN_MODEL", "").strip(),
+    )
+
+
 @dataclass
 class DoubaoConfig:
     """豆包 (Doubao) LLM 配置"""

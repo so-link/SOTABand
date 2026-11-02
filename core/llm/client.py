@@ -128,10 +128,13 @@ class OpenAICompatibleClient(LLMClient):
     通过 base_url + api_key + model 即可接入。
     """
 
-    def __init__(self, config: LLMConfig = None):
+    def __init__(self, config: LLMConfig = None, config_resolver=None):
         self._config = config
-        # 若未显式传入 config，则每次调用动态读取 settings.llm，
+        # 动态配置来源：
+        #   config_resolver 优先（如「生成模型」按 LLM_GEN_* 每次现算）；
+        #   其次 config=None 表示每次读 settings.llm，
         # 以便运行时更新 api_key / model 后立即生效
+        self._resolver = config_resolver
         self._dynamic = config is None
         # 最近一次构建的客户端：客户端是按需构建的，需留下引用供 aclose() 关闭，
         # 否则 httpx 连接池残留会在事件循环关闭时报错
@@ -139,7 +142,11 @@ class OpenAICompatibleClient(LLMClient):
 
     @property
     def config(self) -> LLMConfig:
-        return self._config if self._config is not None else settings.llm
+        if self._config is not None:
+            return self._config
+        if self._resolver is not None:
+            return self._resolver()
+        return settings.llm
 
     def _build_client(self) -> AsyncOpenAI:
         cfg = self.config
@@ -388,3 +395,17 @@ def create_llm_client(config: LLMConfig = None) -> LLMClient:
     # if cfg.provider == "claude": return ClaudeClient(cfg)
     # if cfg.provider == "gemini": return GeminiClient(cfg)
     return OpenAICompatibleClient(cfg)
+
+
+def create_gen_llm_client() -> LLMClient:
+    """创建「生成/推理增强模型」客户端 —— 工具与 Agent 的规格/代码生成链专用。
+
+    与对话客户端的区别：对话模型必须支持 function calling（交互式 Agent 主循环
+    依赖它），而生成规范/写代码更适合用不并发调用、但推理更强的模型。
+    本工厂返回的客户端**每次调用时**才解析配置（见 resolve_gen_llm_config），
+    因此设置页保存后立即生效；未配置 LLM_GEN_PROVIDER 时自动回退全局对话模型，
+    行为与 create_llm_client() 完全一致。
+    """
+    from config.settings import resolve_gen_llm_config
+
+    return OpenAICompatibleClient(config_resolver=resolve_gen_llm_config)

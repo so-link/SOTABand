@@ -17,7 +17,7 @@ from app.api.schemas.tool_schemas import (
     GenerateToolSpecRequest, GenerateToolCodeRequest, RegisterToolRequest,
     ExecuteToolRequest, ModifyCodeRequest, ModifyAndDebugRequest,
 )
-from core.llm.client import create_llm_client
+from core.llm.client import create_gen_llm_client
 from core.resource.builder.tool_builder import ToolCodeBuilder, TOOL_TEMPLATE, stop_debug
 from core.resource.spec_outline import (
     parse_markdown_outline, replace_node_content, outline_context_for_prompt,
@@ -30,7 +30,8 @@ router = APIRouter()
 builder = ToolCodeBuilder()
 registry = ToolRegistry()
 discoverer = ToolDiscoverer()
-llm = create_llm_client()
+# 规格/代码生成走「生成模型」（LLM_GEN_*，未配置时回退全局对话模型）
+llm = create_gen_llm_client()
 
 SPEC_PROMPT = """你是一个工具规格文档生成器。根据用户的自然语言描述，生成标准化的 Tool MD 规范文档。
 

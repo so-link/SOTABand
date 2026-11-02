@@ -16,7 +16,7 @@ from app.api.schemas.agent_schemas import (
     RegisterAgentRequest,
     AgentExecuteRequest,
 )
-from core.llm.client import create_llm_client
+from core.llm.client import create_gen_llm_client
 from core.resource.builder.agent_builder import AgentCodeBuilder
 from core.resource.registry.agent_registry import AgentRegistry
 from core.agent.factory import agent_factory
@@ -24,7 +24,8 @@ from core.agent.factory import agent_factory
 router = APIRouter()
 builder = AgentCodeBuilder()
 registry = AgentRegistry()
-llm = create_llm_client()
+# 规格/代码生成走「生成模型」（LLM_GEN_*，未配置时回退全局对话模型）
+llm = create_gen_llm_client()
 
 
 def _remove_tree(path: Path) -> None:

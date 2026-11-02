@@ -7,6 +7,11 @@
 下拉选项由 config.settings.PROVIDER_PRESETS 自动生成（value 格式
 `<provider>:<默认模型>`），覆盖全部已登记服务商；保存时写入
 LLM_PROVIDER / LLM_API_KEY / LLM_MODEL 三件套（主 key 体系，见条目 32）。
+
+除「对话模型」外还可单独配置「生成/推理增强模型」（响应里的 gen 字段）：
+它只服务于工具/Agent 的规格与代码生成链，允许使用不支持 function calling
+但写代码更强的模型；写入 LLM_GEN_PROVIDER / LLM_GEN_MODEL / LLM_GEN_API_KEY，
+未配置时生成链自动回退到对话模型。
 """
 
 from pathlib import Path
@@ -15,7 +20,7 @@ import os
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from config.settings import LLMConfig, PROVIDER_PRESETS, settings
+from config.settings import LLMConfig, PROVIDER_PRESETS, resolve_gen_llm_config, settings
 from core.llm.client import get_llm_concurrency, set_llm_concurrency
 
 router = APIRouter(tags=["config"])
@@ -44,6 +49,23 @@ class LLMConfigUpdate(BaseModel):
     max_concurrency: int | None = None    # LLM 并发上限
     debug_exec_timeout: float | None = None  # 调试单轮执行超时（秒）
     debug_max_rounds: int | None = None      # 调试最大轮数
+    # 「生成/推理增强模型」（工具与 Agent 的规格/代码生成链专用，可选）：
+    # None = 本次不改动；"" = 关闭并回退全局对话模型；
+    # 其他 = <provider>:<模型> 复合值
+    gen_model: str | None = None
+    gen_api_key: str | None = None  # 为空字符串表示保留现有 gen key
+
+
+def _split_model_value(value: str) -> tuple[str, str]:
+    """拆解下拉值 `<provider>:<model>`；兼容纯模型名（取预设默认 provider）"""
+    value = (value or "").strip()
+    if ":" in value:
+        provider, model_name = value.split(":", 1)
+        return provider.strip(), model_name.strip()
+    entry = _MODEL_LOOKUP.get(value)
+    if not entry:
+        raise HTTPException(400, f"不支持的模型类型: {value}")
+    return entry["provider"], value
 
 
 def _mask_key(key: str) -> str:
@@ -53,6 +75,33 @@ def _mask_key(key: str) -> str:
     if len(key) <= 8:
         return "*" * len(key)
     return f"{key[:4]}{'*' * (len(key) - 8)}{key[-4:]}"
+
+
+def _gen_snapshot() -> dict:
+    """生成模型当前配置（api_key 脱敏）。未配置 provider 时 follow_global=True。"""
+    if not os.getenv("LLM_GEN_PROVIDER", "").strip():
+        return {
+            "enabled": False,
+            "follow_global": True,
+            "model": "",
+            "model_name": "",
+            "provider": "",
+            "base_url": "",
+            "api_key": "",
+            "has_api_key": False,
+        }
+    cfg = resolve_gen_llm_config()
+    model_value = f"{cfg.provider}:{cfg.model}" if cfg.provider and cfg.model else cfg.model
+    return {
+        "enabled": True,
+        "follow_global": False,
+        "model": model_value,
+        "model_name": cfg.model,
+        "provider": cfg.provider,
+        "base_url": cfg.base_url,
+        "api_key": _mask_key(cfg.api_key),
+        "has_api_key": bool(cfg.api_key),
+    }
 
 
 def _env_float(name: str, default: float) -> float:
@@ -85,8 +134,13 @@ def _read_env() -> dict[str, str]:
     return env
 
 
-def _write_env(env: dict[str, str]) -> None:
-    """将字典写回 .env 文件（保留注释与空行）"""
+def _write_env(env: dict[str, str], remove_keys: list[str] | None = None) -> None:
+    """将字典写回 .env 文件（保留注释与空行）
+
+    remove_keys 中的键直接从文件里删掉（用于「关闭生成模型」这类
+    需要清除已有条目的场景——仅从 env 字典里 pop 是无法影响磁盘的）。
+    """
+    drop = set(remove_keys or [])
     lines: list[str] = []
     if ENV_FILE.exists():
         raw = ENV_FILE.read_text(encoding="utf-8").splitlines()
@@ -100,6 +154,9 @@ def _write_env(env: dict[str, str]) -> None:
             lines.append(line)
             continue
         key = stripped.partition("=")[0].strip()
+        if key in drop:
+            seen.add(key)  # 视为已处理，避免尾部又被追加回来
+            continue
         if key in env:
             lines.append(f"{key}={env[key]}")
             seen.add(key)
@@ -131,6 +188,52 @@ def _refresh_settings(
     os.environ["LLM_PROVIDER"] = provider
     os.environ["LLM_API_KEY"] = api_key
     os.environ["LLM_MODEL"] = model
+
+
+def _apply_gen_update(payload: "LLMConfigUpdate", env: dict[str, str]) -> list[str]:
+    """把生成模型的改动写进待落盘的 env 字典。
+
+    返回需要**删除**的环境变量名（关闭生成模型时，内存里也要清掉，
+    否则旧的 LLM_GEN_* 会继续生效、回退不到全局模型）。
+
+    gen_model 语义：None=不改动 / ""=关闭并回退全局 / 其他=<provider>:<模型>
+    """
+    if payload.gen_model is None:
+        return []
+    value = payload.gen_model.strip()
+    if not value:
+        for k in ("LLM_GEN_PROVIDER", "LLM_GEN_MODEL", "LLM_GEN_API_KEY"):
+            env.pop(k, None)
+        return ["LLM_GEN_PROVIDER", "LLM_GEN_MODEL", "LLM_GEN_API_KEY"]
+
+    provider, model_name = _split_model_value(value)
+    # 自定义服务商必须显式给端点；生成链可独立于全局 LLM_BASE_URL 指定
+    if provider not in PROVIDER_PRESETS and not (
+        env.get("LLM_GEN_BASE_URL", "") or env.get("LLM_BASE_URL", "")
+    ):
+        raise HTTPException(
+            400, f"自定义服务商 {provider} 需要在 .env 中配置 LLM_GEN_BASE_URL"
+        )
+    env["LLM_GEN_PROVIDER"] = provider
+    env["LLM_GEN_MODEL"] = model_name
+    gen_key = (payload.gen_api_key or "").strip()
+    if gen_key:
+        env["LLM_GEN_API_KEY"] = gen_key
+    # 提前校验 Key 可用性：留空时可复用 LLM_API_KEY（provider 与全局一致）
+    # 或 <PROVIDER>_API_KEY，全都没有的话保存后必然 401，不如现在就报出来
+    if not env.get("LLM_GEN_API_KEY", ""):
+        fallback = env.get(f"{provider.upper()}_API_KEY", "") or os.getenv(
+            f"{provider.upper()}_API_KEY", ""
+        )
+        if not fallback and provider == env.get("LLM_PROVIDER", "").strip():
+            fallback = env.get("LLM_API_KEY", "")
+        if not fallback:
+            raise HTTPException(
+                400,
+                f"生成模型 {provider} 没有可用 Key：请在上方填写 API Key，"
+                f"或在 .env 中配置 {provider.upper()}_API_KEY",
+            )
+    return []
 
 
 @router.get("/llm")
@@ -167,6 +270,8 @@ async def get_llm_config():
         "max_concurrency": get_llm_concurrency(),
         "debug_exec_timeout": _env_float("DEBUG_EXEC_TIMEOUT", 60.0),
         "debug_max_rounds": _env_int("DEBUG_MAX_ROUNDS", 10),
+        # 生成/推理增强模型（可选，未配置时跟随上面的对话模型）
+        "gen": _gen_snapshot(),
     }
 
 
@@ -210,7 +315,8 @@ async def update_llm_config(payload: LLMConfigUpdate):
         env["DEBUG_EXEC_TIMEOUT"] = str(max(5, min(1800, int(payload.debug_exec_timeout))))
     if payload.debug_max_rounds is not None:
         env["DEBUG_MAX_ROUNDS"] = str(max(1, min(100, int(payload.debug_max_rounds))))
-    _write_env(env)
+    gen_removals = _apply_gen_update(payload, env)
+    _write_env(env, gen_removals)
 
     # 动态刷新内存配置，使当前进程立即生效
     final_key = env.get("LLM_API_KEY", "")
@@ -226,6 +332,14 @@ async def update_llm_config(payload: LLMConfigUpdate):
         os.environ["DEBUG_EXEC_TIMEOUT"] = env["DEBUG_EXEC_TIMEOUT"]
     if "DEBUG_MAX_ROUNDS" in env:
         os.environ["DEBUG_MAX_ROUNDS"] = env["DEBUG_MAX_ROUNDS"]
+    if payload.gen_model is not None:
+        # 生成链客户端每次调用现算配置，同步 os.environ 即即时生效
+        for k in ("LLM_GEN_PROVIDER", "LLM_GEN_MODEL", "LLM_GEN_API_KEY"):
+            if k in env:
+                os.environ[k] = env[k]
+        # 关闭生成模型：内存里也要清掉，否则旧值继续生效、回退不到全局模型
+        for k in gen_removals:
+            os.environ.pop(k, None)
 
     return {
         "message": "配置已更新",
@@ -237,4 +351,5 @@ async def update_llm_config(payload: LLMConfigUpdate):
         "max_concurrency": get_llm_concurrency(),
         "debug_exec_timeout": _env_float("DEBUG_EXEC_TIMEOUT", 60.0),
         "debug_max_rounds": _env_int("DEBUG_MAX_ROUNDS", 10),
+        "gen": _gen_snapshot(),
     }
