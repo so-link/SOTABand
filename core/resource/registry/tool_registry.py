@@ -61,7 +61,11 @@ class ToolRegistry(BaseRegistry):
         return f
 
     def _read(self) -> list[dict]:
-        """合并内置与私有 registry（私有同 id 覆盖内置）。"""
+        """合并内置与私有 registry（私有同 id 覆盖内置），并注入使用计数。
+
+        返回的条目是深拷贝视图：调用方（如 list_all 后前端展示、执行器
+        读参数）可随意改，不会意外成为写路径。
+        """
         merged: dict[str, dict] = {}
         for root in paths.resource_roots():
             rf = root / "tools" / "registry.json"
@@ -73,7 +77,29 @@ class ToolRegistry(BaseRegistry):
                         merged[e["id"]] = e
             except Exception:
                 continue
-        return list(merged.values())
+        data = list(merged.values())
+        usage = self._read_usage()
+        for e in data:
+            if e["id"] in usage:
+                e["usage_count"] = usage[e["id"]]
+        return data
+
+    def _read_private(self) -> list[dict]:
+        """只读私有 registry（不合并内置）。
+
+        写路径（register/update/bump_usage_count）必须基于本方法而非 _read：
+        _read 的合并视图含全部内置条目，写回等于把内置条目批量复制进私有
+        目录——一次 update 就会让私有 registry 混入几十个陈旧副本，后果：
+        ① 内置资源后续更新被陈旧副本永久遮蔽（如天气工具新加的参数界
+        面看不到）；② 内置目录中已删除的工具被私有副本"复活"；③ 私有
+        文件无意义膨胀。
+        """
+        rf = self._private_registry_file()
+        try:
+            data = json.loads(rf.read_text(encoding="utf-8"))
+        except Exception:
+            return []
+        return [e for e in data if isinstance(e, dict) and e.get("id")]
 
     def _write(self, data: list[dict]):
         """写入私有 registry（内置资源不在此维护）。"""
@@ -163,7 +189,7 @@ class ToolRegistry(BaseRegistry):
         }
 
         with _WRITE_LOCK:
-            data = self._read()
+            data = self._read_private()
             existing = [i for i, e in enumerate(data) if e["id"] == tool_id]
             if existing:
                 data[existing[0]] = entry
@@ -244,26 +270,45 @@ class ToolRegistry(BaseRegistry):
         return [e for e in data if self.is_visible(e, user_id)]
 
     async def update(self, tool_id: str, updates: dict):
+        """更新工具条目（只读写私有 registry）。
+
+        内置工具（条目不在私有 registry）更新时，从合并视图取当前条目
+        为基底落入私有目录再打补丁——这是「覆盖内置工具字段」的显式
+        fork，仅由调用方主动 update 触发，不再由批量写回隐式发生。
+        """
         with _WRITE_LOCK:
-            data = self._read()
+            data = self._read_private()
             for e in data:
                 if e["id"] == tool_id:
                     e.update(updates)
+                    self._write(data)
+                    return
+            base = next((e for e in self._read() if e["id"] == tool_id), None)
+            if base is None:
+                return  # 工具不存在，不创建空条目
+            forked = dict(base)
+            forked.update(updates)
+            data.append(forked)
             self._write(data)
 
     def bump_usage_count(self, tool_id: str) -> None:
-        """工具被使用一次：usage_count 自增（同步方法，供执行器调用）。
+        """工具被使用一次：计数 +1（同步方法，供执行器调用）。
 
-        之前 usage_count 只在 register 时初始化为 0，此后从未自增，导致
-        仓库列表「已用次数」永远不变。这里做成同步读-改-写，便于在
-        子进程执行外层（async 与同步两条路径）直接调用，无需区分事件循环。
+        计数单独存私有目录的 usage.json，不写 registry.json 的
+        usage_count 字段：内置工具条目在 git 管理的资源目录里，运行时
+        不该改；往私有目录 fork 整个条目又会遮蔽内置的后续更新。计数
+        与条目分离后，内置与私有工具行为一致，读取时由 _read 注入合并。
         """
         with _WRITE_LOCK:
-            data = self._read()
-            for e in data:
-                if e["id"] == tool_id:
-                    e["usage_count"] = int(e.get("usage_count", 0)) + 1
-                    break
-            else:
-                return  # 未注册的工具不计数
-            self._write(data)
+            usage = self._read_usage()
+            usage[tool_id] = int(usage.get(tool_id, 0)) + 1
+            _write_json(self._usage_file(), usage)
+
+    def _usage_file(self) -> Path:
+        return paths.ensure_private_dirs("tools") / "usage.json"
+
+    def _read_usage(self) -> dict:
+        try:
+            return json.loads(self._usage_file().read_text(encoding="utf-8"))
+        except Exception:
+            return {}
