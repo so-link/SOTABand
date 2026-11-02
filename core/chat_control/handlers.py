@@ -12,6 +12,9 @@ P0 实现 L0 只读工具（直通执行）。P1/P2/P3 在同一注册表里按�
 
 from __future__ import annotations
 
+import os
+import re
+import time
 from pathlib import Path
 
 from pydantic import Field
@@ -19,11 +22,13 @@ from pydantic import Field
 from core.chat_control.guards import (
     LIST_MAX_ITEMS,
     SPEC_MAX_CHARS,
+    PathNotAllowed,
     clip,
     resolve_allowed_path,
 )
 from core.chat_control.registry import (
     RISK_READ,
+    RISK_WRITE,
     CallContext,
     StrictArgs,
     platform_tool,
@@ -303,4 +308,167 @@ async def list_cron_runs(args: CronJobArgs, ctx: CallContext) -> dict:
             "message": clip(r.get("message") or "", 200),
             "error": clip(r.get("error") or "", 200),
         } for r in runs],
+    }
+
+
+# ────────────────────────── 数据集 / 模型注册（P1，写） ──────────────────────────
+#
+# 写工具在网关侧只生成待确认操作；处理器在用户确认后才被调用，
+# 因此路径白名单等语义校验在执行时才生效——越界错误会回给 LLM 换路径重试。
+
+# 目录扫描上限：防止把超大目录的统计拖垮确认流程
+SCAN_MAX_FILES = 5000
+
+
+class RegisterDatasetArgs(StrictArgs):
+    path: str = Field(
+        description="要注册的数据集目录。必须位于允许范围内（私有资源区或项目工作区）。"
+    )
+    name: str = Field(description="数据集名称")
+    description: str = Field(default="", description="数据集用途描述（写入规格文档）")
+    tags: list[str] = Field(default_factory=list, description="分类标签（可选）")
+
+
+def _slug(text: str) -> str:
+    """数据集 id 前缀：非 ASCII 字母数字一律折叠，空则兜底。"""
+    s = re.sub(r"[^A-Za-z0-9_-]+", "-", text).strip("-").lower()
+    return s or "dataset"
+
+
+def _scan_dataset_dir(root: Path) -> dict:
+    """递归统计目录文件（跳过隐藏文件），超过 SCAN_MAX_FILES 提前截止。"""
+    file_count = 0
+    total_size = 0
+    formats: set[str] = set()
+    samples: list[tuple[str, int]] = []
+    truncated = False
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+        for fn in filenames:
+            if fn.startswith("."):
+                continue
+            fp = Path(dirpath) / fn
+            try:
+                size = fp.stat().st_size
+            except OSError:
+                continue
+            file_count += 1
+            total_size += size
+            suffix = fp.suffix.lstrip(".").lower()
+            if suffix:
+                formats.add(suffix)
+            if len(samples) < 10:
+                samples.append((str(fp.relative_to(root)), size))
+            if file_count >= SCAN_MAX_FILES:
+                truncated = True
+                break
+        if truncated:
+            break
+    return {"file_count": file_count, "total_size": total_size,
+            "formats": sorted(formats), "samples": samples, "truncated": truncated}
+
+
+def _dataset_spec_md(name: str, description: str, root: Path, scan: dict) -> str:
+    """对话注册的规格文档：确定性生成，不额外消耗 LLM（可稍后在编辑器里完善）。"""
+    sample_lines = "\n".join(f"- `{rel}`（{size} bytes）" for rel, size in scan["samples"])
+    return (
+        f"# {name}\n\n{description or '（通过对话注册的数据集）'}\n\n"
+        f"---\n## 数据集目录\n"
+        f"- **路径**: `{root}`\n"
+        f"- **文件数**: {scan['file_count']}\n"
+        f"- **总大小**: {scan['total_size']} bytes\n"
+        f"- **格式**: {', '.join(scan['formats']) or '未知'}\n\n"
+        f"## 文件样例（前 {len(scan['samples'])} 个）\n{sample_lines}\n"
+    )
+
+
+@platform_tool(
+    "register_dataset",
+    "把一个目录注册为平台数据集（文件保持原位，不复制）。"
+    "注册成功后数据集会出现在数据空间。注册前可先用 list_directory 确认路径内容。",
+    RegisterDatasetArgs, RISK_WRITE,
+    summary_fn=lambda a: f"注册数据集「{a.get('name', '')}」（{a.get('path', '')}）",
+)
+async def register_dataset(args: RegisterDatasetArgs, ctx: CallContext) -> dict:
+    from core.api.implementations.api_data import ApiDataRegister
+    try:
+        root = resolve_allowed_path(args.path)
+    except PathNotAllowed as e:
+        return {"error": str(e)}
+    if not root.is_dir():
+        return {"error": f"不是目录: {root}。请提供数据集所在目录。"}
+    name = args.name.strip()
+    if not name:
+        return {"error": "数据集名称不能为空"}
+
+    scan = _scan_dataset_dir(root)
+    if scan["file_count"] == 0:
+        return {"error": f"目录为空（无可用文件）: {root}"}
+
+    spec_md = _dataset_spec_md(name, args.description.strip(), root, scan)
+    result = await ApiDataRegister.call(
+        id=f"{_slug(name)}_{int(time.time())}",
+        name=name, raw_md=spec_md, data_path=str(root),
+        file_count=scan["file_count"], total_size=scan["total_size"],
+        formats=scan["formats"], tags=args.tags,
+    )
+    # 与 REST 注册路径一致：后台匹配预览工具（失败不影响注册结果）
+    try:
+        import asyncio
+        from app.api.routes.data_routes import _match_preview_tool
+        asyncio.create_task(_match_preview_tool(result["dataset_id"], spec_md))
+    except Exception:
+        pass
+    return {
+        "dataset_id": result["dataset_id"], "name": name,
+        "data_path": str(root), "file_count": scan["file_count"],
+        "total_size": scan["total_size"], "formats": scan["formats"],
+        "scan_truncated": scan["truncated"],
+    }
+
+
+class RegisterModelArgs(StrictArgs):
+    name: str = Field(description="模型名称（注册时会自动追加时间戳后缀防冲突）")
+    description: str = Field(default="", description="模型用途/结构描述（写入规格文档）")
+    model_path: str = Field(
+        default="", description="模型权重文件或目录路径（可选；必须在允许范围内）"
+    )
+    framework: str = Field(default="", description="框架，如 PyTorch / ONNX / sklearn（可选）")
+    version: str = Field(default="0.1.0", description="版本号")
+    tags: list[str] = Field(default_factory=list, description="分类标签（留空则由系统自动生成）")
+
+
+@platform_tool(
+    "register_model",
+    "注册一个模型到模型空间。模型权重文件保持在原位置，不复制。",
+    RegisterModelArgs, RISK_WRITE,
+    summary_fn=lambda a: f"注册模型「{a.get('name', '')}」",
+)
+async def register_model(args: RegisterModelArgs, ctx: CallContext) -> dict:
+    from core.api.implementations.api_model import ApiModelRegister
+    model_path = ""
+    if args.model_path.strip():
+        try:
+            model_path = str(resolve_allowed_path(args.model_path))
+        except PathNotAllowed as e:
+            return {"error": str(e)}
+    name = args.name.strip()
+    if not name:
+        return {"error": "模型名称不能为空"}
+
+    lines = [f"# {name}", "", args.description.strip() or "（通过对话注册的模型）", ""]
+    if args.framework.strip():
+        lines.append(f"- **框架**: {args.framework.strip()}")
+    if model_path:
+        lines.append(f"- **模型路径**: `{model_path}`")
+    lines.append(f"- **版本**: {args.version.strip() or '0.1.0'}")
+    result = await ApiModelRegister.call(
+        name=name, raw_md="\n".join(lines) + "\n",
+        framework=args.framework.strip(), model_path=model_path,
+        version=args.version.strip() or "0.1.0", tags=args.tags,
+    )
+    return {
+        "model_id": result.get("model_id"), "name": result.get("name"),
+        "framework": args.framework.strip(), "model_path": model_path,
+        "tags": result.get("tags") or [],
     }

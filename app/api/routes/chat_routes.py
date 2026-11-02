@@ -270,7 +270,7 @@ async def platform_call_endpoint(request: PlatformCallRequest):
 async def platform_confirm_endpoint(request: PlatformConfirmRequest):
     """确认执行待确认操作。校验 owner/token/指纹/超时，幂等返回首次结果。"""
     from core.chat_control import gateway
-    owner = _platform_owner()
+    owner = _platform_owner(request.user_id)
     return await gateway.confirm_op(
         request.op_id, owner=owner, token=request.token,
         fingerprint=request.fingerprint or None,
@@ -281,7 +281,7 @@ async def platform_confirm_endpoint(request: PlatformConfirmRequest):
 async def platform_cancel_endpoint(request: PlatformConfirmRequest):
     """取消待确认操作。"""
     from core.chat_control import gateway
-    return gateway.cancel_op(request.op_id, owner=_platform_owner())
+    return gateway.cancel_op(request.op_id, owner=_platform_owner(request.user_id))
 
 
 @router.get("/platform-call/pending")

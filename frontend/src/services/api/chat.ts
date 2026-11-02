@@ -190,7 +190,8 @@ export function confirmPlatformCall(req: {
   fingerprint?: string
   sessionId: string
 }): Promise<PlatformOpReceipt> {
-  return postPlatformOp('/api/chat/platform-call/confirm', req)
+  // userId 与 sendMessage 保持一致，作为无登录态时的兜底身份
+  return postPlatformOp('/api/chat/platform-call/confirm', { ...req, userId: 'default' })
 }
 
 /** 取消待确认的平台操作 */
@@ -198,5 +199,5 @@ export function cancelPlatformCall(req: {
   opId: string
   sessionId: string
 }): Promise<PlatformOpReceipt> {
-  return postPlatformOp('/api/chat/platform-call/cancel', req)
+  return postPlatformOp('/api/chat/platform-call/cancel', { ...req, userId: 'default' })
 }

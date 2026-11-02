@@ -51,11 +51,13 @@ class PlatformConfirmRequest(BaseModel):
     """POST /api/chat/platform-call/confirm 请求体
 
     fingerprint 可选：前端从确认卡原样回传，网关再校验一次"确认内容=执行内容"。
+    user_id 仅作无登录令牌时的兜底身份，与 platform-call 端点保持一致。
     """
 
     op_id: str = Field(alias="opId")
     token: str = ""
     fingerprint: str = ""
     session_id: str = Field(default="default", alias="sessionId")
+    user_id: str = Field(default="", alias="userId")
 
     model_config = {"populate_by_name": True}
