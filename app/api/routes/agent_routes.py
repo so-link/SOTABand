@@ -178,6 +178,74 @@ created: {今天日期}
 10. frontmatter 中的 created 使用实际日期"""
 
 
+def build_spec_user_prompt(description: str) -> str:
+    """解析描述中的【【工具名】】/【API名】引用，拼装成增强的 user prompt。
+
+    generate-spec 端点与对话内 create_agent（chat_control 网关）共用，
+    保证两条入口的规格生成完全一致。
+    """
+    tool_refs = AgentCodeBuilder._extract_tool_refs(description)
+    api_refs = AgentCodeBuilder._extract_api_refs(description)
+
+    context_parts = []
+
+    if tool_refs:
+        context_parts.append("## 引用的工具参数要求\n")
+        for tr in tool_refs:
+            params_desc = ""
+            for p in tr.get("params", []):
+                req_mark = "（必填）" if p.get("required") else "（可选）"
+                default = f"，默认值: {p['default']}" if p.get("default") else ""
+                params_desc += f"- {p['name']} ({p.get('type', 'string')}) {req_mark}: {p.get('desc', '')}{default}\n"
+            if not params_desc:
+                params_desc = "（无参数定义）\n"
+
+            # 尝试从工具 MD spec 读取输出格式说明（内置 + 私有目录检索）
+            from core.resource import paths as _paths
+            spec_file = None
+            for _root in _paths.resource_roots():
+                _cand = _root / "tools" / "definitions" / f"{tr['id']}.md"
+                if _cand.exists():
+                    spec_file = _cand
+                    break
+            output_info = ""
+            if spec_file is not None and spec_file.exists():
+                spec_text = spec_file.read_text(encoding="utf-8")
+                # 提取输出规范段落
+                out_match = re.search(r'## 3\.\s*输出规范.*?(?=## \d\.|\Z)', spec_text, re.DOTALL)
+                if out_match:
+                    out_section = out_match.group(0)
+                    # 提取 output_format
+                    fmt_match = re.search(r'output_format\s*\|\s*(\w+)', out_section)
+                    if fmt_match:
+                        output_info = f"，输出格式: {fmt_match.group(1)}"
+
+            context_parts.append(
+                f"### 【【{tr['name']}】】（tool_id: {tr['id']}）\n"
+                f"**输入参数**:\n{params_desc}"
+                f"**工具返回**: dict，包含 status (success/failed), message (结果说明), data (输出数据){output_info}\n"
+            )
+
+    if api_refs:
+        context_parts.append("\n## 引用的 API 参数要求\n")
+        for ar in api_refs:
+            params_desc = ""
+            for k, v in ar.get("params", {}).items():
+                params_desc += f"- {k}: {v}\n"
+            if not params_desc:
+                params_desc = "（无参数定义）\n"
+            context_parts.append(
+                f"### 【{ar['name']}】（api_id: {ar['id']}）\n"
+                f"**输入参数**:\n{params_desc}\n"
+            )
+
+    tool_context = "\n".join(context_parts) if context_parts else ""
+    user_prompt = description
+    if tool_context:
+        user_prompt += f"\n\n---\n## 系统提供的工具/API 参考信息（请据此填充 MD 中的参数和输出）\n\n{tool_context}"
+    return user_prompt
+
+
 @router.post("/generate-spec")
 async def generate_spec(req: GenerateSpecRequest):
     """自然语言描述 → Agent MD 规范文档（含工具/API 参数参考）"""
@@ -186,68 +254,7 @@ async def generate_spec(req: GenerateSpecRequest):
 
     async def event_stream():
         try:
-            # ── 解析用户描述中的【【工具名】】和【API名】引用，查询参数信息 ──
-            tool_refs = AgentCodeBuilder._extract_tool_refs(req.description)
-            api_refs = AgentCodeBuilder._extract_api_refs(req.description)
-
-            context_parts = []
-
-            if tool_refs:
-                context_parts.append("## 引用的工具参数要求\n")
-                for tr in tool_refs:
-                    params_desc = ""
-                    for p in tr.get("params", []):
-                        req_mark = "（必填）" if p.get("required") else "（可选）"
-                        default = f"，默认值: {p['default']}" if p.get("default") else ""
-                        params_desc += f"- {p['name']} ({p.get('type', 'string')}) {req_mark}: {p.get('desc', '')}{default}\n"
-                    if not params_desc:
-                        params_desc = "（无参数定义）\n"
-
-                    # 尝试从工具 MD spec 读取输出格式说明（内置 + 私有目录检索）
-                    from core.resource import paths as _paths
-                    spec_file = None
-                    for _root in _paths.resource_roots():
-                        _cand = _root / "tools" / "definitions" / f"{tr['id']}.md"
-                        if _cand.exists():
-                            spec_file = _cand
-                            break
-                    output_info = ""
-                    if spec_file is not None and spec_file.exists():
-                        spec_text = spec_file.read_text(encoding="utf-8")
-                        # 提取输出规范段落
-                        out_match = re.search(r'## 3\.\s*输出规范.*?(?=## \d\.|\Z)', spec_text, re.DOTALL)
-                        if out_match:
-                            out_section = out_match.group(0)
-                            # 提取 output_format
-                            fmt_match = re.search(r'output_format\s*\|\s*(\w+)', out_section)
-                            if fmt_match:
-                                output_info = f"，输出格式: {fmt_match.group(1)}"
-
-                    context_parts.append(
-                        f"### 【【{tr['name']}】】（tool_id: {tr['id']}）\n"
-                        f"**输入参数**:\n{params_desc}"
-                        f"**工具返回**: dict，包含 status (success/failed), message (结果说明), data (输出数据){output_info}\n"
-                    )
-
-            if api_refs:
-                context_parts.append("\n## 引用的 API 参数要求\n")
-                for ar in api_refs:
-                    params_desc = ""
-                    for k, v in ar.get("params", {}).items():
-                        params_desc += f"- {k}: {v}\n"
-                    if not params_desc:
-                        params_desc = "（无参数定义）\n"
-                    context_parts.append(
-                        f"### 【{ar['name']}】（api_id: {ar['id']}）\n"
-                        f"**输入参数**:\n{params_desc}\n"
-                    )
-
-            tool_context = "\n".join(context_parts) if context_parts else ""
-
-            # ── 构建增强的 user prompt ──
-            user_prompt = req.description
-            if tool_context:
-                user_prompt += f"\n\n---\n## 系统提供的工具/API 参考信息（请据此填充 MD 中的参数和输出）\n\n{tool_context}"
+            user_prompt = build_spec_user_prompt(req.description)
 
             # ── 按 Agent 类型注入专属结构约束（见 docs/agent-types-design.md） ──
             role_guidance = _role_spec_guidance(req.role)

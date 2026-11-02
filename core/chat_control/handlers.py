@@ -27,6 +27,7 @@ from core.chat_control.guards import (
     resolve_allowed_path,
 )
 from core.chat_control.registry import (
+    RISK_DANGER,
     RISK_READ,
     RISK_WRITE,
     CallContext,
@@ -676,3 +677,383 @@ async def run_tool(args: RunToolArgs, ctx: CallContext) -> dict:
         return {"error": f"执行失败: {clip(str(result.get('message', '')), 500)}",
                 "detail": result.get("data")}
     return result
+
+
+# ────────────────────────── Agent 生成与运行（P3） ──────────────────────────
+
+class CreateAgentArgs(StrictArgs):
+    description: str = Field(
+        description="Agent 需求描述（要做什么；可用【【工具名】】引用已有工具）"
+    )
+    role: str = Field(default="task", description="Agent 类型：task / interactive / web-service")
+    agent_name: str = Field(default="", description="Agent 名称（留空则从规范文档提取）")
+
+
+@platform_tool(
+    "create_agent",
+    "按需求描述创建一个新智能体：生成规格 → 生成代码 → 静态安全审查 → 注册。"
+    "创建后可用 start_agent 启动。耗时较长，一次对话建议只创建一个。",
+    CreateAgentArgs, RISK_WRITE,
+    summary_fn=lambda a: f"创建 Agent：{_clip_view(a.get('description', ''), 80)}（{a.get('role') or 'task'}）",
+)
+async def create_agent(args: CreateAgentArgs, ctx: CallContext) -> dict:
+    from datetime import date
+
+    from app.api.routes import agent_routes
+    from core.resource import paths as res_paths
+    from core.security.code_scan import scan_code
+
+    desc = args.description.strip()
+    if not desc:
+        return {"error": "Agent 需求描述不能为空"}
+    role = (args.role or "task").strip().lower()
+    if role in ("web_service", "webservice"):
+        role = "web-service"
+    if role not in ("task", "interactive", "web-service"):
+        return {"error": f"未知 role: {role}（可选 task / interactive / web-service）"}
+
+    await ctx.progress({"type": "agent-gen", "step": "spec", "message": "正在生成 Agent 规格…"})
+    user_prompt = agent_routes.build_spec_user_prompt(desc)
+    guidance = agent_routes._role_spec_guidance(role)
+    if guidance:
+        user_prompt += f"\n\n---\n## Agent 类型约束（必须严格遵守）\n\n{guidance}"
+    spec_md = (await _collect_stream(agent_routes.llm.chat_stream_events(
+        messages=[
+            {"role": "system", "content": agent_routes.SPEC_GENERATION_PROMPT.replace(
+                "{今天日期}", date.today().isoformat())},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=0.5, max_tokens=100000,
+    ))).strip()
+    if not spec_md:
+        return {"error": "规格生成失败（LLM 返回为空），请稍后重试"}
+
+    agent_id = ""
+    for line in spec_md.split("\n"):
+        if line.startswith("id:") and "---" not in line:
+            agent_id = line.split(":", 1)[1].strip()
+            break
+    if not agent_id or not res_paths.is_valid_resource_id(agent_id):
+        agent_id = f"agent-{int(time.time())}"
+    name = args.agent_name.strip() or agent_id
+
+    builder = agent_routes.builder
+    if not await builder.validate_spec({"raw_md": spec_md}):
+        return {"error": "生成的 MD 规范缺少必需段落，请调整描述后重试"}
+
+    await ctx.progress({"type": "agent-gen", "step": "code", "message": "正在生成 Agent 代码…"})
+    try:
+        code = await builder.build({"raw_md": spec_md, "id": agent_id, "name": name, "role": role})
+    except Exception as e:
+        return {"error": f"代码生成失败: {type(e).__name__}: {e}"}
+
+    scan = scan_code(code)
+    if not scan.ok:
+        return {"error": "静态安全审查未通过，Agent 未注册：\n" + "\n".join(scan.errors)}
+
+    await ctx.progress({"type": "agent-gen", "step": "register", "message": "正在注册 Agent…"})
+    tool_ids: list[str] = []
+    try:
+        for tr in builder._extract_tool_refs(spec_md):
+            if tr.get("id") and tr["id"] not in tool_ids:
+                tool_ids.append(tr["id"])
+    except Exception:
+        pass
+    reg = agent_routes.registry
+    registered_id = await reg.register({
+        "id": agent_id, "name": name, "version": "0.1.0", "role": role,
+        "raw_md": spec_md, "tags": [], "required_tools": tool_ids,
+    })
+    impl_dir = reg._get_impl_dir() / registered_id
+    impl_dir.mkdir(parents=True, exist_ok=True)
+    (impl_dir / "agent.py").write_text(code, encoding="utf-8")
+    (impl_dir / "spec.md").write_text(spec_md, encoding="utf-8")
+    (impl_dir / "config.yaml").write_text(
+        f"# {name} 运行时配置\nrole: {role}\nversion: 0.1.0\n", encoding="utf-8",
+    )
+    agent_routes._maybe_generate_api_doc(registered_id)
+    return {"agent_id": registered_id, "name": name, "role": role, "scan_passed": True}
+
+
+class AgentIdArgs(StrictArgs):
+    agent_id: str = Field(description="Agent id（先用 list_agents 确认）")
+
+
+@platform_tool(
+    "start_agent", "启动一个已注册的 Agent（拉起其子进程）。",
+    AgentIdArgs, RISK_WRITE,
+    summary_fn=lambda a: f"启动 Agent {a.get('agent_id', '')}",
+)
+async def start_agent(args: AgentIdArgs, ctx: CallContext) -> dict:
+    from core.agent.factory import agent_factory
+    entry = await _agents.get(args.agent_id)
+    if not entry:
+        return {"error": f"Agent 不存在: {args.agent_id}"}
+    r = await agent_factory.start(args.agent_id)
+    if r.get("status") not in (None, "success", "started", "running", "already_running"):
+        return {"error": f"启动失败: {r.get('error') or r}"}
+    return r
+
+
+@platform_tool(
+    "stop_agent", "停止一个正在运行的 Agent 子进程。",
+    AgentIdArgs, RISK_WRITE,
+    summary_fn=lambda a: f"停止 Agent {a.get('agent_id', '')}",
+)
+async def stop_agent(args: AgentIdArgs, ctx: CallContext) -> dict:
+    from core.agent.factory import agent_factory
+    return await agent_factory.stop(args.agent_id)
+
+
+# ────────────────────────── 定时任务（P3） ──────────────────────────
+
+class CronJobIdArgs(StrictArgs):
+    job_id: str = Field(description="定时任务 id（先用 list_cron_jobs 确认）")
+
+
+def _cron_ownership(job_id: str, ctx: CallContext) -> dict | str:
+    """取任务并校验归属；失败返回错误字符串。"""
+    from core.cron import store as cron_store
+    job = cron_store.get(job_id)
+    if not job:
+        return f"定时任务不存在: {job_id}"
+    if job.get("owner") and job["owner"] != ctx.owner:
+        return f"无权操作该定时任务: {job_id}"
+    return job
+
+
+class CreateCronJobArgs(StrictArgs):
+    name: str = Field(description="任务名称")
+    kind: str = Field(description="目标类型：tool 或 agent")
+    target_id: str = Field(description="要周期执行的工具/Agent id")
+    cron: str = Field(description="5 字段 cron 表达式，如 '0 17 * * 1-5'（工作日 17 点）")
+    params: dict = Field(default_factory=dict, description="传给目标的参数（可选）")
+    timezone: str = Field(default="Asia/Shanghai", description="时区")
+    enabled: bool = Field(default=True, description="创建后是否立即启用")
+    timeout: int = Field(default=600, ge=5, le=7200, description="单次执行超时秒数")
+    misfire: str = Field(default="skip", description="错过触发的策略：skip / fire_once")
+
+
+@platform_tool(
+    "create_cron_job",
+    "创建一个定时任务（按 cron 计划周期执行某个工具或 Agent）。cron 表达式与目标都会先校验。",
+    CreateCronJobArgs, RISK_WRITE,
+    summary_fn=lambda a: f"新建定时任务「{a.get('name', '')}」: {a.get('kind', '')}={a.get('target_id', '')} @ {a.get('cron', '')}",
+)
+async def create_cron_job(args: CreateCronJobArgs, ctx: CallContext) -> dict:
+    from core.cron import runner, store as cron_store
+    from core.cron.cron_parse import CronError
+    from core.cron.scheduler import cron_scheduler
+
+    if args.kind not in ("tool", "agent"):
+        return {"error": f"kind 必须是 tool 或 agent，收到 {args.kind}"}
+    payload = args.model_dump()
+    try:
+        cron, tz, ts = runner.validate_job_payload(payload)
+    except CronError as e:
+        return {"error": f"cron 校验失败: {e}"}
+    ok, msg = await runner.check_target(args.kind, args.target_id)
+    if not ok:
+        return {"error": msg}
+    job = cron_store.create({
+        "name": args.name, "kind": args.kind, "target_id": args.target_id,
+        "params": args.params, "cron": cron, "timezone": tz,
+        "enabled": args.enabled, "owner": ctx.owner,
+        "timeout": args.timeout, "misfire": args.misfire, "next_run_at": ts,
+    })
+    cron_scheduler.upsert(job["id"])
+    return {"job_id": job["id"], "name": job["name"], "cron": job["cron"],
+            "enabled": job["enabled"], "next_run_at": job.get("next_run_at")}
+
+
+class UpdateCronJobArgs(StrictArgs):
+    job_id: str = Field(description="要修改的任务 id")
+    name: str = Field(default="", description="新名称（不改则留空）")
+    kind: str = Field(default="", description="新目标类型（不改则留空）")
+    target_id: str = Field(default="", description="新目标 id（不改则留空）")
+    cron: str = Field(default="", description="新 cron 表达式（不改则留空）")
+    params: dict | None = Field(default=None, description="新参数（不改则留空）")
+    enabled: bool | None = Field(default=None, description="启用/禁用（不改则留空）")
+
+
+@platform_tool(
+    "update_cron_job",
+    "修改一个定时任务的字段（名称/cron/目标/参数/启用状态；未提供的字段保持原样）。",
+    UpdateCronJobArgs, RISK_WRITE,
+    summary_fn=lambda a: f"修改定时任务 {a.get('job_id', '')}",
+)
+async def update_cron_job(args: UpdateCronJobArgs, ctx: CallContext) -> dict:
+    from core.cron import runner, store as cron_store
+    from core.cron.cron_parse import CronError
+    from core.cron.scheduler import cron_scheduler
+
+    job = _cron_ownership(args.job_id, ctx)
+    if isinstance(job, str):
+        return {"error": job}
+
+    updates = {}
+    for key in ("name", "kind", "target_id", "cron"):
+        v = getattr(args, key).strip()
+        if v:
+            updates[key] = v
+    if args.params is not None:
+        updates["params"] = args.params
+    if args.enabled is not None:
+        updates["enabled"] = args.enabled
+    if not updates:
+        return {"error": "没有需要修改的字段"}
+
+    merged = {**job, **updates}
+    try:
+        cron, tz, ts = runner.validate_job_payload(merged)
+    except CronError as e:
+        return {"error": f"cron 校验失败: {e}"}
+    ok, msg = await runner.check_target(merged["kind"], merged["target_id"])
+    if not ok:
+        return {"error": msg}
+    updates.update({"cron": cron, "timezone": tz, "next_run_at": ts})
+    updated = cron_store.update(args.job_id, updates)
+    cron_scheduler.upsert(args.job_id)
+    return {"job_id": args.job_id, "cron": updated["cron"],
+            "enabled": updated["enabled"], "next_run_at": updated.get("next_run_at")}
+
+
+@platform_tool(
+    "toggle_cron_job", "启用/禁用一个定时任务（切换开关，不改动其它字段）。",
+    CronJobIdArgs, RISK_WRITE,
+    summary_fn=lambda a: f"切换定时任务 {a.get('job_id', '')} 的启用状态",
+)
+async def toggle_cron_job(args: CronJobIdArgs, ctx: CallContext) -> dict:
+    from core.cron import runner, store as cron_store
+    from core.cron.cron_parse import CronError
+    from core.cron.scheduler import cron_scheduler
+
+    job = _cron_ownership(args.job_id, ctx)
+    if isinstance(job, str):
+        return {"error": job}
+    enabled = not job["enabled"]
+    updates: dict = {"enabled": enabled}
+    if enabled:
+        try:
+            updates["next_run_at"] = runner.validate_job_payload(
+                {"cron": job["cron"], "timezone": job["timezone"]})[2]
+        except CronError as e:
+            return {"error": f"cron 已失效，无法启用：{e}"}
+    updated = cron_store.update(args.job_id, updates)
+    cron_scheduler.upsert(args.job_id)
+    return {"job_id": args.job_id, "enabled": updated["enabled"],
+            "next_run_at": updated.get("next_run_at")}
+
+
+@platform_tool(
+    "trigger_cron_job",
+    "立即手动执行一次定时任务（不等 cron 计划，马上产生真实执行副作用）。",
+    CronJobIdArgs, RISK_DANGER,
+    summary_fn=lambda a: f"立即执行定时任务 {a.get('job_id', '')}",
+)
+async def trigger_cron_job(args: CronJobIdArgs, ctx: CallContext) -> dict:
+    from core.cron.scheduler import cron_scheduler
+
+    job = _cron_ownership(args.job_id, ctx)
+    if isinstance(job, str):
+        return {"error": job}
+    r = cron_scheduler.trigger_now(args.job_id)
+    if r.get("status") == "failed":
+        return {"error": f"触发失败: {r.get('error') or r}"}
+    return r
+
+
+# ────────────────────────── 资源删除（P3，L2 高危） ──────────────────────────
+
+class DeleteResourceArgs(StrictArgs):
+    resource_type: str = Field(description="资源类型：dataset / tool / model / agent / cron_job")
+    resource_id: str = Field(description="要删除的资源 id")
+
+
+@platform_tool(
+    "delete_resource",
+    "删除一个平台资源（数据集/工具/模型/Agent/定时任务），不可恢复。",
+    DeleteResourceArgs, RISK_DANGER,
+    summary_fn=lambda a: f"删除 {a.get('resource_type', '')}「{a.get('resource_id', '')}」（不可恢复）",
+)
+async def delete_resource(args: DeleteResourceArgs, ctx: CallContext) -> dict:
+    rtype = args.resource_type.strip().lower()
+    rid = args.resource_id.strip()
+    if not rid:
+        return {"error": "resource_id 不能为空"}
+
+    if rtype == "dataset":
+        entry = await _data.get(rid)
+        if not entry:
+            return {"error": f"数据集不存在: {rid}"}
+        if not _data.is_visible(entry, ctx.owner):
+            return {"error": f"无权删除数据集 {rid}（不属于当前用户）"}
+        import shutil
+        data_path = _data.resolve_data_path(entry.get("data_path", ""))
+        managed_root = _data._get_data_dir().resolve()
+        files_removed = False
+        if data_path.exists() and data_path.is_dir():
+            resolved = data_path.resolve()
+            if resolved in (managed_root, managed_root.parent, managed_root.parent.parent):
+                return {"error": "拒绝删除数据根目录"}
+            if resolved.is_relative_to(managed_root):
+                shutil.rmtree(resolved, ignore_errors=True)
+                files_removed = True
+        spec_path = _data._get_def_dir() / f"{rid}.md"
+        if spec_path.exists():
+            spec_path.unlink()
+        await _data.unregister(rid)
+        return {"deleted": rid, "type": "dataset", "files_removed": files_removed}
+
+    if rtype == "tool":
+        entry = await _tools.get(rid)
+        if not entry:
+            return {"error": f"工具不存在: {rid}"}
+        # 与 DELETE /api/tool/{id} 一致：取消收藏语义，只注销，实现保留在仓库
+        await _tools.unregister(rid)
+        return {"deleted": rid, "type": "tool"}
+
+    if rtype == "model":
+        entry = await _models.get(rid)
+        if not entry:
+            return {"error": f"模型不存在: {rid}"}
+        await _models.unregister(rid)
+        return {"deleted": rid, "type": "model"}
+
+    if rtype == "agent":
+        from app.api.routes.agent_routes import _remove_tree
+        from core.agent.factory import agent_factory
+        from core.resource import paths as res_paths
+
+        entry = await _agents.get(rid)
+        if not entry:
+            return {"error": f"Agent 不存在: {rid}"}
+        private_dir = res_paths.private_space_dir("agents")
+        private_spec = private_dir / "definitions" / f"{rid}.md"
+        builtin_spec = res_paths.builtin_space_dir("agents") / "definitions" / f"{rid}.md"
+        if builtin_spec.exists() and not private_spec.exists():
+            return {"error": f"'{rid}' 属于内置 Agent，不能删除"}
+        await agent_factory.stop(rid)
+        try:
+            _remove_tree(private_dir / "implementations" / rid)
+            for f in (private_spec, private_dir / "definitions" / f"{rid}-demand.md"):
+                if f.exists():
+                    f.unlink()
+        except OSError as e:
+            return {"error": f"删除 Agent 文件失败: {type(e).__name__}: {e}"}
+        await _agents.unregister(rid)
+        return {"deleted": rid, "type": "agent"}
+
+    if rtype == "cron_job":
+        from core.cron import store as cron_store
+        from core.cron.scheduler import cron_scheduler
+
+        job = _cron_ownership(rid, ctx)
+        if isinstance(job, str):
+            return {"error": job}
+        if not cron_store.delete(rid):
+            return {"error": f"定时任务不存在: {rid}"}
+        cron_scheduler.remove(rid)
+        return {"deleted": rid, "type": "cron_job"}
+
+    return {"error": f"未知资源类型: {rtype}（可选 dataset/tool/model/agent/cron_job）"}
