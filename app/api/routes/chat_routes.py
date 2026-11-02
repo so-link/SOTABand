@@ -66,24 +66,27 @@ async def ensure_default_interactive_agent():
     )
 
 
-async def _summarize_title(session_id: str) -> None:
+async def _summarize_title(session_id: str) -> str:
     """首轮对话结束后用 LLM 总结会话标题。
 
     会话标题不再直接截取用户第一句话，而是交给 LLM 概括主题。只在首轮
     （用户消息 + Agent 回复两条）结束时执行一次；失败或无内容时保留
     chat_store 里首条消息截断的兜底标题，不影响对话本身。
+
+    Returns:
+        生成的新标题（无内容或失败返回 ""）。
     """
     from core.observability import chat_store
     try:
         if chat_store.message_count(session_id) != 2:
-            return
+            return ""
         msgs = chat_store.get_messages(session_id, limit=4)
         convo = "\n".join(
             f"{'用户' if m['role'] == 'user' else '助手'}: {str(m['content'])[:300]}"
             for m in msgs if m.get("content")
         )
         if not convo:
-            return
+            return ""
         from core.llm.client import create_llm_client
         title = await create_llm_client().chat([
             {"role": "system",
@@ -94,10 +97,13 @@ async def _summarize_title(session_id: str) -> None:
         title = (title or "").strip().strip('"“”\'').splitlines()
         title = title[0].strip() if title else ""
         if title:
-            chat_store.set_title(session_id, title[:30])
+            title = title[:30]
+            chat_store.set_title(session_id, title)
+            return title
     except Exception:
         # 标题总结是锦上添花，失败不能影响对话主流程
         pass
+    return ""
 
 
 @router.post("/send")
@@ -197,13 +203,37 @@ async def chat_send(request: ChatRequest):
                     _round("success")
                     task_finished = True
                     _persist_reply()
-                    # 首轮结束后异步总结会话标题（不阻塞流结束）
-                    asyncio.create_task(_summarize_title(session_id))
+                    # done 先透传，前端立即结束回复（isSending 复位）。
+                    yield {
+                        "event": ev_type,
+                        "data": json.dumps(data, ensure_ascii=False),
+                    }
+                    # 首轮结束后总结会话标题：结果走 SSE 的 title 事件推给前端，
+                    # 让「对话历史」即时显示新标题（不再依赖前端 3 秒碰运气刷新）。
+                    # shield 保护标题任务：即使客户端断开/超时中断流，标题仍在
+                    # 后台生成并保存；超时/断开时不推送（30s 内无结果则放弃推送）。
+                    title_task = asyncio.create_task(_summarize_title(session_id))
+                    try:
+                        title = await asyncio.wait_for(
+                            asyncio.shield(title_task), timeout=30)
+                    except (asyncio.TimeoutError, asyncio.CancelledError):
+                        return
+                    if title:
+                        yield {
+                            "event": "title",
+                            "data": json.dumps(
+                                {"session_id": session_id, "title": title},
+                                ensure_ascii=False,
+                            ),
+                        }
+                    return
                 elif ev_type == "error" and not task_finished:
                     msg = str(data.get("message", ""))[:200]
                     _round("failed", msg)
                     task_finished = True
                     _persist_reply()
+
+                # 其余事件（content/card/error/其他）统一透传
                 yield {
                     "event": ev_type,
                     "data": json.dumps(data, ensure_ascii=False),
