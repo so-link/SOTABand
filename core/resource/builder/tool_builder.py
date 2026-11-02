@@ -295,10 +295,17 @@ class ToolCodeBuilder(BaseBuilder):
                 parts = [p.strip() for p in line.split("|")[1:-1]]
                 if len(parts) >= 2 and parts[0]:
                     required_raw = parts[2] if len(parts) > 2 else ""
+                    default_raw = parts[3] if len(parts) > 3 else ""
+                    # 表格里默认值常写成 "overwrite" / 'x' 形式，包裹引号是
+                    # 书写习惯不是值本身；不剥离会把引号带进 registry，
+                    # 执行时值比对（如 mode in ("overwrite","append")）失配。
+                    default_val = default_raw.strip()
+                    if len(default_val) >= 2 and default_val[0] == default_val[-1] and default_val[0] in "\"'“”‘’`":
+                        default_val = default_val[1:-1].strip()
                     item = {
                         "name": parts[0], "type": parts[1] if len(parts) > 1 else "string",
                         "required": "是" in required_raw,
-                        "default": parts[3] if len(parts) > 3 and parts[3] not in ("-", "—", "", "无", "无默认值") else None,
+                        "default": default_val if default_val not in ("-", "—", "", "无", "无默认值") else None,
                         "desc": parts[4] if len(parts) > 4 else "",
                     }
                     # 条件必填：如「条件（模式2）」「仅模式2」→ 视为在该模式下必填

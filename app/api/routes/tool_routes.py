@@ -1890,14 +1890,42 @@ async def save_spec(tool_id: str, req: SaveSpecRequest):
     if not req.spec_md.strip():
         raise HTTPException(400, "文档内容不能为空")
 
-    await registry.update(tool_id, {"raw_md": req.spec_md})
+    # 从新文档重新解析 param_meta / modes 一并写回 registry。
+    # 此前只更新 raw_md：界面上改了输入规范表格（如 mode 默认值）或
+    # 新增模式定义章节后，registry 里的 param_meta/modes 仍是旧值，
+    # 执行参数表单与多模式选择都不生效（表现为"改了但没改"）。
+    #
+    # 解析策略：确定性解析优先（界面手工编辑是高频操作，LLM 提取既慢
+    # 又可能改写参数语义），仅当确定性解析拿不到参数时才走 LLM 兜底；
+    # 同名参数继承旧条目的 hints，避免编辑一次默认值就把候选值弄丢。
+    updates: dict = {"raw_md": req.spec_md}
+    param_meta = builder._parse_spec_inputs(req.spec_md)
+    if not param_meta:
+        try:
+            param_meta = await builder.extract_param_metadata(req.spec_md)
+        except Exception:
+            param_meta = []
+    if param_meta:
+        old_hints = {
+            (p.get("name"), p.get("mode")): p.get("hints")
+            for p in (entry.get("param_meta") or []) if p.get("hints")
+        }
+        for p in param_meta:
+            if not p.get("hints"):
+                hints = old_hints.get((p.get("name"), p.get("mode")))
+                if hints:
+                    p["hints"] = hints
+        updates["param_meta"] = param_meta
+    updates["modes"] = builder.parse_modes(req.spec_md)
+
+    await registry.update(tool_id, updates)
     try:
         spec_path = registry._get_def_dir() / f"{tool_id}.md"
         spec_path.parent.mkdir(parents=True, exist_ok=True)
         spec_path.write_text(req.spec_md, encoding="utf-8")
     except Exception:
         pass
-    return {"saved": tool_id}
+    return {"saved": tool_id, "param_meta": updates.get("param_meta", []), "modes": updates["modes"]}
 
 
 class SyncSpecRequest(BaseModel):
