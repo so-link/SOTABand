@@ -93,9 +93,11 @@ function renderMarkdown(md: string): string {
 interface MarkdownPreviewProps {
   datasetPath: string
   mdFiles: Array<Record<string, unknown>>
+  /** 初始展示的文件下标（配合 key 重挂载切换文件） */
+  initialIndex?: number
 }
 
-export function MarkdownPreview({ datasetPath, mdFiles }: MarkdownPreviewProps) {
+export function MarkdownPreview({ datasetPath, mdFiles, initialIndex = 0 }: MarkdownPreviewProps) {
   const [html, setHtml] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -119,7 +121,7 @@ export function MarkdownPreview({ datasetPath, mdFiles }: MarkdownPreviewProps) 
   }
 
   useEffect(() => {
-    if (mdFiles.length > 0) loadFile(0)
+    if (mdFiles.length > 0) loadFile(Math.min(initialIndex, mdFiles.length - 1))
   }, [])
 
   if (mdFiles.length === 0) return null

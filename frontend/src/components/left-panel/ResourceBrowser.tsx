@@ -4,20 +4,20 @@ import {
   Wrench,
   BrainCircuit,
   Bot,
-  ListTodo,
   ChevronRight,
   ChevronDown,
   Star,
   Plus,
   Minus,
   Package,
+  CalendarClock,
 } from 'lucide-react'
 import { useResourceStore } from '@/stores/resource-store'
 import { useUIStore } from '@/stores/ui-store'
 import { useWorkspaceToolStore } from '@/stores/workspace-tool-store'
 import { useUnsavedMarks } from '@/hooks/use-unsaved-marks'
 import { cn } from '@/lib/utils'
-import type { Resource, ResourceType, ToolResource } from '@/types/resources'
+import type { Resource, ResourceType, ToolResource, TaskResource } from '@/types/resources'
 
 interface ResourceSectionDef {
   type: ResourceType
@@ -31,7 +31,6 @@ const SECTIONS: ResourceSectionDef[] = [
   { type: 'tool', label: '工具空间', icon: Wrench, color: 'text-amber-500' },
   { type: 'model', label: '模型空间', icon: BrainCircuit, color: 'text-emerald-500' },
   { type: 'agent', label: 'Agent 空间', icon: Bot, color: 'text-purple-500' },
-  { type: 'task', label: '任务历史', icon: ListTodo, color: 'text-maia-text-muted' },
 ]
 
 // 资源空间各分区的展开/收起状态持久化键
@@ -50,6 +49,7 @@ export function ResourceBrowser() {
     fetchToolsFromApi,
     fetchDatasetsFromApi,
     fetchModelsFromApi,
+    fetchTasksFromApi,
   } = useResourceStore()
   const { rightPanelOpen, toggleRightPanel, setActiveView } = useUIStore()
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
@@ -139,6 +139,18 @@ export function ResourceBrowser() {
     // 工具：从工作空间移除（不删除仓库中的工具）
     if (resource.type === 'tool') {
       workspaceRemoveTool(resource.id)
+      return
+    }
+    // 任务历史：删除单条执行记录（id 形如 task-3，取数字主键）
+    if (resource.type === 'task') {
+      try {
+        const res = await fetch(`/api/task/${resource.id.replace(/^task-/, '')}`, { method: 'DELETE' })
+        if (!res.ok) {
+          alert(`删除失败：HTTP ${res.status}`)
+          return
+        }
+        fetchTasksFromApi()
+      } catch { /* ignore */ }
       return
     }
     // 数据：左栏「数据空间」列的是已注册数据集，删除即注销该数据集
@@ -355,9 +367,18 @@ export function ResourceBrowser() {
                       <span className="h-1.5 w-1.5 rounded-full shrink-0 bg-maia-success" />
                     )}
                     {resource.type === 'task' && (
-                      <span className="text-[12px] text-maia-text-muted shrink-0">
-                        v{resource.version}
-                      </span>
+                      <span
+                        className={
+                          'h-1.5 w-1.5 rounded-full shrink-0 ' +
+                          ((resource as TaskResource).state === 'running'
+                            ? 'bg-amber-400 animate-pulse'
+                            : (resource as TaskResource).state === 'failed'
+                            ? 'bg-maia-danger'
+                            : 'bg-maia-success')
+                        }
+                        title={(resource as TaskResource).state === 'failed'
+                          ? (resource as TaskResource).executionLog[0] || '执行失败' : undefined}
+                      />
                     )}
                     {/* Remove button — tool: 从空间移除, data/agent: 删除 */}
                     <button
@@ -379,6 +400,28 @@ export function ResourceBrowser() {
           </div>
         )
       })}
+
+      {/* 定时任务入口：任务量小、非资源实体，不进 SECTIONS 列表，单独一行 */}
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => setActiveView('cron-jobs')}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            setActiveView('cron-jobs')
+          }
+        }}
+        className={cn(
+          'flex items-center gap-1.5 w-full h-8 px-1.5 mt-1 rounded hover:bg-maia-sidebar-hover transition-colors text-[13px] font-medium cursor-pointer select-none',
+          'border-t border-maia-border pt-1'
+        )}
+        title="按 cron 计划周期执行工具 / Agent"
+      >
+        <CalendarClock className="h-3.5 w-3.5 text-cyan-500" />
+        <span className="flex-1 text-left text-maia-text-secondary">定时任务</span>
+        <ChevronRight className="h-3 w-3 text-maia-text-muted" />
+      </div>
     </div>
   )
 }

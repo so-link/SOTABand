@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Loader2, ChevronLeft, ChevronRight, Table2 } from 'lucide-react'
+import { Loader2, ChevronLeft, ChevronRight, Table2, ArrowDownUp } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardBody } from '@/components/ui/card'
 
@@ -31,19 +31,26 @@ function parseCSVLine(line: string): string[] {
 interface CsvTablePreviewProps {
   datasetPath: string
   csvFiles: Array<Record<string, unknown>>
+  /** 当前预览的文件在 csvFiles 中的下标（受控） */
+  activeIndex?: number
+  onActiveChange?: (idx: number) => void
 }
 
-export function CsvTablePreview({ datasetPath, csvFiles }: CsvTablePreviewProps) {
+export function CsvTablePreview({ datasetPath, csvFiles, activeIndex, onActiveChange }: CsvTablePreviewProps) {
   const [csvData, setCsvData] = useState<{ headers: string[]; rows: string[][] } | null>(null)
   const [loading, setLoading] = useState(false)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(16)
+  // 行号倒序：从最后一行往前看，行号仍显示原始行号
+  const [desc, setDesc] = useState(false)
+
+  const active = Math.min(activeIndex ?? 0, Math.max(0, csvFiles.length - 1))
+  const activeFile = csvFiles[active]
+  const activeName = (activeFile?.name as string) || ''
 
   useEffect(() => {
-    if (csvFiles.length === 0) { setCsvData(null); return }
-    const csvFile = csvFiles[0]
-    const filePath = datasetPath ? `${datasetPath}/${csvFile.name}` : ''
-    if (!filePath) return
+    if (!activeName || !datasetPath) return
+    const filePath = `${datasetPath}/${activeName}`
     setLoading(true)
     fetch(`${BASE_URL}/api/file/download?path=${encodeURIComponent(filePath)}`)
       .then(r => r.text())
@@ -57,7 +64,7 @@ export function CsvTablePreview({ datasetPath, csvFiles }: CsvTablePreviewProps)
         setLoading(false)
       })
       .catch(() => setLoading(false))
-  }, [])
+  }, [datasetPath, activeName])
 
   if (loading) {
     return (
@@ -82,21 +89,36 @@ export function CsvTablePreview({ datasetPath, csvFiles }: CsvTablePreviewProps)
   }
 
   const { headers, rows } = csvData
+  const ordered = desc ? [...rows].reverse() : rows
   const totalPages = Math.max(1, Math.ceil(rows.length / pageSize))
   const safePage = Math.min(page, totalPages)
-  const pageRows = rows.slice((safePage - 1) * pageSize, safePage * pageSize)
+  const pageRows = ordered.slice((safePage - 1) * pageSize, safePage * pageSize)
 
   return (
     <Card className="border-maia-border">
       <CardBody>
         <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-1.5">
-            <Table2 className="h-3.5 w-3.5 text-maia-success" />
+          <div className="flex items-center gap-1.5 min-w-0">
+            <Table2 className="h-3.5 w-3.5 text-maia-success shrink-0" />
             <span className="text-[13px] font-medium text-maia-text-secondary">
-              CSV 表格预览 — {csvFiles[0].name as string}（{rows.length} 条记录）
+              CSV 表格预览
             </span>
+            <span className="text-[12px] text-maia-text-muted shrink-0">{rows.length} 条记录</span>
+            <span className="text-[12px] text-maia-text-muted truncate min-w-0" title={activeName}>{activeName}</span>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => { setDesc(v => !v); setPage(1) }}
+              className={`inline-flex items-center gap-1 h-6 px-1.5 rounded border text-[12px] transition-colors ${
+                desc
+                  ? 'border-maia-accent/50 text-maia-accent bg-maia-accent/10'
+                  : 'border-maia-border text-maia-text-muted hover:text-maia-text-secondary hover:bg-maia-sidebar-hover'
+              }`}
+              title="切换行号正序 / 倒序"
+            >
+              <ArrowDownUp className="h-3 w-3" />
+              {desc ? '倒序' : '正序'}
+            </button>
             <span className="text-[12px] text-maia-text-muted">每页</span>
             <select value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(1) }}
               className="h-6 rounded border border-maia-border bg-maia-bg text-[12px] text-maia-text px-1 outline-none focus:border-maia-accent/40">
@@ -125,7 +147,9 @@ export function CsvTablePreview({ datasetPath, csvFiles }: CsvTablePreviewProps)
             <tbody>
               {pageRows.map((row, ri) => (
                 <tr key={ri} className="hover:bg-maia-bg/50">
-                  <td className="px-2.5 py-1.5 text-maia-text-muted border-b border-maia-border/50 tnum">{(safePage - 1) * pageSize + ri + 1}</td>
+                  <td className="px-2.5 py-1.5 text-maia-text-muted border-b border-maia-border/50 tnum">
+                    {desc ? rows.length - ((safePage - 1) * pageSize + ri) : (safePage - 1) * pageSize + ri + 1}
+                  </td>
                   {row.map((cell, ci) => (
                     <td key={ci} className="px-2.5 py-1.5 text-maia-text border-b border-maia-border/50 max-w-[300px] truncate" title={cell}>{cell}</td>
                   ))}

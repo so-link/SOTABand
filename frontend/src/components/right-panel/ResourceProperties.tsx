@@ -1,28 +1,22 @@
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
-import { useResourceStore } from '@/stores/resource-store'
 import type { Resource, DataResource, ToolResource, ModelResource, AgentResource, TaskResource } from '@/types/resources'
-import { Star, Activity, X } from 'lucide-react'
+import { Star, Activity } from 'lucide-react'
 
 interface ResourcePropertiesProps {
   resource: Resource
+  /** 嵌入右栏 tab 容器时隐藏自带标题栏 */
+  hideHeader?: boolean
 }
 
-export function ResourceProperties({ resource }: ResourcePropertiesProps) {
-  const selectResource = useResourceStore((s) => s.selectResource)
-
+export function ResourceProperties({ resource, hideHeader = false }: ResourcePropertiesProps) {
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between h-9 px-3 shrink-0 border-b border-maia-border bg-maia-bg">
-        <h3 className="text-[13px] font-semibold text-maia-text">资源详情</h3>
-        <button
-          onClick={() => selectResource(null)}
-          className="flex items-center justify-center h-6 w-6 rounded text-maia-text-muted hover:text-maia-text hover:bg-maia-sidebar-hover transition-colors"
-          title="返回会话上下文"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
-      </div>
+      {!hideHeader && (
+        <div className="flex items-center justify-between h-9 px-3 shrink-0 border-b border-maia-border bg-maia-bg">
+          <h3 className="text-[13px] font-semibold text-maia-text">资源详情</h3>
+        </div>
+      )}
 
       <div className="flex-1 min-h-0 overflow-auto p-3 space-y-3 text-sm">
         {/* Common fields */}

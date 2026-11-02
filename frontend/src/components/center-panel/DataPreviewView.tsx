@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Database, File, Image, Loader2, ChevronLeft, ChevronRight, Plus, Package } from 'lucide-react'
+import { Database, Image, Loader2, ChevronLeft, ChevronRight, Plus, Package } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardBody } from '@/components/ui/card'
@@ -30,16 +30,34 @@ export function DataPreviewView() {
   const [detail, setDetail] = useState<Record<string, unknown> | null>(null)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(16)
+  // 当前预览的 CSV / Markdown 下标存在共享 store 中：
+  // 右栏「数据集文件」列表点选文件即可切换中栏预览。
+  const activeCsv = useResourceStore((s) => s.activeCsvIndex)
+  const activeMd = useResourceStore((s) => s.activeMdIndex)
+  const setActiveCsv = useResourceStore((s) => s.setActiveCsvIndex)
+  const setActiveMd = useResourceStore((s) => s.setActiveMdIndex)
+  const setPreviewFiles = useResourceStore((s) => s.setPreviewFiles)
 
   useEffect(() => {
     if (!dataset) return
     setPage(1)
+    // 先清空上一数据集的文件清单，避免右栏短暂显示旧数据集的文件
+    setPreviewFiles(dataset.id, '', [])
     setLoading(true)
     fetch(`${BASE_URL}/api/data/${dataset.id}/preview`)
       .then(r => r.json())
-      .then(d => { setDetail(d); setLoading(false) })
+      .then(d => {
+        setDetail(d)
+        // 文件清单发布到 store，右栏据此渲染文件列表
+        setPreviewFiles(
+          dataset.id,
+          (d?.dataset as Record<string, unknown>)?.data_path as string || '',
+          (d?.files as Array<Record<string, unknown>>) || [],
+        )
+        setLoading(false)
+      })
       .catch(() => setLoading(false))
-  }, [dataset])
+  }, [dataset, setPreviewFiles])
 
   if (!dataset) {
     // 空态：充分利用中栏空间。有数据集则列出供选择；没有则引导创建/管理。
@@ -112,17 +130,6 @@ export function DataPreviewView() {
   const imageFiles = files.filter(isImageFile)
   const csvFiles = files.filter(f => ((f.format as string) || '').toLowerCase() === 'csv')
   const mdFiles = files.filter(f => ((f.format as string) || '').toLowerCase() === 'md')
-  const nonImageFiles = files.filter(f => !isImageFile(f))
-
-  // 构建文件 URL
-  const getFileUrl = (f: Record<string, unknown>) => {
-    const filePath = datasetPath ? `${datasetPath}/${f.name}` : ''
-    if (!filePath) return ''
-    const isImg = isImageFile(f)
-    return isImg
-      ? `${BASE_URL}/api/file/image?path=${encodeURIComponent(filePath)}`
-      : `${BASE_URL}/api/file/download?path=${encodeURIComponent(filePath)}`
-  }
 
   // 分页
   const totalPages = Math.max(1, Math.ceil(imageFiles.length / pageSize))
@@ -245,46 +252,12 @@ export function DataPreviewView() {
 
         {/* CSV table preview */}
         {csvFiles.length > 0 && (
-          <CsvTablePreview datasetPath={datasetPath} csvFiles={csvFiles} />
+          <CsvTablePreview datasetPath={datasetPath} csvFiles={csvFiles} activeIndex={activeCsv} onActiveChange={setActiveCsv} />
         )}
 
         {/* Markdown preview */}
         {mdFiles.length > 0 && (
-          <MarkdownPreview datasetPath={datasetPath} mdFiles={mdFiles} />
-        )}
-
-        {/* File list */}
-        {(nonImageFiles.length > 0 || imageFiles.length > 0) && (
-          <Card className="border-maia-border">
-            <CardBody>
-              <div className="flex items-center gap-1.5 mb-2">
-                <File className="h-3.5 w-3.5 text-maia-text-muted" />
-                <span className="text-[13px] font-medium text-maia-text-secondary">文件列表（点击预览）</span>
-              </div>
-              <div className="space-y-1">
-                {[...imageFiles, ...nonImageFiles].map((f, i) => {
-                  const url = getFileUrl(f)
-                  return (
-                  <div
-                    key={i}
-                    className="flex items-center justify-between py-1 px-2 rounded hover:bg-maia-bg text-[12px] cursor-pointer"
-                    onClick={() => { if (url) window.open(url, '_blank') }}
-                    title="点击预览"
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <File className="h-3 w-3 text-maia-text-muted" />
-                      <span className="text-maia-text hover:text-maia-accent transition-colors">{f.name as string}</span>
-                    </div>
-                    <div className="flex items-center gap-3 text-maia-text-muted">
-                      <Badge variant="default" className="text-[11px]">{((f.format as string) || '').toUpperCase()}</Badge>
-                      <span>{(f.size as number) > 1024 ? `${((f.size as number) / 1024).toFixed(0)} KB` : `${f.size} B`}</span>
-                    </div>
-                  </div>
-                  )
-                })}
-              </div>
-            </CardBody>
-          </Card>
+          <MarkdownPreview key={activeMd} datasetPath={datasetPath} mdFiles={mdFiles} initialIndex={activeMd} />
         )}
 
         {/* MD spec summary */}
