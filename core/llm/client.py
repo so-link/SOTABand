@@ -1,6 +1,7 @@
 """LLM 客户端 — 默认 DeepSeek v4，兼容任意 OpenAI 协议服务商"""
 
 import asyncio
+import json
 import os
 from abc import ABC, abstractmethod
 from typing import AsyncGenerator
@@ -8,6 +9,30 @@ from typing import AsyncGenerator
 from openai import AsyncOpenAI
 
 from config.settings import LLMConfig, settings
+
+
+def _parse_tool_calls(raw, stream_shape: bool = False) -> list[dict]:
+    """把 SDK 的 tool_calls 对象（或流式拼接后的槽位）统一为纯 dict 列表。
+
+    输出 ``[{"id","name","arguments"}]``，arguments 尽量 json 解析为 dict，
+    非法 JSON 时保留原始字符串，由调用方决定如何报错给模型。
+    """
+    out = []
+    for tc in raw or []:
+        if stream_shape:
+            tc_id, name, args = tc["id"], tc["name"], tc["arguments"]
+        else:
+            fn = getattr(tc, "function", None)
+            tc_id = getattr(tc, "id", "") or ""
+            name = getattr(fn, "name", "") if fn else ""
+            args = getattr(fn, "arguments", "") if fn else ""
+        if isinstance(args, str):
+            try:
+                args = json.loads(args) if args.strip() else {}
+            except (ValueError, TypeError):
+                pass  # 参数非法 JSON：原样保留，网关侧会回错误让模型自纠
+        out.append({"id": tc_id, "name": name, "arguments": args})
+    return out
 
 
 # 全局 LLM 并发锁：后端 LLM 网关通常不支持并发，默认同一时间只允许 1 个请求。
@@ -61,6 +86,37 @@ class LLMClient(ABC):
         """
         async for token in self.chat_stream(messages, **kwargs):
             yield ("content", token)
+
+    async def chat_full(
+        self, messages: list[dict], tools: list[dict] | None = None,
+        tool_choice: str | dict | None = None, **kwargs
+    ) -> dict:
+        """非流式对话（function calling 版），返回完整 assistant 消息。
+
+        返回 ``{"content": str, "tool_calls": [{"id","name","arguments"}],
+        "finish_reason": str}``。不传 tools 时行为等价于 chat()，
+        tool_calls 恒为空列表。
+        """
+        content = await self.chat(messages, **kwargs)
+        return {"content": content, "tool_calls": [], "finish_reason": "stop"}
+
+    async def chat_stream_with_tools(
+        self, messages: list[dict], tools: list[dict] | None = None,
+        tool_choice: str | dict | None = None, **kwargs
+    ) -> AsyncGenerator[tuple, None]:
+        """流式对话 + function calling。
+
+        逐片 yield ``(kind, payload)``：
+        - ``("reasoning"|"content", str)``：与 chat_stream_events 相同
+        - 流结束时若模型请求调用工具，最后 yield
+          ``("tool_calls", [{"id","name","arguments": dict}, ...])``
+
+        流式 tool_calls 按 index 分槽拼接 arguments 增量片段，
+        收齐后统一 json.loads；解析失败视为参数非法（原样回传字符串）。
+        默认实现忽略 tools（服务商不支持时降级为纯文本），子类可覆盖。
+        """
+        async for kind, text in self.chat_stream_events(messages, **kwargs):
+            yield (kind, text)
 
 
 class OpenAICompatibleClient(LLMClient):
@@ -154,6 +210,109 @@ class OpenAICompatibleClient(LLMClient):
         async for kind, text in self.chat_stream_events(messages, **kwargs):
             if kind == "content":
                 yield text
+
+    def _tool_kwargs(self, tools, tool_choice) -> dict:
+        """组装 tools/tool_choice 请求参数（None 不传，保持旧端点兼容）"""
+        kw = {}
+        if tools:
+            kw["tools"] = tools
+            if tool_choice is not None:
+                kw["tool_choice"] = tool_choice
+        return kw
+
+    async def chat_full(
+        self, messages: list[dict], tools: list[dict] | None = None,
+        tool_choice: str | dict | None = None, **kwargs
+    ) -> dict:
+        """非流式对话（function calling 版），返回完整 assistant 消息。
+
+        返回 ``{"content": str, "tool_calls": [{"id","name","arguments"}],
+        "finish_reason": str}``；arguments 为 json 解析后的 dict，
+        解析失败时保留原始字符串（由调用方判错）。
+        """
+        sem = _LLM_SEMAPHORE
+        await sem.acquire()
+        try:
+            client = self._build_client()
+            cfg = self.config
+            response = await client.chat.completions.create(
+                model=cfg.model,
+                messages=messages,
+                stream=False,
+                max_tokens=kwargs.get("max_tokens", cfg.max_tokens),
+                temperature=kwargs.get("temperature", cfg.temperature),
+                timeout=kwargs.get("timeout", cfg.timeout),
+                **self._tool_kwargs(tools, tool_choice),
+            )
+            msg = response.choices[0].message
+            return {
+                "content": msg.content or "",
+                "tool_calls": _parse_tool_calls(getattr(msg, "tool_calls", None)),
+                "finish_reason": response.choices[0].finish_reason or "stop",
+            }
+        finally:
+            sem.release()
+
+    async def chat_stream_with_tools(
+        self, messages: list[dict], tools: list[dict] | None = None,
+        tool_choice: str | dict | None = None, **kwargs
+    ) -> AsyncGenerator[tuple, None]:
+        """流式对话 + function calling。
+
+        tool_calls 增量按 index 分槽：id/name 取首个非空值，
+        arguments 逐段拼接、流末统一 json 解析后以
+        ``("tool_calls", [...])`` 收尾（无 tool_calls 则不 yield 该事件）。
+        """
+        sem = _LLM_SEMAPHORE
+        await sem.acquire()
+        try:
+            client = self._build_client()
+            cfg = self.config
+            stream = await client.chat.completions.create(
+                model=cfg.model,
+                messages=messages,
+                stream=True,
+                max_tokens=kwargs.get("max_tokens", cfg.max_tokens),
+                temperature=kwargs.get("temperature", cfg.temperature),
+                timeout=cfg.timeout,
+                stream_options={"include_usage": True},
+                **self._tool_kwargs(tools, tool_choice),
+            )
+            slots: dict[int, dict] = {}
+            finish_reason = None
+            async for chunk in stream:
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                if delta is not None:
+                    reasoning = getattr(delta, "reasoning_content", None)
+                    if not reasoning:
+                        extra = getattr(delta, "model_extra", None) or {}
+                        reasoning = extra.get("reasoning")
+                    if reasoning:
+                        yield ("reasoning", reasoning)
+                    if delta.content:
+                        yield ("content", delta.content)
+                    for tc in getattr(delta, "tool_calls", None) or []:
+                        idx = getattr(tc, "index", 0) or 0
+                        slot = slots.setdefault(idx, {"id": "", "name": "", "arguments": ""})
+                        if tc.id:
+                            slot["id"] = tc.id
+                        fn = getattr(tc, "function", None)
+                        if fn is not None:
+                            if fn.name:
+                                slot["name"] += fn.name
+                            if fn.arguments:
+                                slot["arguments"] += fn.arguments
+                if chunk.choices[0].finish_reason:
+                    finish_reason = chunk.choices[0].finish_reason
+            if finish_reason == "length":
+                yield ("content", "\n\n# [WARNING] Response truncated due to max_tokens limit")
+            if slots:
+                yield ("tool_calls", _parse_tool_calls(
+                    [slots[i] for i in sorted(slots)], stream_shape=True))
+        finally:
+            sem.release()
 
     async def aclose(self) -> None:
         """关闭底层异步客户端（httpx 连接池），避免事件循环关闭时残留任务报错"""
