@@ -22,7 +22,7 @@ SYSTEM_PROMPT = """你是 SOTABand Engine 的交互 Agent，一个多智能体�
 
 ## 当前系统能力
 - 工具空间: 用户可以创建和使用各种数据处理工具
-- Agent 空间: 数据加载、异常检测、编排等专业 Agent
+- Agent 空间: 数据加载、异常检测、编排等专业 Agent。当用户明确指定某个 Agent（如「用 XX Agent 帮我…」）时，系统会自动把请求转交给该 Agent 执行，你会收到它的执行结果
 - 数据空间: 支持 EEG (EDF)、图像 (PNG/TIFF)、表格 (CSV)、文本等多模态数据
 - 模型空间: 支持 LLM、ViT、3D-CNN、时序模型
 - 探索式能力增长: 当没有匹配工具时，可自动生成代码，经用户核验后注册为本地工具
@@ -81,6 +81,7 @@ class InteractiveAgent(BaseAgent):
         self._pending_calls: dict[str, dict] = {}
         self._pending_confirm: dict[str, dict] = {}
         self._pending_modes: dict[str, dict] = {}
+        self._pending_agents: dict[str, dict] = {}
 
     async def execute(
         self, ctx: AgentContext, **kwargs
@@ -124,6 +125,31 @@ class InteractiveAgent(BaseAgent):
         # 工具是否来自「多候选确认」流程：此时用户回复是选工具而非选模式，
         # 不能拿它去推断模式（见 ② 分支与模式提示处的处理）
         tool_from_confirm = False
+
+        # ⓪ Agent 待确认 / 待重试：上一轮匹配到多个 Agent 让用户选，
+        #    或锁定了未运行的 Agent。本轮短回复视为对该请求的回应/补充。
+        pending_agent = self._pending_agents.get(session_key)
+        if pending_agent:
+            self._pending_agents.pop(session_key, None)
+            candidates = pending_agent.get("candidates")
+            if candidates:
+                selected = self._resolve_agent_selection(content, candidates)
+                if selected is None:
+                    self._pending_agents[session_key] = pending_agent
+                    yield {"event": "content", "data": {"text": "请回复编号或 Agent 名称来选择要使用的 Agent。"}}
+                    return
+                # 用户回复仅用于选 Agent，原请求文本才是给目标 Agent 的输入
+                async for ev in self._dispatch_to_agent(selected, pending_agent["request"], session_key):
+                    yield ev
+                return
+            if len(content) <= 60:
+                merged = (
+                    content if self._resolve_agent_selection(content, [pending_agent["agent"]])
+                    else f"{pending_agent['request']}，{content}"
+                )
+                async for ev in self._dispatch_to_agent(pending_agent["agent"], merged, session_key):
+                    yield ev
+                return
 
         # ① 正在等待用户选择模式
         pending_mode = self._pending_modes.get(session_key)
@@ -172,6 +198,10 @@ class InteractiveAgent(BaseAgent):
         # ③ 正在收集参数
         elif self._pending_calls.get(session_key):
             pending = self._pending_calls[session_key]
+            if content.strip() in ("取消", "取消执行", "算了", "cancel"):
+                self._pending_calls.pop(session_key, None)
+                yield {"event": "content", "data": {"text": f"已取消 **{pending['tool_name']}** 的执行。还需要我做什么？"}}
+                return
             target_param = pending["missing"][0]
             try:
                 answer_params = await self._extract_answer_params(
@@ -195,10 +225,36 @@ class InteractiveAgent(BaseAgent):
             selected_mode_id = pending.get("mode")
             skip_param_extract = pending["params"]
 
-        # ④ 无前置状态 → 正常匹配工具
+        # ④ 无前置状态 → 先尝试「指定 Agent」派发，再回退到工具匹配
         need_create_tool_desc = None
         matched_tools: list[dict] = []
         if not matched_tool:
+            agent_hit = await self._match_agent(content)
+            if agent_hit:
+                candidates = agent_hit if isinstance(agent_hit, list) else [agent_hit]
+                if len(candidates) > 1:
+                    # 多个 Agent 名称都可能匹配 → 请用户确认，不擅自选一个
+                    infos = [{"id": a.get("id", ""), "name": a.get("name", ""), "index": i}
+                             for i, a in enumerate(candidates, 1)]
+                    yield {
+                        "event": "card",
+                        "data": {
+                            "type": "tool-confirm",
+                            "title": "请确认要使用的 Agent",
+                            "summary": f"找到 {len(candidates)} 个可能匹配的 Agent，请选择其中一个",
+                            "data": {"candidates": infos},
+                        },
+                    }
+                    options = "、".join(f"{i}.{a['name']}" for i, a in enumerate(infos, 1))
+                    yield {
+                        "event": "content",
+                        "data": {"text": f"检测到多个可能匹配的 Agent，请选择：{options}。回复编号或 Agent 名称即可。"},
+                    }
+                    self._pending_agents[session_key] = {"candidates": candidates, "request": content}
+                    return
+                async for ev in self._dispatch_to_agent(candidates[0], content, session_key):
+                    yield ev
+                return
             matched_tools, need_create_tool_desc = await self._pre_match_tool(content, workspace_tool_ids or [])
 
         history = self._sessions.get(session_key, [])
@@ -463,6 +519,138 @@ class InteractiveAgent(BaseAgent):
                 "data": {"code": "llm_error", "message": str(e)},
             }
 
+    async def _match_agent(self, query: str):
+        """判断用户是否明确指定了某个已注册 Agent。
+
+        返回单个 Agent 条目 dict、多个候选 list，或 None（不是 Agent 派发场景）。
+        仅做名称级强匹配（名称/id 显式出现在句中出现才命中），
+        不做模糊语义匹配——错派 Agent 的代价远高于错配工具。
+        """
+        try:
+            from core.resource.registry.agent_registry import AgentRegistry
+            entries = AgentRegistry()._read()
+        except Exception:
+            return None
+        q = query.strip()
+        ql = q.lower()
+        hits = []
+        for e in entries:
+            if e.get("status") != "active" or e.get("id") == self.spec.id:
+                continue
+            name = (e.get("name") or "").strip()
+            aid = (e.get("id") or "").strip()
+            matched = False
+            if name and name in q:
+                matched = True
+            elif aid and aid.lower() in ql:
+                matched = True
+            elif name:
+                # 「ETF次日方向分析Agent」写作「ETF 次日方向分析 agent」等带空格/大小写变体
+                import re as _re
+                pat = _re.escape(name).replace("\\ ", "\\s*")
+                if len(name) >= 4 and _re.search(pat, q, _re.IGNORECASE):
+                    matched = True
+            if matched:
+                hits.append(e)
+        if not hits:
+            return None
+        if len(hits) == 1:
+            return hits[0]
+        return hits
+
+    def _resolve_agent_selection(self, answer: str, candidates: list[dict]) -> dict | None:
+        """识别用户对候选 Agent 的选择（编号或名称），与 _resolve_tool_selection 同构"""
+        if not candidates:
+            return None
+        a = answer.strip()
+        a_lower = a.lower()
+        num_matches = re.findall(r"\d+", a)
+        if num_matches:
+            idx = int(num_matches[0])
+            if 1 <= idx <= len(candidates) and len(a) <= 8:
+                return candidates[idx - 1]
+        for t in candidates:
+            name = t.get("name", "")
+            tid = t.get("id", "")
+            if name and name in a:
+                return t
+            if tid and tid.lower() in a_lower:
+                return t
+        return None
+
+    async def _dispatch_to_agent(self, agent_entry: dict, request: str, session_key: str):
+        """把用户请求转发给指定 Agent（经主进程 RPC），聚合结果后返回。
+
+        RPC 语义（见 core/agent/entrypoint.py）：参数平铺为 execute kwargs，
+        content 即用户原话；成功聚合为 {"text": ...}。
+        """
+        aid = agent_entry.get("id", "")
+        name = agent_entry.get("name", aid)
+        role = agent_entry.get("role", "task")
+        if role == "web-service":
+            yield {"event": "content", "data": {"text": f"**{name}** 是 Web 服务式 Agent，请在其详情页调用服务接口。"}}
+            return
+        if not self._bus:
+            yield {"event": "content", "data": {"text": f"当前环境不支持 Agent 间调用，请打开 **{name}** 的详情页直接交互。"}}
+            return
+
+        yield {"event": "content",
+               "data": {"text": f"正在转交给 **{name}** 处理，请稍候……（任务可能需要较长时间）"}}
+
+        resp = await self._bus.call_agent(aid, "execute", {"content": request}, timeout=300)
+
+        if isinstance(resp, dict) and "未运行" in str(resp.get("error", "")):
+            # 锁定该 Agent：用户下一条短回复会补全请求后自动重试
+            self._pending_agents[session_key] = {"agent": agent_entry, "request": request}
+            yield {"event": "content",
+                   "data": {"text": f"**{name}** 当前未运行。请到 Agent 空间启动它；启动后直接回复我（如「继续」），我会重新提交任务。"}}
+            return
+
+        session = self._sessions.setdefault(session_key, [])
+        if not session:
+            # 与其他轮次一致：历史首条恒为 system，裁剪逻辑依赖该约定
+            session.append({"role": "system", "content": self._build_system_with_context([])})
+        if isinstance(resp, dict) and resp.get("ok"):
+            result = resp.get("result") or {}
+            text = result.get("text") if isinstance(result, dict) else json.dumps(result, ensure_ascii=False, default=str)
+            text = (text or "").strip() or "（该 Agent 未返回文本结果）"
+            yield {
+                "event": "card",
+                "data": {
+                    "type": "result-summary",
+                    "title": f"Agent 执行: {name}",
+                    "summary": text[:200],
+                    "data": {"agent_id": aid, "result": text[:4000]},
+                },
+            }
+            # 注入历史，让后续对话能引用本次结果
+            session.append({"role": "user", "content": f"[转交 {name}] {request}"})
+            session.append({"role": "assistant", "content": f"[{name} 的执行结果]\n{text[:3000]}"})
+            summary = f"Agent「{name}」已完成任务，结果如下：\n{text[:3000]}\n请用一两句话向用户小结以上结果。"
+        else:
+            err = str((resp or {}).get("error", "未知错误"))[:300]
+            yield {
+                "event": "card",
+                "data": {
+                    "type": "result-summary",
+                    "title": f"Agent 执行失败: {name}",
+                    "summary": err,
+                    "data": {"agent_id": aid, "error": err},
+                },
+            }
+            session.append({"role": "user", "content": f"[转交 {name}] {request}"})
+            session.append({"role": "assistant", "content": f"[{name} 执行失败] {err}"})
+            summary = f"Agent「{name}」执行失败：{err}。请向用户说明失败原因并给出建议。"
+
+        # 用 LLM 对结果做简短小结（直接走 content 流式，不重复输出全文）
+        try:
+            hist = [m for m in session if m["role"] != "system"][-12:]
+            msgs = [{"role": "system", "content": "你是交互助手。基于最近的 Agent 执行结果，用简洁中文向用户小结，不要编造未提供的信息。"}] + hist
+            async for token in self.llm.chat_stream(messages=msgs, temperature=0.2, max_tokens=800):
+                yield {"event": "content", "data": {"text": token}}
+        except Exception:
+            pass
+
     async def _pre_match_tool(self, query: str, workspace_tool_ids: list[str] = None) -> tuple[list[dict], str | None]:
         """预匹配：先用 LLM 语义匹配，失败时回退到关键词匹配。
 
@@ -603,9 +791,11 @@ class InteractiveAgent(BaseAgent):
 
 请判断：
 - 如果用户明确表示要「创建工具/新建工具/开发工具」，直接返回 need_new_tool=true，并给出新工具的简短中文描述（即使现有工具列表中可能有名称相近的工具，也不要去匹配）
-- 如果有一个或多个工具能匹配用户需求，返回 matched_tool_ids 列表（按匹配度从高到低，最多 3 个）
+- 如果有一个或多个工具能**高置信度**匹配用户需求（工具的功能确实就是用户要的），返回 matched_tool_ids 列表（按匹配度从高到低，最多 3 个）
+- 只要用户提到的对象、数据或动作在列表中找不到对应工具，就返回空列表——**宁缺毋滥，绝不返回功能不符的凑数候选**
 - 如果没有任何工具匹配，且用户的需求是「数据处理/文件处理/计算/分析」类（需要用工具完成），返回 need_new_tool=true，并给出新工具的简短中文描述
 - 如果用户只是普通闲聊/咨询，不需要工具，返回 need_new_tool=false
+- 如果用户是在指定/询问某个 Agent（如「用 XX Agent 处理」「YY Agent 是干什么的」），不属于工具需求，返回 {{"matched_tool_ids": [], "need_new_tool": false}}
 
 只返回 JSON，格式：
 - 匹配到工具：{{"matched_tool_ids": ["工具id1", "工具id2"]}}
@@ -746,12 +936,13 @@ class InteractiveAgent(BaseAgent):
                 for word in query_lower.split():
                     if len(word) >= 2 and word in all_text:
                         score += 1
-                if score > 0:
+                # 门槛 >=4：中文单字重叠（+2）加单个词片段（+1）这类弱信号
+                # 不足以证明匹配，此前 >0 会把无关工具塞进候选。
+                if score >= 4:
                     scored.append((score, t))
 
             scored.sort(key=lambda x: x[0], reverse=True)
-            # 返回 top 3 且分数 >= 2 的候选
-            result = [t for s, t in scored if s >= 2][:3]
+            result = [t for s, t in scored if s >= 4][:3]
             return result
         except Exception:
             pass
@@ -826,8 +1017,64 @@ class InteractiveAgent(BaseAgent):
                 )
             return {name: num}
 
+        # 文件/路径类参数：必须解析到真实存在的文件，绝不把整句话当路径填进去
+        # （曾因把「用 XX Agent 帮我处理当前任务」整句当 file_path 传给工具而报错）
+        if self._is_path_param(param):
+            resolved = self._resolve_path_answer(val)
+            if resolved is None:
+                raise ValueError(
+                    f"参数 **{name}** 需要一个文件路径，但在「{val}」里没有找到可用的文件。"
+                    f"请提供完整路径或文件名（可先把文件拖入工作区间），或回复「取消」放弃本次执行。"
+                )
+            return {name: resolved}
+
         # 其他类型（string 等）：直接使用输入
         return {name: val}
+
+    @staticmethod
+    def _is_path_param(param: dict) -> bool:
+        desc = (param.get("desc", "") or "").lower()
+        ptype = (param.get("type", "") or "").lower()
+        name = (param.get("name", "") or "").lower()
+        return (
+            any(kw in desc for kw in ("文件", "路径", "目录", "pdf", "图片", "图像", "csv", "文档"))
+            or "path" in ptype or "file" in ptype or "file" in name or "_path" in name
+        )
+
+    @staticmethod
+    def _resolve_path_answer(val: str) -> str | None:
+        """从用户回答里解析出一个真实存在的文件路径，解析不到返回 None。"""
+        from pathlib import Path
+        s = val.strip().strip('"\'“”')
+        if not s:
+            return None
+        project_root = Path(__file__).resolve().parent.parent.parent.parent.parent
+        data_roots = [project_root / "resources" / "data", project_root / "storage" / "workspace", Path("/root/resources-private/data")]
+        # 候选 1：整条回答就是路径
+        # 候选 2：从文本中提取带扩展名的文件名 token
+        cands = [s]
+        cands += re.findall(r"[\w\-./\\一-鿿]+\.[A-Za-z0-9]{1,8}", val)
+        for c in cands:
+            c = c.strip().strip('"\'')
+            if not c:
+                continue
+            p = Path(c)
+            if p.is_absolute() and p.exists():
+                return str(p)
+            for root in [project_root, *data_roots]:
+                fp = root / c
+                if fp.exists():
+                    return str(fp)
+            # 在数据目录里按文件名递归搜（数据区文件量小，设遍历上限防意外大目录）
+            for root in data_roots:
+                if not root.exists():
+                    continue
+                for i, f in enumerate(root.rglob("*")):
+                    if i > 2000:
+                        break
+                    if f.is_file() and f.name == Path(c).name:
+                        return str(f)
+        return None
 
     @staticmethod
     def _coerce_number(text: str, want_float: bool = False):
