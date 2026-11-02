@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
-import { Bot, Clock, Database, Loader2, Plus, Wrench } from 'lucide-react'
+import { Bot, Clock, Database, FolderOpen, Loader2, Plus, Wrench, BrainCircuit, MessagesSquare } from 'lucide-react'
 import { useChatStore } from '@/stores/chat-store'
 import { useFileTreeStore } from '@/stores/file-tree-store'
 import { useResourceStore } from '@/stores/resource-store'
@@ -12,11 +12,27 @@ interface Suggestion {
   prompt: string
 }
 
+/** 系统尚无资源时展示的「能做什么」条目 */
+const CAPABILITIES = [
+  { icon: Database, text: '注册与预览数据集：CSV、Excel、Parquet、图片、Markdown 等格式，支持打包下载' },
+  { icon: Wrench, text: '用自然语言生成可复用的数据处理工具，代码核验后注册入库' },
+  { icon: BrainCircuit, text: '注册模型、编排 Agent，支持定时执行与结果汇报' },
+  { icon: MessagesSquare, text: '直接在对话里描述目标，系统自动匹配数据、工具与 Agent 执行' },
+]
+
+/** 系统尚无资源时展示的「如何开始」步骤 */
+const GETTING_STARTED = [
+  { step: '1', title: '准备好数据', desc: '点击下方「上传数据」，或在左栏数据空间注册本机已有目录' },
+  { step: '2', title: '建立处理能力', desc: '左栏工具空间 / Agent 空间点「+」，用自然语言创建，也可以直接跳过' },
+  { step: '3', title: '开始对话', desc: '在下方输入框描述目标并引用数据，剩下的交给系统' },
+]
+
 export function ChatEmptyState() {
   const setInputText = useChatStore((s) => s.setInputText)
   const agents = useResourceStore((s) => s.agentResources)
   const tools = useResourceStore((s) => s.toolResources)
   const dataResources = useResourceStore((s) => s.dataResources)
+  const modelResources = useResourceStore((s) => s.modelResources)
   const recentAgentUsage = useResourceStore((s) => s.recentAgentUsage)
   const uploadFiles = useFileTreeStore((s) => s.uploadFiles)
 
@@ -89,6 +105,11 @@ export function ChatEmptyState() {
     return [...datasetSuggestion, ...usedAgents, ...toolSuggestion, ...starters].slice(0, 3)
   }, [agents, tools, dataResources, recentAgentUsage])
 
+  // 系统还很"空"（没有任何数据/工具/模型/Agent）时，展示使用指引，
+  // 帮助用户理解本系统能解决什么问题、从哪里开始。
+  const isFreshSystem =
+    dataResources.length === 0 && tools.length === 0 && agents.length === 0 && modelResources.length === 0
+
   const handleUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return
     setIsUploading(true)
@@ -114,7 +135,49 @@ export function ChatEmptyState() {
           描述目标或引用数据，SOTABand 会匹配 Agent 与工具并开始执行。
         </p>
 
-        {suggestions.length > 0 && (
+        {isFreshSystem ? (
+          /* 首次使用：系统能力介绍与上手步骤 */
+          <div className="w-full max-w-[560px] mt-5 flex flex-col gap-3 text-left">
+            <div className="rounded-[10px] border border-maia-border bg-maia-sidebar px-4 py-3.5">
+              <div className="flex items-center gap-1.5 mb-2.5">
+                <Bot className="h-3.5 w-3.5 text-maia-accent" />
+                <span className="text-[13px] font-semibold text-maia-text-heading">SOTABand 能做什么</span>
+              </div>
+              <ul className="flex flex-col gap-2">
+                {CAPABILITIES.map((c) => {
+                  const Icon = c.icon
+                  return (
+                    <li key={c.text} className="flex items-start gap-2 text-[13px] leading-[20px] text-maia-text-secondary">
+                      <Icon className="h-3.5 w-3.5 shrink-0 mt-[3px] text-maia-text-muted" />
+                      <span>{c.text}</span>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+
+            <div className="rounded-[10px] border border-maia-border bg-maia-sidebar px-4 py-3.5">
+              <div className="flex items-center gap-1.5 mb-2.5">
+                <FolderOpen className="h-3.5 w-3.5 text-maia-accent" />
+                <span className="text-[13px] font-semibold text-maia-text-heading">如何开始</span>
+              </div>
+              <ol className="flex flex-col gap-2">
+                {GETTING_STARTED.map((g) => (
+                  <li key={g.step} className="flex items-start gap-2.5">
+                    <span className="flex h-[18px] w-[18px] shrink-0 mt-[2px] items-center justify-center rounded-full bg-maia-accent-light text-maia-accent text-[11px] font-semibold">
+                      {g.step}
+                    </span>
+                    <span className="text-[13px] leading-[20px]">
+                      <span className="font-medium text-maia-text">{g.title}</span>
+                      <span className="text-maia-text-muted"> · {g.desc}</span>
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </div>
+        ) : (
+          suggestions.length > 0 && (
           <div className="w-full max-w-[560px] mt-5 flex flex-col gap-2">
             {suggestions.map((s) => {
               const Icon = s.icon
@@ -138,6 +201,7 @@ export function ChatEmptyState() {
               )
             })}
           </div>
+          )
         )}
 
         <button
