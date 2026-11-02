@@ -1,7 +1,7 @@
 import { create } from 'zustand'
-import type { Message, FileAttachment } from '@/types/chat'
+import type { Message, FileAttachment, InlineCard } from '@/types/chat'
 import { MockChatService } from '@/services/mock/chat'
-import { ApiChatService } from '@/services/api/chat'
+import { ApiChatService, confirmPlatformCall, cancelPlatformCall } from '@/services/api/chat'
 
 // 开发模式下可通过 VITE_USE_MOCK 切换回 mock 服务
 const useMock = import.meta.env.VITE_USE_MOCK === 'true'
@@ -41,6 +41,8 @@ interface ChatState {
   switchSession: (sessionId: string) => Promise<void>
   /** 删除一个历史会话 */
   deleteSession: (sessionId: string) => Promise<void>
+  /** 平台确认卡：确认/取消待执行操作，结果卡追加到同一消息 */
+  resolvePlatformOp: (messageId: string, cardId: string, action: 'confirm' | 'cancel') => Promise<void>
 }
 
 /** 生成会话唯一 ID（浏览器无 crypto.randomUUID 时退化为时间戳 + 随机数） */
@@ -54,6 +56,37 @@ function newSessionId(): string {
 let nextId = 1
 function genId(): string {
   return `msg-${Date.now()}-${nextId++}`
+}
+
+/**
+ * 卡片 `_action` 钩子：平台操作成功后自动刷新对应空间。
+ * （定时任务视图 CronJobsView 挂载时自动 reload，无需在此刷新。）
+ */
+async function refreshSpacesForAction(action: unknown): Promise<void> {
+  if (typeof action !== 'string' || !action) return
+  try {
+    const { useResourceStore } = await import('@/stores/resource-store')
+    const rs = useResourceStore.getState()
+    switch (action) {
+      case 'register_dataset':
+        await rs.fetchDatasetsFromApi()
+        break
+      case 'register_model':
+        await rs.fetchModelsFromApi()
+        break
+      case 'create_tool':
+      case 'modify_tool':
+      case 'register_tool':
+        await rs.fetchToolsFromApi()
+        break
+      case 'create_agent':
+      case 'register_agent':
+      case 'start_agent':
+      case 'stop_agent':
+        await rs.fetchAgentsFromApi()
+        break
+    }
+  } catch { /* 刷新失败不影响对话 */ }
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -175,6 +208,84 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ isSending: false })
   },
 
+  // 平台确认卡的确认/取消：直连网关端点（不经 LLM），网关回执以结果卡呈现。
+  resolvePlatformOp: async (messageId, cardId, action) => {
+    const msg = get().messages.find((m) => m.id === messageId)
+    const card = msg?.cards?.find((c) => c.id === cardId)
+    if (!msg || !card || card.type !== 'platform-confirm') return
+    const d = card.data
+    // 重复点击/终态忽略（网关侧也有幂等与状态机兜底）
+    if (d.submitting || (typeof d.status === 'string' && d.status !== 'pending')) return
+    const opId = String(d.op_id || '')
+    if (!opId) return
+
+    const patchCard = (patch: Record<string, unknown>) =>
+      set((s) => ({
+        messages: s.messages.map((m) =>
+          m.id !== messageId
+            ? m
+            : {
+                ...m,
+                cards: m.cards?.map((c) =>
+                  c.id === cardId ? { ...c, data: { ...c.data, ...patch } } : c,
+                ),
+              },
+        ),
+      }))
+    const appendCard = (newCard: InlineCard) =>
+      set((s) => ({
+        messages: s.messages.map((m) =>
+          m.id !== messageId ? m : { ...m, cards: [...(m.cards || []), newCard] },
+        ),
+      }))
+
+    patchCard({ submitting: action, error: undefined })
+
+    const receipt =
+      action === 'confirm'
+        ? await confirmPlatformCall({
+            opId,
+            token: String(d.token || ''),
+            fingerprint: String(d.fingerprint || ''),
+            sessionId: get().sessionId,
+          })
+        : await cancelPlatformCall({ opId, sessionId: get().sessionId })
+
+    if (action === 'cancel') {
+      // 取消失败（已过期/已确认等）：原因直接展示在确认卡上
+      patchCard(
+        receipt.status === 'ok'
+          ? { submitting: undefined, status: 'cancelled' }
+          : { submitting: undefined, error: receipt.error || '取消失败' },
+      )
+      return
+    }
+
+    // confirm：成功/失败都追加结果卡（结果只认网关回执）
+    const ok = receipt.status === 'ok' || receipt.status === 'executed'
+    const tool = String(receipt.tool || d.tool || '')
+    patchCard({
+      submitting: undefined,
+      status: ok ? 'confirmed' : 'failed',
+      error: ok ? undefined : receipt.error || '执行失败',
+    })
+    appendCard({
+      id: `card-${Date.now()}-platform-result`,
+      type: 'platform-result',
+      title: ok ? '平台操作已执行' : '平台操作未执行',
+      summary: String(d.summary || ''),
+      data: {
+        tool,
+        status: ok ? 'ok' : 'error',
+        result: receipt.result,
+        error: receipt.error,
+        // 工具名即动作名（register_dataset/create_tool/...），驱动空间自动刷新
+        _action: ok ? tool : undefined,
+      },
+    })
+    if (ok) await refreshSpacesForAction(tool)
+  },
+
   sendDirectMessage: async (content) => {
     // 直接发送一条消息（不走输入框）
     if (!content.trim() || get().isSending) return
@@ -222,17 +333,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const stream = chatService.sendMessage({ content: finalText, attachments: attachedFiles, workspaceToolIds, sessionId: get().sessionId })
 
       for await (const chunk of stream) {
-        // 检查是否有新数据集注册，自动刷新数据空间列表
+        // 卡片 _action 钩子：平台操作成功后自动刷新对应空间
         if (chunk.cards) {
           for (const card of chunk.cards) {
             const cardData = card.data
-            if (cardData?.registered_dataset_id || cardData?._action === 'register_dataset' || cardData?._action === 'register_model') {
-              try {
-                const { useResourceStore } = await import('@/stores/resource-store')
-                useResourceStore.getState().fetchDatasetsFromApi()
-              } catch { /* ignore */ }
-              break
+            if (!cardData) continue
+            if (cardData.registered_dataset_id) {
+              refreshSpacesForAction('register_dataset')
+              continue
             }
+            refreshSpacesForAction(cardData._action)
           }
         }
         set((s) => ({

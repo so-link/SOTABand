@@ -150,3 +150,53 @@ export class ApiChatService implements IChatService {
     }
   }
 }
+
+/* ============================================================
+   平台操作确认 / 取消（对话内控制系统，见 docs/chat-platform-control-design.md）
+   确认卡上的按钮直连网关端点，不经 LLM 往返；结果卡只认网关回执。
+   ============================================================ */
+
+/** 网关回执（confirm / cancel 共用结构） */
+export interface PlatformOpReceipt {
+  status: 'ok' | 'error'
+  op_id?: string
+  tool?: string
+  result?: Record<string, unknown>
+  error?: string
+  idempotent?: boolean
+}
+
+async function postPlatformOp(path: string, body: Record<string, unknown>): Promise<PlatformOpReceipt> {
+  try {
+    const res = await fetch(`${BASE_URL}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    const data = (await res.json().catch(() => ({}))) as PlatformOpReceipt & { detail?: string }
+    if (!res.ok) {
+      return { status: 'error', error: data.error || data.detail || `HTTP ${res.status} ${res.statusText}` }
+    }
+    return data
+  } catch (e) {
+    return { status: 'error', error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+/** 确认执行待确认的平台操作（fingerprint 原样回传，网关复核「确认内容=执行内容」） */
+export function confirmPlatformCall(req: {
+  opId: string
+  token: string
+  fingerprint?: string
+  sessionId: string
+}): Promise<PlatformOpReceipt> {
+  return postPlatformOp('/api/chat/platform-call/confirm', req)
+}
+
+/** 取消待确认的平台操作 */
+export function cancelPlatformCall(req: {
+  opId: string
+  sessionId: string
+}): Promise<PlatformOpReceipt> {
+  return postPlatformOp('/api/chat/platform-call/cancel', req)
+}

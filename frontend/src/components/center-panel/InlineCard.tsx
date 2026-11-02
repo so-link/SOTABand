@@ -11,6 +11,7 @@ import {
   Database,
   Wrench,
   CheckCircle2,
+  XCircle,
   ArrowRight,
   FileCode,
   GitBranch,
@@ -18,13 +19,17 @@ import {
   Volume2,
   Download,
   Layers,
+  ShieldAlert,
+  Timer,
 } from 'lucide-react'
 
 interface InlineCardProps {
   card: InlineCardType
+  /** 平台确认卡回写状态需要定位所属消息；非对话场景（Agent 详情页）可不传 */
+  messageId?: string
 }
 
-export function InlineCard({ card }: InlineCardProps) {
+export function InlineCard({ card, messageId }: InlineCardProps) {
   const { type, title, summary, data } = card
   const setActiveView = useUIStore((s) => s.setActiveView)
 
@@ -47,6 +52,10 @@ export function InlineCard({ card }: InlineCardProps) {
       return <OrchestrationPreviewCard title={title} summary={summary} data={data} setActiveView={setActiveView} />
     case 'create-tool':
       return <CreateToolCard title={title} summary={summary} data={data} />
+    case 'platform-confirm':
+      return <PlatformConfirmCard cardId={card.id} title={title} summary={summary} data={data} messageId={messageId} />
+    case 'platform-result':
+      return <PlatformResultCard title={title} summary={summary} data={data} />
     default:
       return null
   }
@@ -540,6 +549,197 @@ function ModeSelectionCard({ title, summary, data }: { title: string; summary: s
             </button>
           ))}
         </div>
+      </CardBody>
+    </Card>
+  )
+}
+
+// ── Platform Confirm Card（对话内平台写操作的二次确认卡） ──
+
+const CONFIRM_STATUS_LABEL: Record<string, { text: string; variant: 'success' | 'default' | 'danger' }> = {
+  confirmed: { text: '已确认', variant: 'success' },
+  cancelled: { text: '已取消', variant: 'default' },
+  failed: { text: '未执行成功', variant: 'danger' },
+  superseded: { text: '已被新操作顶替', variant: 'default' },
+}
+
+function PlatformConfirmCard({
+  cardId, title, summary, data, messageId,
+}: { cardId: string; title: string; summary: string; data: Record<string, unknown>; messageId?: string }) {
+  const resolvePlatformOp = useChatStore((s) => s.resolvePlatformOp)
+  const risk = String(data.risk || 'write')
+  const isDanger = risk === 'danger'
+  const status = String(data.status || 'pending')
+  const submitting = data.submitting as 'confirm' | 'cancel' | undefined
+  const error = data.error as string | undefined
+  const tool = String(data.tool || '')
+  const argsView = (data.args_view as Record<string, unknown>) || {}
+  const expiresAt = Number(data.expires_at || 0)
+
+  const [ack, setAck] = useState(false) // 高危操作须勾选后才能确认
+  const [now, setNow] = useState(() => Date.now())
+
+  const resolved = status !== 'pending'
+
+  // 倒计时以 expires_at（秒级时间戳）为准，刷新/恢复后依然正确
+  useEffect(() => {
+    if (resolved || !expiresAt) return
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [resolved, expiresAt])
+
+  const remain = expiresAt ? Math.max(0, Math.floor(expiresAt - now / 1000)) : 0
+  const expired = !resolved && expiresAt > 0 && remain <= 0
+  const mm = String(Math.floor(remain / 60)).padStart(2, '0')
+  const ss = String(remain % 60).padStart(2, '0')
+
+  const canConfirm = !resolved && !expired && !submitting && !!messageId && (!isDanger || ack)
+  const canCancel = !resolved && !expired && !submitting && !!messageId
+
+  const badge = resolved
+    ? CONFIRM_STATUS_LABEL[status] || { text: status, variant: 'default' as const }
+    : expired
+      ? { text: '已过期', variant: 'default' as const }
+      : isDanger
+        ? { text: '高危操作', variant: 'danger' as const }
+        : { text: '写操作', variant: 'warning' as const }
+
+  return (
+    <Card className={isDanger ? 'border-maia-danger bg-maia-danger-bg' : 'border-maia-card-amber bg-maia-card-amber'}>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <ShieldAlert className={`h-4 w-4 ${isDanger ? 'text-maia-danger' : 'text-amber-500'}`} />
+          <span className="text-[13px] font-medium">{title}</span>
+          <Badge variant={badge.variant}>{badge.text}</Badge>
+          {!resolved && !expired && expiresAt > 0 && (
+            <span className="ml-auto flex items-center gap-1 text-[12px] text-maia-text-muted">
+              <Timer className="h-3 w-3" />
+              {mm}:{ss}
+            </span>
+          )}
+        </div>
+      </CardHeader>
+      <CardBody>
+        <p className="text-[13px] text-maia-text-secondary mb-2">{summary}</p>
+        <div className="flex items-center gap-1.5 mb-2">
+          <span className="text-[12px] text-maia-text-muted">工具</span>
+          <code className="text-[12px] font-mono text-maia-accent">{tool}</code>
+        </div>
+        {Object.keys(argsView).length > 0 && (
+          <div className="rounded border border-maia-border bg-maia-surface divide-y divide-maia-border-light mb-2">
+            {Object.entries(argsView).map(([k, v]) => (
+              <div key={k} className="flex items-start gap-2 px-2.5 py-1.5">
+                <span className="text-[12px] text-maia-text-muted shrink-0 w-24 truncate" title={k}>{k}</span>
+                <span className="text-[12px] font-mono text-maia-text break-all">{typeof v === 'string' ? v : JSON.stringify(v)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {isDanger && !resolved && !expired && (
+          <label className="flex items-center gap-2 mb-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={ack}
+              onChange={(e) => setAck(e.target.checked)}
+              className="accent-maia-danger"
+            />
+            <span className="text-[12px] text-maia-danger">我已了解此操作不可恢复，确认执行</span>
+          </label>
+        )}
+        {error && <p className="text-[12px] text-maia-danger mb-2">{error}</p>}
+        {!resolved && !expired && (
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant={isDanger ? 'danger' : 'default'}
+              className="text-[13px]"
+              disabled={!canConfirm}
+              onClick={() => messageId && resolvePlatformOp(messageId, cardId, 'confirm')}
+            >
+              {submitting === 'confirm' ? '执行中…' : '确认执行'}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-[13px]"
+              disabled={!canCancel}
+              onClick={() => messageId && resolvePlatformOp(messageId, cardId, 'cancel')}
+            >
+              {submitting === 'cancel' ? '取消中…' : '取消'}
+            </Button>
+          </div>
+        )}
+      </CardBody>
+    </Card>
+  )
+}
+
+// ── Platform Result Card（网关回执：平台操作的唯一可信结果） ──
+
+/** 结果卡跳转链接：按工具名映射到对应空间视图 */
+const RESULT_GOTO: Record<string, { label: string; view?: ActiveView }> = {
+  register_dataset: { label: '在数据空间中查看' },
+  register_model: { label: '在模型空间中查看' },
+  create_tool: { label: '在工具空间中查看' },
+  modify_tool: { label: '在工具空间中查看' },
+  create_agent: { label: '在 Agent 空间中查看' },
+  create_cron_job: { label: '在定时任务中查看', view: 'cron-jobs' },
+  update_cron_job: { label: '在定时任务中查看', view: 'cron-jobs' },
+}
+
+function PlatformResultCard({ title, summary, data }: { title: string; summary: string; data: Record<string, unknown> }) {
+  const setActiveView = useUIStore((s) => s.setActiveView)
+  const setLeftPanelOpen = useUIStore((s) => s.setLeftPanelOpen)
+  const setLeftPanelTab = useUIStore((s) => s.setLeftPanelTab)
+  const ok = data.status === 'ok'
+  const tool = String(data.tool || '')
+  const error = data.error as string | undefined
+  const result = data.result
+  const goto = ok ? RESULT_GOTO[tool] : undefined
+
+  const handleGoto = () => {
+    if (!goto) return
+    if (goto.view) setActiveView(goto.view)
+    else {
+      // 数据集/模型/工具/Agent 都在左侧资源面板的分区里
+      setLeftPanelOpen(true)
+      setLeftPanelTab('resources')
+    }
+  }
+
+  return (
+    <Card className={ok ? 'border-maia-card-green bg-maia-card-green' : 'border-maia-danger bg-maia-danger-bg'}>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          {ok
+            ? <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+            : <XCircle className="h-4 w-4 text-maia-danger" />}
+          <span className="text-[13px] font-medium">{title}</span>
+          <Badge variant={ok ? 'success' : 'danger'}>{ok ? '成功' : '失败'}</Badge>
+        </div>
+      </CardHeader>
+      <CardBody>
+        {summary && <p className="text-[13px] text-maia-text-secondary mb-2">{summary}</p>}
+        {tool && (
+          <div className="flex items-center gap-1.5 mb-2">
+            <span className="text-[12px] text-maia-text-muted">工具</span>
+            <code className="text-[12px] font-mono text-maia-accent">{tool}</code>
+          </div>
+        )}
+        {error && <p className="text-[13px] text-maia-danger mb-2">{error}</p>}
+        {ok && result != null && (
+          <details className="mb-2">
+            <summary className="text-[12px] text-maia-text-muted cursor-pointer hover:text-maia-text">执行回执</summary>
+            <pre className="mt-1 p-2 rounded bg-maia-surface border border-maia-border text-[12px] font-mono leading-[20px] max-h-[160px] overflow-auto whitespace-pre-wrap">
+              {JSON.stringify(result, null, 2)}
+            </pre>
+          </details>
+        )}
+        {goto && (
+          <Button size="sm" variant="outline" className="text-[13px]" onClick={handleGoto}>
+            {goto.label} <ArrowRight className="h-3 w-3" />
+          </Button>
+        )}
       </CardBody>
     </Card>
   )

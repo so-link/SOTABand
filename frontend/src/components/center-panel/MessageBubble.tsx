@@ -70,7 +70,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
       {cards && cards.length > 0 && (
         <div className="flex flex-col gap-2">
           {cards.map((card) => (
-            <InlineCard key={card.id} card={card} />
+            <InlineCard key={card.id} card={card} messageId={message.id} />
           ))}
         </div>
       )}

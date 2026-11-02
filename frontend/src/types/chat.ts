@@ -16,6 +16,8 @@ export type CardType =
   | 'result-summary'
   | 'orchestration-preview'
   | 'create-tool'
+  | 'platform-confirm'
+  | 'platform-result'
 
 /** 内联卡片数据 */
 export interface InlineCard {
