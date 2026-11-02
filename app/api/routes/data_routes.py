@@ -432,6 +432,37 @@ async def get_dataset(dataset_id: str):
     return {**entry, "spec_md": spec_md}
 
 
+@router.get("/{dataset_id}/archive")
+async def download_archive(dataset_id: str):
+    """把数据集目录打包为 zip 下载（与工具「导出」对应的能力）。"""
+    import io
+    import zipfile
+    from fastapi.responses import Response
+
+    entry = await registry.get(dataset_id)
+    if not entry:
+        raise HTTPException(404, f"Dataset '{dataset_id}' not found")
+
+    data_path = registry.resolve_data_path(entry.get("data_path", ""))
+    if not data_path.is_dir():
+        raise HTTPException(404, f"数据集 '{dataset_id}' 的数据目录不存在: {data_path}")
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in sorted(data_path.rglob("*")):
+            if not f.is_file():
+                continue
+            zf.write(f, arcname=str(f.relative_to(data_path)))
+    buf.seek(0)
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{dataset_id}.zip"',
+        },
+    )
+
+
 @router.get("/{dataset_id}/files")
 async def list_files(dataset_id: str):
     """数据集文件列表"""

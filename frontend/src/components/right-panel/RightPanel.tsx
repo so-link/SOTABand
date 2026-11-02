@@ -7,6 +7,7 @@ import {
   parseAgentDetailView,
   parseToolDetailView,
   parseModelDetailView,
+  parseDatasetPreviewView,
 } from '@/stores/ui-store'
 import { ResourceProperties } from './ResourceProperties'
 import { ChatHistoryPanel } from './ChatHistoryPanel'
@@ -26,11 +27,13 @@ export function RightPanel() {
   const toolResources = useResourceStore((s) => s.toolResources)
   const modelResources = useResourceStore((s) => s.modelResources)
   const cachedDatasetForDetail = useResourceStore((s) => s.cachedDatasetForDetail)
+  const dataResources = useResourceStore((s) => s.dataResources)
   const previewFiles = useResourceStore((s) => s.previewFiles)
   const selectedFile = useFileTreeStore((s) => s.selectedFile)
-  // 数据预览标签的右栏 tab：数据集文件 / 资源详情（Hook 须在任何 early return 之前调用）
+  // 数据预览标签的右栏 tab（Hook 须在任何 early return 之前调用）；
+  // 切换到另一个数据集标签时回到默认的文件列表。
   const [dataTab, setDataTab] = useState<'files' | 'detail'>('files')
-  const datasetId = cachedDatasetForDetail?.id ?? null
+  const datasetId = parseDatasetPreviewView(activeView) ?? cachedDatasetForDetail?.id ?? null
   useEffect(() => { setDataTab('files') }, [datasetId])
 
   if (activeView === 'chat') {
@@ -55,8 +58,12 @@ export function RightPanel() {
     return res ? <ResourceProperties resource={res} /> : <EmptyDetail label="模型" />
   }
 
-  if (activeView === 'data-preview') {
-    if (!cachedDatasetForDetail) return <EmptyDetail label="数据集" />
+  if (activeView === 'data-preview' || parseDatasetPreviewView(activeView)) {
+    const dsId = parseDatasetPreviewView(activeView)
+    const dataset = dsId
+      ? (dataResources.find((r) => r.id === dsId) ?? (cachedDatasetForDetail?.id === dsId ? cachedDatasetForDetail : null))
+      : cachedDatasetForDetail
+    if (!dataset) return <EmptyDetail label="数据集" />
     return (
       <div className="flex flex-col h-full">
         <div className="flex items-stretch h-9 shrink-0 border-b border-maia-border bg-maia-bg">
@@ -73,7 +80,7 @@ export function RightPanel() {
         <div className="flex-1 min-h-0">
           {dataTab === 'files'
             ? <DatasetFilesPanel hideHeader />
-            : <ResourceProperties resource={cachedDatasetForDetail} hideHeader />}
+            : <ResourceProperties resource={dataset} hideHeader />}
         </div>
       </div>
     )

@@ -24,6 +24,8 @@ export type ActiveView =
   | `tool-detail:${string}`
   // 每个模型独立的详情视图：形如 "model-detail:{modelId}"
   | `model-detail:${string}`
+  // 每个数据集独立的预览视图：形如 "data-preview:{datasetId}"
+  | `data-preview:${string}`
 
 /** 判断视图是否为「单 Agent 详情」并取出其 agentId。 */
 export function parseAgentDetailView(view: string): string | null {
@@ -38,6 +40,11 @@ export function parseToolDetailView(view: string): string | null {
 /** 判断视图是否为「单模型详情」并取出其 modelId。 */
 export function parseModelDetailView(view: string): string | null {
   return view.startsWith('model-detail:') ? view.slice('model-detail:'.length) : null
+}
+
+/** 判断视图是否为「单数据集预览」并取出其 datasetId。 */
+export function parseDatasetPreviewView(view: string): string | null {
+  return view.startsWith('data-preview:') ? view.slice('data-preview:'.length) : null
 }
 
 export type Theme = 'dark' | 'light'

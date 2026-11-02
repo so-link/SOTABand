@@ -17,7 +17,9 @@ function isImageFile(f: Record<string, unknown>): boolean {
  * 点 CSV / Markdown 切换中栏对应预览，其他文件在新标签页打开。
  */
 export function DatasetFilesPanel({ hideHeader = false }: { hideHeader?: boolean }) {
-  const dataset = useResourceStore((s) => s.cachedDatasetForDetail)
+  const previewDatasetId = useResourceStore((s) => s.previewDatasetId)
+  const dataResources = useResourceStore((s) => s.dataResources)
+  const cachedDataset = useResourceStore((s) => s.cachedDatasetForDetail)
   const previewFiles = useResourceStore((s) => s.previewFiles)
   const previewDatasetPath = useResourceStore((s) => s.previewDatasetPath)
   const activeCsvIndex = useResourceStore((s) => s.activeCsvIndex)
@@ -27,6 +29,9 @@ export function DatasetFilesPanel({ hideHeader = false }: { hideHeader?: boolean
 
   const csvFiles = previewFiles.filter((f) => ((f.format as string) || '').toLowerCase() === 'csv')
   const mdFiles = previewFiles.filter((f) => ((f.format as string) || '').toLowerCase() === 'md')
+  // 数据集名以中栏实际预览的数据集为准（多标签下随激活标签变化）
+  const dataset = (previewDatasetId && dataResources.find((r) => r.id === previewDatasetId))
+    ?? (cachedDataset?.id === previewDatasetId ? cachedDataset : null)
 
   const fileUrl = (f: Record<string, unknown>, image = false) => {
     if (!previewDatasetPath) return ''

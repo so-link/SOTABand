@@ -13,7 +13,7 @@ import {
   CalendarClock,
 } from 'lucide-react'
 import { useResourceStore } from '@/stores/resource-store'
-import { useUIStore } from '@/stores/ui-store'
+import { useUIStore, parseAgentDetailView, parseToolDetailView, parseModelDetailView, parseDatasetPreviewView } from '@/stores/ui-store'
 import { useWorkspaceToolStore } from '@/stores/workspace-tool-store'
 import { useUnsavedMarks } from '@/hooks/use-unsaved-marks'
 import { cn } from '@/lib/utils'
@@ -52,6 +52,27 @@ export function ResourceBrowser() {
     fetchTasksFromApi,
   } = useResourceStore()
   const { rightPanelOpen, toggleRightPanel, setActiveView } = useUIStore()
+  const activeView = useUIStore((s) => s.activeView)
+
+  // 左栏选中跟随中栏标签：刷新恢复标签或从其他入口打开资源时，高亮对应资源项
+  useEffect(() => {
+    const id = parseAgentDetailView(activeView)
+      ?? parseToolDetailView(activeView)
+      ?? parseModelDetailView(activeView)
+      ?? parseDatasetPreviewView(activeView)
+    if (!id) {
+      // 对话等非资源标签：不应保留资源选中态
+      if (activeView === 'chat' && useResourceStore.getState().selectedResource) {
+        selectResource(null)
+      }
+      return
+    }
+    const cur = useResourceStore.getState().selectedResource
+    if (cur?.id === id) return
+    const all = [...dataResources, ...toolResources, ...modelResources, ...agentResources]
+    const r = all.find((x) => x.id === id)
+    if (r) selectResource(r)
+  }, [activeView, dataResources, toolResources, modelResources, agentResources, selectResource])
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     // 惰性初始化：从 localStorage 恢复上次展开的分区，避免刷新后全部重置。
     () => {
@@ -205,7 +226,8 @@ export function ResourceBrowser() {
       // 模型与 Agent/工具对齐：中栏打开独立详情视图，充分利用大空间
       setActiveView(`model-detail:${resource.id}` as never)
     } else if (resource.type === 'data') {
-      setActiveView('data-preview')
+      // 每个数据集独立标签页：可同时打开多个数据集预览，刷新按 ID 恢复
+      setActiveView(`data-preview:${resource.id}` as never)
     } else if (!rightPanelOpen) {
       toggleRightPanel()
     }

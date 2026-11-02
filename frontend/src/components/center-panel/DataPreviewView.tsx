@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Database, Image, Loader2, ChevronLeft, ChevronRight, Plus, Package, FileText } from 'lucide-react'
+import { Database, Image, Loader2, ChevronLeft, ChevronRight, Plus, Package, FileText, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardBody } from '@/components/ui/card'
@@ -20,13 +20,18 @@ function isImageFile(file: Record<string, unknown>): boolean {
   return IMAGE_EXTENSIONS.has(fmt) || IMAGE_EXTENSIONS.has(name.split('.').pop() || '')
 }
 
-export function DataPreviewView() {
+export function DataPreviewView({ datasetId }: { datasetId?: string }) {
   const selectedResource = useResourceStore((s) => s.selectedResource)
   const cachedDataset = useResourceStore((s) => s.cachedDatasetForDetail)
   const dataResources = useResourceStore((s) => s.dataResources)
   const selectResource = useResourceStore((s) => s.selectResource)
   const { setActiveView } = useUIStore()
-  const dataset = selectedResource?.type === 'data' ? (selectedResource as DataResource) : cachedDataset
+  // 优先按视图 ID 定位数据集：每个数据集独立标签，刷新后仍可按 ID 恢复；
+  // 列表尚未加载时退回缓存的同一数据集；无 ID 的旧入口退回到当前选中资源。
+  const dataset = datasetId
+    ? (dataResources.find((d) => d.id === datasetId) as DataResource | undefined)
+      ?? (cachedDataset?.id === datasetId ? cachedDataset : null)
+    : (selectedResource?.type === 'data' ? (selectedResource as DataResource) : cachedDataset)
   const [loading, setLoading] = useState(false)
   const [detail, setDetail] = useState<Record<string, unknown> | null>(null)
   const [page, setPage] = useState(1)
@@ -148,14 +153,24 @@ export function DataPreviewView() {
           <span className="text-[14px] font-semibold text-maia-text-heading truncate min-w-0">{dataset.name}</span>
           <Badge variant="success" className="shrink-0">v{dataset.version}</Badge>
           <Badge variant="accent" className="shrink-0">{dataset.format?.toUpperCase()}</Badge>
-          <div className="ml-auto flex items-center gap-2 text-[12px] text-maia-text-muted shrink-0">
-            {files.length > 0 && <span>{files.length} 个文件</span>}
-            {imageFiles.length > 0 && <span>· {imageFiles.length} 张图片</span>}
-            {dataset.fileSize > 0 && (
-              <span>
-                {dataset.fileSize > 1048576 ? `${(dataset.fileSize / 1048576).toFixed(1)} MB` : `${(dataset.fileSize / 1024).toFixed(1)} KB`}
-              </span>
-            )}
+          <div className="ml-auto flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-2 text-[12px] text-maia-text-muted">
+              {files.length > 0 && <span>{files.length} 个文件</span>}
+              {imageFiles.length > 0 && <span>· {imageFiles.length} 张图片</span>}
+              {dataset.fileSize > 0 && (
+                <span>
+                  {dataset.fileSize > 1048576 ? `${(dataset.fileSize / 1048576).toFixed(1)} MB` : `${(dataset.fileSize / 1024).toFixed(1)} KB`}
+                </span>
+              )}
+            </div>
+            <a
+              href={`${BASE_URL}/api/data/${encodeURIComponent(dataset.id)}/archive`}
+              className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-[12px] whitespace-nowrap border border-transparent text-maia-text-muted hover:bg-maia-sidebar-hover hover:text-maia-text transition-colors shrink-0"
+              title="打包下载数据集全部文件（zip）"
+            >
+              <Download className="h-3.5 w-3.5" />
+              打包下载
+            </a>
           </div>
         </div>
 
@@ -177,7 +192,8 @@ export function DataPreviewView() {
         )}
       </div>
 
-      <div className="flex-1 p-4 max-w-5xl mx-auto space-y-4 w-full">
+      <div className="flex-1 min-h-0 overflow-auto">
+        <div className="p-4 max-w-5xl mx-auto space-y-4 w-full">
         {/* Image gallery */}
         {imageFiles.length > 0 && (
           <Card className="border-maia-border">
@@ -270,26 +286,26 @@ export function DataPreviewView() {
           </Card>
         )}
 
-        {/* CSV table preview */}
-        {csvFiles.length > 0 && (
-          <CsvTablePreview datasetPath={datasetPath} csvFiles={csvFiles} activeIndex={activeCsv} onActiveChange={setActiveCsv} />
-        )}
-
-        {/* Markdown preview */}
+        {/* Markdown 文档：展开时位于预览表格上方，与工具详情（文档在上、代码在下）对齐 */}
         {showDoc && mdFiles.length > 0 && (
           <MarkdownPreview key={activeMd} datasetPath={datasetPath} mdFiles={mdFiles} initialIndex={activeMd} />
         )}
 
-        {/* MD spec summary */}
         {showDoc && specMd && (
           <Card className="border-maia-border">
             <CardBody>
-              <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto">
+              <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap">
                 {specMd.slice(0, 3000)}
               </pre>
             </CardBody>
           </Card>
         )}
+
+        {/* CSV table preview */}
+        {csvFiles.length > 0 && (
+          <CsvTablePreview datasetPath={datasetPath} csvFiles={csvFiles} activeIndex={activeCsv} onActiveChange={setActiveCsv} />
+        )}
+      </div>
       </div>
     </div>
   )

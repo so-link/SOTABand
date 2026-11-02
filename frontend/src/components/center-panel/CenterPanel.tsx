@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useUIStore, type ActiveView, parseAgentDetailView, parseToolDetailView, parseModelDetailView } from '@/stores/ui-store'
+import { useUIStore, type ActiveView, parseAgentDetailView, parseToolDetailView, parseModelDetailView, parseDatasetPreviewView } from '@/stores/ui-store'
 import { useResourceStore } from '@/stores/resource-store'
 import { ChatView } from './ChatView'
 import { DataPreviewView } from './DataPreviewView'
@@ -54,6 +54,7 @@ function ViewTabBar() {
   const agents = useResourceStore((s) => s.agentResources)
   const tools = useResourceStore((s) => s.toolResources)
   const modelResources = useResourceStore((s) => s.modelResources)
+  const datasets = useResourceStore((s) => s.dataResources)
 
   // 「批量关闭标签」下拉菜单
   const [menuOpen, setMenuOpen] = useState(false)
@@ -148,6 +149,12 @@ function ViewTabBar() {
             } else if (modelId) {
               const m = modelResources.find((x: { id: string }) => x.id === modelId)
               cfg = { label: m?.name || modelId, icon: BrainCircuit }
+            } else {
+              const dsId = parseDatasetPreviewView(viewId)
+              if (dsId) {
+                const d = datasets.find((x: { id: string }) => x.id === dsId)
+                cfg = { label: d?.name || dsId, icon: BarChart3 }
+              }
             }
           }
           if (!cfg) return null
@@ -241,6 +248,8 @@ function ViewRouter({ view }: { view: ActiveView }) {
   if (toolId) return <ToolDetailView key={`tool:${toolId}`} toolId={toolId} />
   const modelId = parseModelDetailView(view)
   if (modelId) return <ModelDetailView key={`model:${modelId}`} modelId={modelId} />
+  const datasetId = parseDatasetPreviewView(view)
+  if (datasetId) return <DataPreviewView key={`dataset:${datasetId}`} datasetId={datasetId} />
 
   switch (view) {
     case 'chat': return <ChatView />

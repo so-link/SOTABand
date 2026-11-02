@@ -58,7 +58,6 @@ export function DatasetRepositoryView() {
   }
 
   const handleCardClick = (ds: RepositoryDataset) => {
-    console.log('[DatasetRepositoryView] handleCardClick:', ds.id)
     // 先设置 selectedResource，再切换视图
     const resource = {
       id: ds.id,
@@ -84,8 +83,7 @@ export function DatasetRepositoryView() {
       usageCount: 0,
     }
     selectResource(resource)
-    console.log('[DatasetRepositoryView] selectResource done, switching to data-preview')
-    setActiveView('data-preview')
+    setActiveView(`data-preview:${resource.id}` as never)
   }
 
   const sortLabels: Record<string, string> = { latest: '最新', name: '名称', files: '文件数', size: '数据量' }
