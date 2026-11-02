@@ -21,6 +21,8 @@ from app.api.routes.config_routes import router as config_router
 from app.api.routes.api_routes import router as api_list_router
 from app.api.routes.llm_routes import router as llm_router
 from app.api.routes.auth_routes import router as auth_router
+from app.api.routes.task_routes import router as task_router
+from app.api.routes.cron_routes import router as cron_router
 from core.auth import list_users, verify_token
 from core.auth.session import AuthUser, reset_current_user, set_current_user
 
@@ -42,9 +44,24 @@ async def lifespan(app: FastAPI):
     print(f"[SOTABand] LLM: {settings.llm.provider}/{settings.llm.model}")
     print(f"[SOTABand] API: http://{settings.app.api_host}:{settings.app.api_port}")
 
+    # 定时任务模块：建表 + 载入启用任务开始调度（失败不阻塞主服务启动）
+    try:
+        from core.cron import cron_scheduler
+        from core.cron import store as cron_store
+        cron_store.init()
+        await cron_scheduler.start()
+        print("[SOTABand] 定时任务调度器已启动")
+    except Exception as exc:
+        print(f"[SOTABand] 定时任务调度器启动失败（不影响其它功能）: {exc}")
+
     yield  # 应用运行中
 
-    # 关闭时：停止所有 Agent 子进程
+    # 关闭时：先停调度器（不再触发新任务），再停止所有 Agent 子进程
+    try:
+        from core.cron import cron_scheduler
+        await cron_scheduler.shutdown()
+    except Exception:
+        pass
     for agent_id in list(getattr(agent_factory, "_processes", {}).keys()):
         try:
             await agent_factory.stop(agent_id)
@@ -202,6 +219,8 @@ app.include_router(config_router, prefix="/api/config", tags=["config"])
 app.include_router(api_list_router, prefix="/api/apis", tags=["api"])
 app.include_router(llm_router, prefix="/api/llm", tags=["llm"])
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
+app.include_router(task_router, prefix="/api/task", tags=["task"])
+app.include_router(cron_router, prefix="/api/cron", tags=["cron"])
 
 
 @app.get("/")

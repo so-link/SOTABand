@@ -19,6 +19,8 @@ dependencies = [
     "pyyaml>=6.0",
     "python-multipart>=0.0.9",
     "requests>=2.31.0",
+    # 部分 Linux 发行版自带 libsqlite3 过旧（缺 sqlite3_deserialize 符号），用自带新库的发行版兜底
+    "pysqlite3-binary>=0.5.3; sys_platform == 'linux'",
 ]
 
 [project.optional-dependencies]
