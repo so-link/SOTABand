@@ -1,6 +1,7 @@
 """数据注册中心"""
 
 import json
+import threading
 import time
 from pathlib import Path
 
@@ -22,6 +23,9 @@ def _write_json(path: Path, data) -> None:
 
 DATA_DIR = paths.BUILTIN_ROOT / "data"
 REGISTRY_FILE = DATA_DIR / "registry.json"
+
+# registry.json 读-改-写锁：并发注册/删除时防止后写覆盖前写丢条目
+_WRITE_LOCK = threading.Lock()
 
 
 class DataRegistry(BaseRegistry):
@@ -204,24 +208,25 @@ class DataRegistry(BaseRegistry):
         返回被认领的条目数。
         """
         uid = user_id or get_current_user_id()
-        data = self._read()
-        claimed = 0
-        changed = False
-        for entry in data:
-            # 补全缺失的 visibility：数据集一律补 private
-            if not entry.get("visibility"):
-                entry["visibility"] = VISIBILITY_PRIVATE
-                changed = True
-            # 补全缺失的 storage
-            if not entry.get("storage"):
-                entry["storage"] = detect_storage(entry.get("data_path", ""))
-                changed = True
-            if not entry.get("owner") and self.is_present_locally(entry):
-                entry["owner"] = uid
-                claimed += 1
-                changed = True
-        if changed:
-            self._write(data)
+        with _WRITE_LOCK:
+            data = self._read()
+            claimed = 0
+            changed = False
+            for entry in data:
+                # 补全缺失的 visibility：数据集一律补 private
+                if not entry.get("visibility"):
+                    entry["visibility"] = VISIBILITY_PRIVATE
+                    changed = True
+                # 补全缺失的 storage
+                if not entry.get("storage"):
+                    entry["storage"] = detect_storage(entry.get("data_path", ""))
+                    changed = True
+                if not entry.get("owner") and self.is_present_locally(entry):
+                    entry["owner"] = uid
+                    claimed += 1
+                    changed = True
+            if changed:
+                self._write(data)
         return claimed
 
     async def register(self, resource: dict = None, **kwargs) -> str:
@@ -253,13 +258,14 @@ class DataRegistry(BaseRegistry):
             "storage": detect_storage(resource.get("data_path", "")),
         }
 
-        data = self._read()
-        existing = [i for i, e in enumerate(data) if e["id"] == ds_id]
-        if existing:
-            data[existing[0]] = entry
-        else:
-            data.append(entry)
-        self._write(data)
+        with _WRITE_LOCK:
+            data = self._read()
+            existing = [i for i, e in enumerate(data) if e["id"] == ds_id]
+            if existing:
+                data[existing[0]] = entry
+            else:
+                data.append(entry)
+            self._write(data)
 
         # 保存 MD 规范文档（中文内容，Windows 默认 GBK，必须显式 utf-8）
         if "raw_md" in resource:
@@ -270,9 +276,10 @@ class DataRegistry(BaseRegistry):
         return ds_id
 
     async def unregister(self, resource_id: str):
-        data = self._read()
-        data = [e for e in data if e["id"] != resource_id]
-        self._write(data)
+        with _WRITE_LOCK:
+            data = self._read()
+            data = [e for e in data if e["id"] != resource_id]
+            self._write(data)
 
     async def get(self, resource_id: str) -> dict | None:
         for e in self._read():
@@ -294,8 +301,9 @@ class DataRegistry(BaseRegistry):
         return [e for e in data if self.is_visible(e, owner)]
 
     async def update(self, resource_id: str, updates: dict):
-        data = self._read()
-        for e in data:
-            if e["id"] == resource_id:
-                e.update(updates)
-        self._write(data)
+        with _WRITE_LOCK:
+            data = self._read()
+            for e in data:
+                if e["id"] == resource_id:
+                    e.update(updates)
+            self._write(data)

@@ -588,8 +588,7 @@ async def _auto_generate_tags(tool_id: str, name: str, spec_md: str):
         if tags:
             entry = await registry.get(tool_id)
             if entry:
-                entry["tags"] = tags
-                await registry._save()
+                await registry.update(tool_id, {"tags": tags})
                 print(f"[_auto_generate_tags] 标签已更新 tool_id={tool_id}: {tags}")
         else:
             print(f"[_auto_generate_tags] 无法提取标签 tool_id={tool_id}")
@@ -671,7 +670,13 @@ def _write_workspace(items: list[dict]) -> None:
 
 @router.get("/workspace")
 async def get_workspace():
-    return {"tools": _read_workspace()}
+    """返回工作区工具清单，并过滤已从工具空间删除的条目（防止失效残留）。"""
+    items = _read_workspace()
+    alive_ids = {t.get("id") for t in await registry.list_all()}
+    alive = [t for t in items if t.get("id") in alive_ids]
+    if len(alive) != len(items):
+        _write_workspace(alive)
+    return {"tools": alive}
 
 
 @router.post("/workspace")
@@ -1363,6 +1368,7 @@ def _detect_overflow(new_md: str, outline, node_id: str) -> str | None:
 
 @router.post("/{tool_id}/modify-code")
 async def modify_code(tool_id: str, req: "ModifyCodeRequest"):
+    """AI 修改工具代码（SSE 流式：delta 逐 token 推送，done 返回清理后的完整代码）。"""
     entry = await registry.get(tool_id)
     if not entry: raise HTTPException(404, f"Tool '{tool_id}' not found")
     current_code = req.current_code or ""
@@ -1384,14 +1390,26 @@ User's request:
 
 Modified code:"""
 
-    response = await llm.chat(messages=[{"role":"user","content":prompt}], temperature=0.3, max_tokens=100000)
-    modified_code = response
-    for marker in ("```python", "```"):
-        if marker in modified_code:
-            parts = modified_code.split(marker)
-            if len(parts) > 1: modified_code = parts[1]
-            break
-    return {"modified_code": modified_code.strip(), "original_code": current_code}
+    async def event_stream():
+        try:
+            full = ""
+            async for kind, token in llm.chat_stream_events(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3, max_tokens=100000,
+            ):
+                if kind == "reasoning":
+                    yield {"event": "reasoning", "data": _json.dumps({"token": token}, ensure_ascii=False)}
+                else:
+                    full += token
+                    yield {"event": "delta", "data": _json.dumps({"token": token}, ensure_ascii=False)}
+            yield {"event": "done", "data": _json.dumps(
+                {"modified_code": builder._clean_code(full), "original_code": current_code},
+                ensure_ascii=False)}
+        except Exception as exc:
+            detail = exc.detail if isinstance(exc, HTTPException) else f"{type(exc).__name__}: {exc}"
+            yield {"event": "error", "data": _json.dumps({"detail": detail}, ensure_ascii=False)}
+
+    return EventSourceResponse(event_stream())
 
 
 @router.post("/{tool_id}/modify-and-debug")
@@ -1419,9 +1437,16 @@ async def modify_and_debug(tool_id: str, req: "ModifyAndDebugRequest"):
     builder = ToolCodeBuilder()
     project_root = str(_Path(__file__).resolve().parent.parent.parent.parent)
 
-    # 调试日志目录
+    # 调试日志目录（保留 7 天，写入前顺带清理过期文件，避免无限增长）
     _log_dir = _Path(project_root) / "logs" / "modify_debug"
     _log_dir.mkdir(parents=True, exist_ok=True)
+    _cutoff = datetime.now().timestamp() - 7 * 86400
+    for _old in _log_dir.glob("*.log"):
+        try:
+            if _old.stat().st_mtime < _cutoff:
+                _old.unlink()
+        except OSError:
+            pass
     _log_file = _log_dir / f"{tool_id}_{int(datetime.now().timestamp())}.log"
 
     async def event_generator():

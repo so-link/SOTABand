@@ -14,6 +14,7 @@
 """
 
 import json
+import threading
 import time
 from pathlib import Path
 
@@ -32,6 +33,9 @@ def _write_json(path: Path, data) -> None:
 # 内置资源根（随仓库分发）与私有资源根（本地新建，不入 git）
 TOOLS_DIR = paths.BUILTIN_ROOT / "tools"
 REGISTRY_FILE = TOOLS_DIR / "registry.json"
+
+# registry.json 读-改-写锁：并发注册/删除时防止后写覆盖前写丢条目
+_WRITE_LOCK = threading.Lock()
 
 
 class ToolRegistry(BaseRegistry):
@@ -158,13 +162,14 @@ class ToolRegistry(BaseRegistry):
             "visibility": VISIBILITY_PUBLIC,
         }
 
-        data = self._read()
-        existing = [i for i, e in enumerate(data) if e["id"] == tool_id]
-        if existing:
-            data[existing[0]] = entry
-        else:
-            data.append(entry)
-        self._write(data)
+        with _WRITE_LOCK:
+            data = self._read()
+            existing = [i for i, e in enumerate(data) if e["id"] == tool_id]
+            if existing:
+                data[existing[0]] = entry
+            else:
+                data.append(entry)
+            self._write(data)
 
         # 保存 MD 规范文档（中文内容，Windows 默认 GBK，必须显式 utf-8）
         if "raw_md" in resource:
@@ -202,13 +207,14 @@ class ToolRegistry(BaseRegistry):
             rf = root / "tools" / "registry.json"
             if not rf.exists():
                 continue
-            try:
-                data = json.loads(rf.read_text(encoding="utf-8"))
-            except Exception:
-                continue
-            next_data = [e for e in data if isinstance(e, dict) and e.get("id") != tool_id]
-            if len(next_data) != len(data):
-                _write_json(rf, next_data)
+            with _WRITE_LOCK:
+                try:
+                    data = json.loads(rf.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                next_data = [e for e in data if isinstance(e, dict) and e.get("id") != tool_id]
+                if len(next_data) != len(data):
+                    _write_json(rf, next_data)
 
     async def get(self, tool_id: str) -> dict | None:
         for e in self._read():
@@ -238,8 +244,9 @@ class ToolRegistry(BaseRegistry):
         return [e for e in data if self.is_visible(e, user_id)]
 
     async def update(self, tool_id: str, updates: dict):
-        data = self._read()
-        for e in data:
-            if e["id"] == tool_id:
-                e.update(updates)
-        self._write(data)
+        with _WRITE_LOCK:
+            data = self._read()
+            for e in data:
+                if e["id"] == tool_id:
+                    e.update(updates)
+            self._write(data)

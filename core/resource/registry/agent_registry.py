@@ -15,6 +15,7 @@ Agent 是代码资产 + 编排逻辑，实现代码位于
 
 import json
 import os
+import threading
 import time
 from pathlib import Path
 
@@ -30,6 +31,9 @@ def _write_json(path: Path, data) -> None:
 
 REGISTRY_DIR = paths.BUILTIN_ROOT / "agents"
 REGISTRY_FILE = REGISTRY_DIR / "registry.json"
+
+# registry.json 读-改-写锁：并发注册/删除时防止后写覆盖前写丢条目
+_WRITE_LOCK = threading.Lock()
 
 
 class AgentRegistry(BaseRegistry):
@@ -117,13 +121,14 @@ class AgentRegistry(BaseRegistry):
             "visibility": VISIBILITY_PUBLIC,
         }
 
-        data = self._read()
-        existing = [i for i, e in enumerate(data) if e["id"] == agent_id]
-        if existing:
-            data[existing[0]] = entry
-        else:
-            data.append(entry)
-        self._write(data)
+        with _WRITE_LOCK:
+            data = self._read()
+            existing = [i for i, e in enumerate(data) if e["id"] == agent_id]
+            if existing:
+                data[existing[0]] = entry
+            else:
+                data.append(entry)
+            self._write(data)
 
         # 保存 MD 规范文档——写只进私有根（与 tool/data/model 注册表一致），
         # 内置根是随仓库分发的只读资产，运行期不得写入。
@@ -136,9 +141,10 @@ class AgentRegistry(BaseRegistry):
         return agent_id
 
     async def unregister(self, resource_id: str) -> None:
-        data = self._read()
-        data = [e for e in data if e["id"] != resource_id]
-        self._write(data)
+        with _WRITE_LOCK:
+            data = self._read()
+            data = [e for e in data if e["id"] != resource_id]
+            self._write(data)
 
     async def get(self, resource_id: str) -> dict | None:
         data = self._read()
@@ -169,8 +175,9 @@ class AgentRegistry(BaseRegistry):
         return [e for e in data if self.is_visible(e, user_id)]
 
     async def update(self, resource_id: str, updates: dict) -> None:
-        data = self._read()
-        for e in data:
-            if e["id"] == resource_id:
-                e.update(updates)
-        self._write(data)
+        with _WRITE_LOCK:
+            data = self._read()
+            for e in data:
+                if e["id"] == resource_id:
+                    e.update(updates)
+            self._write(data)

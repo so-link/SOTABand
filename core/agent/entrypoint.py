@@ -167,9 +167,14 @@ async def main():
         result = None
         contents: list = []
         err: str | None = None
+        # 把调用参数平铺进 kwargs，被调方（如 task 型 Agent）可直接按
+        # 自己声明的入参名取用（content 等）；同时保留 bus_method/bus_params
+        # 供只需要自定义方法名的 Agent 使用，两者互不影响。
+        invoke_kwargs = dict(params or {})
+        invoke_kwargs["bus_method"] = method
+        invoke_kwargs["bus_params"] = params or {}
         try:
-            async for event in agent.execute(ctx, bus_method=method,
-                                             bus_params=params or {}):
+            async for event in agent.execute(ctx, **invoke_kwargs):
                 et = event.get("event")
                 if et == "error":
                     err = event.get("data", {}).get("message", "error")

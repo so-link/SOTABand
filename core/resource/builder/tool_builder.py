@@ -63,7 +63,7 @@ from core.llm.client import create_llm_client
 #   工具代码模板 — LLM 以此为基础生成完整文件
 # ================================================================
 
-TOOL_TEMPLATE = '''# === SOTABand 工具标准模板 ===
+TOOL_TEMPLATE = r'''# === SOTABand 工具标准模板 ===
 import os, sys, json, time
 from pathlib import Path
 from typing import Any
@@ -154,6 +154,76 @@ def _call_tool(tool_name: str, **params) -> dict:
         return json.loads(proc.stdout.strip())
     except:
         return {"status": "failed", "message": proc.stderr[:500]}
+
+# ── 资源空间访问辅助（模型空间 / 数据空间） ──
+def _run_async(coro):
+    """在同步上下文中执行异步注册中心调用。
+
+    execute() 是同步函数（不能 async/await），而 ModelRegistry / DataRegistry /
+    ToolRegistry 的 get / register / list_all 都是 async 方法。直接调用只会拿到
+    coroutine 对象，运行时报 'coroutine' object has no attribute 'get'。
+    所有注册中心调用必须经过本函数。
+    """
+    import asyncio, threading
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    box = {}
+    def _worker():
+        try:
+            box["value"] = asyncio.run(coro)
+        except Exception as exc:
+            box["error"] = exc
+    t = threading.Thread(target=_worker)
+    t.start()
+    t.join()
+    if "error" in box:
+        raise box["error"]
+    return box.get("value")
+
+def _model_entry(model_id: str) -> dict:
+    """从模型空间读取模型登记项（同步封装，永不返回 coroutine）。"""
+    from core.resource.registry.model_registry import ModelRegistry
+    return _run_async(ModelRegistry().get(model_id)) or {}
+
+def _model_data(model_id: str) -> dict:
+    """读取模型空间中的模型产物内容（model.json 的 dict）。
+
+    model_path 是相对「模型资源根」的路径（形如 models/<id>/model.json），
+    必须按资源根解析；按项目根解析会命中项目根下残留的同名文件，出现读旧模型的问题。
+    """
+    entry = _model_entry(model_id)
+    rel = (entry or {}).get("model_path") or f"models/{model_id}/model.json"
+    candidates = []
+    p = Path(rel)
+    if p.is_absolute():
+        candidates.append(p)
+    else:
+        roots = []
+        try:
+            from core.resource import paths as _paths
+            roots = list(_paths.resource_roots())
+        except Exception:
+            roots = []
+        # 私有资源根优先（新建模型只写私有根）
+        candidates.extend(Path(str(r)) / "models" / rel for r in reversed(roots))
+    candidates.append(Path(_resolve_path(f"models/{model_id}/model.json")))
+    for cand in candidates:
+        for c in (cand, cand / "model.json"):
+            try:
+                if c.is_file():
+                    with open(c, "r", encoding="utf-8") as f:
+                        return json.load(f)
+            except Exception:
+                continue
+    return {}
+
+def _dataset_dir(dataset_id: str) -> str:
+    """从数据空间取数据集的本地目录（同步封装，永不返回 coroutine）。"""
+    from core.resource.registry.data_registry import DataRegistry
+    entry = _run_async(DataRegistry().get(dataset_id)) or {}
+    return entry.get("data_path", "") or ""
 
 # ── 文件路径辅助 ──
 def _resolve_path(path: str) -> str:
@@ -543,7 +613,23 @@ CRITICAL RULES:
 15. Batch processing over many items MUST be per-item fault-tolerant: wrap each item's work in try/except, collect per-item errors, and only return status:"failed" if ALL items failed. If any item succeeds, return status:"success".
 16. NEVER hardcode any API key, token, password, or secret in the generated code — not as a literal, not as a default value, not in a comment or docstring. Credentials MUST come from input params (kwargs.get("api_key")) or from @LLM自定义配置对话API. If a credential is needed, accept it as an input parameter named api_key and pass it straight through to the API call; never store it, never log it, never print it.
 17. NEVER print, log, or echo credential values (api_key/token/secret) to stdout/stderr or include them in the returned "message"/"data". Tool stdout is recorded into debug logs and may be sent to an LLM for auto-debugging; leaking a key there is irreversible.
-18. Output ONLY Python code, no markdown, no explanation"""
+18. 资源空间访问（模型空间 / 数据空间 / 工具空间）必须使用模板提供的同步封装，禁止直接调用注册中心：
+    - 模型空间：`_model_data(model_id)` 返回 model.json 的 dict，`_model_entry(model_id)` 返回登记项
+    - 数据空间：`_dataset_dir(dataset_id)` 返回数据集本地目录
+    - 必要时直接调用注册中心，必须先包一层 `_run_async(...)`
+    原因：ModelRegistry / DataRegistry / ToolRegistry 的 get / register / list_all 都是 **async** 方法，
+    而 execute() 是同步函数（见规则 10）。直接写成 `ModelRegistry().get(x)` 拿到的是 coroutine 对象，
+    运行时会报 `'coroutine' object has no attribute 'get'`。
+    ❌ `entry = ModelRegistry().get(model_id); entry.get("model_path")`
+    ✅ `data = _model_data(model_id); coef = data.get("coefficients", {{}})`
+    ❌ `path = DataRegistry().get(dataset_id).get("data_path")`
+    ✅ `path = _dataset_dir(dataset_id)`
+19. 模型产物（模型空间 model.json）字段契约，读写两端都必须遵守：
+    - 读：系数按 `coefficients` → `final_coefficients` → `evaluated_coefficients` 顺序取第一组非空且含数值系数的字典；
+      三者都缺失时返回 status:"failed"（说明模型未完成训练），**禁止**用硬编码默认系数继续给出预测。
+    - 写：训练型工具必须在 model.json 顶层写入 `coefficients`（预测实际使用的系数），可另存 evaluated_coefficients / final_coefficients 供审计。
+    原因：训练工具与预测工具由不同会话生成，字段漂移会让预测工具读不到系数、静默输出常量结果。
+20. Output ONLY Python code, no markdown, no explanation"""
 
         # 多模式规则：仅当 MD 声明了多个模式时注入
         modes = self.parse_modes(spec_md)
@@ -575,7 +661,7 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
 
     @staticmethod
     def _clean_code(response: str) -> str:
-        """清理 LLM 返回的代码（去除 markdown 代码块标记）"""
+        """清理 LLM 返回的代码（去除 markdown 代码块标记 + 修复头部转义）"""
         code = response.strip()
         if code.startswith("```python"):
             code = code[len("```python"):]
@@ -587,6 +673,11 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
         if code.startswith("```") and code.count("```") == 2:
             parts = code.split("```")
             code = parts[1].strip() if len(parts) >= 2 else code
+        # 头部 _resolve_path 的反斜杠转义：提示词要求 LLM 完整复现模板头部，
+        # 但模型几乎每次都会把 replace("\\", "/") 退化成 replace("\", "/")，
+        # 该行是不合法的 Python 字面量，会让每个新生成工具都语法报错。
+        # 这里做确定性修复，保证所有生成路径产出的文件都能编译。
+        code = code.replace('replace("\\", "/")', 'replace("\\\\", "/")')
         return code
 
     async def _llm_generate(self, spec_md: str) -> str:

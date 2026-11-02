@@ -202,6 +202,15 @@ class {cls_name}(BaseAgent):
         with open(self._log_file, "a", encoding="utf-8") as f:
             f.write(row)
 
+    def _step(self, step_id: str, text: str, status: str = "running"):
+        """构造前端「工作流程」步骤事件（SSE step）。
+
+        用法: yield self._step("tool", "调用工具", "running")
+              yield self._step("tool", "工具执行完成", "done")
+        status: running / done / error。前端按 step_id 合并状态并自动记录每步耗时。
+        """
+        return {{"event": "step", "data": {{"id": step_id, "text": text, "status": status}}}}
+
     async def _extract_params_with_llm(self, tool_name: str, user_input: str, param_defs: list) -> dict:
         """使用 LLM 从用户输入中智能提取工具/API 所需参数"""
         if not param_defs:
@@ -457,6 +466,7 @@ class AgentCodeBuilder(BaseBuilder):
 ### 模式 A: 首次从用户输入提取参数 → 保存变量 → 调用工具
 ```python
 # Step 1: 从用户输入中一次提取所有变量（只做一次！）
+yield self._step("parse", "解析用户输入", "running")
 self._log_step("步骤1", "从用户输入提取参数", {{"input": content[:100]}})
 extracted = await self._extract_params_with_llm(
     tool_name="提取参数",
@@ -468,18 +478,25 @@ extracted = await self._extract_params_with_llm(
     ]
 )
 self._log_step("步骤1", "参数提取完成", {{"extracted": extracted}})
+yield self._step("parse", "已解析输入参数", "done")
 
 # Step 2: 用提取的变量直接构造工具参数（不要重新从 content 提取！）
 prompt = extracted.get("需求")  # ← 直接用变量
 num = extracted.get("数量")
+yield self._step("tool", "调用工具处理", "running")
 self._log_step("步骤2", "调用工具", {{"prompt": prompt, "num": num}})
 result = self._call_tool_xxx(prompt=prompt, num_images=int(num))
 self._log_step("步骤2", "工具返回", {{"status": result.get("status")}})
+if result.get("status") != "success":
+    yield self._step("tool", "工具执行失败", "error")
+else:
+    yield self._step("tool", "工具执行完成", "done")
 ```
 
 ### 模式 B: 上一步输出 → LLM 提取数据 → 调用下一个工具
 ```python
 # Step N: 用 LLM 从上一步输出中提取下一工具所需参数（仅此场景用 LLM 提取）
+yield self._step("step_n", "从上一步结果提取参数", "running")
 prev_output = json.dumps(prev_result, ensure_ascii=False)
 self._log_step("步骤N", "从上步输出提取参数", {{"output": prev_output[:200]}})
 next_params = await self._extract_params_with_llm(
@@ -490,15 +507,18 @@ next_params = await self._extract_params_with_llm(
 self._log_step("步骤N", "调用工具", {{"params": next_params}})
 next_result = self._call_tool_next_tool(**next_params)
 self._log_step("步骤N", "工具返回", {{"status": next_result.get("status")}})
+yield self._step("step_n", "该步骤完成", "done")
 ```
 【重要】绝对不要用硬编码字段！禁止 `prev_result["data"]["field"]`！
 【重要】_extract_params_with_llm 只在两种场景调用: (1)首次从 content 提取 (2)从上一步工具输出提取。其他场景都用已提取的变量。
 
 ### 模式 C: 用 LLM 生成最终回复（最后一步）
 ```python
+yield self._step("reply", "生成回复", "running")
 llm = self._get_llm()
 prompt_text = f"根据结果生成自然语言回复: {{json.dumps(result, ensure_ascii=False)}}"
 response = await llm.chat(messages=[{{"role": "user", "content": prompt_text}}])
+yield self._step("reply", "回复完成", "done")
 yield {{"event": "content", "data": {{"text": response}}}}
 ```
 
@@ -507,13 +527,15 @@ yield {{"event": "content", "data": {{"text": response}}}}
 1. `content = kwargs.get("content", "").strip()` 获取用户输入
 2. 按 MD 规范的"执行流程"逐步执行，每步对应一个代码段落
 3. **每步执行前/后记录日志**: `self._log_step("步骤名", "操作描述", input_data={{...}}, output_data={{...}})`
-4. 第一个工具：用 `await self._extract_params_with_llm()` 从用户输入 content 中提取参数，保存到局部变量
-5. 后续工具：【重要】用已提取的变量直接构造参数，绝对不要再次对 content 调用 _extract_params_with_llm
-6. 仅当需要从上一步工具输出中提取数据时，才再次调用 _extract_params_with_llm，输入为 json.dumps(prev_result)
-6. 【禁止】绝对不要硬编码字段: 禁止 result["data"]["xxx"] 或 result.get("data",{{}}).get("xxx") — 始终用 LLM 提取
-7. 调用 `self._call_tool_xxx(...)` 或 `self._call_api_xxx(...)`
-8. 最后一步用 LLM 将结果转化为自然语言回复
-9. 错误处理: yield error 后 yield done
+4. **每步开始/结束向前端发工作流程事件**: 步骤开始 `yield self._step("步骤id", "人类可读的步骤描述", "running")`，成功 `yield self._step("步骤id", "完成描述", "done")`，失败 `yield self._step("步骤id", "失败描述", "error")`。步骤 id 在同一步骤的 running/done/error 之间保持一致，不同步骤用不同 id（如 parse/tool/reply），描述用中文、面向用户
+5. 第一个工具：用 `await self._extract_params_with_llm()` 从用户输入 content 中提取参数，保存到局部变量
+6. 后续工具：【重要】用已提取的变量直接构造参数，绝对不要再次对 content 调用 _extract_params_with_llm
+7. 仅当需要从上一步工具输出中提取数据时，才再次调用 _extract_params_with_llm，输入为 json.dumps(prev_result)
+8. 【禁止】绝对不要硬编码字段: 禁止 result["data"]["xxx"] 或 result.get("data",{{}}).get("xxx") — 始终用 LLM 提取
+9. 调用 `self._call_tool_xxx(...)` 或 `self._call_api_xxx(...)`
+10. 最后一步用 LLM 将结果转化为自然语言回复
+11. 错误处理: yield error 事件前先 yield 对应的 _step(..., "error")，再 yield done
+12. **必须是合法 Python 字面量**: 布尔值与空值一律写 `True` / `False` / `None`，禁止写 JSON/JS 风格的 `true` / `false` / `null` / `undefined`。这类写法在运行时直接报 `name 'true' is not defined`，且静态语法检查不会报错，只能靠试运行才发现
 
 ## 生成规则
 
