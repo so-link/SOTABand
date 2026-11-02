@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  ArrowLeft, Search, ChevronLeft, ChevronRight,
+  Search, ChevronLeft, ChevronRight,
   Trash2, Plus, Check, Package, Download, Upload, X, Loader2, AlertTriangle,
   FileText, Image as ImageIcon, Table, Bot, Globe, Wrench, Music, Film, Folder,
 } from 'lucide-react'
@@ -170,9 +170,6 @@ export function RepositoryView() {
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-maia-border bg-maia-bg/50 shrink-0">
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="ghost" className="h-7 px-2 text-[13px]" onClick={() => setActiveView('chat')}>
-            <ArrowLeft className="h-3.5 w-3.5 mr-1" />返回空间
-          </Button>
           <span className="text-[13px] font-semibold text-maia-text-heading">
             工具仓库（共 {tools.length} 个）
           </span>

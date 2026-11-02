@@ -60,14 +60,14 @@ export function RightPanel() {
     return (
       <div className="flex flex-col h-full">
         <div className="flex items-stretch h-9 shrink-0 border-b border-maia-border bg-maia-bg">
+          <TabButton active={dataTab === 'detail'} onClick={() => setDataTab('detail')}>
+            资源详情
+          </TabButton>
           <TabButton active={dataTab === 'files'} onClick={() => setDataTab('files')}>
             数据集文件
             {previewFiles.length > 0 && (
               <span className="text-[11px] text-maia-text-muted">{previewFiles.length}</span>
             )}
-          </TabButton>
-          <TabButton active={dataTab === 'detail'} onClick={() => setDataTab('detail')}>
-            资源详情
           </TabButton>
         </div>
         <div className="flex-1 min-h-0">

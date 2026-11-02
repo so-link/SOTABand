@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
-import { Database, Image, Loader2, ChevronLeft, ChevronRight, Plus, Package } from 'lucide-react'
+import { Database, Image, Loader2, ChevronLeft, ChevronRight, Plus, Package, FileText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardBody } from '@/components/ui/card'
+import { cn } from '@/lib/utils'
 import { useResourceStore } from '@/stores/resource-store'
 import { useUIStore } from '@/stores/ui-store'
 import { CsvTablePreview } from './CsvTablePreview'
@@ -37,6 +38,8 @@ export function DataPreviewView() {
   const setActiveCsv = useResourceStore((s) => s.setActiveCsvIndex)
   const setActiveMd = useResourceStore((s) => s.setActiveMdIndex)
   const setPreviewFiles = useResourceStore((s) => s.setPreviewFiles)
+  // MD 文档（说明文档 / spec）默认收起，只显示数据预览，与工具详情一致
+  const [showDoc, setShowDoc] = useState(false)
 
   useEffect(() => {
     if (!dataset) return
@@ -137,24 +140,41 @@ export function DataPreviewView() {
   const pageImages = imageFiles.slice((safePage - 1) * pageSize, safePage * pageSize)
 
   return (
-    <div className="flex flex-col h-full bg-maia-surface overflow-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-maia-border bg-maia-bg/50 shrink-0">
-        <div className="flex items-center gap-2">
-          <Database className="h-4 w-4 text-blue-500" />
-          <span className="text-sm font-semibold text-maia-text-heading">{dataset.name}</span>
-          <Badge variant="success">v{dataset.version}</Badge>
-          <Badge variant="accent">{dataset.format?.toUpperCase()}</Badge>
+    <div className="flex flex-col h-full bg-maia-surface">
+      {/* Header：第一行身份与统计，第二行文档工具条（与工具详情页对齐） */}
+      <div className="shrink-0 border-b border-maia-border bg-maia-bg/40">
+        <div className="flex items-center gap-2 px-4 h-11 min-w-0">
+          <Database className="h-4 w-4 text-blue-500 shrink-0" />
+          <span className="text-[14px] font-semibold text-maia-text-heading truncate min-w-0">{dataset.name}</span>
+          <Badge variant="success" className="shrink-0">v{dataset.version}</Badge>
+          <Badge variant="accent" className="shrink-0">{dataset.format?.toUpperCase()}</Badge>
+          <div className="ml-auto flex items-center gap-2 text-[12px] text-maia-text-muted shrink-0">
+            {files.length > 0 && <span>{files.length} 个文件</span>}
+            {imageFiles.length > 0 && <span>· {imageFiles.length} 张图片</span>}
+            {dataset.fileSize > 0 && (
+              <span>
+                {dataset.fileSize > 1048576 ? `${(dataset.fileSize / 1048576).toFixed(1)} MB` : `${(dataset.fileSize / 1024).toFixed(1)} KB`}
+              </span>
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-2 text-[12px] text-maia-text-muted">
-          {files.length > 0 && <span>{files.length} 个文件</span>}
-          {imageFiles.length > 0 && <span>· {imageFiles.length} 张图片</span>}
-          {dataset.fileSize > 0 && (
-            <span>
-              {dataset.fileSize > 1048576 ? `${(dataset.fileSize / 1048576).toFixed(1)} MB` : `${(dataset.fileSize / 1024).toFixed(1)} KB`}
-            </span>
-          )}
-        </div>
+
+        {(specMd || mdFiles.length > 0) && (
+          <div className="flex items-center gap-1 px-3 h-9 border-t border-maia-border/60 overflow-x-auto">
+            <button
+              onClick={() => setShowDoc(v => !v)}
+              className={cn(
+                'inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-[12px] whitespace-nowrap border transition-colors shrink-0',
+                showDoc
+                  ? 'bg-maia-accent-light text-maia-accent border-maia-accent-border'
+                  : 'text-maia-text-muted border-transparent hover:bg-maia-sidebar-hover hover:text-maia-text',
+              )}
+            >
+              <FileText className="h-3.5 w-3.5" />
+              {showDoc ? '收起 MD 文档' : 'MD 文档'}
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="flex-1 p-4 max-w-5xl mx-auto space-y-4 w-full">
@@ -256,12 +276,12 @@ export function DataPreviewView() {
         )}
 
         {/* Markdown preview */}
-        {mdFiles.length > 0 && (
+        {showDoc && mdFiles.length > 0 && (
           <MarkdownPreview key={activeMd} datasetPath={datasetPath} mdFiles={mdFiles} initialIndex={activeMd} />
         )}
 
         {/* MD spec summary */}
-        {specMd && (
+        {showDoc && specMd && (
           <Card className="border-maia-border">
             <CardBody>
               <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto">
