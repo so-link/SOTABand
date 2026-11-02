@@ -602,7 +602,7 @@ function PlatformConfirmCard({
       ? { text: '已过期', variant: 'default' as const }
       : isDanger
         ? { text: '高危操作', variant: 'danger' as const }
-        : { text: '写操作', variant: 'warning' as const }
+        : { text: '需确认后执行', variant: 'warning' as const }
 
   return (
     <Card className={isDanger ? 'border-maia-danger bg-maia-danger-bg' : 'border-maia-card-amber bg-maia-card-amber'}>

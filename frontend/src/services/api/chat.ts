@@ -14,7 +14,11 @@ export class ApiChatService implements IChatService {
     this.baseUrl = baseUrl || BASE_URL
   }
 
-  async *sendMessage(input: CreateMessageInput): AsyncGenerator<Message> {
+  async *sendMessage(
+    input: CreateMessageInput,
+    opts?: { onTitle?: (title: string, sessionId: string) => void },
+  ): AsyncGenerator<Message> {
+    const onTitle = opts?.onTitle
     // 创建新的 AbortController
     this.currentAbortController = new AbortController()
     this.currentSessionId = input.sessionId || 'default'
@@ -103,6 +107,12 @@ export class ApiChatService implements IChatService {
                     timestamp: new Date().toISOString(),
                     cards: pendingCards.length > 0 ? pendingCards : undefined,
                   }
+                  break
+
+                case 'title':
+                  // 会话标题总结完成：回调 store 刷新「对话历史」列表
+                  // （不构造消息，title 事件是流内最后一条，无需 yield）
+                  onTitle?.(payload.title || '', payload.session_id || '')
                   break
 
                 case 'stopped':
@@ -201,4 +211,30 @@ export function cancelPlatformCall(req: {
   sessionId: string
 }): Promise<PlatformOpReceipt> {
   return postPlatformOp('/api/chat/platform-call/cancel', { ...req, userId: 'default' })
+}
+
+/** 平台操作审计流水条目 */
+export interface PlatformOpRow {
+  op_id: string
+  session_id: string
+  tool: string
+  risk: string
+  status: string
+  result_json?: string
+  error?: string
+  created_at: number
+}
+
+/** 查询会话的平台操作审计流水（恢复历史时回放确认卡终态用） */
+export async function fetchPlatformOps(sessionId: string, limit = 200): Promise<PlatformOpRow[]> {
+  try {
+    const res = await fetch(
+      `${BASE_URL}/api/chat/platform-ops?session_id=${encodeURIComponent(sessionId)}&limit=${limit}`,
+    )
+    if (!res.ok) return []
+    const data = await res.json()
+    return Array.isArray(data.ops) ? data.ops : []
+  } catch {
+    return []
+  }
 }

@@ -91,6 +91,83 @@ async function refreshSpacesForAction(action: unknown): Promise<void> {
   } catch { /* 刷新失败不影响对话 */ }
 }
 
+/**
+ * 从历史恢复后回放平台操作终态：落库的确认卡是下发时的 pending 快照，
+ * 确认/执行发生在前端内存里，刷新后会「退回待确认」。用审计流水（按
+ * owner+session 过滤）把 op 的最终状态写回卡片 data，并为已执行/失败的
+ * 操作补上结果卡，使历史视图与执行时一致。
+ */
+async function replayPlatformCards(sessionId: string): Promise<void> {
+  try {
+    const { fetchPlatformOps } = await import('@/services/api/chat')
+    const ops = await fetchPlatformOps(sessionId)
+    if (ops.length === 0) return
+    // op_id → 最终审计行（后端按时间倒序返回，首次出现即最新）
+    const finalByOp = new Map<string, (typeof ops)[number]>()
+    for (const o of ops) {
+      if (o.op_id && !finalByOp.has(o.op_id)) finalByOp.set(o.op_id, o)
+    }
+    const stateOf = (status: string): string | null => {
+      if (status === 'executed') return 'confirmed'
+      if (status === 'failed') return 'failed'
+      if (status === 'cancelled') return 'cancelled'
+      if (status === 'superseded') return 'superseded'
+      // pending / confirmed / confirm_rejected 等中间态与异常态不改卡片：
+      // 是否过期由卡片按 expires_at 自行判定，避免误标成"未执行成功"
+      return null
+    }
+    let changedAny = false
+    const before = useChatStore.getState().messages
+    const patched = before.map((m) => {
+      if (!m.cards?.length) return m
+      let cards = m.cards
+      let changed = false
+      // ① 确认卡回放到终态
+      cards = cards.map((c) => {
+        if (c.type !== 'platform-confirm') return c
+        const opId = String((c.data as Record<string, unknown>)?.op_id || '')
+        const row = opId ? finalByOp.get(opId) : undefined
+        const st = row ? stateOf(row.status) : null
+        if (!st) return c
+        changed = true
+        return { ...c, data: { ...c.data, status: st, submitting: undefined } }
+      })
+      // ② 已执行/失败但缺结果卡（结果卡只在内存中追加过）→ 按审计补上
+      for (const c of cards) {
+        if (c.type !== 'platform-confirm') continue
+        const d = c.data as Record<string, unknown>
+        const opId = String(d.op_id || '')
+        const row = opId ? finalByOp.get(opId) : undefined
+        if (!row || !['executed', 'failed'].includes(row.status)) continue
+        if (cards.some((x) => x.type === 'platform-result'
+          && String((x.data as Record<string, unknown>)?.op_id || '') === opId)) continue
+        let result: unknown
+        try { result = row.result_json ? JSON.parse(row.result_json) : undefined } catch { result = undefined }
+        cards = [...cards, {
+          id: `card-replay-${opId}`,
+          type: 'platform-result' as const,
+          title: row.status === 'executed' ? '平台操作已执行' : '平台操作未执行',
+          summary: String(d.summary || ''),
+          data: {
+            op_id: opId,
+            tool: row.tool,
+            status: row.status === 'executed' ? 'ok' : 'error',
+            result,
+            error: row.error || undefined,
+          },
+        }]
+        changed = true
+      }
+      return changed ? { ...m, cards } : m
+    })
+    changedAny = patched.some((m, i) => m !== before[i])
+    // 回放请求期间用户可能已切走会话，此时不能再覆盖新会话的消息
+    if (changedAny && useChatStore.getState().sessionId === sessionId) {
+      useChatStore.setState({ messages: patched })
+    }
+  } catch { /* 回放失败保持快照展示 */ }
+}
+
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   isSending: false,
@@ -188,7 +265,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
           cards: Array.isArray(m.cards) && m.cards.length > 0 ? m.cards as Message['cards'] : undefined,
         }),
       )
+      // 落库的卡片是下发时的 pending 快照：用审计流水把已确认/已执行/已取消的
+      // 操作回放成终态，并补上缺失的执行结果卡，刷新后不再看到假「待确认」。
       set({ messages: restored, sessionId, isSending: false })
+      void replayPlatformCards(sessionId)
     } catch { /* ignore */ }
   },
 
@@ -277,6 +357,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       title: ok ? '平台操作已执行' : '平台操作未执行',
       summary: String(d.summary || ''),
       data: {
+        op_id: opId,
         tool,
         status: ok ? 'ok' : 'error',
         result: receipt.result,
@@ -372,7 +453,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const { useWorkspaceToolStore } = await import('@/stores/workspace-tool-store')
         workspaceToolIds = useWorkspaceToolStore.getState().tools.map(t => t.id)
       } catch { /* ignore */ }
-      const stream = chatService.sendMessage({ content: finalText, attachments: attachedFiles, workspaceToolIds, sessionId: get().sessionId })
+      const stream = chatService.sendMessage(
+        { content: finalText, attachments: attachedFiles, workspaceToolIds, sessionId: get().sessionId },
+        {
+          // 后端标题总结完成后立即推送：刷新「对话历史」即时显示新标题
+          onTitle: () => set((s) => ({ sessionsVersion: s.sessionsVersion + 1 })),
+        },
+      )
 
       for await (const chunk of stream) {
         // 卡片 _action 钩子：平台操作成功后自动刷新对应空间
