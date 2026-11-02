@@ -102,6 +102,36 @@ class AgentBusClient:
         finally:
             self._pending.pop(req, None)
 
+    async def platform_call(self, tool: str, args: dict | None = None, *,
+                            session_id: str = "default", user_id: str = "default",
+                            timeout: float = 300) -> dict:
+        """请求主进程执行一次平台工具调用（对话内控制系统）。
+
+        子进程**不直接访问数据库/文件系统/registry**：一切平台能力都经主进程
+        的 core.chat_control 网关执行，由它做身份注入、参数校验、风险分级与审计。
+        返回网关的结构化结果：{"status": "ok"|"pending"|"error", ...}；
+        通道故障也回结构化 error，不抛异常。
+        """
+        req = self._next_req()
+        loop = asyncio.get_event_loop()
+        fut = loop.create_future()
+        self._pending[req] = fut
+        sent = await self._send(make_frame(
+            "o", "platform_call", req=req, tool=tool, args=args or {},
+            session_id=session_id, user_id=user_id, src=self.agent_id))
+        if not sent:
+            self._pending.pop(req, None)
+            return {"status": "error", "tool": tool,
+                    "error": "与引擎的通信通道不可用，平台操作未执行"}
+        try:
+            # 网关侧全链路硬超时 300s，这里留 30s 余量
+            return await asyncio.wait_for(fut, timeout=timeout + 30)
+        except asyncio.TimeoutError:
+            return {"status": "error", "tool": tool,
+                    "error": f"平台调用超时（{timeout}s），操作结果以引擎审计记录为准"}
+        finally:
+            self._pending.pop(req, None)
+
     # ── entrypoint 内部：接收主进程帧 ──
 
     def resolve(self, frame: dict) -> None:
@@ -113,6 +143,13 @@ class AgentBusClient:
                 "result": frame.get("result"),
                 "error": frame.get("error"),
             })
+
+    def resolve_platform(self, frame: dict) -> None:
+        """唤醒 platform_call 的等待（收到 platform_call_response 帧时调用）。"""
+        fut = self._pending.get(frame.get("req"))
+        if fut is not None and not fut.done():
+            fut.set_result(frame.get("result") or {
+                "status": "error", "error": "网关未返回结果"})
 
     async def deliver(self, frame: dict) -> None:
         """投递订阅消息 / 被调 RPC。RPC 被调侧经 handle_call 回调执行。"""

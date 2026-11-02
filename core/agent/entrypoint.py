@@ -269,6 +269,8 @@ async def main():
                     t = msg.get("type")
                     if t == "agent_call_response":
                         bus.resolve(msg)
+                    elif t == "platform_call_response":
+                        bus.resolve_platform(msg)
                     elif t in ("bus_message", "agent_call"):
                         # 作为任务投递：长 RPC 不阻塞读循环
                         asyncio.ensure_future(bus.deliver(msg))

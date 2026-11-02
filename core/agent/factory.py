@@ -137,6 +137,32 @@ class AgentFactory:
                         "result": frame.get("result"),
                         "error": frame.get("error"),
                     })
+        elif t == "platform_call":
+            # 子进程请求平台操作：交给网关（引擎进程内、以会话用户身份执行）。
+            # 作为任务运行——网关可能耗时较长（生成类操作），不能阻塞读循环。
+            asyncio.ensure_future(self._handle_platform_call(src, frame))
+
+    async def _handle_platform_call(self, src: str, frame: dict):
+        """把子进程的 platform_call 帧交给 core.chat_control 网关并回执结果。
+
+        身份取帧内 user_id（= 发起对话的用户），由网关注入 contextvar，
+        因此对话内的权限边界与手工操作一致。异常一律转成结构化错误回给
+        子进程，绝不让读循环侧的异常逃逸。
+        """
+        from core.agent.protocol import FRAME_PLATFORM_CALL_RESPONSE, make_frame
+        req = frame.get("req")
+        try:
+            from core.chat_control import gateway
+            result = await gateway.platform_call(
+                str(frame.get("tool", "")), frame.get("args") or {},
+                owner=str(frame.get("user_id") or "default"),
+                session_id=str(frame.get("session_id") or "default"),
+            )
+        except Exception as e:
+            result = {"status": "error", "tool": frame.get("tool"),
+                      "error": f"网关异常: {type(e).__name__}: {e}"}
+        await self._deliver(src, make_frame(
+            "i", FRAME_PLATFORM_CALL_RESPONSE, req=req, result=result))
 
     async def _fanout(self, frame: dict):
         from core.agent.protocol import FRAME_BUS_MESSAGE, make_frame

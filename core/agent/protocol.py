@@ -19,6 +19,8 @@ stdin/stdout JSON-line 通道。为区分「旧执行协议」与「通信帧」
     agent_call             i  主→子：转发 RPC 请求 {from, method, params}
     agent_reply            o  子→主：RPC 应答 {ok, result|error}
     agent_call_response    i  主→子：（发起方收到的 RPC 结果回执）
+    platform_call          o  子→主：平台工具调用 {tool, args, session_id, user_id}
+    platform_call_response i  主→子：平台调用回执（网关返回的结构化结果）
 
 语义约定：
 - Pub/Sub 为尽力而为：目标未启动/未订阅时消息丢弃，不排队重投。
@@ -36,11 +38,14 @@ FRAME_BUS_MESSAGE = "bus_message"
 FRAME_AGENT_CALL = "agent_call"
 FRAME_AGENT_REPLY = "agent_reply"
 FRAME_AGENT_CALL_RESPONSE = "agent_call_response"
+FRAME_PLATFORM_CALL = "platform_call"
+FRAME_PLATFORM_CALL_RESPONSE = "platform_call_response"
 
 BUS_FRAME_TYPES = frozenset({
     FRAME_BUS_SUBSCRIBE, FRAME_BUS_UNSUBSCRIBE, FRAME_BUS_PUBLISH,
     FRAME_BUS_MESSAGE, FRAME_AGENT_CALL, FRAME_AGENT_REPLY,
     FRAME_AGENT_CALL_RESPONSE,
+    FRAME_PLATFORM_CALL, FRAME_PLATFORM_CALL_RESPONSE,
 })
 
 
