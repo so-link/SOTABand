@@ -113,43 +113,24 @@ async def main():
         agent = None
         agent_loaded = False
 
-    # 通过 stdin/stdout JSON-line 协议通信
-    reader = asyncio.StreamReader()
-    protocol = asyncio.StreamReaderProtocol(reader)
-    await asyncio.get_event_loop().connect_read_pipe(lambda: protocol, sys.stdin)
+    # 通过 stdin/stdout JSON-line 协议通信；Windows 的 Proactor 无法连接这里的标准流管道。
+    # 因此读写都走线程（asyncio.to_thread），完全绕开 pipe transport。
+    write_lock = asyncio.Lock()
 
-    # 写入端：Windows(ProactorEventLoop) 下 connect_write_pipe 对父进程重定向的
-    # sys.stdout 会抛 OSError WinError 6「句柄无效」。改用同步写入 + flush 即可，
-    # 对 JSON-line 协议足够（主进程按行读取，带 flush 即能及时送达），且跨平台通用。
-    class _StdoutWriter:
-        def write(self, data: bytes):
-            try:
-                sys.stdout.buffer.write(data)
-                sys.stdout.buffer.flush()
-            except Exception:
-                try:
-                    sys.stdout.write(data.decode("utf-8", "replace"))
-                    sys.stdout.flush()
-                except Exception:
-                    pass
-
-        async def drain(self):
-            return None
-
-    writer = _StdoutWriter()
+    def write_line(line: bytes):
+        sys.stdout.buffer.write(line)
+        sys.stdout.buffer.flush()
 
     async def send_event(event: dict):
         """发送 JSON 行到主进程。
 
-        注意：必须显式 await drain()。asyncio.StreamWriter.write() 仅把数据放入
-        缓冲区，不保证立即送出；若不 drain，事件会滞留在缓冲区，导致主进程读取端
-        「一直转圈」等待——每次用户输入都要等缓冲区满或进程结束才能真正收到。
-        这正是「交互 Agent 每步输入都要等很久」的根因。
+        每条事件写完立即 flush，避免主进程等待缓冲区填满；锁保证后台任务
+        与主循环同时发事件时不会交错写入。
         """
-        line = json.dumps(event, ensure_ascii=False) + "\n"
-        writer.write(line.encode())
+        line = (json.dumps(event, ensure_ascii=False) + "\n").encode("utf-8")
         try:
-            await writer.drain()
+            async with write_lock:
+                await asyncio.to_thread(write_line, line)
         except Exception:
             pass
 
@@ -196,7 +177,7 @@ async def main():
     try:
         while True:
             try:
-                line = await reader.readline()
+                line = await asyncio.to_thread(sys.stdin.buffer.readline)
                 if not line:
                     break  # stdin closed → 主进程要求退出
 

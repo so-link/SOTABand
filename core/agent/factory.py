@@ -407,10 +407,9 @@ class AgentFactory:
         # 空闲超时（idle）：单次 readline 长时间无新事件不代表任务卡死——
         # 训练类任务可能数分钟不产生中间输出。故给予较大的空闲容忍度，
         # 仅在「确实长时间完全无输出且进程仍存活」时才放弃等待。
-        buffer = b""
         deadline = (time.time() + timeout) if timeout else None
         idle_timeout = max(600.0, float(timeout)) if timeout else 3600.0
-        while proc.returncode is None:
+        while True:
             if deadline is not None and time.time() > deadline:
                 yield {"event": "error", "data": {"message": f"Agent 执行超时 ({int(timeout)}s)"}}
                 try:
@@ -421,7 +420,9 @@ class AgentFactory:
             try:
                 line = await asyncio.wait_for(proc.stdout.readline(), timeout=idle_timeout)
                 if not line:
-                    break
+                    yield {"event": "error",
+                           "data": {"message": f"Agent '{agent_id}' 进程已退出"}}
+                    return
                 line = line.strip()
                 if not line:
                     continue
@@ -439,8 +440,9 @@ class AgentFactory:
                 yield {"event": "error",
                        "data": {"message": f"Agent 长时间无响应（{int(idle_timeout)}s 无输出）"}}
                 break
-            except Exception:
-                break
+            except Exception as e:
+                yield {"event": "error", "data": {"message": f"读取 Agent 响应失败: {e}"}}
+                return
 
     def is_running(self, agent_id: str) -> bool:
         proc = self._processes.get(agent_id)
