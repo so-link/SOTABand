@@ -206,6 +206,9 @@ class ToolExecutor:
         impl_dir = cls._resolve_impl_dir(tool_id)
         python_exe = cls._get_python_exe(tool_id)
 
+        # 是否按 tool_id 从注册目录加载代码（vs 调用方直传 code 的调试路径）。
+        # 计数判定用；不能事后判 code is None——下面加载会把 code 覆盖为文件内容。
+        from_registry = code is None
         if code is None:
             impl_file = impl_dir / "tool.py"
             if not impl_file.exists():
@@ -250,7 +253,7 @@ class ToolExecutor:
                 result.setdefault("stderr", stderr.decode('utf-8', errors='replace')[:500])
             # 按 tool_id 真实执行成功 → 使用次数 +1（沙箱测试/自动调试传
             # code 直接执行不走计数，避免把调试点击数算进真实使用）
-            if code is None and result.get("status") == "success":
+            if from_registry and result.get("status") == "success":
                 cls._bump_usage(tool_id)
             return result
 
@@ -289,6 +292,8 @@ class ToolExecutor:
         impl_dir = cls._resolve_impl_dir(tool_id)
         python_exe = cls._get_python_exe(tool_id)
 
+        # 计数判定见 execute() 同名变量说明
+        from_registry = code is None
         if code is None:
             impl_file = impl_dir / "tool.py"
             if not impl_file.exists():
@@ -316,7 +321,7 @@ class ToolExecutor:
             if proc.returncode != 0 and result.get("status") != "success":
                 result.setdefault("stderr", proc.stderr[:500])
             # 按 tool_id 真实执行成功 → 使用次数 +1（与 execute() 一致）
-            if code is None and result.get("status") == "success":
+            if from_registry and result.get("status") == "success":
                 cls._bump_usage(tool_id)
             return result
         finally:
