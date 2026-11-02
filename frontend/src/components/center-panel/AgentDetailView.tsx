@@ -591,7 +591,7 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                   <span className="text-[13px] font-medium text-maia-text-secondary">MD 规范文档</span>
                   <button onClick={() => setShowSpec(false)}><X className="h-3 w-3 text-maia-text-muted" /></button>
                 </div>
-                <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto bg-maia-bg rounded p-3 border border-maia-border">
+                <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap bg-maia-bg rounded p-3 border border-maia-border">
                   {specMd || '加载中...'}
                 </pre>
               </CardBody>
@@ -608,7 +608,7 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                   <span className="text-[13px] font-medium text-maia-text-secondary">用户需求描述</span>
                   <button onClick={() => setShowDemand(false)}><X className="h-3 w-3 text-maia-text-muted" /></button>
                 </div>
-                <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto bg-maia-bg rounded p-3 border border-maia-border">
+                <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap bg-maia-bg rounded p-3 border border-maia-border">
                   {demandMd}
                 </pre>
               </CardBody>
@@ -658,7 +658,7 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                     className="w-full max-h-[400px] min-h-[240px] text-[13px] font-mono leading-[22px] text-maia-text bg-maia-bg rounded p-3 border border-maia-border outline-none resize-y focus:border-maia-accent/40"
                   />
                 ) : (
-                  <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto bg-maia-bg rounded p-3 border border-maia-border">
+                  <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap bg-maia-bg rounded p-3 border border-maia-border">
                     {code || '加载中...'}
                   </pre>
                 )}
@@ -795,7 +795,7 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                       {!serviceInfo.running && <span className="text-[12px] text-maia-text-muted ml-2">（请先点击顶部「启动」）</span>}
                     </div>
                     {testResult && (
-                      <pre className="mt-3 text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap max-h-[300px] overflow-auto bg-maia-bg rounded p-3 border border-maia-border">
+                      <pre className="mt-3 text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap bg-maia-bg rounded p-3 border border-maia-border">
                         {testResult}
                       </pre>
                     )}

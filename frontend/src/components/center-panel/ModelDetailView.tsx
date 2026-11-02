@@ -136,7 +136,7 @@ export function ModelDetailView({ modelId }: { modelId?: string }) {
             <Card className="border-maia-border">
               <CardBody>
                 <div className="text-[13px] font-medium text-maia-text-secondary mb-2">MD 规范文档</div>
-                <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto bg-maia-bg rounded p-3">
+                <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap bg-maia-bg rounded p-3">
                   {model.spec_md || '（无规范文档）'}
                 </pre>
               </CardBody>

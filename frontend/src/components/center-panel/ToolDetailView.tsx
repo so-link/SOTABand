@@ -611,7 +611,7 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
                   <div className={`h-2 w-2 rounded-full ${output.status === 'success' ? 'bg-maia-success' : 'bg-maia-danger'}`} />
                   <span className="text-[13px] font-medium text-maia-text-secondary">{output.status === 'success' ? '执行成功' : '执行失败'}</span>
                 </div>
-                <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap max-h-[300px] overflow-auto bg-maia-bg rounded p-3 border border-maia-border">{JSON.stringify(output, null, 2)}</pre>
+                <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap bg-maia-bg rounded p-3 border border-maia-border">{JSON.stringify(output, null, 2)}</pre>
               </CardBody></Card>)}
             </div>
           </div>
@@ -625,15 +625,15 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
           </div>
           {showSpec && (<Card className="border-maia-border"><CardBody>
             <div className="flex items-center justify-between mb-2"><span className="text-[13px] font-medium text-maia-text-secondary">MD 规范文档</span><button onClick={() => setShowSpec(false)}><X className="h-3 w-3 text-maia-text-muted" /></button></div>
-            <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto bg-maia-bg rounded p-3">{specMd || '加载中...'}</pre>
+            <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap bg-maia-bg rounded p-3">{specMd || '加载中...'}</pre>
           </CardBody></Card>)}
           {showDemand && demandText && (<Card className="border-maia-border"><CardBody>
             <div className="flex items-center justify-between mb-2"><span className="text-[13px] font-medium text-maia-text-secondary">用户需求描述</span><button onClick={() => setShowDemand(false)}><X className="h-3 w-3 text-maia-text-muted" /></button></div>
-            <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto bg-maia-bg rounded p-3">{demandText}</pre>
+            <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap bg-maia-bg rounded p-3">{demandText}</pre>
           </CardBody></Card>)}
           {showReference && referenceCode && (<Card className="border-purple-200 bg-purple-50/30"><CardBody>
             <div className="flex items-center justify-between mb-2"><span className="text-[13px] font-medium text-maia-accent">参考代码</span><button onClick={() => setShowReference(false)}><X className="h-3 w-3 text-maia-text-muted" /></button></div>
-            <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap max-h-[400px] overflow-auto bg-maia-bg rounded p-3 border border-maia-border">{referenceCode}</pre>
+            <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap bg-maia-bg rounded p-3 border border-maia-border">{referenceCode}</pre>
           </CardBody></Card>)}
           <div>
             <h3 className="text-sm font-semibold text-maia-text-heading mb-3">输入参数</h3>
@@ -661,7 +661,7 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
               <div className={`h-2 w-2 rounded-full ${output.status === 'success' ? 'bg-maia-success' : 'bg-maia-danger'}`} />
               <span className="text-[13px] font-medium text-maia-text-secondary">{output.status === 'success' ? '执行成功' : '执行失败'}</span>
             </div>
-            <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap max-h-[300px] overflow-auto bg-maia-bg rounded p-3 border border-maia-border">{JSON.stringify(output, null, 2)}</pre>
+            <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap bg-maia-bg rounded p-3 border border-maia-border">{JSON.stringify(output, null, 2)}</pre>
           </CardBody></Card>)}
           </div>
         )}
