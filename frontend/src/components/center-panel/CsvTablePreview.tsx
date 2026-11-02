@@ -134,7 +134,8 @@ export function CsvTablePreview({ datasetPath, csvFiles, activeIndex, onActiveCh
           </div>
         </div>
 
-        <div className="overflow-auto max-h-[500px] border border-maia-border rounded">
+        {/* 纵向由中栏内容区统一滚动，这里只保留横向滚动，避免出现两层滚动条 */}
+        <div className="overflow-x-auto border border-maia-border rounded">
           <table className="w-full text-[13px] border-collapse">
             <thead className="sticky top-0 z-10">
               <tr className="bg-maia-bg">

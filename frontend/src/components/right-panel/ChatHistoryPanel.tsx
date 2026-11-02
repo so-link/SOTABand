@@ -50,7 +50,7 @@ export function ChatHistoryPanel() {
   return (
     <div className="flex flex-col h-full w-full min-w-0 overflow-hidden">
       <div className="flex items-center h-9 px-3 shrink-0 border-b border-maia-border">
-        <span className="text-[13px] text-maia-text-muted">对话历史</span>
+        <span className="text-[13px] font-semibold text-maia-text">对话历史</span>
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-2 flex flex-col gap-0.5">
