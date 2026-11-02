@@ -28,6 +28,7 @@ export class ApiChatService implements IChatService {
         workspaceToolIds: input.workspaceToolIds || [],
         sessionId: this.currentSessionId,
         userId: 'default',
+        ...(input.kind ? { kind: input.kind, receipt: input.receipt || {} } : {}),
       }),
       signal: this.currentAbortController.signal,
     })

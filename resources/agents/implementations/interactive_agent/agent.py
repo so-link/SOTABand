@@ -96,6 +96,23 @@ class InteractiveAgent(BaseAgent):
         attachments = kwargs.get("attachments", [])
         workspace_tool_ids = kwargs.get("workspace_tool_ids", [])
 
+        # 隐藏轮次：用户在确认卡片上点「确认执行」后，前端把网关回执回传。
+        # 助手必须用自然语言把执行结果解读进对话（结果会进入会话历史，
+        # 供用户后续针对结果继续讨论），而不是让 JSON 停在卡片里。
+        if kwargs.get("kind") == "platform_receipt":
+            try:
+                async for event in self._explain_platform_receipt(
+                    ctx, kwargs.get("receipt") or {},
+                    ctx.session_id or "default"):
+                    yield event
+            except Exception as e:
+                yield {"event": "error",
+                       "data": {"code": "fatal_error", "message": str(e)}}
+            finally:
+                yield {"event": "done",
+                       "data": {"messageId": f"msg-{int(time.time() * 1000)}"}}
+            return
+
         if not content.strip():
             yield {"event": "done", "data": {"messageId": ctx.session_id}}
             return
@@ -643,6 +660,46 @@ class InteractiveAgent(BaseAgent):
             text = text[:6000] + "…（结果已截断）"
         return text
 
+    async def _explain_platform_receipt(
+        self, ctx: AgentContext, receipt: dict, session_key: str
+    ) -> AsyncGenerator[dict, None]:
+        """把平台操作的网关回执解读成自然语言发给用户。
+
+        回执轮是前端代发的隐藏轮次（UI 无用户消息），因此这里以内部
+        user 消息驱动 LLM；解读文本会进入会话历史与落库，用户后续可以
+        直接针对结果继续追问讨论。
+        """
+        tool = str(receipt.get("tool") or "平台操作")
+        ok = receipt.get("status") in ("ok", "executed")
+        payload = {
+            "tool": tool,
+            "summary": receipt.get("summary") or "",
+            "result": receipt.get("result") if ok else None,
+            "error": receipt.get("error") if not ok else None,
+        }
+        note = (
+            f"（系统回执，非用户输入）用户刚在确认卡片上确认了平台操作，"
+            f"{'已成功执行' if ok else '执行失败'}。网关回执："
+            f"{self._clip_tool_result(payload)}\n"
+            "请用简洁的中文向用户解读这次操作的结果：做了什么、关键数据或 ID、"
+            "下一步建议。数据类结果提炼要点，不要照抄 JSON。"
+            "不要向用户提及本条系统回执本身。"
+        )
+        history = self._sessions.get(session_key) or []
+        if not history:
+            history = [{"role": "system", "content": self._build_system_with_context([])}]
+        history = history + [{"role": "user", "content": note}]
+        full = ""
+        async for token in self.llm.chat_stream(
+            messages=history,
+            temperature=0.2,
+            max_tokens=self.config.get("max_tokens", 100000),
+        ):
+            full += token
+            yield {"event": "content", "data": {"text": token}}
+        history.append({"role": "assistant", "content": full})
+        self._sessions[session_key] = history
+
     async def _match_agent(self, query: str):
         """判断用户是否明确指定了某个已注册 Agent。
 
@@ -726,6 +783,26 @@ class InteractiveAgent(BaseAgent):
         if isinstance(resp, dict) and "未运行" in str(resp.get("error", "")):
             # 锁定该 Agent：用户下一条短回复会补全请求后自动重试
             self._pending_agents[session_key] = {"agent": agent_entry, "request": request}
+            # 直接经平台网关发起 start_agent（写操作 → 确认卡片），
+            # 用户在卡片上确认即可由系统拉起，无需去 Agent 空间手动启动。
+            if self._bus is not None:
+                r = await self._bus.platform_call(
+                    "start_agent", {"agent_id": aid},
+                    session_id=session_key, user_id="default")
+                if isinstance(r, dict) and r.get("status") == "pending" and r.get("confirm"):
+                    yield {
+                        "event": "card",
+                        "data": {
+                            "type": "platform-confirm",
+                            "title": "请确认平台操作",
+                            "summary": r["confirm"].get("summary", ""),
+                            "data": r["confirm"],
+                        },
+                    }
+                    yield {"event": "content",
+                           "data": {"text": f"**{name}** 当前未运行。在上方卡片点「确认执行」我就启动它；"
+                                             "启动后回复「继续」，我会重新提交任务。"}}
+                    return
             yield {"event": "content",
                    "data": {"text": f"**{name}** 当前未运行。请到 Agent 空间启动它；启动后直接回复我（如「继续」），我会重新提交任务。"}}
             return

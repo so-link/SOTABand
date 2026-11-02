@@ -33,6 +33,8 @@ interface ChatState {
   pruneAttachmentsToValidIds: (validIds: Set<string>) => void
   sendMessage: () => Promise<void>
   sendDirectMessage: (content: string) => Promise<void>
+  /** 隐藏轮次：把平台操作回执交给助手解读，生成一条新的助手气泡 */
+  explainPlatformReceipt: (receipt: Record<string, unknown>) => Promise<void>
   stopMessage: () => void
   addMessage: (msg: Message) => void
   clearMessages: () => void
@@ -284,6 +286,46 @@ export const useChatStore = create<ChatState>((set, get) => ({
       },
     })
     if (ok) await refreshSpacesForAction(tool)
+    // 把网关回执交回助手，用自然语言解读进对话（隐藏轮次）。
+    // 助手繁忙时跳过——结果卡本身已完整展示，不影响功能。
+    void get().explainPlatformReceipt({
+      tool,
+      status: ok ? 'ok' : 'error',
+      summary: String(d.summary || ''),
+      result: receipt.result,
+      error: receipt.error,
+    })
+  },
+
+  explainPlatformReceipt: async (receipt) => {
+    // 平台确认卡执行成功后的隐藏轮次：不落 user 消息，仅生成助手解读气泡
+    if (get().isSending) return
+    set({ isSending: true })
+    const agentMsgId = genId()
+    set((s) => ({
+      messages: [...s.messages, {
+        id: agentMsgId, role: 'agent', content: '',
+        timestamp: new Date().toISOString(),
+      }],
+    }))
+    try {
+      const stream = chatService.sendMessage({
+        content: '（平台操作回执）', kind: 'platform_receipt', receipt,
+        sessionId: get().sessionId,
+      })
+      for await (const chunk of stream) {
+        set((s) => ({
+          messages: s.messages.map((m) =>
+            m.id === agentMsgId
+              ? { ...m, content: chunk.content, cards: chunk.cards || m.cards }
+              : m
+          ),
+        }))
+      }
+    } catch { /* 解读失败不影响结果卡本身 */ }
+    finally {
+      set((s) => ({ isSending: false, sessionsVersion: s.sessionsVersion + 1 }))
+    }
   },
 
   sendDirectMessage: async (content) => {

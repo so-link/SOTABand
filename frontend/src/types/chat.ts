@@ -53,4 +53,8 @@ export interface CreateMessageInput {
   attachments?: FileAttachment[]
   workspaceToolIds?: string[]
   sessionId?: string
+  /** 隐藏轮次标记："platform_receipt" = 前端代发平台操作回执，UI 不显示用户消息 */
+  kind?: string
+  /** 网关回执 {tool, status, summary, result, error}，供助手解读 */
+  receipt?: Record<string, unknown>
 }

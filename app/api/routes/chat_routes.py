@@ -144,9 +144,13 @@ async def chat_send(request: ChatRequest):
         task_history.accumulate(
             task_id, int((time.time() - round_started) * 1000), status, error)
 
-    # 对话持久化：用户消息即时落库；Agent 回复在流结束时聚合落库
-    chat_store.append_message(session_id, DEFAULT_INTERACTIVE_AGENT_ID,
-                              "user", request.content)
+    # 对话持久化：用户消息即时落库；Agent 回复在流结束时聚合落库。
+    # 平台回执轮（kind=platform_receipt）是前端代发的隐藏轮次，不算用户发言，
+    # 不落 user 消息，只让助手把执行结果解读进对话。
+    is_receipt = request.kind == "platform_receipt"
+    if not is_receipt:
+        chat_store.append_message(session_id, DEFAULT_INTERACTIVE_AGENT_ID,
+                                  "user", request.content)
     reply_parts: list[str] = []
     reply_cards: list[dict] = []
 
@@ -165,6 +169,8 @@ async def chat_send(request: ChatRequest):
                     "content": request.content,
                     "attachments": attachments,
                     "workspace_tool_ids": request.workspace_tool_ids,
+                    "kind": request.kind,
+                    "receipt": request.receipt,
                 },
                 context={"session_id": session_id, "user_id": request.user_id or "default"},
                 # 不设总超时：工具可能长时间执行（如模型训练），由用户通过
