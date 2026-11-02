@@ -250,3 +250,20 @@ class ToolRegistry(BaseRegistry):
                 if e["id"] == tool_id:
                     e.update(updates)
             self._write(data)
+
+    def bump_usage_count(self, tool_id: str) -> None:
+        """工具被使用一次：usage_count 自增（同步方法，供执行器调用）。
+
+        之前 usage_count 只在 register 时初始化为 0，此后从未自增，导致
+        仓库列表「已用次数」永远不变。这里做成同步读-改-写，便于在
+        子进程执行外层（async 与同步两条路径）直接调用，无需区分事件循环。
+        """
+        with _WRITE_LOCK:
+            data = self._read()
+            for e in data:
+                if e["id"] == tool_id:
+                    e["usage_count"] = int(e.get("usage_count", 0)) + 1
+                    break
+            else:
+                return  # 未注册的工具不计数
+            self._write(data)

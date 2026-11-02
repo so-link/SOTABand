@@ -49,6 +49,15 @@ class ToolExecutor:
         """项目根目录"""
         return Path(__file__).resolve().parent.parent.parent
 
+    @staticmethod
+    def _bump_usage(tool_id: str) -> None:
+        """工具被真实执行一次 → usage_count 自增（称不上计数失败即忽略）。"""
+        try:
+            from core.resource.registry.tool_registry import ToolRegistry
+            ToolRegistry().bump_usage_count(tool_id)
+        except Exception:
+            pass  # 计数失败不影响执行结果
+
     @classmethod
     def _resolve_impl_dir(cls, tool_id: str) -> Path:
         """在「内置 + 私有」资源根中定位工具实现目录。
@@ -239,6 +248,10 @@ class ToolExecutor:
             result = cls._parse_output(stdout.decode('utf-8', errors='replace'))
             if proc.returncode != 0 and result.get("status") != "success":
                 result.setdefault("stderr", stderr.decode('utf-8', errors='replace')[:500])
+            # 按 tool_id 真实执行成功 → 使用次数 +1（沙箱测试/自动调试传
+            # code 直接执行不走计数，避免把调试点击数算进真实使用）
+            if code is None and result.get("status") == "success":
+                cls._bump_usage(tool_id)
             return result
 
         except asyncio.CancelledError:
@@ -302,6 +315,9 @@ class ToolExecutor:
             result = cls._parse_output(proc.stdout.strip())
             if proc.returncode != 0 and result.get("status") != "success":
                 result.setdefault("stderr", proc.stderr[:500])
+            # 按 tool_id 真实执行成功 → 使用次数 +1（与 execute() 一致）
+            if code is None and result.get("status") == "success":
+                cls._bump_usage(tool_id)
             return result
         finally:
             os.unlink(tmp_path)
