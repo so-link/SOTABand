@@ -99,14 +99,75 @@ function ViewTabBar() {
   const scrollTabs = (dir: number) =>
     scrollRef.current?.scrollBy({ left: dir * 160, behavior: 'smooth' })
 
+  // 「对话」是固定标签，永远渲染在滚动区之外（最左侧）；
+  // 其余标签在滚动容器内，多时用 < / > 滚动。
+  const chatView = openViews.includes('chat') ? 'chat' : null
+  const scrollableViews = openViews.filter((v) => v !== 'chat')
+
   // 激活标签变化（打开新资源/点左侧资源）时，把对应标签滚动进可视区。
   // 标签超出容器宽度时新标签会落在视口外，不滚过去用户看不到刚打开的标签。
   useEffect(() => {
+    if (activeView === 'chat') return
     const container = scrollRef.current
     if (!container) return
     const el = container.querySelector(`[data-view="${CSS.escape(activeView)}"]`)
     el?.scrollIntoView({ behavior: 'smooth', inline: 'nearest', block: 'nearest' })
   }, [activeView, openViews.length])
+
+  // 按 viewId 渲染单个标签（对话标签与滚动标签共用）
+  const renderTab = (viewId: string) => {
+    // 参数化视图（单个 Agent/工具/模型）动态解析标题与图标
+    const agentId = parseAgentDetailView(viewId)
+    const toolId = parseToolDetailView(viewId)
+    const modelId = parseModelDetailView(viewId)
+    let cfg = TAB_CONFIG[viewId as keyof typeof TAB_CONFIG] as
+      | { label: string; icon: typeof MessageSquare }
+      | undefined
+    if (!cfg) {
+      if (agentId) {
+        const a = agents.find((x: { id: string }) => x.id === agentId)
+        cfg = { label: a?.name || agentId, icon: Bot }
+      } else if (toolId) {
+        const t = tools.find((x: { id: string }) => x.id === toolId)
+        cfg = { label: t?.name || toolId, icon: Bot }
+      } else if (modelId) {
+        const m = modelResources.find((x: { id: string }) => x.id === modelId)
+        cfg = { label: m?.name || modelId, icon: BrainCircuit }
+      } else {
+        const dsId = parseDatasetPreviewView(viewId)
+        if (dsId) {
+          const d = datasets.find((x: { id: string }) => x.id === dsId)
+          cfg = { label: d?.name || dsId, icon: BarChart3 }
+        }
+      }
+    }
+    if (!cfg) return null
+    const Icon = cfg.icon
+    const isActive = activeView === viewId
+    const isChat = viewId === 'chat'
+    return (
+      <button
+        key={viewId}
+        data-view={viewId}
+        onClick={() => setActiveView(viewId)}
+        className={`flex items-center gap-1.5 h-6 px-2.5 rounded text-[13px] transition-colors shrink-0 group min-w-[72px] ${
+          isActive
+            ? 'bg-maia-bg text-maia-text border border-maia-border'
+            : 'text-maia-text-muted hover:text-maia-text-secondary hover:bg-maia-sidebar-hover'
+        }`}
+      >
+        <Icon className="h-3.5 w-3.5" />
+        <span className="max-w-[140px] truncate">{cfg.label}</span>
+        {!isChat && (
+          <span
+            onClick={(e) => { e.stopPropagation(); closeView(viewId) }}
+            className="ml-auto p-0.5 rounded-sm opacity-0 group-hover:opacity-100 hover:bg-maia-sidebar-hover hover:text-maia-danger transition-all"
+            title="关闭"
+          ><X className="h-3 w-3" /></span>
+        )}
+      </button>
+    )
+  }
 
   return (
     <div className="flex items-center h-9 border-b border-maia-border bg-maia-surface px-1 gap-1 shrink-0 select-none">
@@ -117,6 +178,9 @@ function ViewTabBar() {
       >
         <PanelLeft className="h-3.5 w-3.5" />
       </button>
+      {/* 固定标签：永远在滚动区外，不随右侧标签滚动 */}
+      {chatView && renderTab(chatView)}
+      {/* 左滚动箭头放在固定标签之后：对话标签始终在 < 的左边 */}
       {canScrollLeft && (
         <button
           onClick={() => scrollTabs(-1)}
@@ -131,59 +195,7 @@ function ViewTabBar() {
         onScroll={updateArrows}
         className="flex-1 min-w-0 flex items-center gap-1 overflow-x-hidden"
       >
-        {openViews.map((viewId) => {
-          // 参数化视图（单个 Agent/工具/模型）动态解析标题与图标
-          const agentId = parseAgentDetailView(viewId)
-          const toolId = parseToolDetailView(viewId)
-          const modelId = parseModelDetailView(viewId)
-          let cfg = TAB_CONFIG[viewId as keyof typeof TAB_CONFIG] as
-            | { label: string; icon: typeof MessageSquare }
-            | undefined
-          if (!cfg) {
-            if (agentId) {
-              const a = agents.find((x: { id: string }) => x.id === agentId)
-              cfg = { label: a?.name || agentId, icon: Bot }
-            } else if (toolId) {
-              const t = tools.find((x: { id: string }) => x.id === toolId)
-              cfg = { label: t?.name || toolId, icon: Bot }
-            } else if (modelId) {
-              const m = modelResources.find((x: { id: string }) => x.id === modelId)
-              cfg = { label: m?.name || modelId, icon: BrainCircuit }
-            } else {
-              const dsId = parseDatasetPreviewView(viewId)
-              if (dsId) {
-                const d = datasets.find((x: { id: string }) => x.id === dsId)
-                cfg = { label: d?.name || dsId, icon: BarChart3 }
-              }
-            }
-          }
-          if (!cfg) return null
-          const Icon = cfg.icon
-          const isActive = activeView === viewId
-          const isChat = viewId === 'chat'
-          return (
-            <button
-              key={viewId}
-              data-view={viewId}
-              onClick={() => setActiveView(viewId)}
-              className={`flex items-center gap-1.5 h-6 px-2.5 rounded text-[13px] transition-colors shrink-0 group ${isChat ? 'min-w-[72px]' : 'min-w-[72px]'} ${
-                isActive
-                  ? 'bg-maia-bg text-maia-text border border-maia-border'
-                  : 'text-maia-text-muted hover:text-maia-text-secondary hover:bg-maia-sidebar-hover'
-              }`}
-            >
-              <Icon className="h-3.5 w-3.5" />
-              <span className="max-w-[140px] truncate">{cfg.label}</span>
-              {!isChat && (
-                <span
-                  onClick={(e) => { e.stopPropagation(); closeView(viewId) }}
-                  className="ml-auto p-0.5 rounded-sm opacity-0 group-hover:opacity-100 hover:bg-maia-sidebar-hover hover:text-maia-danger transition-all"
-                  title="关闭"
-                ><X className="h-3 w-3" /></span>
-              )}
-            </button>
-          )
-        })}
+        {scrollableViews.map((viewId) => renderTab(viewId))}
       </div>
       {canScrollRight && (
         <button
