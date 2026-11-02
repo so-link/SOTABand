@@ -381,6 +381,22 @@ class SecurityConfig:
     audit_log_enabled: bool = True
     max_code_size: int = 1024 * 1024  # 1MB
 
+    # ── 代码安全审查 ──
+    # enforce: 静态违规阻止注册/执行，运行时违规强制失败
+    # audit:   只记录违规，不拦截（灰度观察期推荐）
+    # off:     完全关闭
+    review_mode: str = "enforce"
+    # 运行时文件写入白名单（绝对路径或相对项目根）
+    allowed_write_paths: list = field(default_factory=lambda: ["data", "logs", "output"])
+    # 运行时网络访问白名单（主机名）；空列表 = 网络不拦截，仅记录
+    allowed_network_hosts: list = field(default_factory=list)
+    runtime_enforce_network: bool = False
+    # 子进程资源限制
+    max_cpu_seconds: int = 300
+    max_memory_mb: int = 8192
+    max_file_size_mb: int = 512
+    max_processes: int = 64
+
 
 @dataclass
 class ObservabilityConfig:
