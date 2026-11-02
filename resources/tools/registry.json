@@ -36,57 +36,6 @@
     ]
   },
   {
-    "id": "mnist-digit-recognizer",
-    "name": "MNIST数字识别器",
-    "version": "0.1.0",
-    "type": "function",
-    "language": "python",
-    "status": "active",
-    "spec_path": "definitions/mnist-digit-recognizer.md",
-    "impl_path": "implementations/mnist-digit-recognizer/",
-    "input_schema": {},
-    "output_schema": {},
-    "tags": [
-      "手写识别",
-      "数字识别",
-      "图像分类",
-      "深度学习",
-      "MNIST"
-    ],
-    "usage_count": 0,
-    "created_at": "2026-06-30T02:48:17Z",
-    "param_meta": [
-      {
-        "name": "image_path",
-        "type": "string",
-        "required": true,
-        "default": null,
-        "desc": "待识别图片的本地文件路径，支持常见格式如PNG、JPG",
-        "hints": [
-          "图片路径",
-          "图像文件",
-          "要识别的图片",
-          "手写数字图片",
-          "本地图片"
-        ]
-      },
-      {
-        "name": "model_path",
-        "type": "string",
-        "required": false,
-        "default": "./mnist_model.pth",
-        "desc": "预训练模型权重文件的路径",
-        "hints": [
-          "模型文件",
-          "权重文件",
-          "模型路径",
-          "pth文件",
-          "预训练模型"
-        ]
-      }
-    ]
-  },
-  {
     "id": "face-detection",
     "name": "人脸检测",
     "version": "0.1.0",
@@ -345,71 +294,6 @@
     ],
     "usage_count": 0,
     "created_at": "2026-07-03T08:32:18Z"
-  },
-  {
-    "id": "milkshake-data-analysis",
-    "name": "奶昔数据分析",
-    "version": "0.1.0",
-    "type": "function",
-    "language": "python",
-    "status": "active",
-    "spec_path": "definitions/milkshake-data-analysis.md",
-    "impl_path": "implementations/milkshake-data-analysis/",
-    "input_schema": {},
-    "output_schema": {},
-    "param_meta": [
-      {
-        "name": "mode",
-        "type": "string",
-        "required": true,
-        "default": null,
-        "desc": "功能模式，可选 train（训练）或 predict（预测）",
-        "hints": [
-          "模式",
-          "训练还是预测",
-          "功能选项",
-          "train",
-          "predict"
-        ]
-      },
-      {
-        "name": "csv_file",
-        "type": "string",
-        "required": true,
-        "default": null,
-        "desc": "CSV 数据文件的路径",
-        "hints": [
-          "CSV文件",
-          "数据文件",
-          "文件路径",
-          "数据集",
-          "csv路径"
-        ]
-      },
-      {
-        "name": "model_type",
-        "type": "string",
-        "required": true,
-        "default": null,
-        "desc": "回归模型类型，可选 random_forest、xgboost、gradient_boosting、svr、linear_regression、ridge",
-        "hints": [
-          "模型",
-          "算法",
-          "选择模型",
-          "random_forest",
-          "xgboost",
-          "模型类型"
-        ]
-      }
-    ],
-    "tags": [
-      "机器学习",
-      "奶昔配方",
-      "品质预测",
-      "数据分析"
-    ],
-    "usage_count": 0,
-    "created_at": "2026-07-03T09:10:28Z"
   },
   {
     "id": "data-cleaner-extract",
@@ -903,11 +787,33 @@
         "name": "lang",
         "type": "string",
         "required": false,
-        "default": "zh",
-        "desc": "返回信息的语言，支持 ISO 639-1 代码（如 \"en\"）",
+        "default": "zh_cn",
+        "desc": "返回信息的语言，支持 zh_cn / en",
         "hints": [
-          "zh",
+          "zh_cn",
           "en"
+        ]
+      },
+      {
+        "name": "units",
+        "type": "string",
+        "required": false,
+        "default": "metric",
+        "desc": "温度单位制：metric（摄氏度）/ imperial（华氏度）",
+        "hints": [
+          "metric",
+          "imperial"
+        ]
+      },
+      {
+        "name": "output_format",
+        "type": "string",
+        "required": false,
+        "default": "text",
+        "desc": "输出格式：text（文本）/ table（表格）",
+        "hints": [
+          "text",
+          "table"
         ]
       }
     ],
@@ -1547,38 +1453,6 @@
     ],
     "usage_count": 0,
     "created_at": "2026-07-31T05:55:40Z"
-  },
-  {
-    "id": "function-plotter",
-    "name": "函数画图",
-    "version": "0.1.0",
-    "type": "function",
-    "language": "python",
-    "status": "active",
-    "spec_path": "definitions/function-plotter.md",
-    "impl_path": "implementations/function-plotter/",
-    "input_schema": {},
-    "output_schema": {},
-    "param_meta": [
-      {
-        "name": "equation",
-        "type": "string",
-        "required": true,
-        "default": null,
-        "desc": "一元函数表达式，例如 `sin(x)+2*x`（无需写 `y=`）。支持 Python 数学运算符及部分常用函数。",
-        "hints": [
-          "sin(x)+2*x"
-        ]
-      }
-    ],
-    "tags": [
-      "函数绘图",
-      "数学可视化",
-      "图像生成",
-      "代数工具"
-    ],
-    "usage_count": 0,
-    "created_at": "2026-08-01T08:31:52Z"
   },
   {
     "id": "generate-milk-shake-experiment-data",

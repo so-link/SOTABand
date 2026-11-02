@@ -1,8 +1,0 @@
-{
-  "input": {
-    "mode": "hello",
-    "csv_file": "hello",
-    "model_type": "hello"
-  },
-  "description": "正常输入"
-}
