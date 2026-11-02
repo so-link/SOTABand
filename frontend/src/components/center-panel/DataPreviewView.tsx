@@ -6,8 +6,9 @@ import { Card, CardBody } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import { useResourceStore } from '@/stores/resource-store'
 import { useUIStore } from '@/stores/ui-store'
-import { CsvTablePreview } from './CsvTablePreview'
+import { DataTablePreview } from './DataTablePreview'
 import { MarkdownPreview } from './MarkdownPreview'
+import { TextPreview } from './TextPreview'
 import type { DataResource } from '@/types/resources'
 
 const BASE_URL = ''
@@ -40,8 +41,10 @@ export function DataPreviewView({ datasetId }: { datasetId?: string }) {
   // 右栏「数据集文件」列表点选文件即可切换中栏预览。
   const activeCsv = useResourceStore((s) => s.activeCsvIndex)
   const activeMd = useResourceStore((s) => s.activeMdIndex)
+  const activeText = useResourceStore((s) => s.activeTextIndex)
   const setActiveCsv = useResourceStore((s) => s.setActiveCsvIndex)
   const setActiveMd = useResourceStore((s) => s.setActiveMdIndex)
+  const setActiveText = useResourceStore((s) => s.setActiveTextIndex)
   const setPreviewFiles = useResourceStore((s) => s.setPreviewFiles)
   // MD 文档（说明文档 / spec）默认收起，只显示数据预览，与工具详情一致
   const [showDoc, setShowDoc] = useState(false)
@@ -136,8 +139,10 @@ export function DataPreviewView({ datasetId }: { datasetId?: string }) {
   const datasetPath = ((detail?.dataset as Record<string, unknown>)?.data_path as string) || ''
 
   const imageFiles = files.filter(isImageFile)
-  const csvFiles = files.filter(f => ((f.format as string) || '').toLowerCase() === 'csv')
+  // 可表格化的格式统一走后端 /table 接口，中栏表格布局对各类格式保持一致
+  const tableFiles = files.filter(f => ['csv', 'tsv', 'xlsx', 'xls', 'parquet', 'pq'].includes(((f.format as string) || '').toLowerCase()))
   const mdFiles = files.filter(f => ((f.format as string) || '').toLowerCase() === 'md')
+  const textFiles = files.filter(f => ['json', 'jsonl', 'txt'].includes(((f.format as string) || '').toLowerCase()))
 
   // 分页
   const totalPages = Math.max(1, Math.ceil(imageFiles.length / pageSize))
@@ -193,7 +198,8 @@ export function DataPreviewView({ datasetId }: { datasetId?: string }) {
       </div>
 
       <div className="flex-1 min-h-0 overflow-auto">
-        <div className="p-4 max-w-5xl mx-auto space-y-4 w-full">
+        {/* 单栏宽度与工具详情（max-w-2xl）对齐 */}
+        <div className="p-4 max-w-2xl mx-auto space-y-4 w-full">
         {/* Image gallery */}
         {imageFiles.length > 0 && (
           <Card className="border-maia-border">
@@ -301,9 +307,14 @@ export function DataPreviewView({ datasetId }: { datasetId?: string }) {
           </Card>
         )}
 
-        {/* CSV table preview */}
-        {csvFiles.length > 0 && (
-          <CsvTablePreview datasetPath={datasetPath} csvFiles={csvFiles} activeIndex={activeCsv} onActiveChange={setActiveCsv} />
+        {/* 表格预览：CSV / Excel / Parquet 统一表格组件，布局一致 */}
+        {tableFiles.length > 0 && (
+          <DataTablePreview datasetId={dataset.id} tableFiles={tableFiles} activeIndex={activeCsv} onActiveChange={setActiveCsv} />
+        )}
+
+        {/* JSON / TXT 纯文本预览 */}
+        {textFiles.length > 0 && (
+          <TextPreview key={`text:${activeText}`} datasetPath={datasetPath} textFiles={textFiles} initialIndex={activeText} />
         )}
       </div>
       </div>

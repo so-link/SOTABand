@@ -47,12 +47,14 @@ interface ResourceState {
   previewFiles: Array<Record<string, unknown>>
   activeCsvIndex: number
   activeMdIndex: number
+  activeTextIndex: number
 
   selectResource: (resource: Resource | null) => void
   setCachedToolForDetail: (tool: ToolResource | null) => void
   setPreviewFiles: (datasetId: string, datasetPath: string, files: Array<Record<string, unknown>>) => void
   setActiveCsvIndex: (idx: number) => void
   setActiveMdIndex: (idx: number) => void
+  setActiveTextIndex: (idx: number) => void
   fetchResources: (type: ResourceType) => Promise<void>
   fetchAllResources: () => Promise<void>
   fetchAgentsFromApi: () => Promise<void>
@@ -78,6 +80,7 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
   previewFiles: [],
   activeCsvIndex: 0,
   activeMdIndex: 0,
+  activeTextIndex: 0,
 
   setPreviewFiles: (datasetId, datasetPath, files) => set({
     previewDatasetId: datasetId,
@@ -85,9 +88,11 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
     previewFiles: files,
     activeCsvIndex: 0,
     activeMdIndex: 0,
+    activeTextIndex: 0,
   }),
   setActiveCsvIndex: (idx) => set({ activeCsvIndex: idx }),
   setActiveMdIndex: (idx) => set({ activeMdIndex: idx }),
+  setActiveTextIndex: (idx) => set({ activeTextIndex: idx }),
 
   selectResource: (resource) => {
     const state: Partial<ResourceState> = { selectedResource: resource }

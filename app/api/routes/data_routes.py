@@ -542,6 +542,50 @@ async def match_tools(req: MatchToolsRequest):
     }
 
 
+@router.get("/{dataset_id}/table")
+async def preview_table(dataset_id: str, path: str = Query(..., description="数据集内相对路径"), limit: int = Query(200)):
+    """读取数据集内的表格文件（csv/xlsx/xls/parquet/tsv），返回统一表格结构供中栏预览。"""
+    entry = await registry.get(dataset_id)
+    if not entry:
+        raise HTTPException(404, f"Dataset '{dataset_id}' not found")
+
+    data_path = registry.resolve_data_path(entry.get("data_path", ""))
+    target = (data_path / path).resolve()
+    # 防目录穿越：只允许读取数据集目录内的文件
+    if not str(target).startswith(str(data_path.resolve())) or not target.is_file():
+        raise HTTPException(404, f"文件不存在: {path}")
+
+    suffix = target.suffix.lower()
+    try:
+        import pandas as pd
+
+        if suffix == ".csv":
+            df = pd.read_csv(target, nrows=limit)
+        elif suffix == ".tsv":
+            df = pd.read_csv(target, sep="\t", nrows=limit)
+        elif suffix in (".xlsx", ".xls"):
+            df = pd.read_excel(target, nrows=limit)
+        elif suffix in (".parquet", ".pq"):
+            df = pd.read_parquet(target)
+            df = df.head(limit)
+        else:
+            raise HTTPException(400, f"不支持的表格格式: {suffix}")
+    except HTTPException:
+        raise
+    except ImportError:
+        raise HTTPException(500, "服务端缺少 pandas/openpyxl/pyarrow 依赖，无法预览该格式")
+    except Exception as exc:
+        raise HTTPException(500, f"解析失败: {type(exc).__name__}: {exc}")
+
+    # NaN/NaT 等无法直接 JSON 序列化的值统一转字符串
+    df = df.astype(object).where(pd.notna(df), None)
+    return {
+        "name": target.name,
+        "headers": [str(c) for c in df.columns],
+        "rows": [[None if v is None else str(v) for v in row] for row in df.itertuples(index=False, name=None)],
+    }
+
+
 @router.get("/{dataset_id}/preview")
 async def preview_dataset(dataset_id: str):
     """预览数据集 — 从 MD 文档解析文件列表 + 匹配预览工具"""

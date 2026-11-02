@@ -5,66 +5,68 @@ import { Card, CardBody } from '@/components/ui/card'
 
 const BASE_URL = ''
 const TABLE_PAGE_OPTIONS = [8, 16, 32, 64, 100]
+/** 服务端一次读取的最大行数，兼顾分页与倒序查看 */
+const ROW_LIMIT = 2000
 
-/** 原生 CSV 行解析 */
-function parseCSVLine(line: string): string[] {
-  const result: string[] = []
-  let current = ''
-  let inQuotes = false
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i]
-    if (inQuotes) {
-      if (ch === '"') {
-        if (i + 1 < line.length && line[i + 1] === '"') { current += '"'; i++ }
-        else { inQuotes = false }
-      } else { current += ch }
-    } else {
-      if (ch === '"') { inQuotes = true }
-      else if (ch === ',') { result.push(current.trim()); current = '' }
-      else { current += ch }
-    }
-  }
-  result.push(current.trim())
-  return result
+interface TablePayload {
+  headers: string[]
+  rows: string[][]
+  truncated: boolean
 }
 
-interface CsvTablePreviewProps {
-  datasetPath: string
-  csvFiles: Array<Record<string, unknown>>
-  /** 当前预览的文件在 csvFiles 中的下标（受控） */
+interface DataTablePreviewProps {
+  datasetId: string
+  /** 可表格化预览的文件（csv/tsv/xlsx/xls/parquet） */
+  tableFiles: Array<Record<string, unknown>>
+  /** 当前预览的文件在 tableFiles 中的下标（受控） */
   activeIndex?: number
   onActiveChange?: (idx: number) => void
 }
 
-export function CsvTablePreview({ datasetPath, csvFiles, activeIndex, onActiveChange }: CsvTablePreviewProps) {
-  const [csvData, setCsvData] = useState<{ headers: string[]; rows: string[][] } | null>(null)
+/**
+ * 表格预览：CSV / Excel / Parquet 统一走后端 /table 接口，
+ * 保证不同格式的中栏布局完全一致。
+ */
+export function DataTablePreview({ datasetId, tableFiles, activeIndex, onActiveChange }: DataTablePreviewProps) {
+  const [data, setData] = useState<TablePayload | null>(null)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(16)
   // 行号倒序：从最后一行往前看，行号仍显示原始行号
   const [desc, setDesc] = useState(false)
 
-  const active = Math.min(activeIndex ?? 0, Math.max(0, csvFiles.length - 1))
-  const activeFile = csvFiles[active]
+  const active = Math.min(activeIndex ?? 0, Math.max(0, tableFiles.length - 1))
+  const activeFile = tableFiles[active]
   const activeName = (activeFile?.name as string) || ''
 
   useEffect(() => {
-    if (!activeName || !datasetPath) return
-    const filePath = `${datasetPath}/${activeName}`
+    if (!activeName) return
     setLoading(true)
-    fetch(`${BASE_URL}/api/file/download?path=${encodeURIComponent(filePath)}`)
-      .then(r => r.text())
-      .then(text => {
-        const lines = text.split('\n').filter(l => l.trim())
-        if (lines.length > 0) {
-          const headers = parseCSVLine(lines[0])
-          const rows = lines.slice(1).map(parseCSVLine)
-          setCsvData({ headers, rows })
+    setError('')
+    fetch(`${BASE_URL}/api/data/${encodeURIComponent(datasetId)}/table?path=${encodeURIComponent(activeName)}&limit=${ROW_LIMIT}`)
+      .then(async (r) => {
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}))
+          throw new Error(body.detail || `HTTP ${r.status}`)
         }
+        return r.json()
+      })
+      .then((d) => {
+        const rows = (d.rows as Array<Array<string | null>>) || []
+        setData({
+          headers: (d.headers as string[]) || [],
+          rows: rows.map((row) => row.map((v) => (v === null || v === undefined ? '' : String(v)))),
+          truncated: rows.length >= ROW_LIMIT,
+        })
         setLoading(false)
       })
-      .catch(() => setLoading(false))
-  }, [datasetPath, activeName])
+      .catch((e) => {
+        setError(e instanceof Error ? e.message : String(e))
+        setData(null)
+        setLoading(false)
+      })
+  }, [datasetId, activeName])
 
   if (loading) {
     return (
@@ -78,17 +80,19 @@ export function CsvTablePreview({ datasetPath, csvFiles, activeIndex, onActiveCh
     )
   }
 
-  if (!csvData) {
+  if (error || !data) {
     return (
       <Card className="border-maia-border">
         <CardBody>
-          <div className="text-[12px] text-maia-text-muted py-4 text-center">无法解析 CSV 文件</div>
+          <div className="text-[12px] text-maia-text-muted py-4 text-center">
+            无法解析表格文件{error ? `：${error}` : ''}
+          </div>
         </CardBody>
       </Card>
     )
   }
 
-  const { headers, rows } = csvData
+  const { headers, rows, truncated } = data
   const ordered = desc ? [...rows].reverse() : rows
   const totalPages = Math.max(1, Math.ceil(rows.length / pageSize))
   const safePage = Math.min(page, totalPages)
@@ -100,13 +104,13 @@ export function CsvTablePreview({ datasetPath, csvFiles, activeIndex, onActiveCh
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-1.5 min-w-0">
             <Table2 className="h-3.5 w-3.5 text-maia-success shrink-0" />
-            <span className="text-[13px] font-medium text-maia-text-secondary">
-              CSV 表格预览
+            <span className="text-[13px] font-medium text-maia-text-secondary">表格预览</span>
+            <span className="text-[12px] text-maia-text-muted shrink-0">
+              {rows.length} 条记录{truncated ? `（最多预览 ${ROW_LIMIT} 条）` : ''}
             </span>
-            <span className="text-[12px] text-maia-text-muted shrink-0">{rows.length} 条记录</span>
             <span className="text-[12px] text-maia-text-muted truncate min-w-0" title={activeName}>{activeName}</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={() => { setDesc(v => !v); setPage(1) }}
               className={`inline-flex items-center gap-1 h-6 px-1.5 rounded border text-[12px] transition-colors ${

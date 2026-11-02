@@ -24,11 +24,15 @@ export function DatasetFilesPanel({ hideHeader = false }: { hideHeader?: boolean
   const previewDatasetPath = useResourceStore((s) => s.previewDatasetPath)
   const activeCsvIndex = useResourceStore((s) => s.activeCsvIndex)
   const activeMdIndex = useResourceStore((s) => s.activeMdIndex)
+  const activeTextIndex = useResourceStore((s) => s.activeTextIndex)
   const setActiveCsvIndex = useResourceStore((s) => s.setActiveCsvIndex)
   const setActiveMdIndex = useResourceStore((s) => s.setActiveMdIndex)
+  const setActiveTextIndex = useResourceStore((s) => s.setActiveTextIndex)
 
-  const csvFiles = previewFiles.filter((f) => ((f.format as string) || '').toLowerCase() === 'csv')
-  const mdFiles = previewFiles.filter((f) => ((f.format as string) || '').toLowerCase() === 'md')
+  const isFmt = (f: Record<string, unknown>, exts: string[]) => exts.includes(((f.format as string) || '').toLowerCase())
+  const tableFiles = previewFiles.filter((f) => isFmt(f, ['csv', 'tsv', 'xlsx', 'xls', 'parquet', 'pq']))
+  const mdFiles = previewFiles.filter((f) => isFmt(f, ['md']))
+  const textFiles = previewFiles.filter((f) => isFmt(f, ['json', 'jsonl', 'txt']))
   // 数据集名以中栏实际预览的数据集为准（多标签下随激活标签变化）
   const dataset = (previewDatasetId && dataResources.find((r) => r.id === previewDatasetId))
     ?? (cachedDataset?.id === previewDatasetId ? cachedDataset : null)
@@ -70,15 +74,17 @@ export function DatasetFilesPanel({ hideHeader = false }: { hideHeader?: boolean
             const name = (f.name as string) || ''
             const fmt = ((f.format as string) || '').toUpperCase()
             const size = f.size as number
-            const csvIdx = csvFiles.indexOf(f)
+            const csvIdx = tableFiles.indexOf(f)
             const mdIdx = mdFiles.indexOf(f)
+            const textIdx = textFiles.indexOf(f)
             const image = isImageFile(f)
-            const isActive = (csvIdx >= 0 && csvIdx === activeCsvIndex) || (mdIdx >= 0 && mdIdx === activeMdIndex)
+            const isActive = (csvIdx >= 0 && csvIdx === activeCsvIndex) || (mdIdx >= 0 && mdIdx === activeMdIndex) || (textIdx >= 0 && textIdx === activeTextIndex)
             const url = fileUrl(f, image)
 
             const onClick = () => {
               if (csvIdx >= 0) setActiveCsvIndex(csvIdx)
               else if (mdIdx >= 0) setActiveMdIndex(mdIdx)
+              else if (textIdx >= 0) setActiveTextIndex(textIdx)
               else if (url) window.open(url, '_blank')
             }
 
@@ -86,7 +92,7 @@ export function DatasetFilesPanel({ hideHeader = false }: { hideHeader?: boolean
               <div
                 key={`${name}-${i}`}
                 onClick={onClick}
-                title={csvIdx >= 0 || mdIdx >= 0 ? '点击在中栏预览' : '点击打开'}
+                title={csvIdx >= 0 || mdIdx >= 0 || textIdx >= 0 ? '点击在中栏预览' : '点击打开'}
                 className={`group flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors ${
                   isActive ? 'bg-maia-accent-light text-maia-accent' : 'text-maia-text hover:bg-maia-bg'
                 }`}
