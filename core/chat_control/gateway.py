@@ -34,6 +34,27 @@ def control_enabled() -> bool:
     return bool(getattr(chat_cfg, "platform_control_enabled", True))
 
 
+# 老客户端（含前端硬编码）在没有登录态时会传 "default" 占位身份。
+# 平台操作必须以「与手工 REST 操作完全相同」的身份执行（设计文档 §6.1），
+# 而 REST 侧的 get_current_user_id() 是实例身份/登录身份——因此占位符
+# 必须在边界处解析成真实身份，否则对话创建的资源在界面上不可见。
+PLACEHOLDER_IDENTITIES = {"", "default"}
+
+
+def resolve_owner(raw: str | None = None) -> str:
+    """平台调用身份的唯一定解析：登录身份 > 显式用户 > 实例身份。"""
+    from core.auth.session import current_identity
+    from core.user_context import get_current_user_id
+
+    rid = current_identity()
+    if rid:
+        return rid
+    u = (raw or "").strip()
+    if u and u not in PLACEHOLDER_IDENTITIES:
+        return u
+    return get_current_user_id()
+
+
 def _cfg() -> Any:
     return getattr(settings, "chat", None)
 

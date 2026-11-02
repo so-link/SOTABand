@@ -155,7 +155,7 @@ class AgentFactory:
             from core.chat_control import gateway
             result = await gateway.platform_call(
                 str(frame.get("tool", "")), frame.get("args") or {},
-                owner=str(frame.get("user_id") or "default"),
+                owner=gateway.resolve_owner(frame.get("user_id")),
                 session_id=str(frame.get("session_id") or "default"),
             )
         except Exception as e:

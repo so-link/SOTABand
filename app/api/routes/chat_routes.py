@@ -250,9 +250,13 @@ async def chat_stop(req: dict):
 # （未登录 401），无需在此重复鉴权。
 
 def _platform_owner(user_id: str | None = None) -> str:
-    """操作身份 = 当前登录用户；无令牌的老客户端退回会话 user_id。"""
-    from core.auth.session import current_identity
-    return current_identity() or (user_id or "").strip() or "default"
+    """操作身份 = 当前登录用户；无登录态时退回实例身份（与 REST 侧一致）。
+
+    老客户端会传 "default" 占位符，必须解析成真实身份，否则对话创建的
+    资源（如定时任务）会因 owner 不匹配而在界面上不可见。
+    """
+    from core.chat_control.gateway import resolve_owner
+    return resolve_owner(user_id)
 
 
 @router.post("/platform-call")
