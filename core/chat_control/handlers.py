@@ -653,7 +653,11 @@ Modified code:"""
 
 class RunToolArgs(StrictArgs):
     tool_id: str = Field(description="要执行的工具 id（只能跑已注册且 active 的工具）")
-    params: dict = Field(default_factory=dict, description="工具参数（键按工具规格文档）")
+    params: dict = Field(
+        default_factory=dict,
+        description="工具参数。**调用前必须先 get_tool_spec 查该工具的 param_meta**，"
+                    "按其 name/required/default/hints 传值（枚举值要用 hints 里的写法，"
+                    "如语言码是 zh_cn 而不是 zh）。不要凭常识猜参数名和取值。")
 
 
 @platform_tool(
@@ -674,7 +678,9 @@ async def run_tool(args: RunToolArgs, ctx: CallContext) -> dict:
     result = await ToolExecutor.execute(tool_id=args.tool_id, params=args.params)
     # ToolExecutor 统一返回 {status, message, data}；失败转成 error 让 LLM 能自我修正
     if result.get("status") != "success":
+        # 失败回执附上参数定义，模型无需再调 get_tool_spec 即可一次纠正
         return {"error": f"执行失败: {clip(str(result.get('message', '')), 500)}",
+                "param_meta": entry.get("param_meta") or [],
                 "detail": result.get("data")}
     return result
 
