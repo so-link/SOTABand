@@ -291,28 +291,16 @@ export function ResourceBrowser() {
                 </button>
               )}
               {section.type === 'tool' && (
-                <>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      useUIStore.getState().setActiveView('repository')
-                    }}
-                    className="flex items-center justify-center h-4 w-4 rounded hover:bg-maia-accent/10 text-maia-text-muted hover:text-maia-accent transition-colors"
-                    title="工具仓库"
-                  >
-                    <Package className="h-3 w-3" />
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      useUIStore.getState().setActiveView('tool-editor')
-                    }}
-                    className="flex items-center justify-center h-4 w-4 rounded hover:bg-maia-accent/10 text-maia-text-muted hover:text-maia-accent transition-colors"
-                    title="创建新工具"
-                  >
-                    <Plus className="h-3 w-3" />
-                  </button>
-                </>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    useUIStore.getState().setActiveView('tool-editor')
+                  }}
+                  className="flex items-center justify-center h-4 w-4 rounded hover:bg-maia-accent/10 text-maia-text-muted hover:text-maia-accent transition-colors"
+                  title="创建新工具"
+                >
+                  <Plus className="h-3 w-3" />
+                </button>
               )}
               {section.type === 'data' && (
                 <button
