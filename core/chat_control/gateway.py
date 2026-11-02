@@ -15,7 +15,9 @@
 
 from __future__ import annotations
 
+import threading
 import time
+from collections import defaultdict, deque
 from typing import Any, Awaitable, Callable
 
 from config.settings import settings
@@ -30,6 +32,41 @@ GATEWAY_TIMEOUT = 300
 def control_enabled() -> bool:
     chat_cfg = getattr(settings, "chat", None)
     return bool(getattr(chat_cfg, "platform_control_enabled", True))
+
+
+def _cfg() -> Any:
+    return getattr(settings, "chat", None)
+
+
+# ── 速率限制（设计文档 §6.5）：每用户 30 次/分钟；生成类 5 次/10 分钟 ──
+# 生成类工具烧 LLM token，成本与滥用风险都远高于普通调用，单独更严的窗口。
+GEN_TOOLS = {"create_tool", "create_agent"}
+
+_rate_lock = threading.Lock()
+_calls: dict[str, deque] = defaultdict(deque)       # owner → 调用时间戳
+_gens: dict[str, deque] = defaultdict(deque)         # owner → 生成类调用时间戳
+
+
+def rate_check(owner: str, name: str) -> str:
+    """返回 "" 表示放行；否则为面向 LLM 的拒绝原因。"""
+    now = time.time()
+    per_min = int(getattr(_cfg(), "rate_limit_per_minute", 30) or 30)
+    gen_10min = int(getattr(_cfg(), "gen_limit_per_10min", 5) or 5)
+    with _rate_lock:
+        q = _calls[owner]
+        while q and q[0] < now - 60:
+            q.popleft()
+        if len(q) >= per_min:
+            return f"平台调用过于频繁（每分钟最多 {per_min} 次），请一分钟后再试。"
+        if name in GEN_TOOLS:
+            g = _gens[owner]
+            while g and g[0] < now - 600:
+                g.popleft()
+            if len(g) >= gen_10min:
+                return f"生成类操作过于频繁（每 10 分钟最多 {gen_10min} 次），请稍后再试。"
+            g.append(now)
+        q.append(now)
+        return ""
 
 
 async def platform_call(
@@ -50,6 +87,13 @@ async def platform_call(
     if not control_enabled():
         return {"status": "error", "tool": name,
                 "error": "平台控制能力已停用（settings.chat.platform_control_enabled=false）"}
+
+    # ⓪ 速率限制（按 owner 计；确认/取消端点不占额度，只有真实调用计）
+    limited = rate_check(owner, str(name))
+    if limited:
+        audit.record(op_id="", session_id=session_id, owner=owner, tool=str(name),
+                     args={}, risk="unknown", status="rate_limited", error=limited)
+        return {"status": "error", "tool": name, "error": limited}
 
     # ① 工具名白名单
     tool = reg.get(name)

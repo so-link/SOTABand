@@ -394,6 +394,21 @@ class ObservabilityConfig:
 
 
 @dataclass
+class ChatConfig:
+    """对话内平台控制（docs/chat-platform-control-design.md §6.5/§6.6）"""
+
+    # 熔断总开关：关闭后网关对一切 platform 调用返回"能力已停用"
+    platform_control_enabled: bool = field(
+        default_factory=lambda: os.getenv("SOTABAND_PLATFORM_CONTROL", "1").lower()
+        not in ("0", "false", "no")
+    )
+    # 每用户每分钟 platform-call 上限
+    rate_limit_per_minute: int = 30
+    # 生成类工具（create_tool/create_agent）成本更高，单独更严的限制
+    gen_limit_per_10min: int = 5
+
+
+@dataclass
 class AppConfig:
     """应用配置（由模块顶部 _load_dotenv 预加载的 .env 环境变量驱动）"""
 
@@ -425,6 +440,7 @@ class Settings:
     agent: AgentConfig = field(default_factory=AgentConfig)
     security: SecurityConfig = field(default_factory=SecurityConfig)
     observability: ObservabilityConfig = field(default_factory=ObservabilityConfig)
+    chat: ChatConfig = field(default_factory=ChatConfig)
 
     @classmethod
     def from_env(cls) -> "Settings":

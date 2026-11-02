@@ -291,3 +291,15 @@ async def platform_pending_endpoint(session_id: str = "default"):
     pending = gateway.pending_op(session_id)
     return {"pending": pending}
 
+
+@router.get("/platform-ops")
+async def platform_ops_endpoint(limit: int = 50, session_id: str = ""):
+    """查询当前用户的平台操作审计流水（设计文档 §6.6）。"""
+    from core.chat_control import audit
+    owner = _platform_owner()
+    ops = audit.recent(
+        owner=owner, session_id=(session_id or None),
+        limit=min(max(limit, 1), 200),
+    )
+    return {"ops": ops}
+
