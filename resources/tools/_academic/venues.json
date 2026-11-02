@@ -1,0 +1,1918 @@
+{
+  "version": "ccf-2026-7th-formal",
+  "source_url": "https://kyc.lsu.edu.cn/_upload/article/files/20/77/2cbaa3754eb9aff9ed74cafed8ff/23a8de02-594c-445f-b084-69b0193c05b3.pdf",
+  "imported_at": "2026-09-28T06:06:26.429126+00:00",
+  "sha256": "271b630b576bf8a4f802e767f5694caded93680e22b3a19bef7902591c45c1d3",
+  "venues": [
+    {
+      "id": "journals-tocs",
+      "acronym": "TOCS",
+      "name": "ACM Transactions on Computer Systems",
+      "rank": "A",
+      "kind": "journal",
+      "field": "计算机体系结构/并行与分布计算/存储系统",
+      "dblp_key": "tocs",
+      "source_url": "http://dblp.uni-trier.de/db/journals/tocs/",
+      "catalog_page": 2,
+      "aliases": [
+        "TOCS"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-tos",
+      "acronym": "TOS",
+      "name": "ACM Transactions on Storage",
+      "rank": "A",
+      "kind": "journal",
+      "field": "计算机体系结构/并行与分布计算/存储系统",
+      "dblp_key": "tos",
+      "source_url": "http://dblp.uni-trier.de/db/journals/tos/",
+      "catalog_page": 2,
+      "aliases": [
+        "TOS"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-tcad",
+      "acronym": "TCAD",
+      "name": "IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems",
+      "rank": "A",
+      "kind": "journal",
+      "field": "计算机体系结构/并行与分布计算/存储系统",
+      "dblp_key": "tcad",
+      "source_url": "http://dblp.uni-trier.de/db/journals/tcad/",
+      "catalog_page": 2,
+      "aliases": [
+        "TCAD"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-tc",
+      "acronym": "TC",
+      "name": "IEEE Transactions on Computers",
+      "rank": "A",
+      "kind": "journal",
+      "field": "计算机体系结构/并行与分布计算/存储系统",
+      "dblp_key": "tc",
+      "source_url": "http://dblp.uni-trier.de/db/journals/tc/index.html",
+      "catalog_page": 2,
+      "aliases": [
+        "TC"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-tpds",
+      "acronym": "TPDS",
+      "name": "IEEE Transactions on Parallel and Distributed Systems",
+      "rank": "A",
+      "kind": "journal",
+      "field": "计算机体系结构/并行与分布计算/存储系统",
+      "dblp_key": "tpds",
+      "source_url": "http://dblp.uni-trier.de/db/journals/tpds/",
+      "catalog_page": 2,
+      "aliases": [
+        "TPDS"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-taco",
+      "acronym": "TACO",
+      "name": "ACM Transactions on Architecture and Code Optimization",
+      "rank": "A",
+      "kind": "journal",
+      "field": "计算机体系结构/并行与分布计算/存储系统",
+      "dblp_key": "taco",
+      "source_url": "http://dblp.uni-trier.de/db/journals/taco/",
+      "catalog_page": 2,
+      "aliases": [
+        "TACO"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-ppopp",
+      "acronym": "PPoPP",
+      "name": "ACM SIGPLAN Symposium on Principles & Practice of Parallel Programming",
+      "rank": "A",
+      "kind": "conference",
+      "field": "计算机体系结构/并行与分布计算/存储系统",
+      "dblp_key": "ppopp",
+      "source_url": "http://dblp.uni-trier.de/db/conf/ppopp/",
+      "catalog_page": 5,
+      "aliases": [
+        "PPoPP"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-fast",
+      "acronym": "FAST",
+      "name": "USENIX Conference on File and Storage Technologies",
+      "rank": "A",
+      "kind": "conference",
+      "field": "计算机体系结构/并行与分布计算/存储系统",
+      "dblp_key": "fast",
+      "source_url": "http://dblp.uni-trier.de/db/conf/fast/",
+      "catalog_page": 5,
+      "aliases": [
+        "FAST"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-dac",
+      "acronym": "DAC",
+      "name": "Design Automation Conference",
+      "rank": "A",
+      "kind": "conference",
+      "field": "计算机体系结构/并行与分布计算/存储系统",
+      "dblp_key": "dac",
+      "source_url": "https://dblp.uni-trier.de/db/conf/dac/",
+      "catalog_page": 5,
+      "aliases": [
+        "DAC"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-hpca",
+      "acronym": "HPCA",
+      "name": "IEEE International Symposium on High Performance Computer Architecture",
+      "rank": "A",
+      "kind": "conference",
+      "field": "计算机体系结构/并行与分布计算/存储系统",
+      "dblp_key": "hpca",
+      "source_url": "http://dblp.uni-trier.de/db/conf/hpca/",
+      "catalog_page": 5,
+      "aliases": [
+        "HPCA"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-micro",
+      "acronym": "MICRO",
+      "name": "IEEE/ACM International Symposium on Microarchitecture",
+      "rank": "A",
+      "kind": "conference",
+      "field": "计算机体系结构/并行与分布计算/存储系统",
+      "dblp_key": "micro",
+      "source_url": "https://dblp.uni-trier.de/db/conf/micro/index.html",
+      "catalog_page": 5,
+      "aliases": [
+        "MICRO"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-sc",
+      "acronym": "SC",
+      "name": "International Conference for High Performance Computing, Networking, Storage, and Analysis",
+      "rank": "A",
+      "kind": "conference",
+      "field": "计算机体系结构/并行与分布计算/存储系统",
+      "dblp_key": "sc",
+      "source_url": "http://dblp.uni-trier.de/db/conf/sc/",
+      "catalog_page": 5,
+      "aliases": [
+        "SC"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-asplos",
+      "acronym": "ASPLOS",
+      "name": "International Conference on Architectural Support for Programming Languages and Operating Systems",
+      "rank": "A",
+      "kind": "conference",
+      "field": "计算机体系结构/并行与分布计算/存储系统",
+      "dblp_key": "asplos",
+      "source_url": "http://dblp.uni-trier.de/db/conf/asplos/",
+      "catalog_page": 5,
+      "aliases": [
+        "ASPLOS"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-isca",
+      "acronym": "ISCA",
+      "name": "International Symposium on Computer Architecture",
+      "rank": "A",
+      "kind": "conference",
+      "field": "计算机体系结构/并行与分布计算/存储系统",
+      "dblp_key": "isca",
+      "source_url": "http://dblp.uni-trier.de/db/conf/isca/",
+      "catalog_page": 5,
+      "aliases": [
+        "ISCA"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-usenix",
+      "acronym": "ACM SIGOPS ATC （原 USENIX ATC）",
+      "name": "ACM SIGOPS Annual Technical Conference",
+      "rank": "A",
+      "kind": "conference",
+      "field": "计算机体系结构/并行与分布计算/存储系统",
+      "dblp_key": "usenix",
+      "source_url": "http://dblp.uni-trier.de/db/conf/usenix/index.html",
+      "catalog_page": 5,
+      "aliases": [
+        "ACM SIGOPS ATC （原 USENIX ATC）",
+        "USENIX ATC",
+        "ATC",
+        "ACM SIGOPS ATC"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-eurosys",
+      "acronym": "EuroSys",
+      "name": "European Conference on Computer Systems",
+      "rank": "A",
+      "kind": "conference",
+      "field": "计算机体系结构/并行与分布计算/存储系统",
+      "dblp_key": "eurosys",
+      "source_url": "http://dblp.uni-trier.de/db/conf/eurosys/",
+      "catalog_page": 5,
+      "aliases": [
+        "EuroSys"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-hpdc",
+      "acronym": "HPDC",
+      "name": "The International ACM Symposium on High-Performance Parallel and Distributed Computing",
+      "rank": "A",
+      "kind": "conference",
+      "field": "计算机体系结构/并行与分布计算/存储系统",
+      "dblp_key": "hpdc",
+      "source_url": "http://dblp.uni-trier.de/db/conf/hpdc/",
+      "catalog_page": 5,
+      "aliases": [
+        "HPDC"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-jsac",
+      "acronym": "JSAC",
+      "name": "IEEE Journal on Selected Areas in Communications",
+      "rank": "A",
+      "kind": "journal",
+      "field": "计算机网络",
+      "dblp_key": "jsac",
+      "source_url": "http://dblp.uni-trier.de/db/journals/jsac/",
+      "catalog_page": 10,
+      "aliases": [
+        "JSAC"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-tmc",
+      "acronym": "TMC",
+      "name": "IEEE Transactions on Mobile Computing",
+      "rank": "A",
+      "kind": "journal",
+      "field": "计算机网络",
+      "dblp_key": "tmc",
+      "source_url": "http://dblp.uni-trier.de/db/journals/tmc/",
+      "catalog_page": 10,
+      "aliases": [
+        "TMC"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-ton",
+      "acronym": "TON",
+      "name": "IEEE Transactions on Networking （原 IEEE/ACM Transactions on Networking）",
+      "rank": "A",
+      "kind": "journal",
+      "field": "计算机网络",
+      "dblp_key": "ton",
+      "source_url": "http://dblp.uni-trier.de/db/journals/ton/",
+      "catalog_page": 10,
+      "aliases": [
+        "TON"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-sigcomm",
+      "acronym": "SIGCOMM",
+      "name": "ACM International Conference on Applications, Technologies, Architectures, and Protocols for Computer Communication",
+      "rank": "A",
+      "kind": "conference",
+      "field": "计算机网络",
+      "dblp_key": "sigcomm",
+      "source_url": "http://dblp.uni-trier.de/db/conf/sigcomm/index.html",
+      "catalog_page": 13,
+      "aliases": [
+        "SIGCOMM"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-mobicom",
+      "acronym": "MobiCom",
+      "name": "ACM International Conference on Mobile Computing and Networking",
+      "rank": "A",
+      "kind": "conference",
+      "field": "计算机网络",
+      "dblp_key": "mobicom",
+      "source_url": "http://dblp.uni-trier.de/db/conf/mobicom/",
+      "catalog_page": 13,
+      "aliases": [
+        "MobiCom"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-infocom",
+      "acronym": "INFOCOM",
+      "name": "IEEE International Conference on Computer Communications",
+      "rank": "A",
+      "kind": "conference",
+      "field": "计算机网络",
+      "dblp_key": "infocom",
+      "source_url": "http://dblp.uni-trier.de/db/conf/infocom/",
+      "catalog_page": 13,
+      "aliases": [
+        "INFOCOM"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-nsdi",
+      "acronym": "NSDI",
+      "name": "Symposium on Network System Design and Implementation",
+      "rank": "A",
+      "kind": "conference",
+      "field": "计算机网络",
+      "dblp_key": "nsdi",
+      "source_url": "http://dblp.uni-trier.de/db/conf/nsdi/",
+      "catalog_page": 13,
+      "aliases": [
+        "NSDI"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-tdsc",
+      "acronym": "TDSC",
+      "name": "IEEE Transactions on Dependable and Secure Computing",
+      "rank": "A",
+      "kind": "journal",
+      "field": "网络与信息安全",
+      "dblp_key": "tdsc",
+      "source_url": "http://dblp.uni-trier.de/db/journals/tdsc/",
+      "catalog_page": 17,
+      "aliases": [
+        "TDSC"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-tifs",
+      "acronym": "TIFS",
+      "name": "IEEE Transactions on Information Forensics and Security",
+      "rank": "A",
+      "kind": "journal",
+      "field": "网络与信息安全",
+      "dblp_key": "tifs",
+      "source_url": "http://dblp.uni-trier.de/db/journals/tifs/",
+      "catalog_page": 17,
+      "aliases": [
+        "TIFS"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-joc",
+      "acronym": "",
+      "name": "Journal of Cryptology",
+      "rank": "A",
+      "kind": "journal",
+      "field": "网络与信息安全",
+      "dblp_key": "joc",
+      "source_url": "http://dblp.uni-trier.de/db/journals/joc/",
+      "catalog_page": 17,
+      "aliases": [
+        "",
+        "Journal of Cryptology"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-ccs",
+      "acronym": "CCS",
+      "name": "ACM Conference on Computer and Communications Security",
+      "rank": "A",
+      "kind": "conference",
+      "field": "网络与信息安全",
+      "dblp_key": "ccs",
+      "source_url": "http://dblp.uni-trier.de/db/conf/ccs/",
+      "catalog_page": 20,
+      "aliases": [
+        "CCS"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-eurocrypt",
+      "acronym": "EUROCRYPT",
+      "name": "International Conference on the Theory and Applications of Cryptographic Techniques",
+      "rank": "A",
+      "kind": "conference",
+      "field": "网络与信息安全",
+      "dblp_key": "eurocrypt",
+      "source_url": "http://dblp.uni-trier.de/db/conf/eurocrypt/",
+      "catalog_page": 20,
+      "aliases": [
+        "EUROCRYPT"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-sp",
+      "acronym": "S&P",
+      "name": "IEEE Symposium on Security and Privacy",
+      "rank": "A",
+      "kind": "conference",
+      "field": "网络与信息安全",
+      "dblp_key": "sp",
+      "source_url": "http://dblp.uni-trier.de/db/conf/sp/",
+      "catalog_page": 20,
+      "aliases": [
+        "S&P"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-crypto",
+      "acronym": "CRYPTO",
+      "name": "International Cryptology Conference",
+      "rank": "A",
+      "kind": "conference",
+      "field": "网络与信息安全",
+      "dblp_key": "crypto",
+      "source_url": "http://dblp.uni-trier.de/db/conf/crypto/",
+      "catalog_page": 20,
+      "aliases": [
+        "CRYPTO"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-uss",
+      "acronym": "USENIX Security",
+      "name": "USENIX Security Symposium",
+      "rank": "A",
+      "kind": "conference",
+      "field": "网络与信息安全",
+      "dblp_key": "uss",
+      "source_url": "http://dblp.uni-trier.de/db/conf/uss/",
+      "catalog_page": 20,
+      "aliases": [
+        "USENIX Security",
+        "USENIX Security"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-ndss",
+      "acronym": "NDSS",
+      "name": "Network and Distributed System Security Symposium",
+      "rank": "A",
+      "kind": "conference",
+      "field": "网络与信息安全",
+      "dblp_key": "ndss",
+      "source_url": "http://dblp.uni-trier.de/db/conf/ndss/",
+      "catalog_page": 20,
+      "aliases": [
+        "NDSS"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-toplas",
+      "acronym": "TOPLAS",
+      "name": "ACM Transactions on Programming Languages and Systems",
+      "rank": "A",
+      "kind": "journal",
+      "field": "软件工程/系统软件/程序设计语言",
+      "dblp_key": "toplas",
+      "source_url": "http://dblp.uni-trier.de/db/journals/toplas/",
+      "catalog_page": 24,
+      "aliases": [
+        "TOPLAS"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-tosem",
+      "acronym": "TOSEM",
+      "name": "ACM Transactions on Software Engineering and Methodology",
+      "rank": "A",
+      "kind": "journal",
+      "field": "软件工程/系统软件/程序设计语言",
+      "dblp_key": "tosem",
+      "source_url": "http://dblp.uni-trier.de/db/journals/tosem/",
+      "catalog_page": 24,
+      "aliases": [
+        "TOSEM"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-tse",
+      "acronym": "TSE",
+      "name": "IEEE Transactions on Software Engineering",
+      "rank": "A",
+      "kind": "journal",
+      "field": "软件工程/系统软件/程序设计语言",
+      "dblp_key": "tse",
+      "source_url": "http://dblp.uni-trier.de/db/journals/tse/",
+      "catalog_page": 24,
+      "aliases": [
+        "TSE"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-tsc",
+      "acronym": "TSC",
+      "name": "IEEE Transactions on Services Computing",
+      "rank": "A",
+      "kind": "journal",
+      "field": "软件工程/系统软件/程序设计语言",
+      "dblp_key": "tsc",
+      "source_url": "http://dblp.uni-trier.de/db/journals/tsc/",
+      "catalog_page": 24,
+      "aliases": [
+        "TSC"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-pldi",
+      "acronym": "PLDI",
+      "name": "ACM SIGPLAN Conference on Programming Language Design and Implementation",
+      "rank": "A",
+      "kind": "conference",
+      "field": "软件工程/系统软件/程序设计语言",
+      "dblp_key": "pldi",
+      "source_url": "http://dblp.uni-trier.de/db/conf/pldi/",
+      "catalog_page": 27,
+      "aliases": [
+        "PLDI"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-popl",
+      "acronym": "POPL",
+      "name": "ACM SIGPLAN-SIGACT Symposium on Principles of Programming Languages",
+      "rank": "A",
+      "kind": "conference",
+      "field": "软件工程/系统软件/程序设计语言",
+      "dblp_key": "popl",
+      "source_url": "http://dblp.uni-trier.de/db/conf/popl/",
+      "catalog_page": 27,
+      "aliases": [
+        "POPL"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-sigsoft",
+      "acronym": "FSE",
+      "name": "ACM International Conference on the Foundations of Software Engineering",
+      "rank": "A",
+      "kind": "conference",
+      "field": "软件工程/系统软件/程序设计语言",
+      "dblp_key": "sigsoft",
+      "source_url": "http://dblp.uni-trier.de/db/conf/sigsoft/",
+      "catalog_page": 27,
+      "aliases": [
+        "FSE"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-sosp",
+      "acronym": "SOSP",
+      "name": "ACM Symposium on Operating Systems Principles",
+      "rank": "A",
+      "kind": "conference",
+      "field": "软件工程/系统软件/程序设计语言",
+      "dblp_key": "sosp",
+      "source_url": "http://dblp.uni-trier.de/db/conf/sosp/",
+      "catalog_page": 27,
+      "aliases": [
+        "SOSP"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-oopsla",
+      "acronym": "OOPSLA",
+      "name": "Conference on Object-Oriented Programming Systems, Languages, and Applications",
+      "rank": "A",
+      "kind": "conference",
+      "field": "软件工程/系统软件/程序设计语言",
+      "dblp_key": "oopsla",
+      "source_url": "http://dblp.uni-trier.de/db/conf/oopsla/",
+      "catalog_page": 27,
+      "aliases": [
+        "OOPSLA"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-kbse",
+      "acronym": "ASE",
+      "name": "International Conference on Automated Software Engineering",
+      "rank": "A",
+      "kind": "conference",
+      "field": "软件工程/系统软件/程序设计语言",
+      "dblp_key": "kbse",
+      "source_url": "http://dblp.uni-trier.de/db/conf/kbse/",
+      "catalog_page": 27,
+      "aliases": [
+        "ASE"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-icse",
+      "acronym": "ICSE",
+      "name": "International Conference on Software Engineering",
+      "rank": "A",
+      "kind": "conference",
+      "field": "软件工程/系统软件/程序设计语言",
+      "dblp_key": "icse",
+      "source_url": "http://dblp.uni-trier.de/db/conf/icse/",
+      "catalog_page": 27,
+      "aliases": [
+        "ICSE"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-issta",
+      "acronym": "ISSTA",
+      "name": "International Symposium on Software Testing and Analysis",
+      "rank": "A",
+      "kind": "conference",
+      "field": "软件工程/系统软件/程序设计语言",
+      "dblp_key": "issta",
+      "source_url": "http://dblp.uni-trier.de/db/conf/issta/",
+      "catalog_page": 27,
+      "aliases": [
+        "ISSTA"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-osdi",
+      "acronym": "OSDI",
+      "name": "USENIX Symposium on Operating Systems Design and Implementation",
+      "rank": "A",
+      "kind": "conference",
+      "field": "软件工程/系统软件/程序设计语言",
+      "dblp_key": "osdi",
+      "source_url": "http://dblp.uni-trier.de/db/conf/osdi/",
+      "catalog_page": 27,
+      "aliases": [
+        "OSDI"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-fm",
+      "acronym": "FM",
+      "name": "International Symposium on Formal Methods",
+      "rank": "A",
+      "kind": "conference",
+      "field": "软件工程/系统软件/程序设计语言",
+      "dblp_key": "fm",
+      "source_url": "http://dblp.uni-trier.de/db/conf/fm/",
+      "catalog_page": 27,
+      "aliases": [
+        "FM"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-tods",
+      "acronym": "TODS",
+      "name": "ACM Transactions on Database Systems",
+      "rank": "A",
+      "kind": "journal",
+      "field": "数据库/数据挖掘/内容检索",
+      "dblp_key": "tods",
+      "source_url": "http://dblp.uni-trier.de/db/journals/tods/",
+      "catalog_page": 32,
+      "aliases": [
+        "TODS"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-tois",
+      "acronym": "TOIS",
+      "name": "ACM Transactions on Information Systems",
+      "rank": "A",
+      "kind": "journal",
+      "field": "数据库/数据挖掘/内容检索",
+      "dblp_key": "tois",
+      "source_url": "http://dblp.uni-trier.de/db/journals/tois/",
+      "catalog_page": 32,
+      "aliases": [
+        "TOIS"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-tkde",
+      "acronym": "TKDE",
+      "name": "IEEE Transactions on Knowledge and Data Engineering",
+      "rank": "A",
+      "kind": "journal",
+      "field": "数据库/数据挖掘/内容检索",
+      "dblp_key": "tkde",
+      "source_url": "http://dblp.uni-trier.de/db/journals/tkde/",
+      "catalog_page": 32,
+      "aliases": [
+        "TKDE"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-vldb",
+      "acronym": "VLDBJ",
+      "name": "The VLDB Journal",
+      "rank": "A",
+      "kind": "journal",
+      "field": "数据库/数据挖掘/内容检索",
+      "dblp_key": "vldb",
+      "source_url": "http://dblp.uni-trier.de/db/journals/vldb/",
+      "catalog_page": 32,
+      "aliases": [
+        "VLDBJ",
+        "VLDB Journal"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-sigmod",
+      "acronym": "SIGMOD",
+      "name": "ACM SIGMOD Conference",
+      "rank": "A",
+      "kind": "conference",
+      "field": "数据库/数据挖掘/内容检索",
+      "dblp_key": "sigmod",
+      "source_url": "http://dblp.uni-trier.de/db/conf/sigmod/",
+      "catalog_page": 35,
+      "aliases": [
+        "SIGMOD"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-kdd",
+      "acronym": "SIGKDD",
+      "name": "ACM SIGKDD Conference on Knowledge Discovery and Data Mining",
+      "rank": "A",
+      "kind": "conference",
+      "field": "数据库/数据挖掘/内容检索",
+      "dblp_key": "kdd",
+      "source_url": "http://dblp.uni-trier.de/db/conf/kdd/",
+      "catalog_page": 35,
+      "aliases": [
+        "SIGKDD",
+        "KDD"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-icde",
+      "acronym": "ICDE",
+      "name": "IEEE International Conference on Data Engineering",
+      "rank": "A",
+      "kind": "conference",
+      "field": "数据库/数据挖掘/内容检索",
+      "dblp_key": "icde",
+      "source_url": "http://dblp.uni-trier.de/db/conf/icde/",
+      "catalog_page": 35,
+      "aliases": [
+        "ICDE"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-sigir",
+      "acronym": "SIGIR",
+      "name": "International ACM SIGIR Conference on Research and Development in Information Retrieval",
+      "rank": "A",
+      "kind": "conference",
+      "field": "数据库/数据挖掘/内容检索",
+      "dblp_key": "sigir",
+      "source_url": "http://dblp.uni-trier.de/db/conf/sigir/",
+      "catalog_page": 35,
+      "aliases": [
+        "SIGIR"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-vldb",
+      "acronym": "VLDB",
+      "name": "International Conference on Very Large Data Bases",
+      "rank": "A",
+      "kind": "conference",
+      "field": "数据库/数据挖掘/内容检索",
+      "dblp_key": "vldb",
+      "source_url": "http://dblp.uni-trier.de/db/conf/vldb/",
+      "catalog_page": 35,
+      "aliases": [
+        "VLDB"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-tit",
+      "acronym": "TIT",
+      "name": "IEEE Transactions on Information Theory",
+      "rank": "A",
+      "kind": "journal",
+      "field": "计算机科学理论",
+      "dblp_key": "tit",
+      "source_url": "http://dblp.uni-trier.de/db/journals/tit/",
+      "catalog_page": 38,
+      "aliases": [
+        "TIT"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-iandc",
+      "acronym": "IANDC",
+      "name": "Information and Computation",
+      "rank": "A",
+      "kind": "journal",
+      "field": "计算机科学理论",
+      "dblp_key": "iandc",
+      "source_url": "http://dblp.uni-trier.de/db/journals/iandc/",
+      "catalog_page": 38,
+      "aliases": [
+        "IANDC"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-siamcomp",
+      "acronym": "SICOMP",
+      "name": "SIAM Journal on Computing",
+      "rank": "A",
+      "kind": "journal",
+      "field": "计算机科学理论",
+      "dblp_key": "siamcomp",
+      "source_url": "http://dblp.uni-trier.de/db/journals/siamcomp/",
+      "catalog_page": 38,
+      "aliases": [
+        "SICOMP"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-stoc",
+      "acronym": "STOC",
+      "name": "ACM Symposium on the Theory of Computing",
+      "rank": "A",
+      "kind": "conference",
+      "field": "计算机科学理论",
+      "dblp_key": "stoc",
+      "source_url": "http://dblp.uni-trier.de/db/conf/stoc/",
+      "catalog_page": 41,
+      "aliases": [
+        "STOC"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-soda",
+      "acronym": "SODA",
+      "name": "ACM-SIAM Symposium on Discrete Algorithms",
+      "rank": "A",
+      "kind": "conference",
+      "field": "计算机科学理论",
+      "dblp_key": "soda",
+      "source_url": "http://dblp.uni-trier.de/db/conf/soda/",
+      "catalog_page": 41,
+      "aliases": [
+        "SODA"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-cav",
+      "acronym": "CAV",
+      "name": "International Conference on Computer Aided Verification",
+      "rank": "A",
+      "kind": "conference",
+      "field": "计算机科学理论",
+      "dblp_key": "cav",
+      "source_url": "http://dblp.uni-trier.de/db/conf/cav/",
+      "catalog_page": 41,
+      "aliases": [
+        "CAV"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-focs",
+      "acronym": "FOCS",
+      "name": "IEEE Annual Symposium on Foundations of Computer Science",
+      "rank": "A",
+      "kind": "conference",
+      "field": "计算机科学理论",
+      "dblp_key": "focs",
+      "source_url": "http://dblp.uni-trier.de/db/conf/focs/",
+      "catalog_page": 41,
+      "aliases": [
+        "FOCS"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-lics",
+      "acronym": "LICS",
+      "name": "ACM/IEEE Symposium on Logic in Computer Science",
+      "rank": "A",
+      "kind": "conference",
+      "field": "计算机科学理论",
+      "dblp_key": "lics",
+      "source_url": "http://dblp.uni-trier.de/db/conf/lics/",
+      "catalog_page": 41,
+      "aliases": [
+        "LICS"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-tog",
+      "acronym": "TOG",
+      "name": "ACM Transactions on Graphics",
+      "rank": "A",
+      "kind": "journal",
+      "field": "计算机图形学与多媒体",
+      "dblp_key": "tog",
+      "source_url": "http://dblp.uni-trier.de/db/journals/tog/",
+      "catalog_page": 44,
+      "aliases": [
+        "TOG"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-tip",
+      "acronym": "TIP",
+      "name": "IEEE Transactions on Image Processing",
+      "rank": "A",
+      "kind": "journal",
+      "field": "计算机图形学与多媒体",
+      "dblp_key": "tip",
+      "source_url": "http://dblp.uni-trier.de/db/journals/tip/",
+      "catalog_page": 44,
+      "aliases": [
+        "TIP"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-tvcg",
+      "acronym": "TVCG",
+      "name": "IEEE Transactions on Visualization and Computer Graphics",
+      "rank": "A",
+      "kind": "journal",
+      "field": "计算机图形学与多媒体",
+      "dblp_key": "tvcg",
+      "source_url": "http://dblp.uni-trier.de/db/journals/tvcg/",
+      "catalog_page": 44,
+      "aliases": [
+        "TVCG"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-tmm",
+      "acronym": "TMM",
+      "name": "IEEE Transactions on Multimedia",
+      "rank": "A",
+      "kind": "journal",
+      "field": "计算机图形学与多媒体",
+      "dblp_key": "tmm",
+      "source_url": "http://dblp.uni-trier.de/db/journals/tmm/",
+      "catalog_page": 44,
+      "aliases": [
+        "TMM"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-mm",
+      "acronym": "ACM MM",
+      "name": "ACM International Conference on Multimedia",
+      "rank": "A",
+      "kind": "conference",
+      "field": "计算机图形学与多媒体",
+      "dblp_key": "mm",
+      "source_url": "http://dblp.uni-trier.de/db/conf/mm/",
+      "catalog_page": 47,
+      "aliases": [
+        "ACM MM",
+        "ACM MM"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-siggraph",
+      "acronym": "SIGGRAPH",
+      "name": "ACM Special Interest Group on Computer Graphics",
+      "rank": "A",
+      "kind": "conference",
+      "field": "计算机图形学与多媒体",
+      "dblp_key": "siggraph",
+      "source_url": "http://dblp.uni-trier.de/db/conf/siggraph/index.html",
+      "catalog_page": 47,
+      "aliases": [
+        "SIGGRAPH"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-vr",
+      "acronym": "VR",
+      "name": "IEEE Conference on Virtual Reality and 3D User Interfaces （原 IEEE Virtual Reality）",
+      "rank": "A",
+      "kind": "conference",
+      "field": "计算机图形学与多媒体",
+      "dblp_key": "vr",
+      "source_url": "http://dblp.uni-trier.de/db/conf/vr/",
+      "catalog_page": 47,
+      "aliases": [
+        "VR"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-visualization",
+      "acronym": "IEEE VIS",
+      "name": "IEEE Visualization Conference",
+      "rank": "A",
+      "kind": "conference",
+      "field": "计算机图形学与多媒体",
+      "dblp_key": "visualization",
+      "source_url": "http://dblp.uni-trier.de/db/conf/visualization/index.html",
+      "catalog_page": 47,
+      "aliases": [
+        "IEEE VIS",
+        "VIS"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-ai",
+      "acronym": "AI",
+      "name": "Artificial Intelligence",
+      "rank": "A",
+      "kind": "journal",
+      "field": "人工智能",
+      "dblp_key": "ai",
+      "source_url": "http://dblp.uni-trier.de/db/journals/ai/",
+      "catalog_page": 51,
+      "aliases": [
+        "AI"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-pami",
+      "acronym": "TPAMI",
+      "name": "IEEE Transactions on Pattern Analysis and Machine Intelligence",
+      "rank": "A",
+      "kind": "journal",
+      "field": "人工智能",
+      "dblp_key": "pami",
+      "source_url": "http://dblp.uni-trier.de/db/journals/pami/",
+      "catalog_page": 51,
+      "aliases": [
+        "TPAMI"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-ijcv",
+      "acronym": "IJCV",
+      "name": "International Journal of Computer Vision",
+      "rank": "A",
+      "kind": "journal",
+      "field": "人工智能",
+      "dblp_key": "ijcv",
+      "source_url": "http://dblp.uni-trier.de/db/journals/ijcv/",
+      "catalog_page": 51,
+      "aliases": [
+        "IJCV"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-jmlr",
+      "acronym": "JMLR",
+      "name": "Journal of Machine Learning Research",
+      "rank": "A",
+      "kind": "journal",
+      "field": "人工智能",
+      "dblp_key": "jmlr",
+      "source_url": "http://dblp.uni-trier.de/db/journals/jmlr/",
+      "catalog_page": 51,
+      "aliases": [
+        "JMLR"
+      ],
+      "groups": [
+        "ccf_a"
+      ],
+      "issn": "1533-7928"
+    },
+    {
+      "id": "journals-jair",
+      "acronym": "JAIR",
+      "name": "Journal of Artificial Intelligence Research",
+      "rank": "B",
+      "kind": "journal",
+      "field": "人工智能",
+      "dblp_key": "jair",
+      "source_url": "http://dblp.uni-trier.de/db/journals/jair/index.html",
+      "catalog_page": 53,
+      "aliases": [
+        "JAIR"
+      ],
+      "groups": [
+        "domain_important"
+      ]
+    },
+    {
+      "id": "journals-ml",
+      "acronym": "",
+      "name": "Machine Learning",
+      "rank": "B",
+      "kind": "journal",
+      "field": "人工智能",
+      "dblp_key": "ml",
+      "source_url": "http://dblp.uni-trier.de/db/journals/ml/",
+      "catalog_page": 53,
+      "aliases": [
+        "",
+        "Machine Learning"
+      ],
+      "groups": [
+        "domain_important"
+      ]
+    },
+    {
+      "id": "journals-neco",
+      "acronym": "",
+      "name": "Neural Computation",
+      "rank": "B",
+      "kind": "journal",
+      "field": "人工智能",
+      "dblp_key": "neco",
+      "source_url": "http://dblp.uni-trier.de/db/journals/neco/",
+      "catalog_page": 53,
+      "aliases": [
+        ""
+      ],
+      "groups": [
+        "domain_important"
+      ]
+    },
+    {
+      "id": "journals-nn",
+      "acronym": "",
+      "name": "Neural Networks",
+      "rank": "B",
+      "kind": "journal",
+      "field": "人工智能",
+      "dblp_key": "nn",
+      "source_url": "http://dblp.uni-trier.de/db/journals/nn/",
+      "catalog_page": 53,
+      "aliases": [
+        ""
+      ],
+      "groups": [
+        "domain_important"
+      ]
+    },
+    {
+      "id": "journals-tacl",
+      "acronym": "TACL",
+      "name": "Transactions of the Association for Computational Linguistics",
+      "rank": "B",
+      "kind": "journal",
+      "field": "人工智能",
+      "dblp_key": "tacl",
+      "source_url": "https://dblp.org/db/journals/tacl/index.html",
+      "catalog_page": 53,
+      "aliases": [
+        "TACL"
+      ],
+      "groups": [
+        "domain_important"
+      ],
+      "anthology_key": "tacl"
+    },
+    {
+      "id": "conf-aaai",
+      "acronym": "AAAI",
+      "name": "AAAI Conference on Artificial Intelligence",
+      "rank": "A",
+      "kind": "conference",
+      "field": "人工智能",
+      "dblp_key": "aaai",
+      "source_url": "http://dblp.uni-trier.de/db/conf/aaai/",
+      "catalog_page": 57,
+      "aliases": [
+        "AAAI"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-nips",
+      "acronym": "NeurIPS",
+      "name": "Conference on Neural Information Processing Systems",
+      "rank": "A",
+      "kind": "conference",
+      "field": "人工智能",
+      "dblp_key": "nips",
+      "source_url": "http://dblp.uni-trier.de/db/conf/nips/",
+      "catalog_page": 57,
+      "aliases": [
+        "NeurIPS",
+        "NIPS"
+      ],
+      "groups": [
+        "ccf_a"
+      ],
+      "openreview_id": "NeurIPS.cc/{year}/Conference",
+      "regular_track_verified": true
+    },
+    {
+      "id": "conf-acl",
+      "acronym": "ACL",
+      "name": "Annual Meeting of the Association for Computational Linguistics",
+      "rank": "A",
+      "kind": "conference",
+      "field": "人工智能",
+      "dblp_key": "acl",
+      "source_url": "http://dblp.uni-trier.de/db/conf/acl/",
+      "catalog_page": 57,
+      "aliases": [
+        "ACL"
+      ],
+      "groups": [
+        "ccf_a"
+      ],
+      "anthology_key": "acl"
+    },
+    {
+      "id": "conf-cvpr",
+      "acronym": "CVPR",
+      "name": "IEEE/CVF Computer Vision and Pattern Recognition Conference",
+      "rank": "A",
+      "kind": "conference",
+      "field": "人工智能",
+      "dblp_key": "cvpr",
+      "source_url": "http://dblp.uni-trier.de/db/conf/cvpr/",
+      "catalog_page": 57,
+      "aliases": [
+        "CVPR"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-iccv",
+      "acronym": "ICCV",
+      "name": "International Conference on Computer Vision",
+      "rank": "A",
+      "kind": "conference",
+      "field": "人工智能",
+      "dblp_key": "iccv",
+      "source_url": "http://dblp.uni-trier.de/db/conf/iccv/",
+      "catalog_page": 57,
+      "aliases": [
+        "ICCV"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-icml",
+      "acronym": "ICML",
+      "name": "International Conference on Machine Learning",
+      "rank": "A",
+      "kind": "conference",
+      "field": "人工智能",
+      "dblp_key": "icml",
+      "source_url": "http://dblp.uni-trier.de/db/conf/icml/",
+      "catalog_page": 57,
+      "aliases": [
+        "ICML"
+      ],
+      "groups": [
+        "ccf_a"
+      ],
+      "openreview_id": "ICML.cc/{year}/Conference",
+      "regular_track_verified": true
+    },
+    {
+      "id": "conf-iclr",
+      "acronym": "ICLR",
+      "name": "International Conference on Learning Representations",
+      "rank": "A",
+      "kind": "conference",
+      "field": "人工智能",
+      "dblp_key": "iclr",
+      "source_url": "https://dblp.uni-trier.de/db/conf/iclr/index.html",
+      "catalog_page": 57,
+      "aliases": [
+        "ICLR"
+      ],
+      "groups": [
+        "ccf_a"
+      ],
+      "openreview_id": "ICLR.cc/{year}/Conference",
+      "regular_track_verified": true
+    },
+    {
+      "id": "conf-colt",
+      "acronym": "COLT",
+      "name": "Annual Conference on Computational Learning Theory",
+      "rank": "B",
+      "kind": "conference",
+      "field": "人工智能",
+      "dblp_key": "colt",
+      "source_url": "http://dblp.uni-trier.de/db/conf/colt/",
+      "catalog_page": 58,
+      "aliases": [
+        "COLT"
+      ],
+      "groups": [
+        "domain_important"
+      ]
+    },
+    {
+      "id": "conf-emnlp",
+      "acronym": "EMNLP",
+      "name": "Conference on Empirical Methods in Natural Language Processing",
+      "rank": "B",
+      "kind": "conference",
+      "field": "人工智能",
+      "dblp_key": "emnlp",
+      "source_url": "http://dblp.uni-trier.de/db/conf/emnlp/",
+      "catalog_page": 58,
+      "aliases": [
+        "EMNLP"
+      ],
+      "groups": [
+        "domain_important"
+      ],
+      "anthology_key": "emnlp"
+    },
+    {
+      "id": "conf-eccv",
+      "acronym": "ECCV",
+      "name": "European Conference on Computer Vision",
+      "rank": "B",
+      "kind": "conference",
+      "field": "人工智能",
+      "dblp_key": "eccv",
+      "source_url": "http://dblp.uni-trier.de/db/conf/eccv/",
+      "catalog_page": 58,
+      "aliases": [
+        "ECCV"
+      ],
+      "groups": [
+        "domain_important"
+      ]
+    },
+    {
+      "id": "conf-icra",
+      "acronym": "ICRA",
+      "name": "IEEE International Conference on Robotics and Automation",
+      "rank": "B",
+      "kind": "conference",
+      "field": "人工智能",
+      "dblp_key": "icra",
+      "source_url": "http://dblp.uni-trier.de/db/conf/icra/",
+      "catalog_page": 58,
+      "aliases": [
+        "ICRA"
+      ],
+      "groups": [
+        "domain_important"
+      ]
+    },
+    {
+      "id": "conf-coling",
+      "acronym": "COLING",
+      "name": "International Conference on Computational Linguistics",
+      "rank": "B",
+      "kind": "conference",
+      "field": "人工智能",
+      "dblp_key": "coling",
+      "source_url": "http://dblp.uni-trier.de/db/conf/coling/",
+      "catalog_page": 58,
+      "aliases": [
+        "COLING"
+      ],
+      "groups": [
+        "domain_important"
+      ]
+    },
+    {
+      "id": "conf-uai",
+      "acronym": "UAI",
+      "name": "Conference on Uncertainty in Artificial Intelligence",
+      "rank": "B",
+      "kind": "conference",
+      "field": "人工智能",
+      "dblp_key": "uai",
+      "source_url": "http://dblp.uni-trier.de/db/conf/uai/",
+      "catalog_page": 58,
+      "aliases": [
+        "UAI"
+      ],
+      "groups": [
+        "domain_important"
+      ]
+    },
+    {
+      "id": "conf-naacl",
+      "acronym": "NAACL",
+      "name": "North American Chapter of the Association for Computational Linguistics",
+      "rank": "B",
+      "kind": "conference",
+      "field": "人工智能",
+      "dblp_key": "naacl",
+      "source_url": "http://dblp.uni-trier.de/db/conf/naacl/",
+      "catalog_page": 58,
+      "aliases": [
+        "NAACL"
+      ],
+      "groups": [
+        "domain_important"
+      ],
+      "anthology_key": "naacl"
+    },
+    {
+      "id": "conf-ijcai",
+      "acronym": "IJCAI",
+      "name": "International Joint Conference on Artificial Intelligence",
+      "rank": "B",
+      "kind": "conference",
+      "field": "人工智能",
+      "dblp_key": "ijcai",
+      "source_url": "http://dblp.uni-trier.de/db/conf/ijcai/",
+      "catalog_page": 58,
+      "aliases": [
+        "IJCAI"
+      ],
+      "groups": [
+        "domain_important"
+      ]
+    },
+    {
+      "id": "conf-aistats",
+      "acronym": "AISTATS",
+      "name": "International Conference on Artificial Intelligence and Statistics",
+      "rank": "C",
+      "kind": "conference",
+      "field": "人工智能",
+      "dblp_key": "aistats",
+      "source_url": "http://dblp.uni-trier.de/db/conf/aistats/",
+      "catalog_page": 59,
+      "aliases": [
+        "AISTATS"
+      ],
+      "groups": [
+        "domain_important"
+      ]
+    },
+    {
+      "id": "conf-iros",
+      "acronym": "IROS",
+      "name": "IEEE\\RSJ International Conference on Intelligent Robots and Systems",
+      "rank": "C",
+      "kind": "conference",
+      "field": "人工智能",
+      "dblp_key": "iros",
+      "source_url": "http://dblp.uni-trier.de/db/conf/iros/",
+      "catalog_page": 59,
+      "aliases": [
+        "IROS"
+      ],
+      "groups": [
+        "domain_important"
+      ]
+    },
+    {
+      "id": "journals-tochi",
+      "acronym": "TOCHI",
+      "name": "ACM Transactions on Computer-Human Interaction",
+      "rank": "A",
+      "kind": "journal",
+      "field": "人机交互与普适计算",
+      "dblp_key": "tochi",
+      "source_url": "http://dblp.uni-trier.de/db/journals/tochi/",
+      "catalog_page": 61,
+      "aliases": [
+        "TOCHI"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-ijmms",
+      "acronym": "IJHCS",
+      "name": "International Journal of Human-Computer Studies",
+      "rank": "A",
+      "kind": "journal",
+      "field": "人机交互与普适计算",
+      "dblp_key": "ijmms",
+      "source_url": "http://dblp.uni-trier.de/db/journals/ijmms/",
+      "catalog_page": 61,
+      "aliases": [
+        "IJHCS"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-cscw",
+      "acronym": "CSCW",
+      "name": "ACM Conference On Computer-Supported Cooperative Work And Social Computing",
+      "rank": "A",
+      "kind": "conference",
+      "field": "人机交互与普适计算",
+      "dblp_key": "cscw",
+      "source_url": "http://dblp.uni-trier.de/db/conf/cscw",
+      "catalog_page": 64,
+      "aliases": [
+        "CSCW"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-chi",
+      "acronym": "CHI",
+      "name": "ACM Conference on Human Factors in Computing Systems",
+      "rank": "A",
+      "kind": "conference",
+      "field": "人机交互与普适计算",
+      "dblp_key": "chi",
+      "source_url": "http://dblp.uni-trier.de/db/conf/chi",
+      "catalog_page": 64,
+      "aliases": [
+        "CHI"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-huc",
+      "acronym": "UbiComp",
+      "name": "ACM international joint conference on Pervasive and Ubiquitous Computing",
+      "rank": "A",
+      "kind": "conference",
+      "field": "人机交互与普适计算",
+      "dblp_key": "huc",
+      "source_url": "https://dblp.uni-trier.de/db/conf/huc/",
+      "catalog_page": 64,
+      "aliases": [
+        "UbiComp"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-uist",
+      "acronym": "UIST",
+      "name": "ACM Symposium on User Interface Software and Technology",
+      "rank": "A",
+      "kind": "conference",
+      "field": "人机交互与普适计算",
+      "dblp_key": "uist",
+      "source_url": "http://dblp.uni-trier.de/db/conf/uist/",
+      "catalog_page": 64,
+      "aliases": [
+        "UIST"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-jacm",
+      "acronym": "JACM",
+      "name": "Journal of the ACM",
+      "rank": "A",
+      "kind": "journal",
+      "field": "交叉/综合/新兴",
+      "dblp_key": "jacm",
+      "source_url": "http://dblp.uni-trier.de/db/journals/jacm/",
+      "catalog_page": 67,
+      "aliases": [
+        "JACM"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-pieee",
+      "acronym": "Proc. IEEE",
+      "name": "Proceedings of the IEEE",
+      "rank": "A",
+      "kind": "journal",
+      "field": "交叉/综合/新兴",
+      "dblp_key": "pieee",
+      "source_url": "http://dblp.uni-trier.de/db/journals/pieee/",
+      "catalog_page": 67,
+      "aliases": [
+        "Proc. IEEE"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-chinaf",
+      "acronym": "SCIS",
+      "name": "Science China Information Sciences",
+      "rank": "A",
+      "kind": "journal",
+      "field": "交叉/综合/新兴",
+      "dblp_key": "chinaf",
+      "source_url": "http://dblp.uni-trier.de/db/journals/chinaf/",
+      "catalog_page": 67,
+      "aliases": [
+        "SCIS"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-bioinformatics",
+      "acronym": "Bioinformatics",
+      "name": "Bioinformatics",
+      "rank": "A",
+      "kind": "journal",
+      "field": "交叉/综合/新兴",
+      "dblp_key": "bioinformatics",
+      "source_url": "http://dblp.uni-trier.de/db/journals/bioinformatics/",
+      "catalog_page": 67,
+      "aliases": [
+        "Bioinformatics"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-www",
+      "acronym": "WWW",
+      "name": "The Web Conference （原 International World Wide Web Conference）",
+      "rank": "A",
+      "kind": "conference",
+      "field": "交叉/综合/新兴",
+      "dblp_key": "www",
+      "source_url": "http://dblp.uni-trier.de/db/conf/www/",
+      "catalog_page": 70,
+      "aliases": [
+        "WWW"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "conf-rtss",
+      "acronym": "RTSS",
+      "name": "IEEE Real-Time Systems Symposium",
+      "rank": "A",
+      "kind": "conference",
+      "field": "交叉/综合/新兴",
+      "dblp_key": "rtss",
+      "source_url": "http://dblp.uni-trier.de/db/conf/rtss/",
+      "catalog_page": 70,
+      "aliases": [
+        "RTSS"
+      ],
+      "groups": [
+        "ccf_a"
+      ]
+    },
+    {
+      "id": "journals-pr",
+      "acronym": "PR",
+      "name": "Pattern Recognition",
+      "rank": "B",
+      "kind": "journal",
+      "field": "人工智能",
+      "dblp_key": "pr",
+      "source_url": "http://dblp.uni-trier.de/db/conf/par/",
+      "catalog_page": 53,
+      "aliases": [
+        "PR"
+      ],
+      "groups": [
+        "domain_important"
+      ],
+      "mapping_note": "Corrected publisher catalog DBLP link"
+    }
+  ]
+}
