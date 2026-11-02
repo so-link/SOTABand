@@ -16,7 +16,9 @@ import { DatasetEditorView } from './DatasetEditorView'
 import { RepositoryView } from './RepositoryView'
 import { DatasetRepositoryView } from './DatasetRepositoryView'
 import { SettingsView } from './SettingsView'
-import { MessageSquare, BarChart3, Search, GitBranch, Radio, Bot, X, Package, Settings, PanelLeft, PanelRight, ChevronLeft, ChevronRight, BrainCircuit } from 'lucide-react'
+import { CronJobsView } from './CronJobsView'
+import { MessageSquare, BarChart3, Search, GitBranch, Radio, Bot, X, Package, Settings, PanelLeft, PanelRight, ChevronLeft, ChevronRight, BrainCircuit, CalendarClock, MoreHorizontal } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 const TAB_CONFIG: Record<ActiveView, { label: string; icon: typeof MessageSquare }> = {
   chat:            { label: '对话',    icon: MessageSquare },
@@ -32,6 +34,7 @@ const TAB_CONFIG: Record<ActiveView, { label: string; icon: typeof MessageSquare
   'dataset-editor':{ label: '数据集',  icon: BarChart3 },
   'dataset-repository': { label: '数据集仓库', icon: Package },
   'repository':    { label: '工具仓库',    icon: Package },
+  'cron-jobs':     { label: '定时任务',  icon: CalendarClock },
   settings:        { label: '设置',    icon: Settings },
 }
 
@@ -46,11 +49,26 @@ export function CenterPanel() {
 }
 
 function ViewTabBar() {
-  const { activeView, openViews, setActiveView, closeView,
+  const { activeView, openViews, setActiveView, closeView, closeOtherViews, closeAllViews,
           leftPanelOpen, rightPanelOpen, toggleLeftPanel, toggleRightPanel } = useUIStore()
   const agents = useResourceStore((s) => s.agentResources)
   const tools = useResourceStore((s) => s.toolResources)
   const modelResources = useResourceStore((s) => s.modelResources)
+
+  // 「批量关闭标签」下拉菜单
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!menuOpen) return
+    const onDown = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [menuOpen])
+
+  // 除 chat（固定标签）外的可关闭标签数
+  const closableCount = openViews.filter((v) => v !== 'chat').length
 
   // 标签过多时用左右箭头滚动，不出原生水平滚动条
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -169,6 +187,38 @@ function ViewTabBar() {
           <ChevronRight className="h-3.5 w-3.5" />
         </button>
       )}
+      <div ref={menuRef} className="relative shrink-0">
+        <button
+          onClick={() => setMenuOpen((v) => !v)}
+          title="标签操作"
+          className={cn(
+            'flex items-center justify-center h-6 w-6 rounded transition-colors',
+            menuOpen
+              ? 'text-maia-accent bg-maia-sidebar-hover'
+              : 'text-maia-text-muted hover:text-maia-accent hover:bg-maia-sidebar-hover',
+          )}
+        >
+          <MoreHorizontal className="h-3.5 w-3.5" />
+        </button>
+        {menuOpen && (
+          <div className="absolute right-0 top-7 z-50 w-40 rounded-md border border-maia-border bg-maia-surface shadow-lg py-1">
+            <button
+              onClick={() => { closeOtherViews(); setMenuOpen(false) }}
+              disabled={closableCount <= (activeView !== 'chat' ? 1 : 0)}
+              className="w-full text-left px-3 py-1.5 text-[13px] text-maia-text hover:bg-maia-sidebar-hover disabled:opacity-40 disabled:pointer-events-none"
+            >
+              关闭其他标签
+            </button>
+            <button
+              onClick={() => { closeAllViews(); setMenuOpen(false) }}
+              disabled={closableCount === 0}
+              className="w-full text-left px-3 py-1.5 text-[13px] text-maia-text hover:bg-maia-sidebar-hover disabled:opacity-40 disabled:pointer-events-none"
+            >
+              关闭所有标签
+            </button>
+          </div>
+        )}
+      </div>
       <button
         onClick={toggleRightPanel}
         title={rightPanelOpen ? '隐藏属性面板' : '显示属性面板'}
@@ -206,6 +256,7 @@ function ViewRouter({ view }: { view: ActiveView }) {
     case 'dataset-editor': return <DatasetEditorView />
     case 'dataset-repository': return <DatasetRepositoryView />
     case 'repository': return <RepositoryView />
+    case 'cron-jobs': return <CronJobsView />
     case 'settings': return <SettingsView />
   }
 }

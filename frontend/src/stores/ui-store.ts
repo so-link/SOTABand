@@ -15,6 +15,7 @@ export type ActiveView =
   | 'dataset-editor'
   | 'repository'
   | 'dataset-repository'
+  | 'cron-jobs'
   | 'settings'
   // 每个 Agent 独立的详情视图：形如 "agent-detail:{agentId}"
   // 使不同 Agent 各自拥有独立的标签页与界面，互不共享/覆盖。
@@ -63,6 +64,8 @@ interface UIState {
   setRightPanelOpen: (open: boolean) => void
   setActiveView: (view: ActiveView) => void
   closeView: (view: ActiveView) => void
+  closeOtherViews: () => void
+  closeAllViews: () => void
   setLeftPanelTab: (tab: 'files' | 'resources') => void
   toggleTheme: () => void
 }
@@ -99,6 +102,17 @@ export const useUIStore = create<UIState>()(
           }
           return { openViews: next, activeView: nextActive }
         }),
+
+      // 关闭除当前激活标签外的所有可关闭标签（chat 固定不可关）
+      closeOtherViews: () =>
+        set((s) => {
+          const keep = s.activeView
+          const next = s.openViews.filter((v) => v === keep || v === 'chat')
+          return { openViews: next.length > 0 ? next : ['chat'], activeView: keep }
+        }),
+
+      // 关闭所有可关闭标签，回到对话视图
+      closeAllViews: () => set({ openViews: ['chat'], activeView: 'chat' }),
 
       setLeftPanelTab: (tab) => set({ leftPanelTab: tab }),
 
