@@ -386,19 +386,12 @@ def execute(**kwargs) -> dict:
         if output_format not in ["text", "table"]:
             output_format = "text"   # 回退为文本
 
-        # ── 多级天气数据获取策略 ──
+        # ── 天气数据获取策略 ──
         response = {}
-        # 第一级：系统内置天气 API
-        try:
-            response = _call_api("weather", city=city, units=units, lang=lang)
-        except Exception:
-            response = {"status": "failed", "message": "系统 API 调用失败，尝试备用源"}
+        # 第一级：wttr.in 备用源
+        response = _fetch_weather_backup(city, units, lang)
 
-        # 第二级：wttr.in 备用源
-        if response.get("status") != "success":
-            response = _fetch_weather_backup(city, units, lang)
-
-        # 第三级：Open-Meteo 免费 API
+        # 第二级：Open-Meteo 免费 API
         if response.get("status") != "success":
             response = _fetch_weather_openmeteo(city, units, lang)
 

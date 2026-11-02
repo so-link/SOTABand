@@ -139,8 +139,8 @@ _CITY_TO_IATA = {
     "毕节": ["BFJ"],
 }
 
-# Aviationstack API 配置
-_AVIATION_STACK_KEY = "7aa3e2da4ba27c8a7d386ef8820cddad"
+# Aviationstack API 配置（密钥从 .env 读取，避免硬编码泄露）
+_AVIATION_STACK_KEY = os.environ.get("AVIATIONSTACK_API_KEY", "")
 _BASE_URL = "https://api.aviationstack.com/v1/flights"
 
 def _fetch_flights(iata: str, direction: str, limit: int = 100) -> list:
@@ -193,6 +193,10 @@ def execute(**kwargs) -> dict[str, Any]:
         return {"status": "failed", "message": "城市名不能为空"}
     if n <= 0:
         return {"status": "failed", "message": "参数 n 必须为正整数"}
+
+    # 校验 API Key 是否已配置
+    if not _AVIATION_STACK_KEY:
+        return {"status": "failed", "message": "未配置 Aviationstack API Key：请在 .env 中设置 AVIATIONSTACK_API_KEY（可在 https://aviationstack.com 注册免费账号申请）后再使用本工具"}
 
     # 中文城市名转换
     iata_list = _CITY_TO_IATA.get(city)

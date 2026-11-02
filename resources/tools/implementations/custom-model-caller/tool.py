@@ -125,7 +125,7 @@ def execute(**kwargs):
     # ── 调用 ──
     try:
         result = _call_api(
-            "【【LLM自定义配置对话API】】",
+            "api-llm-chat-with-config",
             messages=messages,
             api_key=api_key,
             model=model,

@@ -53,7 +53,7 @@ created: 2026-07-29
 | requests | >=2.28.0 | 发送 HTTP 请求调用 Aviationstack API |
 | 中文城市名映射文件 | 内置 | 提供从中文城市名到英文城市名或 IATA 代码的映射，确保 API 可正确查询 |
 
-> **注意**：Aviationstack API 密钥 `7aa3e2da4ba27c8a7d386ef8820cddad` 已内置在工具代码中，无需用户提供。
+> **注意**：Aviationstack API 密钥未内置在工具代码中，需在项目 `.env` 中配置 `AVIATIONSTACK_API_KEY`（可在 https://aviationstack.com 注册免费账号获取）。未配置时将提示用户先配置密钥。
 
 ## 5. 运行机制
 
@@ -61,14 +61,14 @@ created: 2026-07-29
 1. **读取输入数据**：接收 `city` 和 `n` 两个参数。
 2. **校验参数**：检查 `city` 是否非空，`n` 是否为正整数。
 3. **中文城市名转换**：通过内置映射文件将中文城市名转换为 Aviationstack API 接受的查询格式（如英文城市名或 IATA 代码）。
-4. **调用 API**：向 `https://api.aviationstack.com/v1/flights` 发送 GET 请求，传入转换后的城市名、API 密钥以及必要的筛选参数。
+4. **调用 API**：向 `https://api.aviationstack.com/v1/flights` 发送 GET 请求（API Key 从环境变量 `AVIATIONSTACK_API_KEY` 读取），传入转换后的城市名、API 密钥以及必要的筛选参数。
 5. **解析响应**：从返回的 JSON 中提取航班数据，筛选出与指定城市严格相关的航班（出发或到达属于该城市）。
 6. **数量限制**：仅保留前 `n` 条符合条件的航班记录。
 7. **构建表格输出**：按照规定的表格列整理数据，返回标准输出结构。
 
 ### 5.2 错误处理
 - **城市名无法转换** → 返回 `{"status": "failed", "message": "不支持的城市名，请检查输入"}`。
-- **API 调用失败** (网络问题、密钥无效等) → 返回 `{"status": "failed", "message": "航班信息查询失败，请稍后重试"}`。
+- **API 调用失败** (网络问题、密钥无效或未配置等) → 返回 `{"status": "failed", "message": "航班信息查询失败，请稍后重试"}`。
 - **无匹配航班** → 返回 `{"status": "success", "message": "未找到相关航班信息", "output_format": "table", "data": {"columns": [...], "rows": []}}`。
 - **参数 `n` 无效** (非数字、<=0 等) → 返回 `{"status": "failed", "message": "参数 n 必须为正整数"}`。
 

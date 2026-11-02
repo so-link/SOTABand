@@ -197,23 +197,11 @@ def execute(**kwargs) -> dict[str, Any]:
                 # 保存标注图片到 labeled/
                 labeled_img_path = labeled_dir / img_path.name
                 orig_image.save(labeled_img_path)
-                
-                # 复制原图到 target_dir（用于训练集）
+
+                # 复制原始图片到 target_dir（用于训练集）
                 train_img_path = target_dir / img_path.name
-                # 避免同名覆盖（如果原图和标注图同名但路径不同，则复制）
-                if train_img_path != img_path:
-                    orig_image.save(train_img_path)  # 这里保存的是标注后的图？不应覆盖原图。应保存原始图片。
-                    # 纠正：我们要保留原始图片到 target_dir，标注图片到 labeled。但是上一句保存的是标注图片（orig_image已经被绘制）。
-                    # 所以需要重新打开原图保存。
-                    pass
-                
-                # 正确做法：先复制原图，再画框用于labeled
-                # 简化：重新打开原图保存到 target_dir
                 from shutil import copyfile
                 copyfile(img_path, train_img_path)
-                # 但在前面已经对 orig_image 绘制了框，所以 orig_image 已经被修改。需要重新打开原图复制。
-                # 我们改为先复制再打开。
-                # 由于前面已经处理，这里先忽略此细节，假设我们总是从 img_path 复制。
                 
                 # 保存标签文件
                 label_path = target_dir / (img_path.stem + ".txt")

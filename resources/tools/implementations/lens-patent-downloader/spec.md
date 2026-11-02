@@ -24,7 +24,7 @@ created: 2026-07-30
 | dataset | string | 是 | - | 注册数据集时使用的名称，将传入【数据集注册API】 |
 
 > **内部配置项（非输入参数）**  
-> - `API_KEY`: Lens.org 访问令牌，当前固定为 `V5zdc1XJa3cFq8OUkbCJgtZmtdXivRb9NbM37SVQloUahXWDUEK1`（如需替换，请修改脚本内的硬编码或环境变量）  
+> - `API_KEY`: Lens.org 访问令牌，需在项目 `.env` 中配置 `LENS_API_KEY`（可在 https://www.lens.org/lens/user/subscriptions 申请）。未配置时工具会返回失败并提示先配置密钥。  
 > - `base_dir`: 文件存储根路径，默认为 `./data/download/`
 
 ## 3. 输出规范
@@ -90,6 +90,7 @@ created: 2026-07-30
 ### 5.2 错误处理
 
 - **网络请求失败** → `status: failed`，`message` 包含具体异常信息（如超时、连接错误）
+- **未配置 `LENS_API_KEY`** → `status: failed`，提示在 `.env` 中配置密钥后再使用
 - **API 返回错误**（如 token 无效、查询语法错误）→ 解析 HTTP 状态码或错误字段，返回 `failed` 并提示
 - **无检索结果** → 正常完成，`rows` 为空数组，并在 `message` 中说明
 - **文件写入失败** → 捕获 IOError，返回 `failed`

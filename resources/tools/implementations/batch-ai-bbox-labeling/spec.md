@@ -55,7 +55,8 @@ created: 2026-07-27
    - 调用豆包大模型 `doubao-seed-2-0-lite-260428`（API Key 为 `{api_key}`），请求检测目标 `{req}`，获得 YOLO 风格的边界框列表（归一化于缩放后的 640 分辨率图像）。
    - 根据原始图片尺寸，将归一化边界框逆缩放为原图的像素坐标。
    - 在原始图片上绘制加粗红框，保存至 `{data_path_target}/labeled/` 目录下（文件名与原图相同）。
-   - 按照 YOLO 训练集格式，生成标签文件（每行为 `class_id x_center y_center width height`，坐标归一化于原图宽高），与原始图片一并保存至 `{data_path_target}` 目录中。
+   - 复制**原始未标注图片**到 `{data_path_target}` 根目录下（作为 YOLO 训练图片）。
+   - 按照 YOLO 训练集格式，生成标签文件（每行为 `class_id x_center y_center width height`，坐标归一化于原图宽高），保存至 `{data_path_target}` 目录中。
 6. 全部图片处理完毕后，调用系统 API `【数据集注册API】` 将目录 `{data_path_target}` 注册为数据集 `{output_dataset}`。
 7. 将 `{data_path_target}/labeled/` 下第一张图片的路径封装为输出结果返回。
 

@@ -68,7 +68,7 @@ data 结构：
 1. 校验必填参数（prompt / model；api_key、provider、base_url 至少其一）。
 2. 若填写了 `image_path`：读取图片，等比缩放至最长边 1024 像素，
    转为 JPEG 后 base64 编码，与 prompt 一起以多模态消息格式发送。
-3. 调用【【LLM自定义配置对话API】】，传入 provider / model / api_key /
+3. 调用 **`api-llm-chat-with-config`（LLM自定义配置对话API）**，传入 provider / model / api_key /
    base_url / max_tokens。api_key 未传时由该 API 自动降级读取
    `.env` 的 `<PROVIDER>_API_KEY`（或主 key）。
 4. 端点解析顺序：显式 base_url → provider 查服务商目录 → 按 model 名推断。

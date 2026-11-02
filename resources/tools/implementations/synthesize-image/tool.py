@@ -4,7 +4,6 @@ import os, sys, json, time, tempfile
 from pathlib import Path
 from typing import Any
 import requests
-from volcenginesdkarkruntime import Ark
 
 # ── 项目根路径 ──
 _tool_dir = os.environ.get("TOOL_DIR", "")
@@ -106,6 +105,7 @@ def execute(**kwargs) -> dict[str, Any]:
             save_dir = Path(tempfile.mkdtemp(prefix="image_gen_"))
 
         # 4. 初始化豆包客户端
+        from volcenginesdkarkruntime import Ark  # 延迟导入，避免缺包时整个工具加载失败
         client = Ark(
             base_url="https://ark.cn-beijing.volces.com/api/v3",
             api_key=api_key,

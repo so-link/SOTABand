@@ -112,7 +112,7 @@ def execute(**kwargs) -> dict[str, Any]:
 
     # 2. 调用 Lens专利检索与注册工具
     try:
-        tool_res = _call_tool("Lens专利检索与注册工具", req=req, n=n, year=year, dataset=dataset)
+        tool_res = _call_tool("lens-patent-downloader", req=req, n=n, year=year, dataset=dataset)
     except Exception as e:
         return {"status": "failed", "message": f"调用专利检索与注册工具失败: {str(e)}", "output_format": "text", "data": {}}
     if not isinstance(tool_res, dict) or tool_res.get("status") != "success":

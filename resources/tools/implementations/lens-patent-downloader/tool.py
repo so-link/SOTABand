@@ -70,9 +70,9 @@ import pandas as pd
 from datetime import datetime
 
 # 内部配置项
-# Lens API Token：优先读环境变量 LENS_API_KEY（在 .env 中配置），
-# 硬编码值仅作历史兜底，请尽快在 .env 中配置并到 Lens.org 轮换该密钥
-_API_KEY = os.environ.get("LENS_API_KEY", "V5zdc1XJa3cFq8OUkbCJgtZmtdXivRb9NbM37SVQloUahXWDUEK1")
+# Lens API Token：从 .env 的 LENS_API_KEY 读取。未配置时在 execute 中明确报错，
+# 不再内置历史密钥（已泄露，生产环境须到 Lens.org 轮换）。
+_API_KEY = os.environ.get("LENS_API_KEY", "")
 _BASE_URL = "https://api.lens.org/patent/search"
 _DOWNLOAD_DIR = _DATA_DIR / "download"  # 规范要求 ./data/download/
 
@@ -245,6 +245,11 @@ def execute(**kwargs) -> dict[str, Any]:
             return {"status": "failed", "message": "参数 'year' 必须为 >= 1900 的整数"}
         if not dataset_name or not isinstance(dataset_name, str) or not dataset_name.strip():
             return {"status": "failed", "message": "参数 'dataset' 必须为非空字符串"}
+
+        # ── 1.5 校验 Lens API Key（必须先在 .env 配置 LENS_API_KEY）──
+        if not _API_KEY:
+            return {"status": "failed",
+                    "message": "未配置 Lens API Key：请在 .env 中设置 LENS_API_KEY（可在 https://www.lens.org/lens/user/subscriptions 申请）后再使用本工具"}
 
         # ── 2. 创建存储目录 ──
         max_attempts = 10
