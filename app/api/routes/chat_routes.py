@@ -16,7 +16,11 @@ import time
 from fastapi import APIRouter, HTTPException
 from sse_starlette.sse import EventSourceResponse
 
-from app.api.schemas.chat_schemas import ChatRequest
+from app.api.schemas.chat_schemas import (
+    ChatRequest,
+    PlatformCallRequest,
+    PlatformConfirmRequest,
+)
 from core.agent.factory import agent_factory
 
 # ── 系统默认交互 Agent 的标识 ──
@@ -238,3 +242,52 @@ async def chat_stop(req: dict):
         raise HTTPException(status_code=400, detail="缺少 session_id")
     stop_chat(session_id)
     return {"status": "ok", "message": f"已请求停止对话 {session_id}"}
+
+
+# ────────────────── 平台控制网关端点（docs/chat-platform-control-design.md） ──────────────────
+# 对话内的所有平台操作都收敛到这里：身份取当前登录用户，风险分级/参数校验/
+# 确认协议/审计全在 core.chat_control 网关内完成。POST 天然受 auth 中间件保护
+# （未登录 401），无需在此重复鉴权。
+
+def _platform_owner(user_id: str | None = None) -> str:
+    """操作身份 = 当前登录用户；无令牌的老客户端退回会话 user_id。"""
+    from core.auth.session import current_identity
+    return current_identity() or (user_id or "").strip() or "default"
+
+
+@router.post("/platform-call")
+async def platform_call_endpoint(request: PlatformCallRequest):
+    """执行一次平台工具调用（只读直通；写操作返回待确认卡片数据）。"""
+    from core.chat_control import gateway
+    owner = _platform_owner(request.user_id)
+    result = await gateway.platform_call(
+        request.tool, request.args, owner=owner, session_id=request.session_id
+    )
+    return result
+
+
+@router.post("/platform-call/confirm")
+async def platform_confirm_endpoint(request: PlatformConfirmRequest):
+    """确认执行待确认操作。校验 owner/token/指纹/超时，幂等返回首次结果。"""
+    from core.chat_control import gateway
+    owner = _platform_owner()
+    return await gateway.confirm_op(
+        request.op_id, owner=owner, token=request.token,
+        fingerprint=request.fingerprint or None,
+    )
+
+
+@router.post("/platform-call/cancel")
+async def platform_cancel_endpoint(request: PlatformConfirmRequest):
+    """取消待确认操作。"""
+    from core.chat_control import gateway
+    return gateway.cancel_op(request.op_id, owner=_platform_owner())
+
+
+@router.get("/platform-call/pending")
+async def platform_pending_endpoint(session_id: str = "default"):
+    """查询会话当前的待确认操作（前端刷新后恢复卡片）。"""
+    from core.chat_control import gateway
+    pending = gateway.pending_op(session_id)
+    return {"pending": pending}
+

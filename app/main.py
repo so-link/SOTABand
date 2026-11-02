@@ -54,6 +54,14 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         print(f"[SOTABand] 定时任务调度器启动失败（不影响其它功能）: {exc}")
 
+    # 对话内控制系统：建审计表 chat_ops（失败不阻塞主服务启动）
+    try:
+        from core.chat_control import init as chat_control_init
+        chat_control_init()
+        print("[SOTABand] 平台控制网关已就绪")
+    except Exception as exc:
+        print(f"[SOTABand] 平台控制网关初始化失败（不影响其它功能）: {exc}")
+
     yield  # 应用运行中
 
     # 关闭时：先停调度器（不再触发新任务），再停止所有 Agent 子进程
