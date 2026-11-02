@@ -34,6 +34,11 @@ SYSTEM_PROMPT = """你是 SOTABand Engine 的交互 Agent，一个多智能体�
 - 无匹配工具: 回复必须**以 TOOL_NEEDED: 开头**（不要有任何前缀文字），然后简要描述需要创建什么工具（中文描述），
   系统会自动跳转到工具编辑器并预填需求。例如: "TOOL_NEEDED: EEG带通滤波器，输入EDF文件，支持可配置的低频和高频截止频率"
 
+## 平台工具（重要）
+- 你可以直接调用平台工具查询系统真实状态（数据集/工具/模型/Agent 清单、定时任务、目录浏览、数据预览等）。需要这类信息时**必须调用工具**，禁止凭空猜测或编造
+- 涉及修改平台资源的工具会先向用户发出确认卡片，工具返回 status=pending 时，你只需告知用户在卡片上确认，**绝不能声称操作已执行**
+- 工具返回的 status=error 表示未执行，把错误原因用自然语言告诉用户或修正参数后重试
+
 ## 注意事项
 - 回复简洁清晰，逐步引导用户
 - 如用户提及具体数据文件，引用文件名
@@ -487,13 +492,82 @@ class InteractiveAgent(BaseAgent):
 
         try:
             full_response = ""
-            async for token in self.llm.chat_stream(
-                messages=history,
-                temperature=0.1,
-                max_tokens=self.config.get("max_tokens", 100000),
-            ):
-                full_response += token
-                yield {"event": "content", "data": {"text": token}}
+            platform_tools = self._platform_tool_schemas()
+
+            if not platform_tools:
+                # 平台控制不可用（熔断/导入失败）→ 纯文本流式，行为与旧版完全一致
+                async for token in self.llm.chat_stream(
+                    messages=history,
+                    temperature=0.1,
+                    max_tokens=self.config.get("max_tokens", 100000),
+                ):
+                    full_response += token
+                    yield {"event": "content", "data": {"text": token}}
+            else:
+                # tool_call 循环：模型请求平台工具 → 经主进程网关执行 → 结果回填继续生成
+                max_tool_rounds = 5
+                for _ in range(max_tool_rounds):
+                    round_text = ""
+                    tool_calls = None
+                    async for kind, payload in self.llm.chat_stream_with_tools(
+                        messages=history,
+                        tools=platform_tools,
+                        temperature=0.1,
+                        max_tokens=self.config.get("max_tokens", 100000),
+                    ):
+                        if kind == "content":
+                            round_text += payload
+                            yield {"event": "content", "data": {"text": payload}}
+                        elif kind == "tool_calls":
+                            tool_calls = payload
+
+                    if not tool_calls:
+                        full_response = round_text
+                        break
+
+                    # 回填 assistant 的 tool_calls 消息（协议要求与后续 tool 结果配对）
+                    history.append({
+                        "role": "assistant",
+                        "content": round_text,
+                        "tool_calls": [
+                            {"id": tc.get("id") or f"call_{i}", "type": "function",
+                             "function": {
+                                 "name": tc.get("name", ""),
+                                 "arguments": json.dumps(
+                                     tc.get("arguments") if isinstance(tc.get("arguments"), dict) else {},
+                                     ensure_ascii=False),
+                             }}
+                            for i, tc in enumerate(tool_calls)
+                        ],
+                    })
+                    for i, tc in enumerate(tool_calls):
+                        call_id = tc.get("id") or f"call_{i}"
+                        result = await self._run_platform_tool(tc, ctx, session_key)
+                        if result.get("status") == "pending" and result.get("confirm"):
+                            # 写操作 → 下发确认卡片，本轮不执行
+                            yield {
+                                "event": "card",
+                                "data": {
+                                    "type": "platform-confirm",
+                                    "title": "请确认平台操作",
+                                    "summary": result["confirm"].get("summary", ""),
+                                    "data": result["confirm"],
+                                },
+                            }
+                        history.append({
+                            "role": "tool",
+                            "tool_call_id": call_id,
+                            "content": self._clip_tool_result(result),
+                        })
+                else:
+                    # 轮次用尽仍未给出最终回答 → 不带工具强制收尾，防止无限循环
+                    async for token in self.llm.chat_stream(
+                        messages=history,
+                        temperature=0.1,
+                        max_tokens=self.config.get("max_tokens", 100000),
+                    ):
+                        full_response += token
+                        yield {"event": "content", "data": {"text": token}}
 
             # 检查是否需要创建工具（宽松匹配，兼容前缀/中英文冒号）
             m_tool_needed = re.search(r"TOOL_NEEDED[:：]\s*(.+)", full_response, re.DOTALL)
@@ -509,15 +583,65 @@ class InteractiveAgent(BaseAgent):
                     },
                 }
 
-            # 保存对话历史
+            # 保存对话历史：只保留纯文本轮次。
+            # tool_calls/tool 中间消息跨轮保留会因历史裁剪拆散配对而报协议错误，
+            # 且工具结果只对当轮决策有意义，无需跨轮记忆。
             history.append({"role": "assistant", "content": full_response})
-            self._sessions[session_key] = history
+            self._sessions[session_key] = [
+                m for m in history
+                if m.get("role") in ("system", "user", "assistant") and not m.get("tool_calls")
+            ]
 
         except Exception as e:
             yield {
                 "event": "error",
                 "data": {"code": "llm_error", "message": str(e)},
             }
+
+    def _platform_tool_schemas(self) -> list[dict]:
+        """平台工具声明（function calling）。
+
+        与网关共用同一注册表，保证「模型能调的」永远等于「网关认的」。
+        导入失败或熔断关闭时返回空列表，主流程自动回退纯文本流式。
+        """
+        try:
+            from core.chat_control import tool_schemas
+            return tool_schemas()
+        except Exception:
+            return []
+
+    async def _run_platform_tool(self, tc: dict, ctx: AgentContext, session_key: str) -> dict:
+        """执行单个平台工具调用，返回结构化结果（不抛异常）。
+
+        子进程不直接碰 registry/文件系统——一律经总线帧交主进程网关执行，
+        由网关做身份注入、严格校验、风险分级与审计。
+        """
+        name = str(tc.get("name") or "")
+        args = tc.get("arguments")
+        if isinstance(args, str):
+            # 参数 JSON 解析失败（client 层保留原始字符串）→ 回错误让 LLM 自纠
+            return {"status": "error",
+                    "error": f"工具参数不是合法 JSON，无法执行: {args[:200]}。请生成正确的 JSON 参数后重试。"}
+        if not isinstance(args, dict):
+            args = {}
+        if self._bus is None:
+            return {"status": "error", "error": "平台通道不可用（Agent 未运行在子进程模式下）"}
+        return await self._bus.platform_call(
+            name, args,
+            session_id=ctx.session_id or session_key,
+            user_id=ctx.user_id or "default",
+        )
+
+    @staticmethod
+    def _clip_tool_result(result) -> str:
+        """工具结果序列化并截断，防止大结果撑爆上下文。"""
+        try:
+            text = json.dumps(result, ensure_ascii=False, default=str)
+        except Exception:
+            text = str(result)
+        if len(text) > 6000:
+            text = text[:6000] + "…（结果已截断）"
+        return text
 
     async def _match_agent(self, query: str):
         """判断用户是否明确指定了某个已注册 Agent。
@@ -661,6 +785,11 @@ class InteractiveAgent(BaseAgent):
         if create_intent:
             return [], create_intent
 
+        # 0.5 平台元信息查询（"我有哪些数据集"等）→ 不做工具匹配，
+        # 交给主流程的平台工具（function calling）用真实数据回答。
+        if self._is_platform_meta_query(query):
+            return [], None
+
         # 收集活跃工具（限定工具空间范围）
         try:
             from core.resource.registry.tool_registry import ToolRegistry
@@ -720,6 +849,30 @@ class InteractiveAgent(BaseAgent):
             desc = q
 
         return desc
+
+    # 平台元信息查询的识别模式：列举平台资源（而非处理数据）
+    _META_PATTERNS = [
+        r"(有哪些|有多少(个)?|列出|列一下|清单|列表|几个)[^。？?!！]{0,8}(数据集|数据|工具|模型|agent|智能体|定时任务|任务)",
+        r"(数据集|工具|模型|agent|智能体|定时任务|任务)[^。？?!！]{0,6}(有哪些|有多少|几个|列表|清单)",
+    ]
+    # 出现这些动词说明用户要处理数据，不是查平台状态
+    _DATA_VERBS = ("编辑", "转换", "清洗", "训练", "预测", "绘图", "画图",
+                   "导出", "合并", "筛选", "标注", "处理", "分析", "计算")
+
+    def _is_platform_meta_query(self, query: str) -> bool:
+        """判断是否为「查询平台本身状态」的元信息问题。
+
+        如「我有哪些数据集」「定时任务有几个」「列一下模型」。
+        这类问题必须交给平台工具（function calling）查真实数据回答，
+        绝不能被工具预匹配误判成数据处理请求。判定保守：短问句 +
+        列举模式命中 + 不含数据处理动词。
+        """
+        q = query.strip().lower()
+        if not q or len(q) > 50:
+            return False
+        if any(v in q for v in self._DATA_VERBS):
+            return False
+        return any(re.search(p, q) for p in self._META_PATTERNS)
 
     def _resolve_tool_selection(self, answer: str, candidates: list[dict]) -> dict | None:
         """识别用户对候选工具的选择（编号或名称），返回选中的工具或 None"""
@@ -795,6 +948,7 @@ class InteractiveAgent(BaseAgent):
 - 只要用户提到的对象、数据或动作在列表中找不到对应工具，就返回空列表——**宁缺毋滥，绝不返回功能不符的凑数候选**
 - 如果没有任何工具匹配，且用户的需求是「数据处理/文件处理/计算/分析」类（需要用工具完成），返回 need_new_tool=true，并给出新工具的简短中文描述
 - 如果用户只是普通闲聊/咨询，不需要工具，返回 need_new_tool=false
+- 如果用户是在**查询平台本身的状态**（如「我有哪些数据集/工具/模型/Agent」「定时任务有哪些」「某个数据集的详情」），这是元信息问题、不是要处理数据，返回 {{"matched_tool_ids": [], "need_new_tool": false}}
 - 如果用户是在指定/询问某个 Agent（如「用 XX Agent 处理」「YY Agent 是干什么的」），不属于工具需求，返回 {{"matched_tool_ids": [], "need_new_tool": false}}
 
 只返回 JSON，格式：
