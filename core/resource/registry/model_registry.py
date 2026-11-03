@@ -64,6 +64,21 @@ class ModelRegistry(BaseRegistry):
                 continue
         return [e for e in merged.values() if e.get("status") != DELETED]
 
+    def _read_private(self) -> list[dict]:
+        """只读私有 registry（不合并内置、不过滤删除掩码）。
+
+        写路径必须基于本方法而非 _read：合并视图写回等于把内置条目批量
+        复制进私有目录，产生陈旧副本永久遮蔽内置更新（工具空间已发生
+        过，见 tool_registry._read_private 注释）。删除掩码条目保留——
+        它们本来就存在私有文件里。
+        """
+        rf = self._private_registry_file()
+        try:
+            data = json.loads(rf.read_text(encoding="utf-8"))
+        except Exception:
+            return []
+        return [e for e in data if isinstance(e, dict) and e.get("id")]
+
     def read_from(self, root: Path) -> list[dict]:
         rf = root / "models" / "registry.json"
         if not rf.exists():
@@ -100,10 +115,11 @@ class ModelRegistry(BaseRegistry):
         name = resource.get("name", model_id)
 
         # name 去重兜底：若同名模型已存在，追加递增序号，确保 name 唯一
-        # 整个「读-改名-写」必须在锁内，否则并发注册会写出重名条目
+        # 整个「读-改名-写」必须在锁内，否则并发注册会写出重名条目。
+        # 判重用合并视图（内置名也算），写回基底用私有视图——
+        # 合并视图直接写回会把内置条目复制进私有目录（写污染）。
         with _WRITE_LOCK:
-            data = self._read()
-            existing_names = {e.get("name") for e in data}
+            existing_names = {e.get("name") for e in self._read()}
             if name in existing_names:
                 suffix = 1
                 while f"{name}_{suffix}" in existing_names:
@@ -126,6 +142,7 @@ class ModelRegistry(BaseRegistry):
                 "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             }
 
+            data = self._read_private()
             existing = [i for i, e in enumerate(data) if e["id"] == model_id]
             if existing:
                 data[existing[0]] = entry
@@ -143,11 +160,11 @@ class ModelRegistry(BaseRegistry):
 
     async def unregister(self, resource_id: str):
         with _WRITE_LOCK:
-            data = self._read()
+            data = self._read_private()
             data = [e for e in data if e["id"] != resource_id]
             # 内置 registry 只读：若条目存在于内置根，写 status=deleted 掩码使其不再出现
             builtin_ids = {e.get("id") for e in self.read_from(paths.BUILTIN_ROOT)}
-            if resource_id in builtin_ids:
+            if resource_id in builtin_ids and not any(e["id"] == resource_id for e in data):
                 data.append({"id": resource_id, "name": resource_id, "type": "model", "status": DELETED})
             self._write(data)
 
@@ -161,9 +178,22 @@ class ModelRegistry(BaseRegistry):
         return self._read()
 
     async def update(self, resource_id: str, updates: dict):
+        """更新模型条目（只读写私有 registry）。
+
+        内置条目不在私有 registry 时，从合并视图取当前条目为基底落入
+        私有目录再打补丁——显式单条 fork，仅由调用方主动 update 触发。
+        """
         with _WRITE_LOCK:
-            data = self._read()
+            data = self._read_private()
             for e in data:
                 if e["id"] == resource_id:
                     e.update(updates)
+                    self._write(data)
+                    return
+            base = next((e for e in self._read() if e["id"] == resource_id), None)
+            if base is None:
+                return  # 资源不存在（或已被删除掩码），不创建空条目
+            forked = dict(base)
+            forked.update(updates)
+            data.append(forked)
             self._write(data)

@@ -71,6 +71,22 @@ class DataRegistry(BaseRegistry):
                 continue
         return list(merged.values())
 
+    def _read_private(self) -> list[dict]:
+        """只读私有 registry（不合并内置）。
+
+        写路径（register/update/unregister/claim_local_orphans）必须基于
+        本方法而非 _read：_read 的合并视图含全部内置条目，写回等于把内置
+        条目批量复制进私有目录——一次 update 就产生几十个陈旧副本，永久
+        遮蔽内置资源后续更新、让内置已删除条目"复活"（工具空间已发生过，
+        见 tool_registry._read_private 注释）。
+        """
+        rf = self._private_registry_file()
+        try:
+            data = json.loads(rf.read_text(encoding="utf-8"))
+        except Exception:
+            return []
+        return [e for e in data if isinstance(e, dict) and e.get("id")]
+
     def read_from(self, root: Path) -> list[dict]:
         rf = root / "data" / "registry.json"
         if not rf.exists():
@@ -209,7 +225,9 @@ class DataRegistry(BaseRegistry):
         """
         uid = user_id or get_current_user_id()
         with _WRITE_LOCK:
-            data = self._read()
+            data = self._read_private()
+            # 只认领私有条目：内置条目是共享示例资源，不该被任何用户
+            # 私有化（写 owner 进私有 registry 等于 fork 内置条目）
             claimed = 0
             changed = False
             for entry in data:
@@ -259,7 +277,7 @@ class DataRegistry(BaseRegistry):
         }
 
         with _WRITE_LOCK:
-            data = self._read()
+            data = self._read_private()
             existing = [i for i, e in enumerate(data) if e["id"] == ds_id]
             if existing:
                 data[existing[0]] = entry
@@ -277,7 +295,7 @@ class DataRegistry(BaseRegistry):
 
     async def unregister(self, resource_id: str):
         with _WRITE_LOCK:
-            data = self._read()
+            data = self._read_private()
             data = [e for e in data if e["id"] != resource_id]
             self._write(data)
 
@@ -301,9 +319,22 @@ class DataRegistry(BaseRegistry):
         return [e for e in data if self.is_visible(e, owner)]
 
     async def update(self, resource_id: str, updates: dict):
+        """更新数据集条目（只读写私有 registry）。
+
+        内置条目不在私有 registry 时，从合并视图取当前条目为基底落入
+        私有目录再打补丁——显式单条 fork，仅由调用方主动 update 触发。
+        """
         with _WRITE_LOCK:
-            data = self._read()
+            data = self._read_private()
             for e in data:
                 if e["id"] == resource_id:
                     e.update(updates)
+                    self._write(data)
+                    return
+            base = next((e for e in self._read() if e["id"] == resource_id), None)
+            if base is None:
+                return  # 资源不存在，不创建空条目
+            forked = dict(base)
+            forked.update(updates)
+            data.append(forked)
             self._write(data)

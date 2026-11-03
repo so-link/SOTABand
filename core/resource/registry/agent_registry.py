@@ -72,6 +72,22 @@ class AgentRegistry(BaseRegistry):
         """实现目录的检索目录（内置 + 私有）。"""
         return [root / "agents" / "implementations" for root in paths.resource_roots()]
 
+    def _read_private(self) -> list[dict]:
+        """只读私有 registry（不合并内置）。
+
+        写路径必须基于本方法而非 _read：合并视图写回等于把内置条目批量
+        复制进私有目录，产生陈旧副本永久遮蔽内置更新（工具空间已发生
+        过，见 tool_registry._read_private 注释）。Agent 尤其危险：
+        interactive-agent 等内置 Agent 被陈旧副本遮蔽后，行为漂移难以
+        排查。
+        """
+        rf = self._private_registry_file()
+        try:
+            data = json.loads(rf.read_text(encoding="utf-8"))
+        except Exception:
+            return []
+        return [e for e in data if isinstance(e, dict) and e.get("id")]
+
     def _read(self) -> list[dict]:
         """合并内置与私有 registry（私有同 id 覆盖内置）。"""
         merged: dict[str, dict] = {}
@@ -122,7 +138,7 @@ class AgentRegistry(BaseRegistry):
         }
 
         with _WRITE_LOCK:
-            data = self._read()
+            data = self._read_private()
             existing = [i for i, e in enumerate(data) if e["id"] == agent_id]
             if existing:
                 data[existing[0]] = entry
@@ -141,10 +157,20 @@ class AgentRegistry(BaseRegistry):
         return agent_id
 
     async def unregister(self, resource_id: str) -> None:
-        with _WRITE_LOCK:
-            data = self._read()
-            data = [e for e in data if e["id"] != resource_id]
-            self._write(data)
+        # 从内置与私有两个 registry 中移除（只写内置时合并视图会把它加载
+        # 回来，表现为「删除后刷新又出现」，见 tool_registry.unregister）
+        for root in paths.resource_roots():
+            rf = root / "agents" / "registry.json"
+            if not rf.exists():
+                continue
+            with _WRITE_LOCK:
+                try:
+                    data = json.loads(rf.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                next_data = [e for e in data if isinstance(e, dict) and e.get("id") != resource_id]
+                if len(next_data) != len(data):
+                    _write_json(rf, next_data)
 
     async def get(self, resource_id: str) -> dict | None:
         data = self._read()
@@ -175,9 +201,22 @@ class AgentRegistry(BaseRegistry):
         return [e for e in data if self.is_visible(e, user_id)]
 
     async def update(self, resource_id: str, updates: dict) -> None:
+        """更新 Agent 条目（只读写私有 registry）。
+
+        内置条目不在私有 registry 时，从合并视图取当前条目为基底落入
+        私有目录再打补丁——显式单条 fork，仅由调用方主动 update 触发。
+        """
         with _WRITE_LOCK:
-            data = self._read()
+            data = self._read_private()
             for e in data:
                 if e["id"] == resource_id:
                     e.update(updates)
+                    self._write(data)
+                    return
+            base = next((e for e in self._read() if e["id"] == resource_id), None)
+            if base is None:
+                return  # 资源不存在，不创建空条目
+            forked = dict(base)
+            forked.update(updates)
+            data.append(forked)
             self._write(data)
