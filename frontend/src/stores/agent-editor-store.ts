@@ -163,6 +163,8 @@ interface AgentEditorState {
   baselineCode: string
   // 进入编辑时的 MD 快照
   baselineMd: string
+  // 进入编辑时的需求描述快照（Step1 独立保存的比较基准）
+  baselineDescription: string
   // 手动保存状态：'idle' 无改动 | 'dirty' 有改动未保存
   // | 'saving' 保存中 | 'saved' 已保存 | 'error' 失败
   saveState: 'idle' | 'dirty' | 'saving' | 'saved' | 'error'
@@ -207,8 +209,12 @@ interface AgentEditorState {
   saveCode: () => Promise<void>
   /** 编辑内容变更后调用：仅标记「有未保存改动」，不自动落盘 */
   notifyEdit: () => void
-  /** 保存当前 MD 与代码（点击保存按钮 / Ctrl+S 时调用） */
+  /** 保存当前所有已改动的字段（点击保存按钮 / Ctrl+S 时调用） */
   flushSave: () => Promise<void>
+  /** 只保存某一步：step1=需求描述，spec=规范文档，code=代码 */
+  savePart: (part: 'step1' | 'spec' | 'code') => Promise<void>
+  /** 各步独立脏标记，供分步保存按钮显示状态 */
+  dirtyParts: () => { step1: boolean; spec: boolean; code: boolean }
   /** 当前是否存在未保存的改动 */
   hasUnsavedChanges: () => boolean
 
@@ -236,6 +242,7 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
   editingAgentName: '',
   baselineCode: '',
   baselineMd: '',
+  baselineDescription: '',
   saveState: 'idle',
   saveError: null,
   testInputs: {},
@@ -246,7 +253,11 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
   apiItems: [],
   toolItems: [],
 
-  setDescription: (text) => set({ description: text }),
+  // 与工具编辑器同构：脏标记统一在 setter 内刷新，避免调用方漏补
+  // notifyEdit() 导致「改了但界面显示无改动」。
+  // 生成规范/代码走直接 set（见 generateSpec/generateCode），
+  // 那是系统覆写不是使用者编辑，不该打「未保存」标记。
+  setDescription: (text) => { set({ description: text }); get().notifyEdit() },
 
   setTestInput: (key, value) => set((s) => ({ testInputs: { ...s.testInputs, [key]: value } })),
 
@@ -255,11 +266,12 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
     // 需求框为空 → 自动填入该类型默认模板；已有内容 → 保留（由 UI 层询问是否覆盖）
     const next = description.trim() ? description : AGENT_ROLE_TEMPLATES[role]
     set({ agentRole: role, description: next })
+    get().notifyEdit()
   },
 
-  setGeneratedMd: (md) => set({ generatedMd: md }),
+  setGeneratedMd: (md) => { set({ generatedMd: md }); get().notifyEdit() },
 
-  setGeneratedCode: (code) => set({ generatedCode: code }),
+  setGeneratedCode: (code) => { set({ generatedCode: code }); get().notifyEdit() },
 
   setStep: (step) => set({ step }),
 
@@ -284,6 +296,8 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
       editingAgentId: null,
       editingAgentName: '',
       baselineCode: '',
+      baselineMd: '',
+      baselineDescription: '',
       testInputs: {},
       debugRounds: [],
       debugStream: '',
@@ -298,6 +312,7 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
       editingAgentId: agentId,
       editingAgentName: agentName,
       description: description || agentName,
+      baselineDescription: description || agentName,
       generatedMd: specMd,
       generatedCode: code,
       baselineCode: code,
@@ -339,11 +354,17 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
         original_code: baselineCode,
         current_spec: generatedMd,
       })
-      set((s) => ({
-        generatedMd: result.spec_md || s.generatedMd,
-        baselineCode: s.generatedCode, // 同步后重置基线，避免重复同步
+      const nextMd = result.spec_md || generatedMd
+      // 两个基线一起推进：后端在这个接口里既已把代码改动同步并**落盘**了
+      // 新文档，若只推进 baselineCode，界面会一直挂着「文档未保存」，
+      // 再点保存又把同一份文档重写一遍。
+      set({
+        generatedMd: nextMd,
+        baselineCode: generatedCode,
+        baselineMd: nextMd,
         isSyncing: false,
-      }))
+      })
+      get().notifyEdit()
     } catch (e) {
       set({ error: String(e), isSyncing: false })
     }
@@ -374,20 +395,70 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
   },
 
   // ── 手动保存 ──
+  // 与工具编辑器同构：脏标记按字段而不是整体一份，保存某一步只提交
+  // 那一步的内容。后端 save-spec / save-code / save-step1 本就是三个
+  // 独立端点，没有理由互相牵连。
   notifyEdit: () => {
     const s = get()
     if (!s.editingAgentId) return
-    const dirty = s.generatedMd !== s.baselineMd || s.generatedCode !== s.baselineCode
-    set({ saveState: dirty ? 'dirty' : 'idle' })
+    const d = s.dirtyParts()
+    set({ saveState: d.step1 || d.spec || d.code ? 'dirty' : 'idle' })
+  },
+
+  dirtyParts: () => {
+    const s = get()
+    if (!s.editingAgentId) return { step1: false, spec: false, code: false }
+    return {
+      step1: s.description !== s.baselineDescription,
+      spec: s.generatedMd !== s.baselineMd,
+      code: s.generatedCode !== s.baselineCode,
+    }
+  },
+
+  savePart: async (part) => {
+    const s = get()
+    const agentId = s.editingAgentId
+    if (!agentId) return
+    const d = s.dirtyParts()
+    set({ saveError: null })
+
+    // 基线推进后再算剩余脏标记：不能在 set 的 updater 里调 dirtyParts()，
+    // 它内部读 get()，updater 执行时拿到的还是旧状态。
+    const settle = () => {
+      const r = get().dirtyParts()
+      set({ saveState: r.step1 || r.spec || r.code ? 'dirty' : 'saved' })
+    }
+
+    try {
+      if (part === 'step1') {
+        if (!d.step1) return
+        await agentApi.saveStep1(agentId, s.description)
+        set({ baselineDescription: s.description })
+        settle()
+        return
+      }
+      if (part === 'spec') {
+        if (!d.spec || !s.generatedMd.trim()) return
+        await agentApi.saveSpec(agentId, s.generatedMd)
+        set({ baselineMd: s.generatedMd })
+        settle()
+        return
+      }
+      if (!d.code || !s.generatedCode.trim()) return
+      await agentApi.saveCode(agentId, s.generatedCode)
+      set({ baselineCode: s.generatedCode })
+      settle()
+    } catch (e) {
+      set({ saveState: 'error', saveError: String(e) })
+    }
   },
 
   flushSave: async () => {
     const s = get()
     if (!s.editingAgentId) return
 
-    const mdChanged = s.generatedMd !== s.baselineMd
-    const codeChanged = s.generatedCode !== s.baselineCode
-    if (!mdChanged && !codeChanged) {
+    const d = s.dirtyParts()
+    if (!d.step1 && !d.spec && !d.code) {
       set({ saveState: 'idle' })
       return
     }
@@ -396,31 +467,38 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
     const agentId = s.editingAgentId
     const md = s.generatedMd
     const code = s.generatedCode
+    const desc = s.description
     const errs: string[] = []
 
     try {
-      if (mdChanged && md.trim()) await agentApi.saveSpec(agentId, md)
+      if (d.step1) {
+        await agentApi.saveStep1(agentId, desc)
+        set({ baselineDescription: desc })
+      }
+    } catch (e) { errs.push(`需求描述: ${String(e)}`) }
+    try {
+      if (d.spec && md.trim()) {
+        await agentApi.saveSpec(agentId, md)
+        set({ baselineMd: md })
+      }
     } catch (e) { errs.push(`文档: ${String(e)}`) }
     try {
-      if (codeChanged && code.trim()) await agentApi.saveCode(agentId, code)
+      if (d.code && code.trim()) {
+        await agentApi.saveCode(agentId, code)
+        set({ baselineCode: code })
+      }
     } catch (e) { errs.push(`代码: ${String(e)}`) }
 
     if (errs.length) {
       set({ saveState: 'error', saveError: errs.join('；') })
       return
     }
-    set((cur) => ({
-      baselineMd: mdChanged ? md : cur.baselineMd,
-      baselineCode: codeChanged ? code : cur.baselineCode,
-      saveState: 'saved',
-      saveError: null,
-    }))
+    set({ saveState: 'idle', saveError: null })
   },
 
   hasUnsavedChanges: () => {
-    const s = get()
-    return Boolean(s.editingAgentId) &&
-      (s.generatedMd !== s.baselineMd || s.generatedCode !== s.baselineCode)
+    const d = get().dirtyParts()
+    return d.step1 || d.spec || d.code
   },
 
   fetchApis: async () => {

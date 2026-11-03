@@ -138,6 +138,19 @@ export const agentApi = {
     return res.json()
   },
 
+  /** 单独保存 Step1 的需求描述（不动规范文档与代码） */
+  async saveStep1(agentId: string, demandMd: string): Promise<{ saved: string; written: string[] }> {
+    const res = await fetch(`${BASE_URL}/api/agent/${encodeURIComponent(agentId)}/save-step1`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ demand_md: demandMd }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }))
+      throw new Error(err.detail || `HTTP ${res.status}`)
+    }
+    return res.json()
+  },
+
   /** 保存手工微调后的 Agent 代码 */
   async saveCode(agentId: string, code: string): Promise<{ saved: string }> {
     const res = await fetch(`${BASE_URL}/api/agent/${encodeURIComponent(agentId)}/save-code`, {

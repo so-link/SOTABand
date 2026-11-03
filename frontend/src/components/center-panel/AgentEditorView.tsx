@@ -140,6 +140,35 @@ interface AcItem {
   id: string
 }
 
+/**
+ * 单步保存按钮：只提交本步的改动。
+ * 与工具编辑器同款。之所以每步都要自己的按钮，是因为后端
+ * save-step1 / save-spec / save-code 是三个独立端点——
+ * 只想留下发文档的改动时，不该顺带把没写完的代码也提交。
+ */
+function PartSaveButton({ part, label = '保存本步' }: { part: 'step1' | 'spec' | 'code'; label?: string }) {
+  const savePart = useAgentEditorStore((s) => s.savePart)
+  const saveState = useAgentEditorStore((s) => s.saveState)
+  const editingAgentId = useAgentEditorStore((s) => s.editingAgentId)
+  const dirty = useAgentEditorStore((s) => s.dirtyParts()[part])
+  const busy = saveState === 'saving'
+
+  // 新建流程没有可落盘的实体（尚未注册），不显示保存按钮
+  if (!editingAgentId) return null
+
+  return (
+    <button
+      onClick={() => void savePart(part)}
+      disabled={!dirty || busy}
+      title={dirty ? `只保存${label}` : '本步没有改动'}
+      className="inline-flex items-center gap-1 text-[12px] px-2.5 py-1 rounded border border-maia-border text-maia-accent hover:bg-maia-accent/10 disabled:opacity-40 disabled:cursor-not-allowed"
+    >
+      {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+      {label}
+    </button>
+  )
+}
+
 function Step1Description() {
   const { description, setDescription, generateSpec, isGenerating, error, agentRole, setAgentRole } =
     useAgentEditorStore()
@@ -449,7 +478,8 @@ function Step1Description() {
         </div>
       )}
 
-      <div className="flex justify-end mt-3 shrink-0">
+      <div className="flex justify-between items-center mt-3 shrink-0">
+        <PartSaveButton part="step1" label="保存需求描述" />
         <Button
           onClick={generateSpec}
           disabled={!description.trim() || !agentRole || isGenerating}
@@ -580,7 +610,8 @@ function Step2Review() {
           <ArrowLeft className="h-3.5 w-3.5" />
           返回修改需求
         </Button>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          <PartSaveButton part="spec" label="保存文档" />
           {isGenerating && (
             <Button variant="danger" onClick={stopGeneration}>
               <XCircle className="h-3.5 w-3.5" />
