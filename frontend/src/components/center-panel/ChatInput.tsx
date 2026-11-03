@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState, type DragEvent, type KeyboardEvent } from 'react'
-import { Send, X, Paperclip, Square, Folder, Loader2 } from 'lucide-react'
+import { Send, X, Paperclip, Square, Folder, Loader2, Wand2 } from 'lucide-react'
 import { useChatStore } from '@/stores/chat-store'
 import { useFileTreeStore } from '@/stores/file-tree-store'
 import { Button } from '@/components/ui/button'
@@ -14,7 +14,8 @@ function collectFileNodes(node: FileTreeNode | null, out: FileTreeNode[] = []): 
 }
 
 export function ChatInput() {
-  const { inputText, setInputText, attachedFiles, removeAttachment, pathRefs, addPathRef, removePathRef, sendMessage, stopMessage, isSending } =
+  const { inputText, setInputText, attachedFiles, removeAttachment, pathRefs, addPathRef, removePathRef, sendMessage, stopMessage, isSending,
+    confirmPolicy, setConfirmPolicy } =
     useChatStore()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [isDragOver, setIsDragOver] = useState(false)
@@ -182,6 +183,23 @@ export function ChatInput() {
             isDragOver ? 'border-maia-accent border-2' : 'border-maia-border focus-within:border-maia-accent/50'
           }`}
         >
+          {/* 平台操作确认策略下拉：控制助手发送的操作卡是自动执行还是等用户点
+              —— 放在输入框最左侧，让每次看到输入框都知道当前策略，不会盲等自动执行或误点手弹卡 */}
+          <div className="relative shrink-0 mb-0.5">
+            <Wand2 className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-maia-text-muted pointer-events-none" />
+            <select
+              value={confirmPolicy}
+              onChange={(e) => setConfirmPolicy(e.target.value as 'manual' | 'auto')}
+              disabled={isSending}
+              title="助手发送的工具/资源操作卡的执行策略"
+              className="h-8 appearance-none rounded-lg border border-maia-border bg-maia-surface pl-7 pr-6 text-[12px] text-maia-text focus:outline-none focus:border-maia-accent cursor-pointer disabled:opacity-50"
+            >
+              <option value="manual">手工确认</option>
+              <option value="auto">自动确认</option>
+            </select>
+            <span className="absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none text-maia-text-muted text-[10px]">▾</span>
+          </div>
+
           <textarea
             ref={textareaRef}
             value={inputText}

@@ -24,6 +24,9 @@ interface ChatState {
   sessionsVersion: number
   /** 拖拽进来的文件/目录路径引用（@文件名 → 完整路径） */
   pathRefs: PathRef[]
+  /** 平台操作确认策略：手工（每张确认卡都要用户点）/ 自动（收到即执行） */
+  confirmPolicy: 'manual' | 'auto'
+  setConfirmPolicy: (p: 'manual' | 'auto') => void
 
   setInputText: (text: string) => void
   addAttachment: (file: FileAttachment) => void
@@ -176,6 +179,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
   sessionId: newSessionId(),
   sessionsVersion: 0,
   pathRefs: [],
+  // 确认策略：默认手工，用户可切换并持久化到 localStorage
+  confirmPolicy: (typeof localStorage !== 'undefined' &&
+    (localStorage.getItem('sota.platform_confirm_policy') === 'auto' ? 'auto' : 'manual')) as 'manual' | 'auto',
+  setConfirmPolicy: (p) => {
+    try { localStorage.setItem('sota.platform_confirm_policy', p) } catch { /* ignore */ }
+    set({ confirmPolicy: p })
+  },
 
   setInputText: (text) => set({ inputText: text }),
 
@@ -472,6 +482,26 @@ export const useChatStore = create<ChatState>((set, get) => ({
               continue
             }
             refreshSpacesForAction(cardData._action)
+            // 自动确认策略：收到 platform-confirm 卡即直接执行，不再等用户点按钮
+            if (card.type === 'platform-confirm' &&
+                get().confirmPolicy === 'auto' &&
+                cardData.status === 'pending') {
+              const msgWithThisCard = get().messages.find(m =>
+                m.id === agentMsgId && m.cards?.some(c => c.id === card.id))
+              // 若当前 chunk 还没把 card 挂到 agentMsg 上（同一次 set 里），
+              // 先保证卡片在消息上再 resolve——resolvePlatformOp 内部会再打
+              // 一次 set 刷新结果卡
+              if (!msgWithThisCard) {
+                set((s) => ({
+                  messages: s.messages.map((m) =>
+                    m.id === agentMsgId
+                      ? { ...m, cards: [...(m.cards || []), card] }
+                      : m
+                  ),
+                }))
+              }
+              void get().resolvePlatformOp(agentMsgId, card.id, 'confirm')
+            }
           }
         }
         set((s) => ({
