@@ -350,7 +350,7 @@ result = execute(**params)   # params 里已包含 mode="train"
 | `frontend/src/stores/tool-editor-store.ts` | 状态增加 `modes` / 当前测试 `mode` |
 | `frontend/src/components/center-panel/ToolEditorView.tsx` | Step3 测试区增加模式下拉框，按模式切换参数输入 |
 | `frontend/src/services/api/tool.ts` | 测试/调试接口透传 mode（若参数结构变化） |
-| （可选）`frontend/src/components/center-panel/InlineCard.tsx` | 新增 `mode-select` 卡片 |
+| （可选）`frontend/src/components/center-panel/InlineCard.tsx` | 新增 `mode-selection` 卡片 |
 
 ### 文档
 
@@ -379,7 +379,7 @@ result = execute(**params)   # params 里已包含 mode="train"
 2. **代码生成 prompt**（tool_builder）→ 能生成 execute 分发代码
 3. **交互 Agent 模式引导**（interactive_agent）→ 对话中能选模式、收参数、执行
 4. **前端工具编辑器模式选择**（ToolEditorView）→ 测试时可切模式
-5. **（可选）前端 mode-select 卡片** → 体验增强
+5. **（可选）前端 mode-selection 卡片** → 体验增强
 6. 回归测试：验证单模式工具行为不变
 
 ---

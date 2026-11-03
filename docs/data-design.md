@@ -471,7 +471,9 @@ POST /api/data/match-tools {dataset_id, request}
 | `/api/data/list` | GET | 按归属隔离列出数据集（`available_only` / `include_others` 可选） |
 | `/api/data/claim-local` | POST | 把本机有数据、缺归属标记的历史条目认领给当前用户 |
 | `/api/data/{id}` | GET | 数据集详情（含 MD 文档） |
+| `/api/data/{id}/archive` | GET | 把数据集目录打包为 zip 下载 |
 | `/api/data/{id}/files` | GET | 数据集文件列表（目录不存在时明确报错，不静默返回空） |
+| `/api/data/{id}/table` | GET | 读取数据集内表格文件（csv/xlsx/parquet/tsv）返回统一表格结构（`?path=&limit=`，防目录穿越） |
 | `/api/data/match-tools` | POST | 根据数据集与需求，LLM 语义匹配可用工具 |
 | `/api/data/{id}/preview` | GET | 预览：解析文件列表 + 读缓存的 `preview_tool`（不自动执行） |
 | `/api/data/search/find` | GET | 按关键词/标签搜索数据集（`?q=&tags=`） |
@@ -511,7 +513,7 @@ app/api/routes/data_routes.py                  # 数据 API 路由
 frontend/src/components/center-panel/DatasetEditorView.tsx       # 数据集编辑器（生成 MD → 注册）
 frontend/src/components/center-panel/DataPreviewView.tsx         # 数据预览视图
 frontend/src/components/center-panel/DatasetRepositoryView.tsx   # 数据仓库视图（标签统计/缩略图）
-frontend/src/components/center-panel/CsvTablePreview.tsx         # 表格类预览
+frontend/src/components/center-panel/DataTablePreview.tsx        # 表格类预览
 frontend/src/stores/dataset-editor-store.ts                      # 编辑器状态
 frontend/src/stores/dataset-repository-store.ts                  # 仓库视图状态
 frontend/src/stores/workspace-dataset-store.ts                   # 工作区间数据集状态

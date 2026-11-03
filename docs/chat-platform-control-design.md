@@ -1,6 +1,6 @@
 # 对话内控制系统（Chat Platform Control）设计方案
 
-> 状态：设计稿，待评审
+> 状态：已实现（P0-P4 全部落地，见 §8）
 > 日期：2026-11-02
 > 前置：定时任务模块（docs/cron-scheduler-design.md）已上线，本方案将其一并纳入对话可控范围
 
@@ -20,9 +20,9 @@
    操作完全一致，不产生"越权捷径"。
 5. **全程可审计、可熔断**：每次平台调用落审计表；一个配置开关可整体关停该能力。
 
-## 2. 现状盘点（缺口在哪）
+## 2. 立项前现状盘点（缺口现已全部补齐）
 
-| 环节 | 现状 | 缺口 |
+| 环节 | 立项前现状 | 缺口 |
 |---|---|---|
 | 对话链路 | chat_routes.py → interactive-agent（子进程，手写状态机） | 无 function calling |
 | LLM 客户端 | core/llm/client.py（OpenAI 兼容 SDK） | chat()/chat_stream_events() 不透传 `tools`、不解析 `tool_calls` |
@@ -47,7 +47,7 @@ ChatView ──POST /api/chat/send (SSE)──► 引擎
   │              │
   │              │ tool_call: platform.* 
   │              ▼
-  │        平台控制网关 POST /api/chat/platform-call   ◄ 引擎进程内执行
+  │        平台控制网关（经总线 platform_call 帧进入）  ◄ 引擎进程内执行
   │              │  ①身份/权限 ②参数校验(白名单/路径约束)
   │              │  ③风险分级：read→直接执行
   │              │            write→生成确认卡+暂存待确认
@@ -55,7 +55,7 @@ ChatView ──POST /api/chat/send (SSE)──► 引擎
   │              │  ④执行：复用现有 REST/内部 API（不复制逻辑）
   │              │  ⑤审计落库 chat_ops
   │              ▼
-  │        SSE 事件回传: card(platform-op / platform-confirm) + 结果
+  │        SSE 事件回传: card(platform-confirm / platform-result) + 结果
   │              │
   └─── 用户点「确认」──► POST /api/chat/platform-call/confirm {op_id}
                               │ 校验 token/TTL/幂等 → 执行 → 结果卡片
@@ -63,9 +63,12 @@ ChatView ──POST /api/chat/send (SSE)──► 引擎
                    chat-store 收到 _action → 自动刷新数据/模型/工具/Agent 空间
 ```
 
-关键点：**Agent 子进程不直接碰数据库和文件系统外的资源**。它把 tool_call 通过
-HTTP 回调（或 v:1 协议帧）交给引擎网关；网关在引擎进程内以"当前会话用户"身份
-调用现有 API。这样：现有 REST 逻辑零复制、auth/owner 归属天然正确、审计点唯一。
+关键点：**Agent 子进程不直接碰数据库和文件系统外的资源**。它把 tool_call 经
+通信总线的 `platform_call` 协议帧（`self._bus.platform_call()`，与 entrypoint
+的 stdin/stdout JSON-line 通道复用）交给引擎网关；网关在引擎进程内以"当前会话
+用户"身份调用现有 API。`POST /api/chat/platform-call` 系列 HTTP 端点则服务于
+前端（确认/取消/恢复待确认卡）。这样：现有 REST 逻辑零复制、auth/owner 归属
+天然正确、审计点唯一。
 
 ## 4. 能力分级与工具清单
 
@@ -86,21 +89,20 @@ HTTP 回调（或 v:1 协议帧）交给引擎网关；网关在引擎进程内�
 | 工具 | 映射 | 备注 |
 |---|---|---|
 | `register_dataset` | scan-directory → generate-spec → /api/data/register | 参数：path, name, description |
-| `register_model` | api-model-register（P1 补 REST 端点） | 参数：name, framework, model_path, spec 描述 |
+| `register_model` | api-model-register（REST 端点 `POST /api/model/register`） | 参数：name, framework, model_path, spec 描述 |
 | `create_tool` | generate-spec → generate-code → /api/tool/register | 参数：description, reference_code(可选)；生成中推进度事件 |
 | `create_agent` | /api/agent generate-spec/code/register | 同上 |
-| `modify_tool` / `modify_agent` | /modify-code | 修改已有资源；确认卡展示 diff 摘要 |
+| `modify_tool` | /modify-code | 修改已有工具代码 |
 | `create_cron_job` / `update_cron_job` / `toggle_cron_job` | /api/cron/jobs | 复用选择式后端校验 |
 | `run_tool` | POST /api/tool/{id}/execute | 沙箱内执行；参数在确认卡中全量展示 |
 | `start_agent` / `stop_agent` | /api/agent/{id}/start,stop | |
 
-### L2 高危（强确认：需勾选/复述目标名，默认拒绝超时）
+### L2 高危（强确认：红色样式 + 需勾选知晓风险，超时不执行）
 
 | 工具 | 映射 | 理由 |
 |---|---|---|
 | `delete_resource` | DELETE /api/{type}/{id} | 不可恢复 |
 | `trigger_cron_job` | POST /api/cron/jobs/{id}/trigger | 立即产生外部副作用 |
-| `save_tool_code` | 直接覆盖代码（不经 generate） | 绕过生成链路的语义审查 |
 
 **明确不暴露**：任意 HTTP 请求、任意文件读写、SQLite 直写、shell、用户/鉴权管理、
 配置修改（settings）。LLM 即使被诱导要求做这些，网关无对应工具可路由。
@@ -129,23 +131,26 @@ SSE card: {type:'platform-confirm', op_id, tool, summary, args_view, risk}
 
 - 用户点「取消」或 15 分钟超时 → status=cancelled/expired。
 - LLM 收到的是网关返回的执行结果（或"等待用户确认"），继续组织语言回复。
-- **一轮对话最多堆积 1 个待确认操作**；新的写请求会顶替旧的 pending（旧的置
-  superseded），避免用户面对多张过期卡。
+- **每个会话最多堆积 1 个待确认操作**；新的写请求会把同会话旧的 pending 置
+  superseded，避免用户面对多张过期卡。
 
 ## 6. 安全防护体系（分层）
 
 ### 6.1 身份与权限
-- 平台调用以发起对话的登录用户身份执行（contextvar 透传：chat 请求身份 →
-  子进程环境变量/协议帧 → platform-call 请求头回带 → 网关 set_current_user）。
+- 平台调用以发起对话的登录用户身份执行：chat 请求身份 → 执行 context
+  （session_id/user_id）→ 子进程 `platform_call` 协议帧回带 user_id → 网关
+  `resolve_owner()` 把占位身份（空 / `default`）解析为当前登录用户后
+  set_current_user。前端直连的 platform-call 系列端点同理，身份取当前登录态。
 - 权限判定复用现有 registry 的 owner/可见性逻辑：用户本来删不掉的资源，
   对话里同样删不掉。
 - platform-call 是 POST，天然落入 auth 中间件的敏感端点保护（未登录 401）。
 
 ### 6.2 参数校验（网关侧，不信任 LLM 输出）
 - **路径白名单**：所有 path 类参数（dataset path、model_path、directoryPath、
-  dataset_dir）realpath 解析后必须位于允许根内：
-  `/root/resources-private/`、工作区目录、`/root/SOTABand/storage/`；
-  拒绝符号链接逃逸（realpath 后再前缀匹配）。
+  dataset_dir）经 `guards.resolve_allowed_path()`：相对路径按项目根解析，
+  realpath 后必须位于允许根内——私有资源根（`paths.PRIVATE_ROOT`，默认
+  `../resources-private/`）与项目工作区根（`paths.PROJECT_ROOT`，storage/
+  即在其内）；拒绝符号链接逃逸（realpath 后再前缀匹配）。
 - **schema 校验**：每个平台工具在网关注册 Pydantic 模型，LLM 给错类型/多余键
   直接拒绝并回错误给 LLM 自我修正。
 - **输出截断**：只读工具返回给 LLM 的内容截断（如 spec_md 4000 字符），限制
@@ -167,17 +172,20 @@ SSE card: {type:'platform-confirm', op_id, tool, summary, args_view, risk}
   结果卡片以网关审计为准。
 
 ### 6.5 资源滥用控制
-- 速率限制：每用户 platform-call ≤ 30 次/分钟；生成类（generate-spec/code）
-  ≤ 5 次/10 分钟（LLM 成本高）。
-- 并发限制：同一用户同时最多 2 个生成中任务。
-- 生成链路超时沿用现状；网关调用全链路硬超时 300s。
+- 速率限制（`gateway.rate_check`）：每用户 platform-call ≤ 30 次/分钟；生成类
+  ≤ 5 次/10 分钟（LLM 成本高），阈值可经 `settings.chat`
+  （`rate_limit_per_minute` / `gen_limit_per_10min`）调整。
+- 生成链路超时沿用现状；网关调用全链路硬超时 300s（`GATEWAY_TIMEOUT`）。
 
 ### 6.6 审计与熔断
 - 新表 `chat_ops`（storage/platform.db）：op_id, session_id, owner, tool,
-  args_json, risk, status(pending/confirmed/cancelled/expired/executed/failed),
-  result_brief, created_at, finished_at。确认与执行各记一行事件流水。
-- 配置开关 `settings.chat.platform_control_enabled`（默认 true）；关闭后网关
-  对一切 platform.* 调用返回"能力已停用"，对话其余功能不受影响。
+  args_json, risk, status(pending/confirmed/cancelled/expired/superseded/executed/failed/rate_limited),
+  result_json, error, duration_ms, created_at, finished_at。每次调用
+  （含只读与状态流转）各追加一行事件流水，仅保留最近 5000 条；前端经
+  `GET /api/chat/platform-ops` 查询当前用户流水。
+- 配置开关 `settings.chat.platform_control_enabled`（默认 true，环境变量
+  `SOTABAND_PLATFORM_CONTROL`）；关闭后网关对一切 platform.* 调用返回
+  "能力已停用"，对话其余功能不受影响。
 
 ## 7. 代码改动清单
 
@@ -187,9 +195,9 @@ SSE card: {type:'platform-confirm', op_id, tool, summary, args_view, risk}
 | core/llm/client.py | chat()/chat_stream_events() 增加 tools/tool_choice 透传；流式 tool_calls 增量累积（index 分槽拼接 arguments） |
 | core/chat_control/__init__.py（新包） | 平台工具注册表（名称→Pydantic 模型→处理器→风险级）、确认操作存储（内存+chat_ops）、网关执行函数 |
 | core/chat_control/audit.py（新） | chat_ops 表读写（仿 core/cron/store.py 惯例） |
-| core/chat_control/handlers.py（新） | L0/L1/L2 处理器：全部转调现有 registry/API 函数或 httpx 内部调用，不复制业务逻辑 |
-| app/api/routes/chat_routes.py | 新增 `POST /api/chat/platform-call`、`POST /api/chat/platform-call/confirm`、`GET /api/chat/platform-call/pending` |
-| resources/agents/implementations/interactive_agent/agent.py | LLM 调用带 tools；tool_call 循环（≤5 轮）：经 HTTP 回调网关，把结果回填后继续生成；无 tool_call 时行为与现状完全一致 |
+| core/chat_control/handlers.py（新） | L0/L1/L2 处理器：全部转调现有 registry / core.api / 构建器函数，不复制业务逻辑 |
+| app/api/routes/chat_routes.py | 新增 `POST /api/chat/platform-call`、`POST /api/chat/platform-call/confirm`、`POST /api/chat/platform-call/cancel`、`GET /api/chat/platform-call/pending`、`GET /api/chat/platform-ops`（审计流水查询） |
+| resources/agents/implementations/interactive_agent/agent.py | LLM 调用带 tools；tool_call 循环（≤5 轮）：经总线 `self._bus.platform_call` 帧交网关，把结果回填后继续生成；无 tool_call 时行为与现状完全一致 |
 | app/api/routes/model_routes.py | 补 `POST /api/model/register`（转 core/api/implementations/api_model.py 的 ApiModelRegister，消除 REST 缺口） |
 | config/settings.py + settings 前端页 | `platform_control_enabled` 开关 |
 
@@ -213,9 +221,9 @@ SSE card: {type:'platform-confirm', op_id, tool, summary, args_view, risk}
 | P1 数据/模型 | register_dataset、register_model（含补 REST 端点）、路径白名单 | 对话注册一个目录为数据集 → 确认 → 数据空间自动出现该数据集；路径越界（/etc）被拒 |
 | P2 工具 | create_tool、run_tool、modify_tool | 对话"建一个统计CSV行数的工具"→ 确认 → 生成+审查+注册 → 工具空间出现 → 对话里 run_tool 跑通 |
 | P3 Agent/定时任务 | create_agent、start/stop_agent、cron 四工具、delete_resource(L2) | 对话创建 Agent 并可启动对话；对话建"每工作日17点采集ETF"任务；delete 走高危确认 |
-| P4 加固 | 速率限制、并发限制、注入回归测试集、审计页（可并入定时任务视图的通用"操作审计"标签） | 注入用例集（诱导删库/读越界路径/绕过确认）全部被网关拦截 |
+| P4 加固 | 速率限制、注入回归测试集（`tests/test_chat_control.py`：越界路径/符号链接逃逸/确认协议/限流等用例） | 注入用例集（诱导删库/读越界路径/绕过确认）全部被网关拦截 |
 
-依赖顺序：P0 → P1 → (P2 ∥ P3) → P4。P1 起每期可独立上线（工具注册表按批放开）。
+依赖顺序：P0 → P1 → (P2 ∥ P3) → P4。P1 起每期可独立上线（工具注册表按批放开）。生成类并发限制与独立审计页未纳入本期实现（审计流水经 `GET /api/chat/platform-ops` 可查）。
 
 ## 9. 风险与边界
 

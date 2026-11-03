@@ -636,7 +636,7 @@ POST /api/agent/{id}/test-api  { api_name, params }
 ## 十三、遗留问题
 
 1. **认证鉴权**：对外 API 是否需要内置鉴权（API Key / Token）？—— web-service Agent 自身端口当前无鉴权，默认仅监听 127.0.0.1（平台主 API 已有本地身份层 `/api/auth` Bearer 令牌，但 Agent 独立服务尚未接入）
-2. **任务式 Agent 的触发**：是否支持定时触发（cron），还是仅手动点击启动？—— 当前仅手动
+2. **任务式 Agent 的触发**：是否支持定时触发（cron），还是仅手动点击启动？—— 手动启动/execute 之外，定时任务模块（`core/cron/`，kind=agent）已支持到点自动调起执行
 3. **web-service 与 task 的边界**：task 是否也可以被 HTTP 触发（即 task 的一种入口）？
 4. **端口暴露范围**：默认仅本机，是否需要公网暴露能力？
 5. **进程守护**：崩溃自动重启 / 引擎重启后自动恢复，尚未实现

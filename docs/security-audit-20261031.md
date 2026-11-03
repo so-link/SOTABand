@@ -460,4 +460,19 @@ D1 修复前后对比（同一环境错误）：
 | 引用工具的 Agent 在界面显示「通用任务」 | 注册时从未写入 `required_tools` | 从 MD 的 `【【工具名】】` 解析并写入 registry |
 | 工具查找只认内置/同级私有根 | 假定私有根为项目根同级 | 运行时优先走 `core.resource.paths.space_dirs("tools")` |
 
+---
+
+## 十一、后续变化（2026-11-03 增补，不改写上文审计结论）
+
+审计后代码已发生变化，其中部分被引位置/行为与上文描述不再一致，列出备查：
+
+- **C1（无鉴权）已缓解**：`app/main.py` 的中间件现对**所有非 GET 的 `/api/*`**（`/api/auth/`、`/api/health` 除外）以及文件/配置/LLM/API 列表类读端点强制要求登录令牌，未带令牌直接 401（`_is_sensitive_endpoint`）；并新增 `_browser_guard` 对状态变更请求校验 Origin，防 CSRF/DNS rebinding（对应 C9）。GET 类资源列表仍允许匿名回退实例身份，C1 的读侧描述仍然成立。
+- **C8（默认 0.0.0.0）已修**：`api_host` 默认改为 `127.0.0.1`（commit b14f90c）。
+- **C6（上传路径穿越）已修**：上传接口 `subdir` 限制在受控目录内；**C7（资源 id 路径穿越）已修**：注册/落盘处增加 id 校验（同 commit b14f90c）。
+- **D3（参数序列化 NameError）已修**：`ToolExecutor._params_literal` 将参数渲染为合法 Python 字面量，不再直接 `json.dumps` 拼源码。
+- **D4（BaseApi.call 自锁）已修**：桥接改为在独立守护线程的新事件循环中执行并 join 60s，不再用 `run_coroutine_threadsafe`（见 `core/api/base.py` 注释）。上文引用的「`run_coroutine_threadsafe` 桥接」实现已不存在。
+- **C2/C4（未认证 RCE / 非沙箱子进程）方向未变**：执行侧仍是同用户子进程，`scan_code` 仍是黑名单 AST 扫描；新增的仅是执行前 choke point 统一复查（`ToolExecutor._security_gate`）与对话内平台控制网关的独立审计（`chat_ops` 表，见 docs/chat-platform-control-design.md）。
+- 端口/入口未变（8201/8200）；`storage/platform.db` 新增 `chat_sessions`/`chat_messages`/`cron_jobs`/`cron_runs`/`chat_ops` 表，审计中「SQLite 仅 task_history/chat_store 两 store」的描述已扩展。
+
+
 

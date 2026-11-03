@@ -172,7 +172,7 @@
 ```
 
 交互行为（当前实现）：
-- **展开/折叠**: 每个空间可独立展开；数据/工具/Agent/模型空间从注册表 API 加载真实数据，任务历史仍为 Mock 兜底（任务空间后端未实现）
+- **展开/折叠**: 每个空间可独立展开；数据/工具/Agent/模型空间从注册表 API 加载真实数据，任务历史从 `/api/task/list` 加载（单条删除走 `DELETE /api/task/{id}`）
 - **点击**: 工具打开 ToolDetailView、Agent 打开 AgentDetailView、数据集打开数据预览；条目头部按钮进入对应编辑器/仓库
 - **工具空间特殊标记**: 用户探索生成的本地工具带有 ⭐ 标记（registry 条目 `is_user_generated`，即带 owner 字段的工具）
 - 「跨空间搜索框、拖动资源到对话区」为规划项
@@ -260,10 +260,15 @@
 |---------|---------|------|
 | 数据预览卡片 | Agent 解析了用户选择的数据 | 展开预览、查看 Schema、修改输入 |
 | 工具匹配卡片 | 资源发现器返回匹配结果 | 直接执行 / 查看详情 / 触发代码生成 |
+| 工具确认卡片 | 工具执行前的参数确认 | 确认执行 / 取消 |
+| 模式选择卡片 | 多模式工具未指定 mode | 选择执行模式后继续 |
 | 代码核验卡片 | 资源构建器生成了新代码 | 打开核验视图 / 快速批准 / 快速拒绝 |
 | 执行进度卡片 | 任务开始执行 | 实时进度条、展开看详细日志 |
 | 结果摘要卡片 | 任务执行完成 | 预览结果、下载、注册到数据空间 |
 | 编排预览卡片 | 生成了编排描述文件 | 打开编排编辑器 / 快速确认执行 |
+| 创建工具卡片 | 对话内触发工具创建 | 查看生成进度与结果 |
+| 平台确认卡片 | 对话内平台写/高危操作待确认 | 确认 / 取消；L2 高危红色样式 + 勾选知晓 |
+| 平台结果卡片 | 平台操作执行完成 | 展示成功/失败与 `_action` 刷新对应空间 |
 
 #### 4.2.2 数据预览视图
 
@@ -640,7 +645,7 @@
 │   │       └── <ResourceSection type="tasks" />
 │   │
 │   ├── <CenterPanel>
-│   │   ├── <ViewTabBar />       # 对话 | 编排 | 监控 | 预览 | 核验
+│   │   ├── <ViewTabBar />       # 对话 | 数据 | 预览 | 核验 | 编排 | 监控 | 工具仓库 | 数据集仓库 | 定时任务 | 设置 …
 │   │   ├── <ChatView>           # 对话视图（默认）
 │   │   │   ├── <MessageList>
 │   │   │   │   ├── <SystemMessage />
@@ -766,15 +771,15 @@
 | 设计能力 | 状态 | 实际落点 / 备注 |
 |---------|------|----------------|
 | 三栏布局（可折叠） | ✅ | react-resizable-panels；TopBar / LeftPanel / CenterPanel / RightPanel / StatusBar |
-| 底部状态栏 | ⚠️ 静态 | StatusBar 组件存在，但「上次任务 / 工具数 / 资源数」为写死的展示文案，未接真实状态 |
-| 对话视图 + 内联卡片 | ✅ | ChatView + InlineCard：工具确认、执行结果、模式选择、代码引用等卡片类型 |
+| 底部状态栏 | ✅ | StatusBar：工具数/数据数取自 workspace-tool-store / resource-store 实时值，中部为按视图切换的 tip 轮播 |
+| 对话视图 + 内联卡片 | ✅ | ChatView + InlineCard：工具确认、执行结果、模式选择、代码引用、平台确认（platform-confirm）/平台结果（platform-result）等卡片类型 |
 | 工作区间文件树 | ✅ | WorkspaceFileTree：浏览/上传/右键菜单/拖入对话区 |
-| 资源空间浏览器 | ✅ | ResourceBrowser 五个分区，数据/工具/Agent/模型来自真实 API |
-| 数据预览视图 | ✅ | DataPreviewView + CsvTablePreview + FilePreviewView；波形/频谱等专用可视化依赖工具输出图片 |
+| 资源空间浏览器 | ✅ | ResourceBrowser 五个分区，数据/工具/Agent/模型/任务历史均来自真实 API |
+| 数据预览视图 | ✅ | DataPreviewView + DataTablePreview + FilePreviewView；波形/频谱等专用可视化依赖工具输出图片 |
 | 代码核验 | ✅（形态不同） | 在 ToolEditorView / AgentEditorView 内完成「测试→调试→批准注册」，独立 CodeReviewView 为占位页 |
 | 编排编辑器 | ❌ 占位 | 依赖工作流引擎（未实现） |
 | 任务监控视图 | ❌ 占位 | 依赖工作流引擎与任务空间 |
 | 右侧属性面板 | ✅ | ResourceProperties / TaskStatus（后者数据源有限） |
 | 仓库/工作区间双层（工具、数据） | ✅ | RepositoryView / DatasetRepositoryView + workspace store |
-| 设置视图 | ✅（超出设计） | SettingsView：LLM 模型与 API 密钥配置，以及运行参数（LLM 超时/并发上限、调试单轮超时与最大轮数，保存写入 `.env` 即时生效）；端口在仓库根 `.env` 配置，无 UI 入口 |
+| 设置视图 | ✅（超出设计） | SettingsView：LLM 模型与 API 密钥配置（含独立的「生成模型」配置：LLM_GEN_PROVIDER/MODEL/API_KEY，留空沿用对话模型），以及运行参数（LLM 超时/并发上限、调试单轮超时与最大轮数，保存写入 `.env` 即时生效）；端口在仓库根 `.env` 配置，无 UI 入口 |
 | Toast / 快捷键体系 / DAG 编辑 / 血缘 | ❌ | 见 §7.2、§八 |

@@ -51,7 +51,8 @@
 │  数据空间 │ 工具空间 │ 模型空间 │ Agent空间 │ 用户空间 │ 任务空间 │
 ├─────────────────────────────────────────────────────┤
 │  存储层 (storage/ + 资源 registry.json + 私有资源根)   │
-│  当前为文件存储；数据库与缓存为规划项                   │
+│  文件存储 + SQLite（storage/platform.db：对话、        │
+│  任务历史、定时任务、平台操作审计）；缓存为规划项        │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -59,7 +60,7 @@
 
 ## 四、核心层子系统
 
-核心层按目标设计划分为六类能力，其中**资源管理、多智能体协作、工具执行、系统API**已落地实现；**工作流引擎、调度算力、可观测性**目前为规划中的预留模块（`core/engine/`、`core/scheduler/`、`core/observability/` 仅有包占位，尚无实现）。
+核心层按目标设计划分为六类能力，其中**资源管理、多智能体协作、工具执行、系统API**已落地实现，并新增了**定时任务调度**（`core/cron/`）与**对话内平台控制网关**（`core/chat_control/`）两个子系统；**可观测性**已部分落地（`core/observability/` 提供对话持久化 `chat_store.py` 与任务历史 `task_history.py`，监控/告警/链路追踪仍为规划项）；**工作流引擎、调度算力**仍为规划中的预留模块（`core/engine/`、`core/scheduler/` 仅有包占位，尚无实现）。
 
 ### 4.1 资源生命周期管理子系统 (`core/resource/`)
 
@@ -115,7 +116,7 @@
 | 密钥防护 | `secrets.py` | 密钥脱敏（mask/scrub/redact），防止 API Key 出现在调试日志与 LLM 提示词中 |
 | 代码核验器 | `code_scan.py` | AST 静态安全审查（todo 3.2）：两级结论——阻断 shell/动态执行/删除原语/ctypes/socket/动态导入，警告 subprocess/open/联网/`../` 上跳/内网 URL/无退出死循环/巨量分配/无守卫自递归/硬编码单一平台路径；未声明导入校验（依赖漂移提示）。落盘前闸门（工具/Agent 注册、保存、导入）+ 执行前 choke point（`ToolExecutor` 统一复查） |
 
-看门狗与审计日志为设计目标，尚未实现；沙箱隔离当前由子进程执行 + 超时 + 代码核验器 + 用户核验环节共同承担。
+看门狗为设计目标，尚未实现；对话内平台操作有独立审计流水（`core/chat_control/audit.py`），一般性操作审计仍为规划项。沙箱隔离当前由子进程执行 + 超时 + 代码核验器 + 用户核验环节共同承担。
 
 ### 4.6 LLM 接入子系统 (`core/llm/`)
 
@@ -126,9 +127,33 @@
 
 由 `.env` 的 `LLM_PROVIDER` / `LLM_API_KEY` 统一配置，DeepSeek 仅为默认项，可切换 MiMo / OpenAI / Kimi / 智谱 / 通义 / 豆包等任意 OpenAI 兼容服务。
 
-### 4.7 工作流引擎 / 调度算力 / 可观测性（规划中）
+### 4.7 可观测性子系统 (`core/observability/`)
 
-工作流引擎（意图解析、流程编译、DAG 执行器、状态管理、观测器）、异构调度（分配器、负载均衡）与可观测性（监控、告警、链路追踪）均为设计目标，对应模块 `core/engine/`、`core/scheduler/`、`core/observability/` 目前为空占位。当前阶段意图理解由交互 Agent 的 LLM 对话承担，工具调用走单工具执行路径。
+| 组件 | 文件 | 职责 |
+|------|------|------|
+| 对话存储 | `chat_store.py` | 会话与消息持久化（`storage/platform.db` 的 `chat_sessions`/`chat_messages` 表，SQLite WAL + 全局锁）；会话列表、消息读写、标题管理 |
+| 任务历史 | `task_history.py` | 任务执行历史（`task_history` 表）：Agent 运行与对话会话聚合为任务记录，记录轮数、耗时、状态；经 `/api/task/*` 暴露给任务空间 |
+
+监控、告警、链路追踪仍为设计目标，尚未实现。
+
+### 4.8 定时任务调度子系统 (`core/cron/`)
+
+| 组件 | 文件 | 职责 |
+|------|------|------|
+| Cron 解析器 | `cron_parse.py` | 零依赖自研五段 cron 表达式解析与下次触发时间计算 |
+| 调度器 | `scheduler.py` | 每个任务一个 asyncio 循环的常驻调度（`max_instances=1`、misfire 跳过/补火一次语义） |
+| 存储 | `store.py` | `cron_jobs`/`cron_runs` 表读写（SQLite，运行记录按任务保留上限截断） |
+| 执行器 | `runner.py` | 到点触发：Agent 任务经 `execute_stream` 执行，工具任务经 ToolExecutor 执行 |
+
+引擎启动时随 lifespan 拉起，详见 `docs/cron-scheduler-design.md`。
+
+### 4.9 对话内平台控制网关 (`core/chat_control/`)
+
+对话内自然语言操作系统能力的统一入口：LLM 以 function calling 提议 `platform.*` 工具调用，网关在引擎进程内做身份/风险分级/参数白名单校验后转调现有 API，写操作走确认协议，全程落 `chat_ops` 审计表。组件：`registry.py`（工具注册表与风险分级）、`gateway.py`（校验/限流/执行）、`confirm.py`（待确认操作与指纹/幂等）、`guards.py`（路径白名单/输出截断）、`audit.py`（审计流水）、`handlers.py`（各工具处理器）。详见 `docs/chat-platform-control-design.md`。
+
+### 4.10 工作流引擎 / 调度算力（规划中）
+
+工作流引擎（意图解析、流程编译、DAG 执行器、状态管理、观测器）与异构调度（分配器、负载均衡）均为设计目标，对应模块 `core/engine/`、`core/scheduler/` 目前为空占位。当前阶段意图理解由交互 Agent 的 LLM 对话承担，工具调用走单工具执行路径。
 
 ---
 
@@ -166,11 +191,11 @@
 - **管理内容**: 本地用户身份与资源归属上下文。已提供本地多用户身份层（`core/auth/`）：注册/登录（PBKDF2-HMAC-SHA256 密码散列 + HMAC 签名令牌，零第三方依赖），用户数据存 `<私有根>/users/users.json`，令牌密钥 `secret.key`（0600，可用 `SOTABAND_AUTH_SECRET` 覆盖）
 - **请求身份**: `/api/auth/*` 登录后返回令牌；`Authorization: Bearer <token>` 经中间件解析写入请求级上下文（`core/auth/session.py`），`core/user_context.get_current_user_id()` 优先返回登录身份。未带令牌的请求回退实例身份（`SOTABAND_USER_ID` 环境变量 → `storage/user.json` → `local`），单用户本地使用行为不变；携带无效/过期令牌则直接 401，不静默降级
 - **角色**: 首个注册用户为 `admin`（可注册新用户、查看用户列表），其余为 `user`
-- **记录信息**: 用户标识、用户名、角色、资源 owner 归属；租户信息、资源配额与操作审计为设计目标，尚未实现
+- **记录信息**: 用户标识、用户名、角色、资源 owner 归属；对话内平台操作按 owner 落 `chat_ops` 审计流水；租户信息与资源配额为设计目标，尚未实现
 
 ### 5.6 任务空间 (`resources/tasks/`)
 
-- **管理内容**: 智能处理流程定义及任务实例的运行时状态（模块占位，运行时流程状态当前由 Agent 会话与工具执行日志承载）
+- **管理内容**: 智能处理流程定义及任务实例的运行时状态（`resources/tasks/` 仍为占位；运行时任务历史已由 `core/observability/task_history.py` 落 `task_history` 表，经 `/api/task/list`、`/api/task/{id}` 等接口供任务空间浏览，Agent 运行与对话会话各聚合为一条任务记录）
 - **记录信息（目标）**: 流程定义、任务状态（Pending/Running/Done/Failed）、当前步骤、进度、起止时间、关联资源ID列表、执行日志
 
 ---

@@ -154,8 +154,8 @@ frontend/src/services/api/agent.ts                          # Agent CRUD API 调
 
 - **角色**: interactive，是应用层与核心层之间的桥梁，前端唯一直接对话的 Agent
 - **输入**: `content`（用户自然语言）、`attachments`（附件列表）、`workspace_tool_ids`（工作区工具范围）；执行上下文携带 `session_id` / `user_id`
-- **输出事件**: `content`（文本增量，流式）、`card`（内联卡片）、`done`（响应结束）、`stopped`（被中断）、`error`
-- **运行机制**: 构建 System Prompt（角色 + 可用工具列表 + 数据上下文）→ 调用 LLM 流式对话 → 解析结构化卡片 → 逐事件返回。共享逻辑在 `core/agent/interactive_base.py` 中复用
+- **输出事件**: `content`（文本增量，流式）、`card`（内联卡片）、`done`（响应结束）、`stopped`（被中断）、`error`；首轮结束后引擎侧另发 `title` 事件（LLM 总结的会话标题）
+- **运行机制**: 构建 System Prompt（角色 + 可用工具列表 + 数据上下文）→ 调用 LLM 流式对话（携带平台工具 tools 声明，支持 function calling：tool_call 经总线交平台控制网关，≤5 轮回填后继续生成）→ 解析结构化卡片 → 逐事件返回。共享逻辑在 `core/agent/interactive_base.py` 中复用
 - **LLM 配置**: 不写死服务商与端点，跟随全局 `.env` 配置（`LLM_PROVIDER` / `LLM_API_KEY` / `LLM_MODEL`），切换服务商无需改 Agent 代码
 
 ### 4.2 自然语言 → MD 规范文档（Agent 编辑器中触发）
@@ -223,7 +223,7 @@ resources/agents/definitions/            # 内置根（随仓库分发）
 位于 `core/resource/builder/agent_builder.py`，`build()` 的组装策略是「模板保证正确性 + LLM 只写核心逻辑」：
 
 1. **头部**：`HEADER_TEMPLATE` 固定模板，保证 import 与类骨架始终合法
-2. **辅助方法**：从 MD 中提取 `$工具名` / `@API名` 引用，机械生成 `_call_tool_{id}` / `_call_api_{id}` 方法（子进程调用，不经 LLM，不会幻觉）
+2. **辅助方法**：从 MD 中提取 `【【工具名】】` / `【API名】` 引用，机械生成 `_call_tool_{id}` / `_call_api_{id}` 方法（子进程调用，不经 LLM，不会幻觉）
 3. **execute() 体**：唯一由 LLM 生成的部分，按角色（interactive/task/web-service）注入差异化 Prompt
 4. 后处理 `_fix_common_errors` 正则修正常见错误；`AgentFactory._check_agent_code` 静态校验，`_auto_fix_code` 启动前再兜底
 
@@ -327,6 +327,7 @@ model   : 代码赋值 > LLM_MODEL（仅默认 provider）> <PROVIDER>_MODEL > �
 - 主 key：`LLM_PROVIDER` 指向的厂商（填 `LLM_API_KEY`），Agent 对话与普通工具的默认选择
 - 副 key：`<PROVIDER>_API_KEY` 形式存放的其他厂商 key，工具经系统 API `api-llm-chat-with-config` 只传 provider 即可自动取用
 - 端点按 Key 前缀自动选择（如 MiMo 的 `sk-` → 按量付费端点、`tp-` → Token Plan 端点）
+- **生成模型分离**：代码/规格生成链路（工具与 Agent 的 generate-spec/code、自动调试）可指定独立模型——`resolve_gen_llm_config()` 按 `LLM_GEN_PROVIDER / LLM_GEN_MODEL / LLM_GEN_API_KEY / LLM_GEN_BASE_URL` 解析，`LLM_GEN_PROVIDER` 留空则跟随全局对话模型；各变量留空时逐级回退（`<PROVIDER>_MODEL`、同厂商已有 Key、Key 前缀匹配端点）。系统设置页提供该组配置的可视化编辑
 
 ### 8.2 LLM 客户端
 
@@ -340,6 +341,9 @@ model   : 代码赋值 > LLM_MODEL（仅默认 provider）> <PROVIDER>_MODEL > �
 |------|------|------|--------|
 | `/api/chat/send` | POST (SSE) | 与交互Agent 对话 | 前端对话视图 |
 | `/api/chat/stop` | POST | 停止指定 session 的对话 | 前端对话视图 |
+| `/api/chat/sessions` `/sessions/{id}` | GET / DELETE | 会话列表 / 会话消息 / 删除会话 | 前端对话视图 |
+| `/api/chat/platform-call` `/confirm` `/cancel` `/pending` | POST / GET | 对话内平台控制网关（执行/确认/取消/恢复待确认） | 前端对话视图 |
+| `/api/chat/platform-ops` | GET | 当前用户的平台操作审计流水 | 前端 |
 | `/api/agent/generate-spec` | POST (SSE) | 自然语言 → MD 规范文档（流式） | 前端 Agent 编辑器 (Step 1→2) |
 | `/api/agent/generate-code` | POST (SSE) | MD 规范文档 → Python 代码 + 校验（流式） | 前端 Agent 编辑器 (Step 2→3) |
 | `/api/agent/auto-debug` | POST (SSE) | 自动调试循环（沙箱试运行 → LLM 重写 → 再跑） | 前端 Agent 编辑器 (Step 3) |
