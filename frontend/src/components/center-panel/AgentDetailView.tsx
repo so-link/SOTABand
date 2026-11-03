@@ -125,6 +125,13 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   const [isSaving, setIsSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
 
+  // 覆盖层（fork）状态：内置 Agent 要修改先复制为私有副本；null=非内置/未知
+  const [forkStatus, setForkStatus] = useState<{
+    is_builtin: boolean; has_copy: boolean; forked: boolean; upstream_changed: boolean
+  } | null>(null)
+  const [detailSource, setDetailSource] = useState<string | null>(null)
+  const [forkBusy, setForkBusy] = useState(false)
+
   const setActiveView = useUIStore((s) => s.setActiveView)
 
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -138,15 +145,22 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   // Fetch agent details on mount / agent change
   useEffect(() => {
     if (!agent) return
+    setForkStatus(null)
+    setDetailSource(null)
     fetch(`${BASE_URL}/api/agent/${agent.id}`)
       .then((r) => r.json())
       .then((data) => {
         setSpecMd(data.spec_md || '')
         setCode(data.code || '')
+        setDetailSource(data.source || null)
         if (data.has_demand) {
           setHasDemand(true)
           setDemandMd(data.demand_md || '')
         }
+        // fork 状态决定徽章与编辑入口行为：非内置直接返回 null 不打扰
+        agentApi.getForkStatus(agent.id)
+          .then((fs) => setForkStatus(fs.is_builtin ? fs : null))
+          .catch(() => setForkStatus(null))
       })
       .catch(() => {})
   }, [agent])
@@ -268,8 +282,29 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
     return names
   })()
 
+  /** 内置资源不可直接写：保存前先确保有我的副本（就地复制到私有），返回可否继续 */
+  const ensurePrivateCopy = async (): Promise<boolean> => {
+    if (!agent) return false
+    if (!(forkStatus?.is_builtin && !forkStatus.has_copy)) return true
+    const ok = window.confirm(
+      `「${agent.name}」是内置 Agent（随系统分发，不可直接修改）。\n\n` +
+      '点击「确定」：复制为我的副本后保存\n' +
+      '点击「取消」：不保存'
+    )
+    if (!ok) return false
+    try {
+      await agentApi.fork(agent.id)
+      setForkStatus({ ...(forkStatus ?? { is_builtin: true, forked: false, upstream_changed: false }), has_copy: true, forked: true })
+      return true
+    } catch (e) {
+      window.alert(`复制副本失败：${String(e)}`)
+      return false
+    }
+  }
+
   const handleSaveCode = async () => {
     if (!agent || !codeDirty) return
+    if (!(await ensurePrivateCopy())) return
     setIsSaving(true); setSaveMsg('')
     try {
       await agentApi.saveCode(agent.id, draftCode)
@@ -286,8 +321,28 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
     }
   }
 
-  const handleEditInEditor = () => {
+  const handleEditInEditor = async () => {
     if (!agent) return
+    // 内置 Agent 不可直接修改（改了就是改 git 里的系统文件）：
+    // 先复制为我的副本，编辑落私有，内置不受影响（方案 C）
+    if (forkStatus?.is_builtin && !forkStatus.has_copy) {
+      const ok = window.confirm(
+        `「${agent.name}」是内置 Agent（随系统分发，不可直接修改）。\n\n` +
+        '点击「确定」：复制为我的副本后进入编辑\n' +
+        '点击「取消」：留在详情页（不复制）'
+      )
+      if (!ok) return
+      setForkBusy(true)
+      try {
+        await agentApi.fork(agent.id)
+        setForkStatus({ ...forkStatus, has_copy: true, forked: true })
+      } catch (e) {
+        window.alert(`复制副本失败：${String(e)}`)
+        setForkBusy(false)
+        return
+      }
+      setForkBusy(false)
+    }
     // 带齐现有 MD/代码，从「审阅」步进入，避免被迫重走需求描述流程
     useAgentEditorStore.getState().prefillFromAgent({
       agentId: agent.id,
@@ -298,6 +353,53 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
     })
     setActiveView('agent-editor')
   }
+
+  /** 丢弃副本：删除私有文件与条目，回到内置版本 */
+  const handleDiscardFork = async () => {
+    if (!agent) return
+    if (!window.confirm(
+      `确定丢弃「${agent.name}」的我的副本吗？\n\n副本上的所有修改将丢失，\n恢复为直接使用内置版本。`)) return
+    setForkBusy(true)
+    try {
+      await agentApi.discardFork(agent.id)
+      setForkStatus({ is_builtin: true, has_copy: false, forked: false, upstream_changed: false })
+      const data = await (await fetch(`${BASE_URL}/api/agent/${agent.id}`)).json()
+      setSpecMd(data.spec_md || '')
+      setCode(data.code || '')
+      setDraftCode(data.code || '')
+    } catch (e) {
+      window.alert(`丢弃副本失败：${String(e)}`)
+    }
+    setForkBusy(false)
+  }
+
+  /** 上游有更新：按当前内置重新复制（副本改动丢弃） */
+  const handleRefork = async () => {
+    if (!agent) return
+    if (!window.confirm(
+      '内置版本已有更新。重新复制将以最新内置内容覆盖我的副本，\n副本上的修改会丢失。确定重新复制吗？')) return
+    setForkBusy(true)
+    try {
+      await agentApi.fork(agent.id)
+      setForkStatus({ is_builtin: true, has_copy: true, forked: true, upstream_changed: false })
+    } catch (e) {
+      window.alert(`复制失败：${String(e)}`)
+    }
+    setForkBusy(false)
+  }
+
+  // 来源徽章（内置/我的副本/我的 Agent）——span 而非 Badge：需要 title 悬浮解释
+  const forkBadge = (() => {
+    if (forkStatus?.is_builtin) {
+      return forkStatus.has_copy
+        ? { label: '我的副本', cls: 'bg-maia-warning-bg text-maia-warning border-maia-warning/20', title: '已复制为私有副本：编辑与运行都用副本，内置版本不受影响' }
+        : { label: '内置', cls: 'bg-maia-sidebar-active text-maia-text-secondary border-maia-border', title: '内置 Agent（随系统分发）：要修改请先复制为我的副本' }
+    }
+    if (detailSource === 'private' || forkStatus?.has_copy) {
+      return { label: '我的 Agent', cls: 'bg-maia-success-bg text-maia-success border-maia-success/20', title: '我创建的 Agent（私有目录）' }
+    }
+    return null
+  })()
 
   const start = async () => {
     setLoading(true)
@@ -520,8 +622,39 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
           <Badge variant={running ? 'success' : 'default'} className="shrink-0">
             {running ? '运行中' : '未启动'}
           </Badge>
+          {forkBadge && (
+            <span
+              title={forkBadge.title}
+              className={cn(
+                'inline-flex items-center rounded-full px-2 py-0.5 text-[12px] font-semibold border shrink-0',
+                forkBadge.cls,
+              )}
+            >
+              {forkBadge.label}
+            </span>
+          )}
 
           <div className="ml-auto flex items-center gap-2 shrink-0">
+            {forkStatus?.is_builtin && forkStatus.has_copy && (
+              <button
+                onClick={handleDiscardFork}
+                disabled={forkBusy}
+                title="删除我的副本，恢复为直接使用内置版本（副本上的修改会丢失）"
+                className="inline-flex items-center h-7 px-2.5 rounded text-[12px] whitespace-nowrap border border-maia-border text-maia-text-muted hover:bg-maia-sidebar-hover hover:text-maia-text transition-colors shrink-0 disabled:opacity-40"
+              >
+                丢弃副本
+              </button>
+            )}
+            {forkStatus?.upstream_changed && (
+              <button
+                onClick={handleRefork}
+                disabled={forkBusy}
+                title="内置版本已被更新（例如系统升级）。重新复制会以最新内置内容覆盖我的副本"
+                className="inline-flex items-center h-7 px-2.5 rounded text-[12px] whitespace-nowrap border border-maia-warning/30 bg-maia-warning-bg text-maia-warning hover:opacity-90 transition-colors shrink-0 disabled:opacity-40"
+              >
+                内置已更新，重新复制
+              </button>
+            )}
             {!running ? (
               <Button size="sm" variant="default" onClick={start} disabled={loading}>
                 {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
@@ -597,12 +730,15 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
             清空对话
           </button>
           <button
-            onClick={handleEditInEditor}
-            className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-[12px] whitespace-nowrap border border-transparent text-maia-text-muted hover:bg-maia-sidebar-hover hover:text-maia-text transition-colors shrink-0"
-            title="带齐现有文档与代码，从审阅步进入编辑"
+            onClick={() => void handleEditInEditor()}
+            disabled={forkBusy}
+            className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-[12px] whitespace-nowrap border border-transparent text-maia-text-muted hover:bg-maia-sidebar-hover hover:text-maia-text transition-colors shrink-0 disabled:opacity-40"
+            title={forkStatus?.is_builtin && !forkStatus.has_copy
+              ? '内置 Agent：先复制为我的副本再编辑'
+              : '带齐现有文档与代码，从审阅步进入编辑'}
           >
-            <Pencil className="h-3.5 w-3.5" />
-            编辑
+            {forkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Pencil className="h-3.5 w-3.5" />}
+            {forkBusy ? '复制中…' : '编辑'}
           </button>
         </div>
       </div>

@@ -840,7 +840,10 @@ async def get_tool(tool_id: str):
     code = registry.read_code_text(tool_id)
     demand_md, has_demand = registry.read_def_text(tool_id, "-demand.md")
     reference_code, has_reference = registry.read_def_text(tool_id, "-reference.md")
-    return {**entry, "spec_md": spec_md, "code": code, "has_demand": has_demand, "demand_md": demand_md, "has_reference": has_reference, "reference_code": reference_code}
+    return {**entry, "spec_md": spec_md, "code": code, "has_demand": has_demand, "demand_md": demand_md, "has_reference": has_reference, "reference_code": reference_code,
+            # source（内置/私有）来自 registry._read 的合并逻辑，
+            # 详情页据此区分「内置 / 我的副本 / 我的工具」并决定编辑入口行为
+            "source": entry.get("source")}
 
 
 class SpecOutlineRequest(BaseModel):

@@ -11,6 +11,7 @@ import { Card, CardBody } from '@/components/ui/card'
 import { useResourceStore } from '@/stores/resource-store'
 import { useUIStore } from '@/stores/ui-store'
 import { useToolEditorStore } from '@/stores/tool-editor-store'
+import { toolApi } from '@/services/api/tool'
 import { useTabIndent } from '@/hooks/use-tab-indent'
 import { cn } from '@/lib/utils'
 import type { ToolResource } from '@/types/resources'
@@ -82,6 +83,11 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
   const [testResults, setTestResults] = useState<Record<string, unknown> | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [codeModified, setCodeModified] = useState(false)
+  // 覆盖层（fork）状态：内置资源要修改先复制为私有副本；null=未知/非内置
+  interface ForkStatus { is_builtin: boolean; has_copy: boolean; forked: boolean; upstream_changed: boolean; forked_from?: { forked_at: string } | null }
+  const [forkStatus, setForkStatus] = useState<ForkStatus | null>(null)
+  const [detailSource, setDetailSource] = useState<string | null>(null)
+  const [forkBusy, setForkBusy] = useState(false)
 
   // AI 修改 + 自动调试状态
   const [modifyRequest, setModifyRequest] = useState('')
@@ -99,10 +105,13 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
 
   useEffect(() => {
     if (!tool) return
+    setForkStatus(null)
+    setDetailSource(null)
     fetch(`${BASE_URL}/api/tool/${tool.id}`)
       .then(r => r.json())
       .then(data => {
         setSpecMd(data.spec_md || '')
+        setDetailSource(data.source || null)
         const c = data.code || ''
         setCode(c)
         setEditedCode(c)
@@ -120,11 +129,108 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
           setReferenceCode('')
           setHasReference(false)
         }
+        // fork 状态决定徽章与编辑入口行为：非内置直接返回 null 不打扰
+        toolApi.getForkStatus(tool.id)
+          .then((fs) => setForkStatus(fs.is_builtin ? fs : null))
+          .catch(() => setForkStatus(null))
       })
       .catch(() => {})
   }, [tool])
 
   const inputs = parseInputs(specMd)
+
+  /** 进入编辑器：内置资源且还没有副本时，先复制为我的副本再进（方案 C）。
+   *  直接编辑内置 = 改 git 里的系统文件，一人改动全员跟着变，禁止。 */
+  const openEditor = async () => {
+    if (!tool) return
+    if (forkStatus?.is_builtin && !forkStatus.has_copy) {
+      const ok = window.confirm(
+        `「${tool.name}」是内置工具（随系统分发，不可直接修改）。\n\n` +
+        '点击「确定」：复制为我的副本后进入编辑\n' +
+        '点击「取消」：留在详情页（不复制）'
+      )
+      if (!ok) return
+      setForkBusy(true)
+      try {
+        await toolApi.fork(tool.id)
+        setForkStatus({ ...forkStatus, has_copy: true, forked: true })
+      } catch (e) {
+        window.alert(`复制副本失败：${String(e)}`)
+        setForkBusy(false)
+        return
+      }
+      setForkBusy(false)
+    }
+    const params = (inputs || []).map((f: InputField) => ({
+      name: f.name,
+      type: f.type || 'string',
+      required: !!f.required,
+      default: f.default ?? null,
+      desc: f.desc || '',
+    }))
+    useToolEditorStore.getState().prefillFromTool({
+      toolId: tool.id,
+      toolName: tool.name,
+      description: demandText || tool.name,
+      specMd: specMd || '',
+      code: editedCode || code || '',
+      tags: (tool as { tags?: string[] }).tags || [],
+      params,
+      // Step1 的参考代码一并带入并作为基线，
+      // 否则编辑器里看不到、改也无法单独保存
+      referenceCode,
+    })
+    setActiveView('tool-editor')
+  }
+
+  /** 丢弃副本：删除私有文件后详情重新加载，回到内置版本 */
+  const discardFork = async () => {
+    if (!tool) return
+    if (!window.confirm(
+      `确定丢弃「${tool.name}」的我的副本吗？\n\n副本上的所有修改将丢失，\n恢复为直接使用内置版本。`)) return
+    setForkBusy(true)
+    try {
+      await toolApi.discardFork(tool.id)
+      setForkStatus({ is_builtin: true, has_copy: false, forked: false, upstream_changed: false })
+      // 详情内容也要跟着变（读回内置版本），重新拉一次
+      const data = await (await fetch(`${BASE_URL}/api/tool/${tool.id}`)).json()
+      setSpecMd(data.spec_md || '')
+      const c = data.code || ''
+      setCode(c); setEditedCode(c); setCodeModified(false)
+    } catch (e) {
+      window.alert(`丢弃副本失败：${String(e)}`)
+    }
+    setForkBusy(false)
+  }
+
+  /** 上游有更新时：按当前内置重新复制（我的副本改动会丢弃） */
+  const refork = async () => {
+    if (!tool) return
+    if (!window.confirm(
+      '内置版本已有更新。重新复制将以最新内置内容覆盖我的副本，\n副本上的修改会丢失。确定重新复制吗？')) return
+    setForkBusy(true)
+    try {
+      await toolApi.fork(tool.id)
+      setForkStatus({ is_builtin: true, has_copy: true, forked: true, upstream_changed: false })
+    } catch (e) {
+      window.alert(`复制失败：${String(e)}`)
+    }
+    setForkBusy(false)
+  }
+
+  // 来源徽章：内置（未 fork）/ 我的副本 / 我的工具。
+  // 用原生 span 而非 Badge：需要 title 悬浮解释三者区别，Badge 不透传 title。
+  const forkBadge = (() => {
+    if (forkStatus?.is_builtin) {
+      return forkStatus.has_copy
+        ? { label: '我的副本', cls: 'bg-maia-warning-bg text-maia-warning border-maia-warning/20', title: '已复制为私有副本：编辑与执行都用副本，内置版本不受影响' }
+        : { label: '内置', cls: 'bg-maia-sidebar-active text-maia-text-secondary border-maia-border', title: '内置工具（随系统分发）：要修改请先复制为我的副本' }
+    }
+    if (detailSource === 'private' || forkStatus?.has_copy) {
+      return { label: '我的工具', cls: 'bg-maia-success-bg text-maia-success border-maia-success/20', title: '我创建的工具（私有目录）' }
+    }
+    return null
+  })()
 
   const handleCodeChange = (val: string) => {
     setEditedCode(val)
@@ -160,8 +266,34 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
     setIsTesting(false)
   }
 
+  /** 内置资源不可直接写：保存前先确保有我的副本（就地复制到私有），返回可否继续。
+   *  状态从服务端现取而不是读组件里的 forkStatus：调用点有的在 useCallback
+   *  闭包里，组件状态可能已过期；而过期成"没有副本"会误触发重新复制，
+   *  把已有副本（可能带着未同步的修改）整份覆盖掉。 */
+  const ensurePrivateCopy = async (): Promise<boolean> => {
+    if (!tool) return false
+    const st = await toolApi.getForkStatus(tool.id).catch(() => null)
+    if (st) setForkStatus(st.is_builtin ? st : null)
+    if (!st || !st.is_builtin || st.has_copy) return true
+    const ok = window.confirm(
+      `「${tool.name}」是内置工具（随系统分发，不可直接修改）。\n\n` +
+      '点击「确定」：复制为我的副本后保存\n' +
+      '点击「取消」：不保存'
+    )
+    if (!ok) return false
+    try {
+      await toolApi.fork(tool.id)
+      setForkStatus({ ...st, has_copy: true, forked: true })
+      return true
+    } catch (e) {
+      window.alert(`复制副本失败：${String(e)}`)
+      return false
+    }
+  }
+
   const updateCode = async () => {
     if (!editedCode.trim()) return
+    if (!(await ensurePrivateCopy())) return
     setIsUpdating(true)
     setError(null)
     try {
@@ -184,6 +316,8 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
   const handleModify = useCallback(async () => {
     const req = modifyRequest.trim()
     if (!req || isDebugging || !tool) return
+    // 调试成功后后端会把新代码就地落盘：内置资源同样要先有我的副本
+    if (!(await ensurePrivateCopy())) return
     setModifyHistory(prev => [...prev, req])
     setModifyRequest('')
     setIsDebugging(true)
@@ -325,8 +459,39 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
             {tool.name}
           </span>
           <Badge variant="success" className="shrink-0">v{tool.version}</Badge>
+          {forkBadge && (
+            <span
+              title={forkBadge.title}
+              className={cn(
+                'inline-flex items-center rounded-full px-2 py-0.5 text-[12px] font-semibold border shrink-0',
+                forkBadge.cls,
+              )}
+            >
+              {forkBadge.label}
+            </span>
+          )}
 
           <div className="ml-auto flex items-center gap-2 shrink-0">
+            {forkStatus?.is_builtin && forkStatus.has_copy && (
+              <button
+                onClick={discardFork}
+                disabled={forkBusy}
+                title="删除我的副本，恢复为直接使用内置版本（副本上的修改会丢失）"
+                className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-[12px] whitespace-nowrap border border-maia-border text-maia-text-muted hover:bg-maia-sidebar-hover hover:text-maia-text transition-colors shrink-0 disabled:opacity-40"
+              >
+                丢弃副本
+              </button>
+            )}
+            {forkStatus?.upstream_changed && (
+              <button
+                onClick={refork}
+                disabled={forkBusy}
+                title="内置版本已被更新（例如系统升级）。重新复制会以最新内置内容覆盖我的副本"
+                className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-[12px] whitespace-nowrap border border-maia-warning/30 bg-maia-warning-bg text-maia-warning hover:opacity-90 transition-colors shrink-0 disabled:opacity-40"
+              >
+                内置已更新，重新复制
+              </button>
+            )}
             <a
               href={`${BASE_URL}/api/tool/${encodeURIComponent(tool.id)}/export`}
               download={`${tool.id}.zip`}
@@ -395,35 +560,15 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
             {showCode ? '收起代码' : '代码'}
           </button>
           <button
-            onClick={() => {
-              // 编辑已有工具：带齐当前 MD/代码，从「审阅」步进入，
-              // 避免被迫从「重新描述需求」走一遍全流程。
-              const params = (inputs || []).map((f: { name: string; type?: string; required?: boolean; default?: string | null; desc?: string }) => ({
-                name: f.name,
-                type: f.type || 'string',
-                required: !!f.required,
-                default: f.default ?? null,
-                desc: f.desc || '',
-              }))
-              useToolEditorStore.getState().prefillFromTool({
-                toolId: tool.id,
-                toolName: tool.name,
-                description: demandText || tool.name,
-                specMd: specMd || '',
-                code: editedCode || code || '',
-                tags: (tool as { tags?: string[] }).tags || [],
-                params,
-                // Step1 的参考代码一并带入并作为基线，
-                // 否则编辑器里看不到、改也无法单独保存
-                referenceCode,
-              })
-              setActiveView('tool-editor')
-            }}
-            className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-[12px] whitespace-nowrap border border-transparent text-maia-text-muted hover:bg-maia-sidebar-hover hover:text-maia-text transition-colors shrink-0 ml-auto"
-            title="带齐现有文档与代码，从审阅步进入编辑"
+            onClick={() => void openEditor()}
+            disabled={forkBusy}
+            className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-[12px] whitespace-nowrap border border-transparent text-maia-text-muted hover:bg-maia-sidebar-hover hover:text-maia-text transition-colors shrink-0 ml-auto disabled:opacity-40"
+            title={forkStatus?.is_builtin && !forkStatus.has_copy
+              ? '内置工具：先复制为我的副本再编辑'
+              : '带齐现有文档与代码，从审阅步进入编辑'}
           >
-            <Pencil className="h-3.5 w-3.5" />
-            编辑
+            {forkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Pencil className="h-3.5 w-3.5" />}
+            {forkBusy ? '复制中…' : '编辑'}
           </button>
         </div>
       </div>

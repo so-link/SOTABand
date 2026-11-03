@@ -151,6 +151,39 @@ export const agentApi = {
     return res.json()
   },
 
+  /** fork 状态（覆盖层）：是否内置、是否已有我的副本、上游是否有更新 */
+  async getForkStatus(agentId: string): Promise<{
+    is_builtin: boolean
+    has_copy: boolean
+    forked: boolean
+    forked_from: { forked_at: string; builtin_hash: string } | null
+    upstream_changed: boolean
+  }> {
+    const res = await fetch(`${BASE_URL}/api/agent/${encodeURIComponent(agentId)}/fork-status`)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    return res.json()
+  },
+
+  /** 把内置 Agent 复制为我的私有副本（已存在则按当前内置重新复制） */
+  async fork(agentId: string): Promise<{ forked: string; files: number }> {
+    const res = await fetch(`${BASE_URL}/api/agent/${encodeURIComponent(agentId)}/fork`, { method: 'POST' })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }))
+      throw new Error(err.detail || `HTTP ${res.status}`)
+    }
+    return res.json()
+  },
+
+  /** 丢弃我的副本，恢复为直接使用内置版本 */
+  async discardFork(agentId: string): Promise<{ discarded: string }> {
+    const res = await fetch(`${BASE_URL}/api/agent/${encodeURIComponent(agentId)}/fork`, { method: 'DELETE' })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }))
+      throw new Error(err.detail || `HTTP ${res.status}`)
+    }
+    return res.json()
+  },
+
   /** 保存手工微调后的 Agent 代码 */
   async saveCode(agentId: string, code: string): Promise<{ saved: string }> {
     const res = await fetch(`${BASE_URL}/api/agent/${encodeURIComponent(agentId)}/save-code`, {

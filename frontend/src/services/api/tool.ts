@@ -410,6 +410,39 @@ export const toolApi = {
     return res.json()
   },
 
+  /** fork 状态（覆盖层）：是否内置、是否已有我的副本、上游是否有更新 */
+  async getForkStatus(toolId: string): Promise<{
+    is_builtin: boolean
+    has_copy: boolean
+    forked: boolean
+    forked_from: { forked_at: string; builtin_hash: string } | null
+    upstream_changed: boolean
+  }> {
+    const res = await fetch(`${BASE_URL}/api/tool/${encodeURIComponent(toolId)}/fork-status`)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    return res.json()
+  },
+
+  /** 把内置工具复制为我的私有副本（已存在则按当前内置重新复制） */
+  async fork(toolId: string): Promise<{ forked: string; files: number }> {
+    const res = await fetch(`${BASE_URL}/api/tool/${encodeURIComponent(toolId)}/fork`, { method: 'POST' })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }))
+      throw new Error(err.detail || `HTTP ${res.status}`)
+    }
+    return res.json()
+  },
+
+  /** 丢弃我的副本，恢复为直接使用内置版本 */
+  async discardFork(toolId: string): Promise<{ discarded: string }> {
+    const res = await fetch(`${BASE_URL}/api/tool/${encodeURIComponent(toolId)}/fork`, { method: 'DELETE' })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }))
+      throw new Error(err.detail || `HTTP ${res.status}`)
+    }
+    return res.json()
+  },
+
   /** 单独保存 Step1 的需求描述 / 参考代码（只传改过的字段，其余不动） */
   async saveStep1(
     toolId: string,
