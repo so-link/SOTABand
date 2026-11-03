@@ -127,9 +127,6 @@ export function ChatEmptyState() {
           内层 min-h-full 居中：内容放得下时居中，放不下时可滚动而不会向上溢出。 */}
       <div className="flex-1 min-h-0 overflow-y-auto px-6">
         <div className="min-h-full flex flex-col items-center justify-center py-6 text-center">
-        <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-maia-accent-border bg-maia-accent-light text-maia-accent">
-          <Bot className="h-5 w-5" />
-        </span>
         <h2 className="text-[18px] leading-7 font-semibold text-maia-text-heading mt-4 text-balance">想完成什么任务？</h2>
         <p className="text-[13px] leading-[20px] text-maia-text-muted mt-1.5 max-w-[520px] text-pretty">
           描述目标或引用数据，SOTABand 会匹配 Agent 与工具并开始执行。
