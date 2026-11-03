@@ -324,23 +324,21 @@ class AgentFactory:
         # Agent 子进程环境：显式注入系统根与用户目录。
         # 模板里用 Path(__file__).parents[N] 猜项目根在私有根下会算错
         # （/root/resources/agents/logs 事故根因），统一改为信 env。
-        from core.user_paths import SYSTEM_ROOT as _SR, current_uid, user_home
-        _proc_env = {
-            **os.environ,
-            "SOTABAND_ROOT": str(_SR),
-            "SOTABAND_USER_HOME": str(user_home()),
-            "SOTABAND_USER_ID": current_uid(),
-        }
+        # cwd 同样定为 USER_HOME：Agent 代码里的相对路径不能落进 git 工作区。
+        from core.user_paths import runtime_env, user_home
+        _home = user_home()
+        _home.mkdir(parents=True, exist_ok=True)
+        _proc_env = {**os.environ, **runtime_env()}
 
         try:
             proc = await asyncio.create_subprocess_exec(
                 python, entrypoint,
                 "--agent-id", agent_id,
-                "--impl-path", impl_path,
+                "--impl-path", str(agent_file.parent),
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                cwd=str(PROJECT_ROOT),
+                cwd=str(_home),
                 env=_proc_env,
             )
             self._processes[agent_id] = proc

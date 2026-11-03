@@ -30,13 +30,15 @@ def _resolve_image_path(raw: str):
     p = Path(str(raw).strip())
     if p.is_absolute():
         return p if p.exists() else None
-    # 相对路径：依次尝试项目根、当前目录、常见数据目录
-    project_root = Path(__file__).resolve().parent.parent.parent.parent
+    # 相对路径依次尝试：用户目录（执行时 cwd 即 USER_HOME）→ 用户数据目录 →
+    # 系统根。根目录走平台注入的 env，不按 __file__ 层级反推，保证工具
+    # 复制到任何目录都能解析。
+    _uh = os.environ.get("SOTABAND_USER_HOME", "").strip()
+    _sr = os.environ.get("SOTABAND_ROOT", "").strip()
     candidates = [
-        project_root / p,
         Path.cwd() / p,
-        project_root / "data" / p,
-        project_root / "uploaded_images" / p,
+        *( [Path(_uh) / p, Path(_uh) / "data" / p, Path(_uh) / "uploads" / p] if _uh else [] ),
+        *( [Path(_sr) / p, Path(_sr) / "data" / p] if _sr else [] ),
     ]
     for c in candidates:
         if c.exists() and c.is_file():

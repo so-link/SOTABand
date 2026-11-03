@@ -139,6 +139,9 @@ class ToolExecutor:
         def _safe_dumps(obj):
             return json.dumps(obj, ensure_ascii=False).encode('utf-8', errors='replace').decode('utf-8')
 
+        from core.user_paths import runtime_env
+        _rt = runtime_env()
+
         return (
             f"import json, sys, os\n"
             f"import io\n"
@@ -146,7 +149,10 @@ class ToolExecutor:
             f"sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')\n"
             f"sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')\n"
             f"os.environ['TOOL_DIR'] = {_safe_dumps(tool_dir)}\n"
-            f"os.environ['SOTABAND_ROOT'] = {_safe_dumps(project_root)}\n"
+            # 根目录/用户目录一律由父进程注入：工具代码不得靠 __file__ 层级反推
+            f"os.environ['SOTABAND_ROOT'] = {_safe_dumps(_rt['SOTABAND_ROOT'])}\n"
+            f"os.environ['SOTABAND_USER_HOME'] = {_safe_dumps(_rt['SOTABAND_USER_HOME'])}\n"
+            f"os.environ['SOTABAND_USER_ID'] = {_safe_dumps(_rt['SOTABAND_USER_ID'])}\n"
             f"sys.path.insert(0, {_safe_dumps(project_root)})\n"
             f"# 屏蔽 sys.argv 防止代码中误用 argparse 等 CLI 参数\n"
             f"sys.argv = [sys.argv[0]]\n"
@@ -161,6 +167,19 @@ class ToolExecutor:
             f"    import traceback\n"
             f"    print(json.dumps({{'status':'failed','message':str(e),'error':type(e).__name__,'traceback':traceback.format_exc()[-2000:]}}))\n"
         )
+
+    @classmethod
+    def _launch_env_cwd(cls) -> tuple[dict, str]:
+        """工具子进程环境 + cwd：注入系统根与用户目录，cwd 定为 USER_HOME。
+
+        子进程内任何相对路径都必须有确定落点，否则工具代码写 ``open("x.png","w")``
+        会落进 FastAPI 进程 cwd（可能是 git 工作区）。
+        """
+        import os as _os
+        from core.user_paths import runtime_env, user_home
+        home = user_home()
+        home.mkdir(parents=True, exist_ok=True)
+        return {**_os.environ, **runtime_env(), "PYTHONUNBUFFERED": "1"}, str(home)
 
     @classmethod
     def _parse_output(cls, stdout: str) -> dict:
@@ -228,10 +247,13 @@ class ToolExecutor:
             tmp_path = f.name
 
         try:
+            _env, _cwd = cls._launch_env_cwd()
             proc = await asyncio.create_subprocess_exec(
                 python_exe, tmp_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                cwd=_cwd,
+                env=_env,
             )
             try:
                 if timeout is None:
@@ -313,10 +335,12 @@ class ToolExecutor:
             tmp_path = f.name
 
         try:
+            _env, _cwd = cls._launch_env_cwd()
             proc = subprocess.run(
                 [python_exe, tmp_path],
                 capture_output=True, text=True, timeout=timeout,
                 encoding='utf-8', errors='replace',
+                cwd=_cwd, env=_env,
             )
             result = cls._parse_output(proc.stdout.strip())
             if proc.returncode != 0 and result.get("status") != "success":

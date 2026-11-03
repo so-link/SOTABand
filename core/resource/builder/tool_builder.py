@@ -65,22 +65,44 @@ from pathlib import Path
 from typing import Any
 import requests
 
-# ── 项目根路径 ──
-# 优先信 factory/执行器注入的 SOTABAND_ROOT（用目录层级反推在私有根下会算错）
-_root_env = os.environ.get("SOTABAND_ROOT", "")
-_tool_dir = os.environ.get("TOOL_DIR", "")
-if _root_env and (Path(_root_env) / "core").exists():
-    _PROJECT_ROOT = Path(_root_env)
-elif _tool_dir:
-    _PROJECT_ROOT = Path(_tool_dir).resolve().parent.parent.parent.parent
-else:
-    _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
+# ── 运行目录（由平台注入，禁止写死绝对路径或按 __file__ 层级反推）──
+# SOTABAND_ROOT      系统根：代码 + 内置资源，视为只读
+# SOTABAND_USER_HOME 当前用户目录：本工具的一切产物写这里
+# TOOL_DIR           本工具实现目录
+def _env_path(name):
+    v = os.environ.get(name, "").strip()
+    return Path(v) if v else None
+
+def _find_up(path, marker):
+    """兜底：向上找 marker 所在目录。只按特征文件定位，不假定固定层级。"""
+    p = path
+    for _ in range(12):
+        if (p / marker).exists():
+            return p
+        if p.parent == p:
+            break
+        p = p.parent
+    return None
+
+_tool_dir = _env_path("TOOL_DIR") or (Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd())
+_PROJECT_ROOT = _env_path("SOTABAND_ROOT") or _find_up(_tool_dir, "core") or Path.cwd()
+# 用户目录：env 缺失时按「SOTABAND_HOME 根 + uid」还原，绝不退回系统根
+_USER_HOME = _env_path("SOTABAND_USER_HOME") or (
+    (_env_path("SOTABAND_HOME") or _PROJECT_ROOT.parent / "SB-USER")
+    / (os.environ.get("SOTABAND_USER_ID", "").strip() or "0")
+)
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-# ── 数据目录 ──
-_DATA_DIR = _PROJECT_ROOT / "data"
+# ── 数据目录（产物一律落用户目录，系统根随 git 分发不可写脏）──
+_DATA_DIR = _USER_HOME / "data"
 _DOWNLOADS_DIR = _DATA_DIR / "downloads"
+
+def _out_dir(*parts) -> Path:
+    """本工具产物目录：USER_HOME/data/<工具或子目录>/<...>，自动创建。"""
+    d = _DATA_DIR.joinpath(*parts) if parts else _DATA_DIR
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
 # ── API 调用辅助 ──
 def _call_api(api_name: str, **params) -> dict:
@@ -108,14 +130,26 @@ def _llm_chat(messages: list, **kwargs) -> str:
     finally:
         loop.close()
 
+# ── 资源根（内置 + 私有）──
+def _resource_roots():
+    """内置根 + 当前用户私有根，私有优先。
+
+    优先向 core.resource.paths 询问（平台权威实现）；不可用时按 env 还原。
+    """
+    try:
+        from core.resource import paths as _p
+        return list(_p.resource_roots())
+    except Exception:
+        return [_PROJECT_ROOT / "resources", _USER_HOME / "resources-private"]
+
 # ── 工具调用辅助 ──
 def _call_tool(tool_name: str, **params) -> dict:
     """调用已注册的工具（通过 registry.json 查找工具 ID 对应的实现目录）"""
     import subprocess as _sp
-    # 从「内置 + 私有」两个资源根的 registry.json 中查找工具 ID（目录名），
-    # 新注册的工具只写私有根，只读内置根会查不到
+    roots = list(reversed(_resource_roots()))  # 私有根在前，优先级更高
+    # 从「私有 + 内置」资源根的 registry.json 中查找工具 ID（目录名）
     tool_id = tool_name  # 默认用名称作为 ID
-    for _root in reversed((_PROJECT_ROOT / "resources", Path(os.environ.get("SOTABAND_USER_HOME", "")) / "resources-private" if os.environ.get("SOTABAND_USER_HOME") else _PROJECT_ROOT.parent / "resources-private")):
+    for _root in roots:
         reg_path = _root / "tools" / "registry.json"
         if not reg_path.exists():
             continue
@@ -123,15 +157,15 @@ def _call_tool(tool_name: str, **params) -> dict:
             tools = json.loads(reg_path.read_text(encoding="utf-8"))
         except Exception:
             continue
-        # 先精确匹配 id，再匹配 name；私有根先查，优先级更高
+        # 先精确匹配 id，再匹配 name
         for t in tools:
             if t.get("id") == tool_name or t.get("name") == tool_name:
                 tool_id = t["id"]
         if tool_id != tool_name:
             break
-    # 在「内置 + 私有」资源根中定位工具实现
+    # 在「私有 + 内置」资源根中定位工具实现
     tool_dir = None
-    for _root in (_PROJECT_ROOT / "resources", Path(os.environ.get("SOTABAND_USER_HOME", "")) / "resources-private" if os.environ.get("SOTABAND_USER_HOME") else _PROJECT_ROOT.parent / "resources-private"):
+    for _root in roots:
         _cand = _root / "tools" / "implementations" / tool_id
         if (_cand / "tool.py").exists():
             tool_dir = _cand
@@ -597,7 +631,17 @@ CRITICAL RULES:
        except Exception as e:
            return {{"status":"failed","output_format":"text","message":f"工具执行失败: {{str(e)}}\\n\\nTraceback:\\n{{traceback.format_exc()}}","data":{{}}}}
    NEVER swallow the traceback — a bare str(e) without stack info makes auto-debug unable to find the bug.
-6. File paths: _PROJECT_ROOT / "data" / ... or _resolve_path()
+6. File paths — PORTABILITY IS MANDATORY. The generated tool must run unchanged no matter where its directory lives (private space, system resources/, another user's home, another machine):
+   - NEVER write absolute paths ("/root/...", "/home/...", "C:\\...", a dataset dir copied from the spec, etc.) anywhere in the code — not in constants, not in default parameter values, not in comments used as config.
+   - NEVER locate anything with Path(__file__).parents[N] / .parent.parent chains or Path.cwd(). The template already resolves everything for you:
+       _PROJECT_ROOT  system root (read-only: built-in resources, core/)
+       _USER_HOME     current user's home — ALL outputs go here
+       _DATA_DIR      _USER_HOME/data — the base for files this tool produces
+       _out_dir(...)  create & return _DATA_DIR/<subdir> (preferred for outputs)
+       _tool_dir      this tool's own directory (static assets shipped with it)
+   - Writing: use _out_dir("xxx") / _DATA_DIR / ... . NEVER write under _PROJECT_ROOT (it is the git-distributed system area) and never mutate resources/ or resources-private/.
+   - Reading a file the user provided: pass the path through _resolve_path(path) (handles relative/absolute/~ cross-platform). Reading a registered dataset/model: use _dataset_dir(id) / _model_data(id) — NEVER reconstruct those paths yourself.
+   - Default parameter values must be portable too: default to "" or a relative name and resolve at runtime, not a machine-specific absolute path.
 7. API calls: use the EXACT api_id and param names from the SYSTEM API CALLS section above
 8. Map tool input parameters (from kwargs) to API parameters with the CORRECT names
 9. Tool calls: _call_tool("工具名称", param=value) — 系统自动通过 registry.json 查找工具ID和实现目录
@@ -1108,8 +1152,8 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
 
         def _write():
             try:
-                project_root = Path(__file__).resolve().parent.parent.parent.parent
-                log_dir = project_root / "logs"
+                from core.user_paths import user_home
+                log_dir = user_home() / "logs"
                 log_dir.mkdir(parents=True, exist_ok=True)
                 log_file = log_dir / f"{tool_id}_{timestamp}.md"
 

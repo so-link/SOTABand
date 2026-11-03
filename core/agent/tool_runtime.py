@@ -162,9 +162,11 @@ class ToolRuntime:
 
             try:
                 tool_dir = str(self._tool_dir(tool_id))
+                from core.user_paths import runtime_env, user_home
+                _home = user_home()
+                _home.mkdir(parents=True, exist_ok=True)
                 env = dict(
-                    SOTABAND_ROOT=str(self.project_root),
-                    TOOL_DIR=tool_dir,
+                    **runtime_env({"TOOL_DIR": tool_dir}),
                     PYTHONUNBUFFERED="1",
                     PYTHONPATH=str(self.project_root),
                 )
@@ -174,6 +176,7 @@ class ToolRuntime:
                     stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
+                    cwd=str(_home),
                     env={**__import__("os").environ, **env},
                 )
                 # 等待 ready 事件（预热可能耗时数秒，给足超时）

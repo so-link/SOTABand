@@ -5,31 +5,37 @@ from pathlib import Path
 from typing import Any
 import requests
 
-# ── 项目根路径 ──
-_tool_dir = os.environ.get("TOOL_DIR", "")
-if _tool_dir:
-    _PROJECT_ROOT = Path(_tool_dir).resolve().parent.parent.parent.parent
-else:
-    # 更加健壮的项目根确定方式：优先通过标记文件/目录查找
-    def _find_project_root() -> Path:
-        start = Path(__file__).resolve().parent
-        # 如果当前脚本所在目录本身看起来就是项目根（有 data 子目录）
-        if (start / "data").is_dir():
-            return start
-        # 向上寻找包含 core 目录或 setup.py 或 data 目录的父目录
-        for p in start.parents:
-            if (p / "core").is_dir() or (p / "setup.py").exists() or (p / "data").is_dir():
-                return p
-        # 如果都没找到，则认为脚本所在目录就是项目根（针对工具直接放在项目根运行等情况）
-        return start
+# ── 运行目录（由平台注入，禁止写死绝对路径或按 __file__ 层级反推）──
+# SOTABAND_ROOT      系统根：代码 + 内置资源，视为只读
+# SOTABAND_USER_HOME 当前用户目录：本工具的一切产物写这里
+# TOOL_DIR           本工具实现目录
+def _env_path(name):
+    v = os.environ.get(name, "").strip()
+    return Path(v) if v else None
 
-    _PROJECT_ROOT = _find_project_root()
+def _find_up(path, marker):
+    """兜底：向上找 marker 所在目录。只按特征文件定位，不假定固定层级。"""
+    p = path
+    for _ in range(12):
+        if (p / marker).exists():
+            return p
+        if p.parent == p:
+            break
+        p = p.parent
+    return None
 
+_tool_dir = _env_path("TOOL_DIR") or (Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd())
+_PROJECT_ROOT = _env_path("SOTABAND_ROOT") or _find_up(_tool_dir, "core") or Path.cwd()
+# 用户目录：env 缺失时按「SOTABAND_HOME 根 + uid」还原，绝不退回系统根
+_USER_HOME = _env_path("SOTABAND_USER_HOME") or (
+    (_env_path("SOTABAND_HOME") or _PROJECT_ROOT.parent / "SB-USER")
+    / (os.environ.get("SOTABAND_USER_ID", "").strip() or "0")
+)
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-# ── 数据目录 ──
-_DATA_DIR = _PROJECT_ROOT / "data"
+# ── 数据目录（产物一律落用户目录，系统根随 git 分发不可写脏）──
+_DATA_DIR = _USER_HOME / "data"
 _DOWNLOADS_DIR = _DATA_DIR / "downloads"
 
 # ── API 调用辅助 ──

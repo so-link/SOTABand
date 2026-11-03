@@ -75,6 +75,27 @@ def platform_db(uid: str | None = None) -> Path:
     return user_home(uid) / "platform.db"
 
 
+def runtime_env(extra: dict | None = None) -> dict:
+    """子进程（工具脚本 / Agent / 调试沙箱）统一环境变量。
+
+    生成的工具与 Agent 代码**只能靠这些变量定位目录**——不允许绝对路径，
+    也不允许 ``Path(__file__).parents[N]`` 反推根目录（资源搬到任何深度、
+    换用户目录、复制到系统目录或换机器，反推都会算错）。
+
+    - ``SOTABAND_ROOT``      系统根（代码 + 内置资源），只读用途
+    - ``SOTABAND_USER_HOME`` 当前用户目录，一切产物写这里
+    - ``SOTABAND_USER_ID``   当前用户 ID
+    """
+    env = {
+        "SOTABAND_ROOT": str(SYSTEM_ROOT),
+        "SOTABAND_USER_HOME": str(user_home()),
+        "SOTABAND_USER_ID": current_uid(),
+    }
+    if extra:
+        env.update({k: str(v) for k, v in extra.items()})
+    return env
+
+
 def auth_dir() -> Path:
     """系统级认证目录（用户表 + 令牌密钥）：平台实体，不随用户走。"""
     return SYSTEM_ROOT / "storage" / "auth"

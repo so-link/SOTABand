@@ -5,18 +5,44 @@ from pathlib import Path
 from typing import Any
 import requests
 
-# ── 项目根路径 ──
-_tool_dir = os.environ.get("TOOL_DIR", "")
-if _tool_dir:
-    _PROJECT_ROOT = Path(_tool_dir).resolve().parent.parent.parent.parent
-else:
-    _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
+# ── 运行目录（由平台注入，禁止写死绝对路径或按 __file__ 层级反推）──
+# SOTABAND_ROOT      系统根：代码 + 内置资源，视为只读
+# SOTABAND_USER_HOME 当前用户目录：本工具的一切产物写这里
+# TOOL_DIR           本工具实现目录
+def _env_path(name):
+    v = os.environ.get(name, "").strip()
+    return Path(v) if v else None
+
+def _find_up(path, marker):
+    """兜底：向上找 marker 所在目录。只按特征文件定位，不假定固定层级。"""
+    p = path
+    for _ in range(12):
+        if (p / marker).exists():
+            return p
+        if p.parent == p:
+            break
+        p = p.parent
+    return None
+
+_tool_dir = _env_path("TOOL_DIR") or (Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd())
+_PROJECT_ROOT = _env_path("SOTABAND_ROOT") or _find_up(_tool_dir, "core") or Path.cwd()
+# 用户目录：env 缺失时按「SOTABAND_HOME 根 + uid」还原，绝不退回系统根
+_USER_HOME = _env_path("SOTABAND_USER_HOME") or (
+    (_env_path("SOTABAND_HOME") or _PROJECT_ROOT.parent / "SB-USER")
+    / (os.environ.get("SOTABAND_USER_ID", "").strip() or "0")
+)
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-# ── 数据目录 ──
-_DATA_DIR = _PROJECT_ROOT / "data"
+# ── 数据目录（产物一律落用户目录，系统根随 git 分发不可写脏）──
+_DATA_DIR = _USER_HOME / "data"
 _DOWNLOADS_DIR = _DATA_DIR / "downloads"
+
+def _out_dir(*parts) -> Path:
+    """本工具产物目录：USER_HOME/data/<工具或子目录>/<...>，自动创建。"""
+    d = _DATA_DIR.joinpath(*parts) if parts else _DATA_DIR
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
 # ── API 调用辅助 ──
 def _call_api(api_name: str, **params) -> dict:

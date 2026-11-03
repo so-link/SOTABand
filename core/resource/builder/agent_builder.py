@@ -63,10 +63,10 @@ import time as _time
 from pathlib import Path
 from typing import AsyncGenerator
 
-# 项目根目录：不能写死目录层级。
+# 项目根目录：只信平台注入的 env，不写死目录层级。
 # Agent 实现可能落在内置 resources/agents/implementations/ 或私有
-# resources-private/agents/implementations/，后者到项目根的层级比前者少一跳，
-# 写死 parents[N] 会让私有 Agent 把 /root 当成项目根（工具查找、日志目录全部失效）。
+# resources-private/agents/implementations/，两者到项目根的层级不同，
+# 写死 parents[N] 会把上级目录当成项目根（工具查找、日志目录全部失效）。
 def _detect_project_root() -> Path:
     env_root = os.environ.get("SOTABAND_ROOT", "").strip()
     if env_root and (Path(env_root) / "core" / "agent" / "base.py").exists():
@@ -80,6 +80,22 @@ PROJECT_ROOT = _detect_project_root()
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+# 当前用户目录：Agent 的一切产物（日志、导出文件）写这里，绝不写系统根。
+def _detect_user_home() -> Path:
+    uh = os.environ.get("SOTABAND_USER_HOME", "").strip()
+    if uh:
+        return Path(uh)
+    base = os.environ.get("SOTABAND_HOME", "").strip() or str(PROJECT_ROOT.parent / "SB-USER")
+    return Path(base) / (os.environ.get("SOTABAND_USER_ID", "").strip() or "0")
+
+USER_HOME = _detect_user_home()
+
+def out_dir(*parts) -> Path:
+    """产物目录：USER_HOME/<子目录>/…，自动创建。日志、导出文件都走这里。"""
+    d = USER_HOME.joinpath(*parts) if parts else USER_HOME
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
 from core.agent.base import BaseAgent, AgentContext
 '''
 
@@ -91,15 +107,16 @@ TOOL_HELPER_TEMPLATE = '''
     def _call_tool_{tool_id_safe}(self, **params) -> dict:
         """调用工具: {tool_name} (tool_id: {tool_id})"""
         # 在「内置 + 私有」资源根中定位工具实现。
-        # 私有根位置由 SOTABAND_PRIVATE_RESOURCES 决定，不能简单假定为项目根同级，
-        # 运行时优先向 core.resource.paths 询问，失败再退回目录约定。
-        _spaces = [PROJECT_ROOT / "resources" / "tools",
-                   PROJECT_ROOT.parent / "resources-private" / "tools"]
+        # 私有根在 USER_HOME/resources-private，与项目根层级无关，
+        # 运行时优先向 core.resource.paths 询问，失败再按 env 还原。
         try:
             from core.resource import paths as _paths
             _spaces = _paths.space_dirs("tools")
         except Exception:
-            pass
+            _spaces = None
+        if not _spaces:
+            _spaces = [PROJECT_ROOT / "resources" / "tools",
+                       USER_HOME / "resources-private" / "tools"]
         _tool_base = None
         for _space in _spaces:
             _cand = _space / "implementations" / "{tool_id}"
@@ -132,7 +149,12 @@ TOOL_HELPER_TEMPLATE = '''
             proc = subprocess.run(
                 [python_exe, tmp_path],
                 capture_output=True, text=True,
-                env={{**os.environ, "TOOL_DIR": str(impl_path.parent), "_PROJECT_ROOT": str(PROJECT_ROOT), "SOTABAND_ROOT": str(PROJECT_ROOT)}},
+                # 用户目录一并注入：工具靠它定位产物落点，缺失会写错地方
+                env={{**os.environ, "TOOL_DIR": str(impl_path.parent),
+                      "_PROJECT_ROOT": str(PROJECT_ROOT), "SOTABAND_ROOT": str(PROJECT_ROOT),
+                      "SOTABAND_USER_HOME": str(USER_HOME),
+                      "SOTABAND_USER_ID": os.environ.get("SOTABAND_USER_ID", "0")}},
+                cwd=str(USER_HOME),
             )
             if proc.returncode == 0:
                 return json.loads(proc.stdout.strip())
@@ -182,11 +204,8 @@ class {cls_name}(BaseAgent):
     def _log_step(self, step_name: str, action: str, input_data: dict = None, output_data: dict = None, error: str = None):
         """记录执行步骤日志到 USER_HOME/agent_logs/{{agent_id}}-{{timestamp}}.md"""
         if not hasattr(self, '_log_file'):
-            # 用户目录由 factory 注入（SOTABAND_USER_HOME）；退回 PROJECT_ROOT
-            # 仅为脚本直连兜底。绝不写进 resources/（那是 git 管理的系统资产区）。
-            _uh = os.environ.get("SOTABAND_USER_HOME", "").strip()
-            log_dir = (Path(_uh) / "agent_logs") if _uh else (PROJECT_ROOT / "storage" / "agent_logs")
-            log_dir.mkdir(parents=True, exist_ok=True)
+            # 日志属用户数据，落 USER_HOME/agent_logs（out_dir 已按 env 解析）
+            log_dir = out_dir("agent_logs")
             ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             agent_id = self.spec.id if self.spec else "unknown"
             self._log_file = log_dir / f"{{agent_id}}-{{ts}}.md"
@@ -551,6 +570,12 @@ yield {{"event": "content", "data": {{"text": response}}}}
 - 【重要】工具和 API 辅助方法是同步的，直接调用即可: `result = self._call_tool_xxx(...)`，不要加 await
 - 不要使用 ctx.session、ctx.metadata_id
 - 【禁止】绝对不要使用 pip install、subprocess.run 安装依赖包 — 依赖由系统自动管理
+- 【路径可移植性·强制】生成的 Agent 必须能在任意目录下不改代码运行（私有区、系统 resources/、其他用户目录、其他机器）：
+  - 【禁止】任何绝对路径（/root/…、/home/…、C:… 等），包括写成常量、参数默认值、或从规范文档里抄来的数据集目录
+  - 【禁止】用 Path(__file__).parents[N] / .parent.parent 链或 Path.cwd() 猜目录——模板已备好：PROJECT_ROOT（系统根，只读）、USER_HOME（当前用户目录，产物写这里）、out_dir(...) （自动创建并返回 USER_HOME/子目录）
+  - 需要落盘（导出文件、中间结果）一律 out_dir("子目录")；执行日志已由 _log_step 统一落 USER_HOME/agent_logs，不要自己拼日志路径
+  - 【禁止】往 PROJECT_ROOT、resources/、resources-private/ 里写任何文件——那是 git 管理的系统资产区
+  - 工具产物的路径从工具返回结果里读，不要自己按目录规则拼出来
 - 直接返回 Python 代码，不要 markdown 代码块"""
 
         response = ""
@@ -1057,7 +1082,8 @@ yield {{"event": "content", "data": {{"text": response}}}}
 
         def _write():
             try:
-                log_dir = paths.PROJECT_ROOT / "logs"
+                from core.user_paths import user_home
+                log_dir = user_home() / "logs"
                 log_dir.mkdir(parents=True, exist_ok=True)
                 log_file = log_dir / f"agent_{agent_id}_{timestamp}.md"
 
