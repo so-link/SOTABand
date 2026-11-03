@@ -88,6 +88,38 @@ function SaveIndicator() {
   )
 }
 
+/**
+ * 单步保存按钮：只提交本步的改动。
+ *
+ * 为什么每步都要有自己的按钮（而不是只靠顶部那个全局保存）：
+ * 全局保存一次把需求描述、文档、代码三个字段全部整包提交，
+ * 而后端这三个端点互相独立。使用者往往只想留下其中一步的改动——
+ * 比如只改了默认参数，不该顺带把还没写完的代码也存了。
+ * 按钮在本步无改动时自动禁用，避免空提交。
+ */
+function PartSaveButton({ part, label = '保存本步' }: { part: 'step1' | 'spec' | 'code'; label?: string }) {
+  const savePart = useToolEditorStore((s) => s.savePart)
+  const saveState = useToolEditorStore((s) => s.saveState)
+  const editingToolId = useToolEditorStore((s) => s.editingToolId)
+  const dirty = useToolEditorStore((s) => s.dirtyParts()[part])
+  const busy = saveState === 'saving'
+
+  // 新建流程没有可落盘的实体（尚未注册），不显示保存按钮
+  if (!editingToolId) return null
+
+  return (
+    <button
+      onClick={() => void savePart(part)}
+      disabled={!dirty || busy}
+      title={dirty ? `只保存${label}` : '本步没有改动'}
+      className="inline-flex items-center gap-1 text-[12px] px-2.5 py-1 rounded border border-maia-border text-maia-accent hover:bg-maia-accent/10 disabled:opacity-40 disabled:cursor-not-allowed"
+    >
+      {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+      {label}
+    </button>
+  )
+}
+
 export function ToolEditorView() {
   const store = useToolEditorStore()
   const setActiveView = useUIStore((s) => s.setActiveView)
@@ -326,7 +358,8 @@ function Step1() {
             ))}
         </div>, document.body)}
       {error && <div className="flex items-center gap-1.5 mt-2 text-[13px] text-maia-danger"><XCircle className="h-3 w-3" />{error}</div>}
-      <div className="flex justify-end mt-4">
+      <div className="flex justify-between items-center mt-4">
+        <PartSaveButton part="step1" label="保存需求描述" />
         <Button onClick={generateSpec} disabled={!description.trim() || isGenerating}>
           {isGenerating ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />生成中...</> : <>生成 MD 文档<ArrowRight className="h-3.5 w-3.5" /></>}
         </Button>
@@ -670,15 +703,20 @@ function Step2() {
       {error && <div className="flex items-center gap-1.5 mt-2 text-[13px] text-maia-danger"><XCircle className="h-3 w-3" />{error}</div>}
       <div className="flex justify-between mt-4">
         <Button variant="outline" onClick={() => setStep(1)} disabled={isGenerating}><ArrowLeft className="h-3.5 w-3.5" />返回修改需求</Button>
-        {isGenerating ? (
-          <Button variant="outline" onClick={stopGeneration}>
-            <XCircle className="h-3.5 w-3.5" />中止生成
-          </Button>
-        ) : (
-          <Button onClick={generateCode} disabled={!generatedMd.trim()}>
-            生成代码和测试<ArrowRight className="h-3.5 w-3.5" />
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {/* 只保存文档：后端会随文档确定性重算参数元数据（表格改动要生效），
+              但不会碰代码——改文档不该顺带把代码也提交 */}
+          <PartSaveButton part="spec" label="保存文档" />
+          {isGenerating ? (
+            <Button variant="outline" onClick={stopGeneration}>
+              <XCircle className="h-3.5 w-3.5" />中止生成
+            </Button>
+          ) : (
+            <Button onClick={generateCode} disabled={!generatedMd.trim()}>
+              生成代码和测试<ArrowRight className="h-3.5 w-3.5" />
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -787,6 +825,9 @@ function Step3() {
                 >
                   {isEditingCode ? '预览' : '手工微调'}
                 </button>
+                {isEditMode && (
+                  <PartSaveButton part="code" label="保存代码" />
+                )}
                 {isEditMode && (
                   <button
                     onClick={() => syncSpecFromCode()}

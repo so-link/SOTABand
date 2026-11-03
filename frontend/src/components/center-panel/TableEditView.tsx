@@ -62,7 +62,12 @@ export function TableEditView({ toolId, table, md, onApplied }: Props) {
         column,
         value: draft,
         specMd: md,
-        save: false,
+        // save:true —— 界面明写「点单元格直接改，即时生效」，此前却传
+        // false，改动只回灌到编辑框里，不点全局保存就什么都没落。
+        // 后端对未注册工具（占位 id）会忽略 save，新建流程不受影响。
+        // 参数表本身就是参数定义：后端还会顺带确定性重算 param_meta，
+        // 否则「默认值 8 改成 4」后执行表单里仍是 8。
+        save: true,
       })
       onApplied(res.updated_md)
       cancel()

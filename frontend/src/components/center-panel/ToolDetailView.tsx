@@ -413,6 +413,9 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
                 code: editedCode || code || '',
                 tags: (tool as { tags?: string[] }).tags || [],
                 params,
+                // Step1 的参考代码一并带入并作为基线，
+                // 否则编辑器里看不到、改也无法单独保存
+                referenceCode,
               })
               setActiveView('tool-editor')
             }}

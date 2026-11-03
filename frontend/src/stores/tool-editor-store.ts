@@ -40,6 +40,10 @@ interface ToolEditorState {
   baselineCode: string
   // 进入编辑时快照的原始 MD
   baselineMd: string
+  // Step1 需求描述 / 参考代码的基线（编辑已有工具时从详情载入）。
+  // 每个字段各自与基线比较 → 各步可独立保存，互不牵连。
+  baselineDescription: string
+  baselineReference: string
   // ── 手动保存 ──
   // 'idle' 无改动 | 'dirty' 有改动未保存 | 'saving' 保存中
   // | 'saved' 已保存 | 'error' 保存失败
@@ -83,8 +87,12 @@ interface ToolEditorState {
   prefetchSummaries: () => Promise<void>
   /** 编辑内容变更后调用：仅标记「有未保存改动」，不自动落盘 */
   notifyEdit: () => void
-  /** 保存当前 MD 与代码（点击保存按钮 / Ctrl+S 时调用） */
+  /** 保存当前所有已改动的字段（点击全局保存按钮 / Ctrl+S 时调用） */
   flushSave: () => Promise<void>
+  /** 只保存某一步的改动：step1=需求描述+参考代码，spec=规范文档，code=代码 */
+  savePart: (part: 'step1' | 'spec' | 'code') => Promise<void>
+  /** 各步的独立脏标记，供分步保存按钮显示状态 */
+  dirtyParts: () => { step1: boolean; spec: boolean; code: boolean }
   /** 当前是否存在未保存的改动 */
   hasUnsavedChanges: () => boolean
   /** 编辑一个已发布的工具：带齐现有 MD/代码，从「审阅」步（step 2）开始 */
@@ -96,6 +104,7 @@ interface ToolEditorState {
     code: string
     tags?: string[]
     params?: Array<{name: string; type: string; required: boolean; default?: string | null; desc: string}>
+    referenceCode?: string
   }) => void
   reset: () => void
 }
@@ -106,12 +115,17 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
   isGenerating: false, genStatus: '', isTesting: false, isAutoDebugging: false, abortController: null, testAbortController: null, error: null,
   debugRounds: [], debugStream: '', reasoningStream: '', generationAbort: null,
   editingToolId: null, editingToolName: '', baselineCode: '', baselineMd: '',
+  baselineDescription: '', baselineReference: '',
   saveState: 'idle', saveError: null,
 
-  setDescription: (text) => set({ description: text }),
-  setReferenceCode: (code) => set({ referenceCode: code }),
-  setGeneratedMd: (md) => set({ generatedMd: md }),
-  setGeneratedCode: (code) => set({ generatedCode: code }),
+  // 四个可编辑字段共用同一条脏标记刷新逻辑。
+  // 放在 setter 里而不是要求每个调用方记得补一句 notifyEdit()：
+  // 漏一次就是「改了但界面显示无改动」，这类遗漏很难发现。
+  // notifyEdit 仍保留给非 setter 的改动路径（如程序化改写代码）使用。
+  setDescription: (text) => { set({ description: text }); get().notifyEdit() },
+  setReferenceCode: (code) => { set({ referenceCode: code }); get().notifyEdit() },
+  setGeneratedMd: (md) => { set({ generatedMd: md }); get().notifyEdit() },
+  setGeneratedCode: (code) => { set({ generatedCode: code }); get().notifyEdit() },
   setTags: (tags) => set({ tags }),
   addTag: (tag) => set((s) => ({ tags: s.tags.includes(tag) ? s.tags : [...s.tags, tag] })),
   removeTag: (tag) => set((s) => ({ tags: s.tags.filter(t => t !== tag) })),
@@ -152,20 +166,85 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
   // ── 手动保存 ──
   // 编辑内容变更后只标记「有未保存改动」，不自动落盘；
   // 由使用者点击保存按钮或按 Ctrl/Cmd+S 显式保存。
+  //
+  // 脏标记按「字段」而不是整体一份：需求描述、参考代码、规范文档、代码
+  // 各自与各自基线比较。这样保存某一步只提交那一步的内容——此前只有一份
+  // 全局 saveState，点保存会把文档和代码一起整包 POST，
+  // 而这两者各有独立的后端端点，没必要互相牵连。
   notifyEdit: () => {
     const s = get()
     if (!s.editingToolId) return
-    const dirty = s.generatedMd !== s.baselineMd || s.generatedCode !== s.baselineCode
-    set({ saveState: dirty ? 'dirty' : 'idle' })
+    const d = s.dirtyParts()
+    set({ saveState: d.step1 || d.spec || d.code ? 'dirty' : 'idle' })
+  },
+
+  dirtyParts: () => {
+    const s = get()
+    if (!s.editingToolId) return { step1: false, spec: false, code: false }
+    return {
+      step1: s.description !== s.baselineDescription || s.referenceCode !== s.baselineReference,
+      spec: s.generatedMd !== s.baselineMd,
+      code: s.generatedCode !== s.baselineCode,
+    }
+  },
+
+  /**
+   * 只保存某一步。
+   *
+   * 关键差异：规范文档这一步会告知后端是否需要重算 param_meta ——
+   * 只有本次确实改了内容才重算（后端会确定性解析输入规范表格），
+   * 而「只改了描述」这种说明性改动不该惊动参数元数据。
+   */
+  savePart: async (part) => {
+    const s = get()
+    const toolId = s.editingToolId
+    if (!toolId) return
+    const d = s.dirtyParts()
+    set({ saveError: null })
+
+    const fail = (msg: string) => set({ saveState: 'error', saveError: msg })
+
+    // 保存成功后把该字段基线推进，再按剩余脏字段回写 saveState。
+    // 注意不能在 set 的 updater 里调 dirtyParts()——它内部读 get()，
+    // updater 执行时拿到的还是旧状态，会算出错误的脏标记。
+    const settle = () => {
+      const r = get().dirtyParts()
+      set({ saveState: r.step1 || r.spec || r.code ? 'dirty' : 'saved' })
+    }
+
+    try {
+      if (part === 'step1') {
+        if (!d.step1) return
+        const fields: { demandMd?: string; referenceCode?: string } = {}
+        if (s.description !== s.baselineDescription) fields.demandMd = s.description
+        if (s.referenceCode !== s.baselineReference) fields.referenceCode = s.referenceCode
+        await toolApi.saveStep1(toolId, fields)
+        set({ baselineDescription: s.description, baselineReference: s.referenceCode })
+        settle()
+        return
+      }
+      if (part === 'spec') {
+        if (!d.spec || !s.generatedMd.trim()) return
+        await toolApi.saveSpec(toolId, s.generatedMd, true)
+        set({ baselineMd: s.generatedMd })
+        settle()
+        return
+      }
+      if (!d.code || !s.generatedCode.trim()) return
+      await toolApi.saveCode(toolId, s.generatedCode)
+      set({ baselineCode: s.generatedCode })
+      settle()
+    } catch (e) {
+      fail(String(e))
+    }
   },
 
   flushSave: async () => {
     const s = get()
     if (!s.editingToolId) return
 
-    const mdChanged = s.generatedMd !== s.baselineMd
-    const codeChanged = s.generatedCode !== s.baselineCode
-    if (!mdChanged && !codeChanged) {
+    const d = s.dirtyParts()
+    if (!d.step1 && !d.spec && !d.code) {
       set({ saveState: 'idle' })
       return
     }
@@ -178,29 +257,38 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
     const errs: string[] = []
 
     try {
-      if (mdChanged && md.trim()) await toolApi.saveSpec(toolId, md)
+      if (d.step1) {
+        const fields: { demandMd?: string; referenceCode?: string } = {}
+        if (s.description !== s.baselineDescription) fields.demandMd = s.description
+        if (s.referenceCode !== s.baselineReference) fields.referenceCode = s.referenceCode
+        await toolApi.saveStep1(toolId, fields)
+        set((cur) => ({ baselineDescription: cur.description, baselineReference: cur.referenceCode }))
+      }
+    } catch (e) { errs.push(`需求描述: ${String(e)}`) }
+    try {
+      if (d.spec && md.trim()) {
+        await toolApi.saveSpec(toolId, md, true)
+        set({ baselineMd: md })
+      }
     } catch (e) { errs.push(`文档: ${String(e)}`) }
     try {
-      if (codeChanged && code.trim()) await toolApi.saveCode(toolId, code)
+      if (d.code && code.trim()) {
+        await toolApi.saveCode(toolId, code)
+        set({ baselineCode: code })
+      }
     } catch (e) { errs.push(`代码: ${String(e)}`) }
 
     if (errs.length) {
       set({ saveState: 'error', saveError: errs.join('；') })
       return
     }
-    // 保存成功后推进基线，使「未保存」标记消失
-    set((cur) => ({
-      baselineMd: mdChanged ? md : cur.baselineMd,
-      baselineCode: codeChanged ? code : cur.baselineCode,
-      saveState: 'saved',
-      saveError: null,
-    }))
+    // 保存成功后推进各字段基线，使「未保存」标记消失
+    set({ saveState: 'idle', saveError: null })
   },
 
   hasUnsavedChanges: () => {
-    const s = get()
-    return Boolean(s.editingToolId) &&
-      (s.generatedMd !== s.baselineMd || s.generatedCode !== s.baselineCode)
+    const d = get().dirtyParts()
+    return d.step1 || d.spec || d.code
   },
 
   prefill: (text: string, refCode?: string) => set({
@@ -208,12 +296,13 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
     testInputs: {}, testOutput: null, registeredId: null, error: null,
     debugRounds: [], debugStream: '', params: [], modes: [], selectedMode: '',
     editingToolId: null, editingToolName: '', baselineCode: '', baselineMd: '',
+    baselineDescription: '', baselineReference: '',
   saveState: 'idle', saveError: null,
   }),
 
   // 编辑已发布工具：保留现有 MD 与代码，直接从 step 2（审阅）开始，
   // 避免每次微调都被迫从「重新描述需求」走一遍。
-  prefillFromTool: ({ toolId, toolName, description, specMd, code, tags = [], params = [] }) => {
+  prefillFromTool: ({ toolId, toolName, description, specMd, code, tags = [], params = [], referenceCode = '' }) => {
     const inputs: Record<string, string> = {}
     params.forEach((p) => { inputs[p.name] = p.default || '' })
     set({
@@ -221,7 +310,9 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
       editingToolId: toolId,
       editingToolName: toolName,
       description: description || toolName,
-      referenceCode: '',
+      referenceCode,
+      baselineDescription: description || toolName,
+      baselineReference: referenceCode,
       generatedMd: specMd,
       generatedCode: code,
       baselineCode: code,
@@ -247,6 +338,7 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
     error: null, debugRounds: [], debugStream: '', params: [], modes: [], selectedMode: '',
     reasoningStream: '', generationAbort: null,
     editingToolId: null, editingToolName: '', baselineCode: '', baselineMd: '',
+  baselineDescription: '', baselineReference: '',
   saveState: 'idle', saveError: null,
   }),
 
@@ -303,6 +395,9 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
     // 即刻切到第 3 步（与 AgentEditor 一致）：点击有响应，代码在核验页内
     // 流式长出。此前停留在第 2 步，靠一个要滚到页面底部才可见的 pre 显示
     // 进度，长文档下观感如同无响应。
+    //
+    // 这里刻意直接 set 而不是走 setGeneratedCode：生成/调试覆写代码不是
+    // 使用者的编辑，不该被打上「未保存」标记。
     set({ isGenerating: true, error: null, generatedCode: '', reasoningStream: '', step: 3, generationAbort: abort })
     try {
       const result = await toolApi.generateCode(

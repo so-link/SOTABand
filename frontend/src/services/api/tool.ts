@@ -381,11 +381,14 @@ export const toolApi = {
     return done
   },
 
-  /** 保存手工编辑后的 MD 规范文档 */
-  async saveSpec(toolId: string, specMd: string): Promise<{ saved: string }> {
+  /** 保存手工编辑后的 MD 规范文档
+   * @param resyncParams 是否让后端随文档重算 param_meta/modes。
+   *   改了输入规范表格时传 true（默认）；只动说明性段落传 false，
+   *   避免后端把参数元数据重算一遍（解析不到时会走 LLM 提取，等于偷改语义）。 */
+  async saveSpec(toolId: string, specMd: string, resyncParams = true): Promise<{ saved: string }> {
     const res = await fetch(`${BASE_URL}/api/tool/${encodeURIComponent(toolId)}/save-spec`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ spec_md: specMd }),
+      body: JSON.stringify({ spec_md: specMd, resync_params: resyncParams }),
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }))
@@ -399,6 +402,25 @@ export const toolApi = {
     const res = await fetch(`${BASE_URL}/api/tool/${encodeURIComponent(toolId)}/save-code`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }))
+      throw new Error(err.detail || `HTTP ${res.status}`)
+    }
+    return res.json()
+  },
+
+  /** 单独保存 Step1 的需求描述 / 参考代码（只传改过的字段，其余不动） */
+  async saveStep1(
+    toolId: string,
+    fields: { demandMd?: string; referenceCode?: string }
+  ): Promise<{ saved: string; written: string[] }> {
+    const body: Record<string, string> = {}
+    if (fields.demandMd !== undefined) body.demand_md = fields.demandMd
+    if (fields.referenceCode !== undefined) body.reference_code = fields.referenceCode
+    const res = await fetch(`${BASE_URL}/api/tool/${encodeURIComponent(toolId)}/save-step1`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }))
