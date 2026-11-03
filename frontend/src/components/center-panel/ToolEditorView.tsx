@@ -20,6 +20,7 @@ import { useToolEditorStore } from '@/stores/tool-editor-store'
 import { dataApi } from '@/services/api/data'
 import { useTabIndent } from '@/hooks/use-tab-indent'
 import { useSaveShortcut } from '@/hooks/use-save-shortcut'
+import { useStickToBottom } from '@/hooks/use-stick-to-bottom'
 import { SpecOutlineView } from './SpecOutlineView'
 import { TableEditView } from './TableEditView'
 import type { SpecOutline, SpecTable } from '@/types/spec-outline'
@@ -177,19 +178,32 @@ export function ToolEditorView() {
         </button>
       </div>
 
-      {/* Step indicators */}
+      {/* Step indicators
+          编辑已有工具时步骤条可点击直达：此前只能顺着「描述→审阅→核验→注册」
+          走，只想改一行代码也得先「生成代码和测试」，而生成会整份覆写现有代码。
+          各步都有独立保存端点后，跳步已无数据风险。
+          编辑态不显示第 4 步「注册」——那是新建流程的发布回执页，编辑场景无意义。 */}
       <div className="flex items-center gap-0 px-4 py-2 border-b border-maia-border bg-maia-surface shrink-0">
-        {[1, 2, 3, 4].map((s, i) => (
-          <div key={s} className="flex items-center gap-0">
-            <div className={`flex items-center gap-1.5 text-[12px] font-medium px-2 py-1 rounded-full transition-colors ${
-              store.step === s ? 'bg-maia-accent text-white' : store.step > s ? 'bg-maia-success/10 text-maia-success' : 'text-maia-text-muted'
-            }`}>
-              {store.step > s ? <CheckCircle2 className="h-3 w-3" /> : <span className="text-[12px]">{s}</span>}
-              {['描述', '审阅', '核验', '注册'][i]}
+        {(store.editingToolId ? ([1, 2, 3] as const) : ([1, 2, 3, 4] as const)).map((s, i, arr) => {
+          const clickable = Boolean(store.editingToolId)
+          return (
+            <div key={s} className="flex items-center gap-0">
+              <button
+                type="button"
+                disabled={!clickable}
+                onClick={() => clickable && store.setStep(s as 1 | 2 | 3 | 4)}
+                title={clickable ? `直接跳到「${['描述', '审阅', '核验', '注册'][i]}」` : '新建流程需按顺序进行'}
+                className={`flex items-center gap-1.5 text-[12px] font-medium px-2 py-1 rounded-full transition-colors ${
+                  store.step === s ? 'bg-maia-accent text-white' : store.step > s ? 'bg-maia-success/10 text-maia-success' : 'text-maia-text-muted'
+                } ${clickable ? 'cursor-pointer hover:bg-maia-accent/10' : 'cursor-default'}`}
+              >
+                {store.step > s ? <CheckCircle2 className="h-3 w-3" /> : <span className="text-[12px]">{s}</span>}
+                {['描述', '审阅', '核验', '注册'][i]}
+              </button>
+              {i < arr.length - 1 && <div className="w-6 h-[1px] bg-maia-border mx-1" />}
             </div>
-            {i < 3 && <div className="w-6 h-[1px] bg-maia-border mx-1" />}
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       <div className="flex-1 min-h-0 overflow-auto p-4">
@@ -773,14 +787,19 @@ function Step3() {
   // 数据空间文件选择器状态
   const [filePickerOpen, setFilePickerOpen] = useState(false)
   const [filePickerParam, setFilePickerParam] = useState<string>('')
-  // 代码手工微调开关
-  const [isEditingCode, setIsEditingCode] = useState(false)
+  // 代码手工微调开关。编辑已有工具时默认就进编辑态：跳到第 3 步
+  // 的目的几乎总是「改代码」，不该再多点一次「手工微调」。
+  const [isEditingCode, setIsEditingCode] = useState(
+    () => Boolean(useToolEditorStore.getState().editingToolId))
 
   const isEditMode = Boolean(editingToolId)
   const codeDirty = generatedCode.trim() !== baselineCode.trim()
   // Python 代码用 4 空格缩进
   const onCodeTabIndent = useTabIndent('    ')
   const notifyEdit = useToolEditorStore((s) => s.notifyEdit)
+  // 代码区滚动跟随（预览 div 与编辑 textarea 二选一渲染，ref 共用）
+  const codeBoxRef = useRef<HTMLDivElement | HTMLTextAreaElement | null>(null)
+  useStickToBottom(codeBoxRef, generatedCode)
   // 代码变更后触发防抖自动保存
   const handleCodeEdit = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setGeneratedCode(e.target.value)
@@ -879,6 +898,7 @@ function Step3() {
             </div>
             {isEditingCode ? (
               <textarea
+                ref={codeBoxRef as React.RefObject<HTMLTextAreaElement>}
                 value={generatedCode}
                 onChange={handleCodeEdit}
                 onKeyDown={onCodeTabIndent}
@@ -887,7 +907,7 @@ function Step3() {
                 style={{ maxHeight: codeHeight }}
               />
             ) : (
-            <div className="flex-1 min-h-0 rounded-lg border border-maia-border bg-maia-code-bg overflow-auto" style={{ maxHeight: codeHeight }}>
+            <div ref={codeBoxRef as React.RefObject<HTMLDivElement>} className="flex-1 min-h-0 rounded-lg border border-maia-border bg-maia-code-bg overflow-auto" style={{ maxHeight: codeHeight }}>
               <Highlight theme={themes.vsDark} code={generatedCode || '# 等待生成代码...'} language="python">
                 {({ style, tokens, getLineProps, getTokenProps }) => (
                   <pre style={style} className="px-3 py-2 text-[13px] font-mono leading-[22px] m-0">

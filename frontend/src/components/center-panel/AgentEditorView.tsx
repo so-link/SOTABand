@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
+import { Highlight, themes } from 'prism-react-renderer'
 import {
   Bot, ArrowRight, ArrowLeft, CheckCircle2, XCircle,
   Loader2, FileCode, Play, CheckCheck, Rocket, Save,
@@ -11,6 +12,7 @@ import { useUIStore } from '@/stores/ui-store'
 import { useAgentEditorStore, AGENT_ROLE_OPTIONS, parseTestParamDefs, parseAgentMeta } from '@/stores/agent-editor-store'
 import { useTabIndent } from '@/hooks/use-tab-indent'
 import { useSaveShortcut } from '@/hooks/use-save-shortcut'
+import { useStickToBottom } from '@/hooks/use-stick-to-bottom'
 
 /** Agent 保存状态指示器 + 保存按钮（手动保存，支持 Ctrl/Cmd+S） */
 function AgentSaveIndicator() {
@@ -97,29 +99,39 @@ export function AgentEditorView() {
         </button>
       </div>
 
-      {/* Step indicators */}
+      {/* Step indicators
+          编辑已有 Agent 时步骤条可点击直达（与工具编辑器一致）：
+          只想改一行代码不该被迫先「生成 Agent」整份覆写。
+          编辑态不显示第 4 步「注册」——那是新建流程的发布回执页。 */}
       <div className="flex items-center gap-0 px-4 py-2 border-b border-maia-border bg-maia-surface shrink-0">
-        {[1, 2, 3, 4].map((s, i) => (
-          <div key={s} className="flex items-center gap-0">
-            <div
-              className={`flex items-center gap-1.5 text-[12px] font-medium px-2 py-1 rounded-full transition-colors ${
-                store.step === s
-                  ? 'bg-maia-accent text-white'
-                  : store.step > s
-                    ? 'bg-maia-success/10 text-maia-success'
-                    : 'text-maia-text-muted'
-              }`}
-            >
-              {store.step > s ? (
-                <CheckCircle2 className="h-3 w-3" />
-              ) : (
-                <span className="text-[12px]">{s}</span>
-              )}
-              {['描述', '审阅', '核验', '注册'][i]}
+        {(store.editingAgentId ? ([1, 2, 3] as const) : ([1, 2, 3, 4] as const)).map((s, i, arr) => {
+          const clickable = Boolean(store.editingAgentId)
+          return (
+            <div key={s} className="flex items-center gap-0">
+              <button
+                type="button"
+                disabled={!clickable}
+                onClick={() => clickable && store.setStep(s as 1 | 2 | 3 | 4)}
+                title={clickable ? `直接跳到「${['描述', '审阅', '核验', '注册'][i]}」` : '新建流程需按顺序进行'}
+                className={`flex items-center gap-1.5 text-[12px] font-medium px-2 py-1 rounded-full transition-colors ${
+                  store.step === s
+                    ? 'bg-maia-accent text-white'
+                    : store.step > s
+                      ? 'bg-maia-success/10 text-maia-success'
+                      : 'text-maia-text-muted'
+                } ${clickable ? 'cursor-pointer hover:bg-maia-accent/10' : 'cursor-default'}`}
+              >
+                {store.step > s ? (
+                  <CheckCircle2 className="h-3 w-3" />
+                ) : (
+                  <span className="text-[12px]">{s}</span>
+                )}
+                {['描述', '审阅', '核验', '注册'][i]}
+              </button>
+              {i < arr.length - 1 && <div className="w-6 h-[1px] bg-maia-border mx-1" />}
             </div>
-            {i < 3 && <div className="w-6 h-[1px] bg-maia-border mx-1" />}
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       {/* Step content */}
@@ -643,21 +655,22 @@ function Step3Verify() {
   const { generatedMd, generatedCode, sandboxResults, registerAgent, stopGeneration, setStep, isGenerating, error,
           reasoningStream, isRegistering, isSyncing, isSaving,
           setGeneratedCode, editingAgentId, editingAgentName, baselineCode,
-          syncSpecFromCode, saveCode,
+          syncSpecFromCode,
           testInputs, setTestInput, debugRounds, debugStream,
           isAutoDebugging, autoDebug, stopAutoDebug } =
     useAgentEditorStore()
-  const [editingCode, setEditingCode] = useState(false)
-  const codeRef = useRef<HTMLTextAreaElement | HTMLPreElement>(null)
+  const [editingCode, setEditingCode] = useState(
+    () => Boolean(useAgentEditorStore.getState().editingAgentId))
+  // 代码区滚动容器：编辑态是 textarea、预览态是高亮包裹 div，二者互斥渲染
+  const codeRef = useRef<HTMLDivElement | HTMLTextAreaElement | null>(null)
 
   // 直接读写 store 中的 generatedCode，确保手工微调后的内容
   // 能被 registerAgent 正确提交（此前用局部 state 会导致改动被丢弃）。
   const code = generatedCode
 
-  // 流式输出时自动滚动代码区到底部
-  useEffect(() => {
-    if (codeRef.current) codeRef.current.scrollTop = codeRef.current.scrollHeight
-  }, [code])
+  // 流式输出时代码区跟随到最新（与工具编辑器共用同一 hook，行为一致：
+  // 使用者上滚翻看时不被拽回底部，回到底部自动恢复跟随）
+  useStickToBottom(codeRef, code)
 
   const isEditMode = Boolean(editingAgentId)
   const codeDirty = code.trim() !== baselineCode.trim()
@@ -712,25 +725,19 @@ function Step3Verify() {
                     onClick={() => syncSpecFromCode()}
                     disabled={!codeDirty || isGenerating || isSyncing || isSaving}
                     title={codeDirty ? '让 AI 依据代码改动更新 MD 文档' : '代码未修改，无需同步'}
-                    className="text-[12px] text-maia-accent hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="flex items-center gap-1 text-[12px] px-1.5 py-0.5 rounded border border-maia-border text-maia-accent hover:bg-maia-accent/10 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    {isSyncing ? '同步中…' : '同步代码改动到文档'}
+                    {isSyncing ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : null}
+                    同步代码改动到文档
                   </button>
-                  <button
-                    onClick={() => saveCode()}
-                    disabled={!codeDirty || isGenerating || isSyncing || isSaving}
-                    title="保存代码到该 Agent"
-                    className="text-[12px] text-maia-accent hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    {isSaving ? '保存中…' : '保存代码'}
-                  </button>
+                  <PartSaveButton part="code" label="保存代码" />
                 </>
               )}
               <button
                 onClick={() => setEditingCode(!editingCode)}
-                className="text-[12px] text-maia-accent hover:underline"
+                className="flex items-center gap-1 text-[12px] text-maia-text-muted hover:text-maia-accent px-1.5 py-0.5 rounded border border-maia-border"
               >
-                {editingCode ? '只读' : '编辑'}
+                {editingCode ? '预览' : '手工微调'}
               </button>
             </div>
           </div>
@@ -742,16 +749,32 @@ function Step3Verify() {
                 onChange={handleCodeEdit}
                 onKeyDown={onCodeTabIndent}
                 rows={18}
-                className="w-full rounded-lg border border-maia-border bg-maia-bg/50 px-3 py-2 text-[13px] font-mono leading-[22px] outline-none resize-y"
+                className="w-full rounded-lg border border-maia-border bg-maia-code-bg text-maia-code-text px-3 py-2 text-[13px] font-mono leading-[22px] outline-none resize-y focus:border-maia-accent/40"
                 spellCheck={false}
               />
             ) : (
-              <pre
-                ref={codeRef as React.RefObject<HTMLPreElement>}
-                className="rounded-lg border border-maia-border bg-maia-bg/50 px-3 py-2 text-[13px] font-mono leading-[22px] overflow-auto max-h-[350px] whitespace-pre-wrap"
+              /* 预览与工具编辑器同款：语法高亮 + 行号。
+                 此前这里是裸 <pre>（无高亮无行号），两个编辑器的代码
+                 审阅体验不一致；对齐后统一为 Highlight(vsDark)。 */
+              <div
+                ref={codeRef as React.RefObject<HTMLDivElement>}
+                className="rounded-lg border border-maia-border bg-maia-code-bg overflow-auto max-h-[350px]"
               >
-                {code}
-              </pre>
+                <Highlight theme={themes.vsDark} code={code || '# 等待生成代码...'} language="python">
+                  {({ style, tokens, getLineProps, getTokenProps }) => (
+                    <pre style={style} className="px-3 py-2 text-[13px] font-mono leading-[22px] m-0">
+                      {tokens.map((line, i) => (
+                        <div key={i} {...getLineProps({ line })}>
+                          <span className="inline-block w-8 text-right mr-3 text-white/20 select-none text-[12px]">{i + 1}</span>
+                          {line.map((token, key) => (
+                            <span key={key} {...getTokenProps({ token })} />
+                          ))}
+                        </div>
+                      ))}
+                    </pre>
+                  )}
+                </Highlight>
+              </div>
             )
           )}
         </div>
