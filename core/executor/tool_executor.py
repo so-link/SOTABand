@@ -146,6 +146,7 @@ class ToolExecutor:
             f"sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')\n"
             f"sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')\n"
             f"os.environ['TOOL_DIR'] = {_safe_dumps(tool_dir)}\n"
+            f"os.environ['SOTABAND_ROOT'] = {_safe_dumps(project_root)}\n"
             f"sys.path.insert(0, {_safe_dumps(project_root)})\n"
             f"# 屏蔽 sys.argv 防止代码中误用 argparse 等 CLI 参数\n"
             f"sys.argv = [sys.argv[0]]\n"

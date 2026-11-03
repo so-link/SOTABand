@@ -292,9 +292,10 @@ def execute(**kwargs) -> dict[str, Any]:
         plt.legend()
         plt.tight_layout()
 
-        # 保存图片到临时目录
-        # 创建数据目录下的 plots 子目录，确保权限（临时目录亦可）
-        plots_dir = _DATA_DIR / "plots"
+        # 保存图片：绘图产物属用户数据，落 USER_HOME/plots（factory/执行器
+        # 注入 SOTABAND_USER_HOME）；退回项目 data/plots 仅为脚本直连兜底
+        _uh = os.environ.get("SOTABAND_USER_HOME", "").strip()
+        plots_dir = (Path(_uh) / "plots") if _uh else (_DATA_DIR / "plots")
         plots_dir.mkdir(parents=True, exist_ok=True)
         # 使用时间戳加随机数生成唯一文件名
         timestamp = int(time.time() * 1000)

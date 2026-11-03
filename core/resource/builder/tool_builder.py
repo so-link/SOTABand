@@ -11,25 +11,21 @@ from pathlib import Path
 from datetime import datetime
 
 from core.resource.builder.builder_base import BaseBuilder
+from config.settings import get_debug_exec_timeout, get_debug_max_rounds
 
 
 def _debug_exec_timeout() -> float:
     """自动调试单轮沙箱执行超时（秒），可通过 .env 的 DEBUG_EXEC_TIMEOUT 调整。
 
-    工具代码若陷入死循环，没有超时会让整条调试流永久挂起。
+    取值统一走 config.settings，与 Agent 调试、modify-and-debug 共用同一份
+    配置与默认值，避免「系统设置」里改大了超时却被本处小值掐断。
     """
-    try:
-        return max(5.0, float(_os.getenv("DEBUG_EXEC_TIMEOUT", "60") or 60))
-    except (TypeError, ValueError):
-        return 60.0
+    return get_debug_exec_timeout()
 
 
 def _debug_max_rounds() -> int:
     """自动调试最大轮数，可通过 .env 的 DEBUG_MAX_ROUNDS 调整。"""
-    try:
-        return max(1, int(_os.getenv("DEBUG_MAX_ROUNDS", "10") or 10))
-    except (TypeError, ValueError):
-        return 10
+    return get_debug_max_rounds()
 
 # ── 全局调试状态：线程安全的停止标志 ──
 # key=tool_id, value=True 表示正在运行
@@ -70,8 +66,12 @@ from typing import Any
 import requests
 
 # ── 项目根路径 ──
+# 优先信 factory/执行器注入的 SOTABAND_ROOT（用目录层级反推在私有根下会算错）
+_root_env = os.environ.get("SOTABAND_ROOT", "")
 _tool_dir = os.environ.get("TOOL_DIR", "")
-if _tool_dir:
+if _root_env and (Path(_root_env) / "core").exists():
+    _PROJECT_ROOT = Path(_root_env)
+elif _tool_dir:
     _PROJECT_ROOT = Path(_tool_dir).resolve().parent.parent.parent.parent
 else:
     _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
@@ -115,7 +115,7 @@ def _call_tool(tool_name: str, **params) -> dict:
     # 从「内置 + 私有」两个资源根的 registry.json 中查找工具 ID（目录名），
     # 新注册的工具只写私有根，只读内置根会查不到
     tool_id = tool_name  # 默认用名称作为 ID
-    for _root in reversed((_PROJECT_ROOT / "resources", _PROJECT_ROOT.parent / "resources-private")):
+    for _root in reversed((_PROJECT_ROOT / "resources", Path(os.environ.get("SOTABAND_USER_HOME", "")) / "resources-private" if os.environ.get("SOTABAND_USER_HOME") else _PROJECT_ROOT.parent / "resources-private")):
         reg_path = _root / "tools" / "registry.json"
         if not reg_path.exists():
             continue
@@ -131,7 +131,7 @@ def _call_tool(tool_name: str, **params) -> dict:
             break
     # 在「内置 + 私有」资源根中定位工具实现
     tool_dir = None
-    for _root in (_PROJECT_ROOT / "resources", _PROJECT_ROOT.parent / "resources-private"):
+    for _root in (_PROJECT_ROOT / "resources", Path(os.environ.get("SOTABAND_USER_HOME", "")) / "resources-private" if os.environ.get("SOTABAND_USER_HOME") else _PROJECT_ROOT.parent / "resources-private"):
         _cand = _root / "tools" / "implementations" / tool_id
         if (_cand / "tool.py").exists():
             tool_dir = _cand

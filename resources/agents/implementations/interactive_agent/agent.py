@@ -1323,7 +1323,11 @@ class InteractiveAgent(BaseAgent):
         if not s:
             return None
         project_root = Path(__file__).resolve().parent.parent.parent.parent.parent
-        data_roots = [project_root / "resources" / "data", project_root / "storage" / "workspace", Path("/root/resources-private/data")]
+        # 私有数据根按多用户规划取 SOTABAND_USER_HOME（factory 注入），不再硬编码
+        _uh = os.environ.get("SOTABAND_USER_HOME", "").strip()
+        data_roots = [project_root / "resources" / "data", project_root / "storage" / "workspace"]
+        if _uh:
+            data_roots.append(Path(_uh) / "resources-private" / "data")
         # 候选 1：整条回答就是路径
         # 候选 2：从文本中提取带扩展名的文件名 token
         cands = [s]

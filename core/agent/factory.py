@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import json
+import os
 import re
 import sys
 import time
@@ -320,6 +321,17 @@ class AgentFactory:
         python = sys.executable
         entrypoint = str(PROJECT_ROOT / "core" / "agent" / "entrypoint.py")
 
+        # Agent 子进程环境：显式注入系统根与用户目录。
+        # 模板里用 Path(__file__).parents[N] 猜项目根在私有根下会算错
+        # （/root/resources/agents/logs 事故根因），统一改为信 env。
+        from core.user_paths import SYSTEM_ROOT as _SR, current_uid, user_home
+        _proc_env = {
+            **os.environ,
+            "SOTABAND_ROOT": str(_SR),
+            "SOTABAND_USER_HOME": str(user_home()),
+            "SOTABAND_USER_ID": current_uid(),
+        }
+
         try:
             proc = await asyncio.create_subprocess_exec(
                 python, entrypoint,
@@ -329,6 +341,7 @@ class AgentFactory:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(PROJECT_ROOT),
+                env=_proc_env,
             )
             self._processes[agent_id] = proc
             # 绑定后台 reader：普通事件入输出队列，通信帧走总线路由。

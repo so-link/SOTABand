@@ -19,6 +19,7 @@ from pathlib import Path
 
 from core.resource.builder.builder_base import BaseBuilder
 from core.resource import paths
+from config.settings import get_debug_exec_timeout, get_debug_max_rounds
 from core.llm.client import create_gen_llm_client
 
 # ── 全局调试状态：线程安全的停止标志（与 tool_builder 同构，key=agent_id）──
@@ -131,7 +132,7 @@ TOOL_HELPER_TEMPLATE = '''
             proc = subprocess.run(
                 [python_exe, tmp_path],
                 capture_output=True, text=True,
-                env={{**os.environ, "TOOL_DIR": str(impl_path.parent), "_PROJECT_ROOT": str(PROJECT_ROOT)}},
+                env={{**os.environ, "TOOL_DIR": str(impl_path.parent), "_PROJECT_ROOT": str(PROJECT_ROOT), "SOTABAND_ROOT": str(PROJECT_ROOT)}},
             )
             if proc.returncode == 0:
                 return json.loads(proc.stdout.strip())
@@ -179,9 +180,12 @@ class {cls_name}(BaseAgent):
         return self._llm
 
     def _log_step(self, step_name: str, action: str, input_data: dict = None, output_data: dict = None, error: str = None):
-        """记录执行步骤日志到 resources/agents/logs/{{agent_id}}-{{timestamp}}.md"""
+        """记录执行步骤日志到 USER_HOME/agent_logs/{{agent_id}}-{{timestamp}}.md"""
         if not hasattr(self, '_log_file'):
-            log_dir = PROJECT_ROOT / "resources" / "agents" / "logs"
+            # 用户目录由 factory 注入（SOTABAND_USER_HOME）；退回 PROJECT_ROOT
+            # 仅为脚本直连兜底。绝不写进 resources/（那是 git 管理的系统资产区）。
+            _uh = os.environ.get("SOTABAND_USER_HOME", "").strip()
+            log_dir = (Path(_uh) / "agent_logs") if _uh else (PROJECT_ROOT / "storage" / "agent_logs")
             log_dir.mkdir(parents=True, exist_ok=True)
             ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             agent_id = self.spec.id if self.spec else "unknown"
@@ -760,11 +764,12 @@ yield {{"event": "content", "data": {{"text": response}}}}
 
     @staticmethod
     def _debug_round_timeout() -> float:
-        """自动调试单轮试运行超时（秒），可通过 .env 的 DEBUG_EXEC_TIMEOUT 调整。"""
-        try:
-            return max(5.0, float(_os.getenv("DEBUG_EXEC_TIMEOUT", "180") or 180))
-        except (TypeError, ValueError):
-            return 180.0
+        """自动调试单轮试运行超时（秒），可通过 .env 的 DEBUG_EXEC_TIMEOUT 调整。
+
+        取值统一走 config.settings，与工具调试、modify-and-debug 共用同一份
+        配置与默认值，避免「系统设置」里改大了超时却被本处小值掐断。
+        """
+        return get_debug_exec_timeout()
 
     async def _run_agent_once(
         self,
@@ -1090,10 +1095,7 @@ yield {{"event": "content", "data": {{"text": response}}}}
         max_rounds 为 None 时读取 .env 的 DEBUG_MAX_ROUNDS（默认 10）。
         """
         if max_rounds is None:
-            try:
-                max_rounds = max(1, int(_os.getenv("DEBUG_MAX_ROUNDS", "10") or 10))
-            except (TypeError, ValueError):
-                max_rounds = 10
+            max_rounds = get_debug_max_rounds()
         set_debug_running(agent_id)
         try:
             try:
