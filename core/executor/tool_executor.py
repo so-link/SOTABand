@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import Any
 
 from core.proc_utils import no_window_kwargs
+from config.settings import settings as _settings
+
 from core.resource import param_guard
 
 
@@ -96,11 +98,125 @@ class ToolExecutor:
         return sys.executable
 
     @classmethod
+    def _security_preamble(cls, tool_dir: str, project_root: str) -> str:
+        """构造运行时安全审查前导代码（审计钩子 + 资源限制）。
+
+        在 exec 工具代码之前注入子进程：
+        - sys.addaudithook 拦截文件写入 / 系统调用 / 网络连接
+          （audit hook 一旦注册无法被 Python 层移除，恶意代码也拆不掉）
+        - resource.setrlimit 限制 CPU / 内存 / 文件大小 / 进程数
+        策略来自 config.settings.SecurityConfig。
+        """
+        sec = _settings.security
+
+        # 文件写入白名单 → 绝对路径
+        # 注意：构建侧（本进程）与 hook 运行侧（子进程）同机同平台，
+        # 统一 normpath+normcase 规范化，避免 Windows 反斜杠/正斜杠混用
+        # 导致 startswith 失配（合法写入被误杀）
+        roots: list[str] = []
+        for p in sec.allowed_write_paths:
+            p = str(p)
+            if not os.path.isabs(p):
+                p = os.path.join(project_root, p)
+            roots.append(os.path.normcase(os.path.normpath(p)))
+        roots.append(os.path.normcase(os.path.normpath(tool_dir)))  # 工具自身目录
+        roots.append(os.path.normcase(os.path.normpath(tempfile.gettempdir())))  # 系统临时目录
+
+        mode = sec.review_mode if sec.review_mode in ("enforce", "audit") else "off"
+
+        return (
+            "import sys as _sec_sys, os as _sec_os\n"
+            "_sec_mode = " + json.dumps(mode) + "\n"
+            "_sec_violations = []\n"
+            "_sec_write_roots = " + json.dumps(roots) + "\n"
+            "_sec_net_hosts = " + json.dumps(list(sec.allowed_network_hosts)) + "\n"
+            "_sec_net_enforce = " + ("True" if sec.runtime_enforce_network else "False") + "\n"
+            "\n"
+            "# ── 资源限制 ──\n"
+            "try:\n"
+            "    import resource as _sec_resource\n"
+            f"    _sec_resource.setrlimit(_sec_resource.RLIMIT_CPU, ({sec.max_cpu_seconds}, {sec.max_cpu_seconds}))\n"
+            f"    _sec_resource.setrlimit(_sec_resource.RLIMIT_AS, ({sec.max_memory_mb} << 20, {sec.max_memory_mb} << 20))\n"
+            f"    _sec_resource.setrlimit(_sec_resource.RLIMIT_FSIZE, ({sec.max_file_size_mb} << 20, {sec.max_file_size_mb} << 20))\n"
+            f"    _sec_resource.setrlimit(_sec_resource.RLIMIT_NPROC, ({sec.max_processes}, {sec.max_processes}))\n"
+            "except Exception:\n"
+            "    pass\n"
+            "\n"
+            "# ── 审计钩子 ──\n"
+            "def _sec_audit(event, args):\n"
+            "    if _sec_mode == 'off':\n"
+            "        return\n"
+            "    msg = None\n"
+            "    enforceable = False\n"
+            "    if event == 'open':\n"
+            "        try:\n"
+            "            path = _sec_os.fspath(args[0])\n"
+            "            mode = args[1] if len(args) > 1 else 'r'\n"
+            "            if isinstance(mode, int):\n"
+            "                mode = ''\n"
+            "            mode = str(mode)\n"
+            "        except Exception:\n"
+            "            return\n"
+            "        if any(c in mode for c in 'wa+'):\n"
+            "            rp = _sec_os.path.normcase(_sec_os.path.realpath(path))\n"
+            "            if not any(rp == r or rp.startswith(r + _sec_os.sep) for r in _sec_write_roots):\n"
+            "                msg = 'FILE_WRITE_DENY: ' + rp\n"
+            "                enforceable = True\n"
+            "    elif event in ('os.system', 'os.posix_spawn', 'pty.spawn'):\n"
+            "        msg = 'BANNED_SYSCALL: ' + event\n"
+            "        enforceable = True\n"
+            "    elif event == 'subprocess.Popen':\n"
+            "        # 放行系统模板 _call_tool 发起的工具间调用\n"
+            "        # （特征：python -c 'import json, sys; ...execute(...)'）\n"
+            "        # CPython 3.12 事件签名: sys.audit('subprocess.Popen', executable, args, cwd, env)\n"
+            "        #   args[0] = 可执行文件路径, args[1] = 命令列表 —— 特征匹配必须用 args[1]\n"
+            "        try:\n"
+            "            cmd = args[1] if len(args) > 1 else args[0]\n"
+            "            joined = ' '.join(str(c) for c in cmd) if isinstance(cmd, (list, tuple)) else str(cmd)\n"
+            "        except Exception:\n"
+            "            joined = ''\n"
+            "        if 'import json, sys' in joined and 'execute(' in joined:\n"
+            "            return\n"
+            "        msg = 'BANNED_SYSCALL: subprocess.Popen ' + joined[:120]\n"
+            "        enforceable = True\n"
+            "    elif event == 'socket.connect':\n"
+            "        try:\n"
+            "            host = args[0][0]\n"
+            "        except Exception:\n"
+            "            host = '?'\n"
+            "        if _sec_net_hosts and host not in _sec_net_hosts:\n"
+            "            msg = 'NETWORK_DENY: ' + str(host)\n"
+            "            enforceable = _sec_net_enforce\n"
+            "        elif not _sec_net_hosts:\n"
+            "            msg = 'NETWORK: ' + str(host)  # 无白名单时仅记录\n"
+            "            enforceable = False\n"
+            "    elif event == 'os.putenv':\n"
+            "        msg = 'ENV_MODIFY: ' + str(args[0])[:60]\n"
+            "        enforceable = False\n"
+            "    if msg:\n"
+            "        _sec_violations.append(msg)\n"
+            "        if _sec_mode == 'enforce' and enforceable:\n"
+            "            raise PermissionError('[安全策略] ' + msg)\n"
+            "\n"
+            "try:\n"
+            "    _sec_sys.addaudithook(_sec_audit)\n"
+            "except Exception:\n"
+            "    pass\n"
+            "\n"
+            "def _sec_merge(result):\n"
+            "    \"\"\"把运行时违规合并进结果 dict\"\"\"\n"
+            "    if _sec_violations:\n"
+            "        result['_security_violations'] = list(_sec_violations)\n"
+            "    return result\n"
+            "\n"
+        )
+
+    @classmethod
     def _build_script(cls, code: str, params: dict, tool_dir: str, project_root: str) -> str:
         """构造统一的临时执行脚本。
 
         与自动调试 sandbox_execute 使用完全相同的模板结构，
-        但增加了 TOOL_DIR 环境变量设置。
+        但增加了 TOOL_DIR 环境变量设置与安全审查前导。
         """
         # 清理 surrogate 字符（如 LLM 生成的数学符号），避免 json.dumps 报错
         def _safe_dumps(obj):
@@ -116,16 +232,20 @@ class ToolExecutor:
             f"sys.path.insert(0, {_safe_dumps(project_root)})\n"
             f"# 屏蔽 sys.argv 防止代码中误用 argparse 等 CLI 参数\n"
             f"sys.argv = [sys.argv[0]]\n"
+            + cls._security_preamble(tool_dir, project_root) +
             f"code = {_safe_dumps(code)}\n"
             f"try:\n"
             f"    exec(code)\n"
             f"    result = execute(**{json.dumps(params)})\n"
+            f"    _sec_merge(result)\n"
             f"    print(json.dumps(result, default=str, ensure_ascii=False))\n"
             f"except ModuleNotFoundError as e:\n"
-            f"    print(json.dumps({{'status':'failed','message':f'Missing module: {{e.name}}','error':'ModuleNotFoundError','missing_module':e.name}}))\n"
+            f"    print(json.dumps(_sec_merge({{'status':'failed','message':f'Missing module: {{e.name}}','error':'ModuleNotFoundError','missing_module':e.name}})))\n"
+            f"except PermissionError as e:\n"
+            f"    print(json.dumps(_sec_merge({{'status':'failed','message':str(e),'error':'SecurityViolation'}})))\n"
             f"except Exception as e:\n"
             f"    import traceback\n"
-            f"    print(json.dumps({{'status':'failed','message':str(e),'error':type(e).__name__,'traceback':traceback.format_exc()[-2000:]}}))\n"
+            f"    print(json.dumps(_sec_merge({{'status':'failed','message':str(e),'error':type(e).__name__,'traceback':traceback.format_exc()[-2000:]}})))\n"
         )
 
     @classmethod
