@@ -413,6 +413,13 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
               debugStream: s.debugStream + `\n⏳ 安装 ${data.dep} (${data.env})...\n`,
             }))
             break
+          case 'dep_already':
+            // 已按「发行版」判定过，跳过是可信的（不再只凭 import 成功）
+            set((s) => ({
+              debugStream: s.debugStream
+                + `\n✅ ${data.dep} 已安装${data.version ? `（${data.package} ${data.version}）` : ''}，跳过\n`,
+            }))
+            break
           case 'pip_output':
             set((s) => ({
               debugStream: s.debugStream + `  ${data.line}\n`,
@@ -443,6 +450,12 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
               debugStream: s.debugStream + `❌ ${data.dep} 安装失败: ${data.reason || ''}\n`,
             }))
             break
+          case 'dep_conflict':
+            // 模块被另一个同名发行版占用（如 barcode 被 DNA 工具包占用）
+            set((s) => ({
+              debugStream: s.debugStream + `⚠️ ${data.message || '模块被另一个同名包占用'}\n`,
+            }))
+            break
           case 'env_switch':
             set((s) => ({
               debugStream: s.debugStream + `⚠️ 全局安装 ${data.dep} 失败，切换到本地环境\n`,
@@ -470,6 +483,16 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
           case 'code_updated':
             set({ generatedCode: String(data.code || '') })
             set((s) => { const rounds = [...s.debugRounds]; const last = rounds[rounds.length - 1]; if (last) last.code = String(data.code || ''); return { debugRounds: rounds } })
+            break
+          case 'debug_blocked':
+            // 依赖装不上：后端已终止调试（不再让 LLM 一轮轮换库兜圈），
+            // 这里把原因明确摆出来，提示使用者手动安装后重试。
+            set((s) => ({
+              debugStream: s.debugStream + `\n⛔ ${data.message || '依赖安装失败，已停止自动调试'}\n`,
+              isAutoDebugging: false,
+              abortController: null,
+              error: String(data.message || '依赖安装失败，已停止自动调试'),
+            }))
             break
           case 'done':
           case 'stopped':

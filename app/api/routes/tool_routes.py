@@ -83,6 +83,10 @@ created: {日期}
 
 ## 4. 依赖环境
 
+<!-- 「依赖」列必须写 pip 安装名（不是 import 名）：例如 python-barcode（import barcode）、
+     opencv-python（import cv2）、pillow（import PIL）。import 名与包名不同时在「用途」里注明。
+     只用标准库/系统内置则把表格留空。平台按这一列安装依赖，写错会装错包。 -->
+
 | 依赖 | 版本 | 用途 |
 |------|------|------|
 

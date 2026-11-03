@@ -355,6 +355,15 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
                 case 'stopped':
                   setIsDebugging(false)
                   break
+                case 'debug_blocked':
+                  // 依赖装不上 → 后端已终止自动调试，把"该手动装什么"直接摆出来
+                  setError(payload.message || '依赖安装失败，已停止自动调试')
+                  setIsDebugging(false)
+                  break
+                case 'dep_conflict':
+                  // 模块被另一个同名包占用（需先卸载再重试）
+                  setError(payload.message || '模块被另一个同名包占用')
+                  break
               }
               currentEvent = ''
             } catch { /* skip */ }

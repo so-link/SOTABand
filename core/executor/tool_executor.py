@@ -64,21 +64,34 @@ class ToolExecutor:
 
     @classmethod
     def _get_python_exe(cls, tool_id: str) -> str:
-        """获取工具执行所用的 Python 解释器。
+        """获取工具执行所用的 Python 解释器（同时也是 pip 的安装目标）。
 
         优先级：
-        1. 工具独立 .venv/bin/python（在内置/私有目录中查找）
-        2. 项目 venv/bin/python（避免污染系统全局 Python）
-        3. 当前进程的 sys.executable
-        """
-        for space in cls._tool_space_dirs():
-            venv_py = space / "implementations" / tool_id / ".venv" / "bin" / "python"
-            if venv_py.exists():
-                return str(venv_py)
+        1. 工具独立 ``.venv`` 的解释器（在内置/私有目录中查找）
+        2. 项目 ``venv`` 的解释器（避免污染系统全局 Python）
+        3. 当前进程的 ``sys.executable``
 
-        project_venv_py = cls._project_root() / "venv" / "bin" / "python"
-        if project_venv_py.exists():
-            return str(project_venv_py)
+        注意：venv 的目录布局跨平台不同 —— Windows 是 ``Scripts/python.exe``，
+        Linux/macOS 是 ``bin/python``。历史实现只查 ``bin/python``，在 Windows
+        上**永远探测不到**，于是一律回退到 ``sys.executable``：若后端由全局
+        Python 启动，pip 就装进全局环境（服务器上常因无写权限直接失败），
+        表现为「依赖装了还缺 / 每轮都报缺依赖」。
+        """
+        candidates_rel = (
+            ("Scripts", "python.exe"),   # Windows
+            ("bin", "python"),           # Linux / macOS
+        )
+        for space in cls._tool_space_dirs():
+            impl_dir = space / "implementations" / tool_id
+            for rel in candidates_rel:
+                venv_py = impl_dir.joinpath(".venv", *rel)
+                if venv_py.exists():
+                    return str(venv_py)
+
+        for rel in candidates_rel:
+            project_venv_py = cls._project_root().joinpath("venv", *rel)
+            if project_venv_py.exists():
+                return str(project_venv_py)
 
         return sys.executable
 
