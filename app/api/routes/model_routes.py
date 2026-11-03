@@ -50,8 +50,8 @@ async def register_model(req: RegisterModelRequest):
 
 
 def _read_model_spec(model_id: str) -> str:
-    """读取模型规范 MD：内置与私有根都查，私有优先（与工具详情行为一致）。"""
-    for root in reversed(paths.resource_roots()):
+    """读取模型规范 MD：resource_roots() 已私有优先（覆盖层语义）。"""
+    for root in paths.resource_roots():
         f = root / "models" / "definitions" / f"{model_id}.md"
         if f.exists():
             try:

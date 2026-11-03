@@ -68,20 +68,26 @@ def _llm_chat(messages: list, **kwargs) -> str:
 def _call_tool(tool_name: str, **params) -> dict:
     """调用已注册的工具（通过 registry.json 查找工具 ID 对应的实现目录）"""
     import subprocess as _sp
-    # 从 registry.json 中查找工具 ID（目录名）
-    reg_path = _PROJECT_ROOT / "resources" / "tools" / "registry.json"
+    # 资源根读取顺序：私有优先（用户「复制为副本」后的修改生效），内置兜底
+    _roots = [_USER_HOME / "resources-private", _PROJECT_ROOT / "resources"]
+    # 从「私有 + 内置」registry.json 查找工具 ID（目录名），私有优先
     tool_id = tool_name  # 默认用名称作为 ID
-    if reg_path.exists():
+    for _r in _roots:
+        reg_path = _r / "tools" / "registry.json"
+        if not reg_path.exists():
+            continue
         try:
-            tools = json.loads(reg_path.read_text(encoding="utf-8"))
-            # 先精确匹配 id，再模糊匹配 name
-            for t in tools:
+            for t in json.loads(reg_path.read_text(encoding="utf-8")):
                 if t.get("id") == tool_name or t.get("name") == tool_name:
                     tool_id = t["id"]
                     break
         except Exception:
-            pass
-    tool_dir = _PROJECT_ROOT / "resources" / "tools" / "implementations" / tool_id
+            continue
+        if tool_id != tool_name:
+            break
+    tool_dir = next((r / "tools" / "implementations" / tool_id for r in _roots
+                         if (r / "tools" / "implementations" / tool_id / "tool.py").exists()),
+                    _roots[0] / "tools" / "implementations" / tool_id)
     tool_file = tool_dir / "tool.py"
     if not tool_file.exists():
         return {"status": "failed", "message": f"Tool '{tool_name}' (id={tool_id}) not found"}

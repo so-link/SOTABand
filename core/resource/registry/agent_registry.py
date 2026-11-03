@@ -89,15 +89,19 @@ class AgentRegistry(BaseRegistry):
         return [e for e in data if isinstance(e, dict) and e.get("id")]
 
     def _read(self) -> list[dict]:
-        """合并内置与私有 registry（私有同 id 覆盖内置）。"""
+        """合并内置与私有 registry（**私有优先**：同 id 取先命中的私有条目）。"""
         merged: dict[str, dict] = {}
         for root in paths.resource_roots():
             rf = root / "agents" / "registry.json"
             if not rf.exists():
                 continue
+            # 命中根的先后即优先级：先命中的（私有）胜出
+            source = "private" if root == paths.private_root() else "builtin"
             try:
                 for e in json.loads(rf.read_text(encoding="utf-8")):
-                    if isinstance(e, dict) and e.get("id"):
+                    if isinstance(e, dict) and e.get("id") and e["id"] not in merged:
+                        # source 是派生字段（不落盘）：前端徽章「内置/我的副本/我的」
+                        e["source"] = source
                         merged[e["id"]] = e
             except Exception:
                 continue
@@ -217,6 +221,7 @@ class AgentRegistry(BaseRegistry):
             if base is None:
                 return  # 资源不存在，不创建空条目
             forked = dict(base)
+            forked.pop("source", None)  # 派生字段不落盘（命中的根是运行时算出的）
             forked.update(updates)
             data.append(forked)
             self._write(data)

@@ -320,8 +320,9 @@ class AgentCodeBuilder(BaseBuilder):
 
     @staticmethod
     def _lookup_tool(name: str) -> dict:
-        # 合并「内置 + 私有」两个资源根（私有优先），新注册的工具只写私有根
-        for root in reversed(paths.resource_roots()):
+        # resource_roots() 已是「私有在前、内置兜底」（覆盖层语义），
+        # 同名工具用户的副本优先
+        for root in paths.resource_roots():
             registry_file = root / "tools" / "registry.json"
             try:
                 if registry_file.exists():

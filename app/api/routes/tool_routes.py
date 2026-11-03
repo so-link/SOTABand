@@ -2053,6 +2053,83 @@ async def save_step1(tool_id: str, req: SaveStep1Request):
     return {"saved": tool_id, "written": written}
 
 
+# ── 显式 fork（覆盖层，方案 C，2026-11-04）──────────────────────
+# 内置工具是随 git 分发的系统资产：默认只读使用，要改先「复制为我的
+# 副本」——复制到 USER_HOME/resources-private 后才进编辑器。读取已统一
+# 私有优先，副本自动生效；「丢弃副本」即恢复内置原样。
+
+@router.get("/{tool_id}/fork-status")
+async def get_fork_status(tool_id: str):
+    """fork 状态：是否已复制为副本、内置是否存在、上游（内置）是否有更新。"""
+    from core.resource import fork as _fork
+
+    entry = await registry.get(tool_id)
+    if not entry:
+        raise HTTPException(404, f"Tool '{tool_id}' not found")
+    in_builtin = _fork.exists_in_builtin("tools", tool_id)
+    in_private = _fork.exists_in_private("tools", tool_id)
+    forked_from = entry.get("forked_from") or {}
+    upstream_changed = False
+    if in_builtin and in_private and forked_from.get("builtin_hash"):
+        upstream_changed = (
+            _fork.content_hash(_fork.paths.BUILTIN_ROOT, "tools", tool_id)
+            != forked_from["builtin_hash"]
+        )
+    return {
+        "is_builtin": in_builtin,
+        "has_copy": in_private,
+        "forked": bool(forked_from) and in_private,
+        "forked_from": forked_from or None,
+        "upstream_changed": upstream_changed,
+    }
+
+
+@router.post("/{tool_id}/fork")
+async def fork_tool(tool_id: str):
+    """把内置工具复制为当前用户的私有副本（已存在则按当前内置重新复制）。"""
+    from core.resource import fork as _fork
+
+    entry = await registry.get(tool_id)
+    if not entry:
+        raise HTTPException(404, f"Tool '{tool_id}' not found")
+    if not _fork.exists_in_builtin("tools", tool_id):
+        raise HTTPException(400, "该工具不是内置工具（本就是用户资源，直接编辑即可）")
+
+    n = _fork.fork_copy("tools", tool_id)
+    # registry 条目落私有并记 fork 血缘；param_meta 等字段原样带走。
+    # 用 fork_copy 后「当前内置内容」的哈希做基准——上游比对以此为锚。
+    from datetime import datetime as _dt
+    await registry.update(tool_id, {
+        "forked_from": {
+            "forked_at": _dt.now().isoformat(timespec="seconds"),
+            "builtin_hash": _fork.content_hash(_fork.paths.BUILTIN_ROOT, "tools", tool_id),
+        }
+    })
+    return {"forked": tool_id, "files": n}
+
+
+@router.delete("/{tool_id}/fork")
+async def discard_tool_fork(tool_id: str):
+    """丢弃私有副本：删除私有文件与私有条目，恢复为直接使用内置版本。"""
+    from core.resource import fork as _fork
+
+    entry = await registry.get(tool_id)
+    if not entry:
+        raise HTTPException(404, f"Tool '{tool_id}' not found")
+    if not _fork.exists_in_private("tools", tool_id):
+        raise HTTPException(400, "该工具没有私有副本")
+    if not _fork.exists_in_builtin("tools", tool_id):
+        raise HTTPException(400, "该工具无内置版本可恢复（删除请走删除工具）")
+
+    _fork.drop_copy("tools", tool_id)
+    # 私有条目必须一并移除，否则 _read 合并仍会以私有优先命中它
+    from core.resource.registry.tool_registry import _WRITE_LOCK
+    with _WRITE_LOCK:
+        data = registry._read_private()
+        registry._write([e for e in data if e.get("id") != tool_id])
+    return {"discarded": tool_id}
+
+
 class SyncSpecRequest(BaseModel):
     """代码 → 文档反向同步请求"""
     tool_id: str

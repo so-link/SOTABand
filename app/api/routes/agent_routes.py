@@ -790,6 +790,77 @@ async def save_agent_step1(agent_id: str, req: SaveStep1Request):
     return {"saved": agent_id, "written": ["demand"]}
 
 
+# ── 显式 fork（覆盖层，方案 C，2026-11-04；与工具侧同款）──────────
+
+@router.get("/{agent_id}/fork-status")
+async def get_agent_fork_status(agent_id: str):
+    """fork 状态：是否已复制为副本、内置是否存在、上游（内置）是否有更新。"""
+    from core.resource import fork as _fork
+
+    entry = await registry.get(agent_id)
+    if not entry:
+        raise HTTPException(404, f"Agent '{agent_id}' not found")
+    in_builtin = _fork.exists_in_builtin("agents", agent_id)
+    in_private = _fork.exists_in_private("agents", agent_id)
+    forked_from = entry.get("forked_from") or {}
+    upstream_changed = False
+    if in_builtin and in_private and forked_from.get("builtin_hash"):
+        upstream_changed = (
+            _fork.content_hash(_fork.paths.BUILTIN_ROOT, "agents", agent_id)
+            != forked_from["builtin_hash"]
+        )
+    return {
+        "is_builtin": in_builtin,
+        "has_copy": in_private,
+        "forked": bool(forked_from) and in_private,
+        "forked_from": forked_from or None,
+        "upstream_changed": upstream_changed,
+    }
+
+
+@router.post("/{agent_id}/fork")
+async def fork_agent(agent_id: str):
+    """把内置 Agent 复制为当前用户的私有副本（已存在则重新复制）。"""
+    from core.resource import fork as _fork
+
+    entry = await registry.get(agent_id)
+    if not entry:
+        raise HTTPException(404, f"Agent '{agent_id}' not found")
+    if not _fork.exists_in_builtin("agents", agent_id):
+        raise HTTPException(400, "该 Agent 不是内置 Agent（本就是用户资源，直接编辑即可）")
+
+    n = _fork.fork_copy("agents", agent_id)
+    from datetime import datetime as _dt
+    await registry.update(agent_id, {
+        "forked_from": {
+            "forked_at": _dt.now().isoformat(timespec="seconds"),
+            "builtin_hash": _fork.content_hash(_fork.paths.BUILTIN_ROOT, "agents", agent_id),
+        }
+    })
+    return {"forked": agent_id, "files": n}
+
+
+@router.delete("/{agent_id}/fork")
+async def discard_agent_fork(agent_id: str):
+    """丢弃私有副本：删除私有文件与私有条目，恢复为直接使用内置版本。"""
+    from core.resource import fork as _fork
+
+    entry = await registry.get(agent_id)
+    if not entry:
+        raise HTTPException(404, f"Agent '{agent_id}' not found")
+    if not _fork.exists_in_private("agents", agent_id):
+        raise HTTPException(400, "该 Agent 没有私有副本")
+    if not _fork.exists_in_builtin("agents", agent_id):
+        raise HTTPException(400, "该 Agent 无内置版本可恢复（删除请走删除 Agent）")
+
+    _fork.drop_copy("agents", agent_id)
+    from core.resource.registry.agent_registry import _WRITE_LOCK
+    with _WRITE_LOCK:
+        data = registry._read_private()
+        registry._write([e for e in data if e.get("id") != agent_id])
+    return {"discarded": agent_id}
+
+
 class SyncSpecRequest(BaseModel):
     """代码 → 文档反向同步请求"""
     agent_id: str

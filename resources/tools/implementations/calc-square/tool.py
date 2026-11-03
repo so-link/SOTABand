@@ -54,7 +54,11 @@ def _call_api(api_name: str, **params) -> dict:
 def _call_tool(tool_name: str, **params) -> dict:
     """调用已注册的工具"""
     import subprocess as _sp
-    tool_dir = _PROJECT_ROOT / "resources" / "tools" / "implementations" / tool_name
+    # 资源根读取顺序：私有优先（用户「复制为副本」后的修改生效），内置兜底
+    _roots = [_USER_HOME / "resources-private", _PROJECT_ROOT / "resources"]
+    tool_dir = next((r / "tools" / "implementations" / tool_name for r in _roots
+                         if (r / "tools" / "implementations" / tool_name / "tool.py").exists()),
+                    _roots[0] / "tools" / "implementations" / tool_name)
     tool_file = tool_dir / "tool.py"
     if not tool_file.exists():
         return {"status": "failed", "message": f"Tool '{tool_name}' not found"}

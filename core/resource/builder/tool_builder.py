@@ -130,9 +130,9 @@ def _llm_chat(messages: list, **kwargs) -> str:
     finally:
         loop.close()
 
-# ── 资源根（内置 + 私有）──
+# ── 资源根（私有 + 内置，私有优先）──
 def _resource_roots():
-    """内置根 + 当前用户私有根，私有优先。
+    """当前用户私有根 + 内置根，私有在前（覆盖层语义：用户副本覆盖内置）。
 
     优先向 core.resource.paths 询问（平台权威实现）；不可用时按 env 还原。
     """
@@ -140,13 +140,13 @@ def _resource_roots():
         from core.resource import paths as _p
         return list(_p.resource_roots())
     except Exception:
-        return [_PROJECT_ROOT / "resources", _USER_HOME / "resources-private"]
+        return [_USER_HOME / "resources-private", _PROJECT_ROOT / "resources"]
 
 # ── 工具调用辅助 ──
 def _call_tool(tool_name: str, **params) -> dict:
     """调用已注册的工具（通过 registry.json 查找工具 ID 对应的实现目录）"""
     import subprocess as _sp
-    roots = list(reversed(_resource_roots()))  # 私有根在前，优先级更高
+    roots = list(_resource_roots())  # 私有根在前，优先级更高
     # 从「私有 + 内置」资源根的 registry.json 中查找工具 ID（目录名）
     tool_id = tool_name  # 默认用名称作为 ID
     for _root in roots:
@@ -240,8 +240,8 @@ def _model_data(model_id: str) -> dict:
             roots = list(_paths.resource_roots())
         except Exception:
             roots = []
-        # 私有资源根优先（新建模型只写私有根）
-        candidates.extend(Path(str(r)) / "models" / rel for r in reversed(roots))
+        # resource_roots() 已私有在前（新建模型只写私有根）
+        candidates.extend(Path(str(r)) / "models" / rel for r in roots)
     candidates.append(Path(_resolve_path(f"models/{model_id}/model.json")))
     for cand in candidates:
         for c in (cand, cand / "model.json"):

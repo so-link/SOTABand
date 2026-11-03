@@ -53,11 +53,22 @@ def is_valid_resource_id(value: str) -> bool:
 
 
 def resource_roots() -> list[Path]:
-    """返回所有资源根目录（内置 + 当前用户私有），用于「读」时合并。"""
-    roots = [BUILTIN_ROOT]
+    """资源根搜索顺序（读）：**私有根优先**，内置根兜底。
+
+    2026-11-04 定为覆盖层语义（方案 C：显式 fork + 覆盖层）：
+    用户「复制为我的副本」后，编辑落私有根，同名资源必须私有优先才能
+    生效——内置是随 git 分发的系统资产，用户副本在上层覆盖它。
+    写路径仍一律落私有（见各 registry），只有 fork 与高级直改会动内置。
+
+    注意：此前这里是内置优先，各处用 reversed() 局部补偿成私有优先，
+    两套顺序并存导致主进程与工具互调看到不同版本。现已统一为本顺序，
+    补偿性 reversed() 全部移除。
+    """
+    roots: list[Path] = []
     pr = private_root()
-    if pr not in roots:
-        roots.append(pr)
+    roots.append(pr)
+    if BUILTIN_ROOT not in roots:
+        roots.append(BUILTIN_ROOT)
     return roots
 
 

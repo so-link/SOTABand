@@ -61,7 +61,10 @@ class ToolRegistry(BaseRegistry):
         return f
 
     def _read(self) -> list[dict]:
-        """合并内置与私有 registry（私有同 id 覆盖内置），并注入使用计数。
+        """合并内置与私有 registry（**私有优先**），并注入使用计数。
+
+        搜索顺序跟 resource_roots()（现为私有在前）：同 id 取先命中的，
+        即用户副本覆盖内置——覆盖层语义（2026-11-04 定，方案 C）。
 
         返回的条目是深拷贝视图：调用方（如 list_all 后前端展示、执行器
         读参数）可随意改，不会意外成为写路径。
@@ -71,9 +74,14 @@ class ToolRegistry(BaseRegistry):
             rf = root / "tools" / "registry.json"
             if not rf.exists():
                 continue
+            # 命中根的先后即优先级：先命中的（私有）胜出
+            source = "private" if root == paths.private_root() else "builtin"
             try:
                 for e in json.loads(rf.read_text(encoding="utf-8")):
-                    if isinstance(e, dict) and e.get("id"):
+                    if isinstance(e, dict) and e.get("id") and e["id"] not in merged:
+                        # source 是派生字段（不落盘）：前端据此显示
+                        # 「内置 / 我的副本 / 我的工具」徽章
+                        e["source"] = source
                         merged[e["id"]] = e
             except Exception:
                 continue
@@ -121,10 +129,10 @@ class ToolRegistry(BaseRegistry):
     def _get_impl_dir(self) -> Path:
         return paths.ensure_private_dirs("tools") / "implementations"
 
-    # ── 多目录定位（读：内置优先，找不到再查私有）──
-    # 内置工具（随仓库分发的示例工具）的 spec/代码只存在于 resources/ 下，
-    # 私有工具才在 resources-private/ 下。打开详情若只用私有目录会读不到内置
-    # 工具的内容 → 界面空白。下面两个方法给出「实际存在」的路径。
+    # ── 多目录定位（读：**私有优先**，找不到再查内置）──
+    # 用户「复制为副本」后的修改在私有根，必须优先命中才生效；未 fork 的
+    # 内置资源只在 resources/ 下，兜底命中。打开详情若只用私有目录会读不到
+    # 未 fork 的内置工具内容 → 界面空白。下面两个方法给出「实际存在」的路径。
 
     def find_def_file(self, tool_id: str, suffix: str = ".md") -> Path | None:
         """在内置 / 私有目录中定位工具的定义文件（存在才返回）。"""
@@ -287,6 +295,7 @@ class ToolRegistry(BaseRegistry):
             if base is None:
                 return  # 工具不存在，不创建空条目
             forked = dict(base)
+            forked.pop("source", None)  # 派生字段不落盘（命中的根是运行时算出的）
             forked.update(updates)
             data.append(forked)
             self._write(data)

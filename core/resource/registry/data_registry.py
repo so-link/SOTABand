@@ -57,7 +57,7 @@ class DataRegistry(BaseRegistry):
         return f
 
     def _read(self) -> list[dict]:
-        """合并内置与私有 registry（私有同 id 覆盖内置）。"""
+        """合并内置与私有 registry（**私有优先**：同 id 取先命中的私有条目）。"""
         merged: dict[str, dict] = {}
         for root in paths.resource_roots():
             rf = root / "data" / "registry.json"
@@ -65,7 +65,7 @@ class DataRegistry(BaseRegistry):
                 continue
             try:
                 for e in json.loads(rf.read_text(encoding="utf-8")):
-                    if isinstance(e, dict) and e.get("id"):
+                    if isinstance(e, dict) and e.get("id") and e["id"] not in merged:
                         merged[e["id"]] = e
             except Exception:
                 continue
