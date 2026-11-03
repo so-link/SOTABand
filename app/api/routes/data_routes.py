@@ -5,7 +5,7 @@ import time
 import json as _json
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.schemas.data_schemas import (
     ScanDirectoryRequest,
@@ -15,7 +15,9 @@ from app.api.schemas.data_schemas import (
 )
 from core.llm.client import create_llm_client
 from core.resource.registry.data_registry import DataRegistry
-from core.user_context import get_current_user_id
+from app.api.deps import get_optional_auth
+from core.auth.context import AuthContext
+from core.user_context import resolve_owner_id
 def _parse_files_from_spec(spec_md: str) -> list[dict]:
     """从 MD 规范的"数据格式"表格中解析文件列表"""
     files = []
@@ -184,7 +186,10 @@ async def generate_spec(req: GenerateDataSpecRequest):
 
 
 @router.post("/register")
-async def register_dataset(req: RegisterDatasetRequest):
+async def register_dataset(
+    req: RegisterDatasetRequest,
+    ctx: AuthContext | None = Depends(get_optional_auth),
+):
     """注册数据集 — 文件保持在原位置，不复制"""
     if not req.spec_md.strip():
         raise HTTPException(400, "specMd 不能为空")
@@ -229,7 +234,7 @@ async def register_dataset(req: RegisterDatasetRequest):
         path_info = f"\n\n---\n## 数据集目录\n- **路径**: `{data_path}`\n- **文件数**: {file_count}\n- **总大小**: {total_size} bytes\n- **格式**: {', '.join(sorted(formats))}\n"
         resource["raw_md"] = req.spec_md + path_info
 
-    registered_id = await registry.register(resource)
+    registered_id = await registry.register(resource, owner=resolve_owner_id(ctx))
     entry = await registry.get(registered_id)
 
     # 注册后异步匹配预览工具（存到 registry，预览时直接用缓存）
@@ -352,6 +357,7 @@ async def get_dataset_repository():
 async def list_datasets(
     available_only: bool = Query(False, description="仅返回本机有数据的数据集"),
     include_others: bool = Query(False, description="包含其他用户的数据集（默认只返回本人的）"),
+    ctx: AuthContext | None = Depends(get_optional_auth),
 ):
     """列出已注册数据集（**按归属隔离**）。
 
@@ -367,7 +373,7 @@ async def list_datasets(
     - include_others=true ：返回全部（含他人条目），仅供排查/迁移使用
     - available_only=true ：只返回本机确实有数据的
     """
-    current_user = get_current_user_id()
+    current_user = resolve_owner_id(ctx)
     entries = await registry.list_all(owner=None if include_others else current_user)
 
     checked = []
@@ -393,14 +399,15 @@ async def list_datasets(
 
 
 @router.post("/claim-local")
-async def claim_local_datasets():
+async def claim_local_datasets(ctx: AuthContext | None = Depends(get_optional_auth)):
     """把本机有数据、但缺少归属标记的历史数据集认领到当前用户。
 
     用于一次性迁移：这些条目确认是自己的数据后打上 owner，
     之后列表就走精确的归属匹配，不再依赖"本机是否有数据"的启发式判断。
     """
-    claimed = registry.claim_local_orphans()
-    return {"claimed": claimed, "owner": get_current_user_id()}
+    owner = resolve_owner_id(ctx)
+    claimed = registry.claim_local_orphans(user_id=owner)
+    return {"claimed": claimed, "owner": owner}
 
 
 @router.get("/{dataset_id}")

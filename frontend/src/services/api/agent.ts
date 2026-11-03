@@ -26,11 +26,18 @@ export const agentApi = {
     )
   },
 
-  async register(specMd: string, code: string, demandDesc: string = ''): Promise<{ agent_id: string; entry: Record<string, unknown> }> {
+  /**
+   * 注册 Agent。
+   *
+   * baseAgentId：编辑已发布 Agent 时传入原 Agent id，作为注册的权威身份。
+   * 不传时退回 MD 里的 id（新建 Agent 的旧行为）——否则重新生成文档
+   * 改掉了 frontmatter 的 id，就会多出一个重复 Agent。
+   */
+  async register(specMd: string, code: string, demandDesc: string = '', baseAgentId?: string): Promise<{ agent_id: string; entry: Record<string, unknown>; updated?: boolean; version?: string; previous_version?: string }> {
     const { agentId, agentName, role } = extractAgentMeta(specMd)
-    return apiPost<{ agent_id: string; entry: Record<string, unknown> }>(
+    return apiPost<{ agent_id: string; entry: Record<string, unknown>; updated?: boolean; version?: string; previous_version?: string }>(
       '/api/agent/register',
-      { specMd, code, agentId, agentName, role, demandDesc }
+      { specMd, code, agentId, agentName, role, demandDesc, ...(baseAgentId ? { baseAgentId } : {}) }
     )
   },
 

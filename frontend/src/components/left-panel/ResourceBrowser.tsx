@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   Database,
   Wrench,
@@ -11,6 +11,7 @@ import {
   Plus,
   Minus,
   Package,
+  Upload,
 } from 'lucide-react'
 import { useResourceStore } from '@/stores/resource-store'
 import { useUIStore } from '@/stores/ui-store'
@@ -36,6 +37,24 @@ const SECTIONS: ResourceSectionDef[] = [
   { type: 'task', label: '任务历史', icon: ListTodo, color: 'text-slate-500' },
 ]
 
+type DepResultItem = { dep: string; success: boolean; already?: boolean; reason?: string }
+
+interface DepDialogState {
+  kind: 'tool' | 'agent'
+  /** 工具 id 或 Agent id */
+  targetId: string
+  toolName: string
+  /** 缺失的 import 名 */
+  missing: string[]
+  /** 与 missing 一一对应的 pip 包名（安装用） */
+  install: string[]
+  /** Agent 专属：它依赖但目标环境没有的工具 */
+  missingTools?: string[]
+  installing: boolean
+  results?: DepResultItem[]
+  error?: string
+}
+
 export function ResourceBrowser() {
   const {
     dataResources,
@@ -56,6 +75,101 @@ export function ResourceBrowser() {
   )
   // 各编辑器中的未保存改动，用于在资源树上打标记
   const unsaved = useUnsavedMarks()
+
+  // ── 资源迁移：导入 .sotatool.zip / .sotaagent.zip ──
+  const [importing, setImporting] = useState(false)
+  const [importKind, setImportKind] = useState<'tool' | 'agent'>('tool')
+  const importInputRef = useRef<HTMLInputElement>(null)
+  // 导入后的依赖体检结果（缺失时弹窗，一键安装）
+  const [depDialog, setDepDialog] = useState<DepDialogState | null>(null)
+
+  const pickImportFile = (kind: 'tool' | 'agent') => {
+    setImportKind(kind)
+    importInputRef.current?.click()
+  }
+
+  const handleImportBundle = async (file: File) => {
+    const kind = importKind
+    setImporting(true)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      form.append('overwrite', 'false')
+      const res = await fetch(`/api/migrate/${kind}/import-upload`, { method: 'POST', body: form })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.detail || `导入失败 (${res.status})`)
+
+      const targetId: string = kind === 'tool' ? data.tool_id : data.agent_id
+      const name: string = data.name || targetId
+      if (kind === 'tool') {
+        await fetchToolsFromApi()
+        await useWorkspaceToolStore.getState().fetchFromApi()
+      } else {
+        await fetchAgentsFromApi()
+      }
+
+      const missing: string[] = data?.deps?.missing || []
+      const install: string[] = data?.deps?.install || []
+      const missingTools: string[] = data?.missing_tools || []
+      if (missing.length > 0 || missingTools.length > 0) {
+        setDepDialog({
+          kind,
+          targetId,
+          toolName: name,
+          missing,
+          install: install.length ? install : missing,
+          missingTools,
+          installing: false,
+        })
+      } else {
+        window.alert(
+          `已导入${kind === 'tool' ? '工具' : 'Agent'}：${name}（v${data.version || '?'}）\n` +
+          `依赖齐备，可直接使用。`
+        )
+      }
+    } catch (e) {
+      window.alert(`导入失败：${(e as Error).message}`)
+    } finally {
+      setImporting(false)
+      if (importInputRef.current) importInputRef.current.value = ''
+    }
+  }
+
+  const handleInstallDeps = async () => {
+    const dlg = depDialog
+    if (!dlg || dlg.installing) return
+    if (dlg.install.length === 0) {
+      setDepDialog({ ...dlg, error: '没有可安装的 Python 依赖（仅缺工具，请先导入工具包）' })
+      return
+    }
+    setDepDialog({ ...dlg, installing: true, error: '', results: undefined })
+    try {
+      const url = dlg.kind === 'agent'
+        ? `/api/migrate/agent/${encodeURIComponent(dlg.targetId)}/install-deps`
+        : `/api/tool/${encodeURIComponent(dlg.targetId)}/install-deps`
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dependencies: dlg.install }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.detail || `安装失败 (${res.status})`)
+      const results: DepResultItem[] = data.results || []
+      const failed = results.filter((r) => !r.success)
+      setDepDialog({ ...dlg, installing: false, results })
+      if (failed.length === 0) {
+        if (dlg.kind === 'tool') {
+          await fetchToolsFromApi()
+          await useWorkspaceToolStore.getState().fetchFromApi()
+        } else {
+          await fetchAgentsFromApi()
+        }
+      }
+    } catch (e) {
+      setDepDialog({ ...dlg, installing: false, error: (e as Error).message })
+    }
+  }
+
 
   // 启动时确保从 API 加载（仅一次，MainLayout 的 fetchAllResources 已经调过）
   useEffect(() => {
@@ -203,19 +317,61 @@ export function ResourceBrowser() {
                 {resources.length}
               </span>
               {section.type === 'agent' && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    useUIStore.getState().setActiveView('agent-editor')
-                  }}
-                  className="flex items-center justify-center h-4 w-4 rounded hover:bg-maia-accent/10 text-maia-text-muted hover:text-maia-accent transition-colors"
-                  title="创建新 Agent"
-                >
-                  <Plus className="h-3 w-3" />
-                </button>
+                <>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      pickImportFile('agent')
+                    }}
+                    disabled={importing}
+                    className={cn(
+                      'flex items-center justify-center h-4 w-4 rounded transition-colors',
+                      'hover:bg-emerald-500/10 text-maia-text-muted hover:text-emerald-500',
+                      importing && 'opacity-50 cursor-wait'
+                    )}
+                    title="导入 Agent 包（.sotaagent.zip）"
+                  >
+                    <Upload className={cn('h-3 w-3', importing && 'animate-pulse')} />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      useUIStore.getState().setActiveView('agent-editor')
+                    }}
+                    className="flex items-center justify-center h-4 w-4 rounded hover:bg-maia-accent/10 text-maia-text-muted hover:text-maia-accent transition-colors"
+                    title="创建新 Agent"
+                  >
+                    <Plus className="h-3 w-3" />
+                  </button>
+                </>
               )}
               {section.type === 'tool' && (
                 <>
+                  <input
+                    ref={importInputRef}
+                    type="file"
+                    accept=".zip"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      if (f) handleImportBundle(f)
+                    }}
+                  />
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      pickImportFile('tool')
+                    }}
+                    disabled={importing}
+                    className={cn(
+                      'flex items-center justify-center h-4 w-4 rounded transition-colors',
+                      'hover:bg-emerald-500/10 text-maia-text-muted hover:text-emerald-500',
+                      importing && 'opacity-50 cursor-wait'
+                    )}
+                    title="导入工具包（.sotatool.zip）"
+                  >
+                    <Upload className={cn('h-3 w-3', importing && 'animate-pulse')} />
+                  </button>
                   <button
                     onClick={(e) => {
                       e.stopPropagation()
@@ -328,6 +484,88 @@ export function ResourceBrowser() {
           </div>
         )
       })}
+
+      {/* 导入后依赖体检：缺失时弹窗，一键安装 */}
+      {depDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-[460px] max-w-[92vw] rounded-lg border border-maia-border bg-maia-surface p-4 shadow-xl">
+            <div className="text-sm font-semibold text-maia-text-heading mb-2">
+              导入完成，但依赖未齐备
+            </div>
+            <p className="text-[11px] text-maia-text-secondary mb-2">
+              「{depDialog.toolName}」（{depDialog.kind === 'tool' ? '工具' : 'Agent'}）缺少以下内容：
+            </p>
+
+            {depDialog.missing.length > 0 && (
+              <>
+                <div className="text-[11px] text-maia-text-muted mb-1">Python 包</div>
+                <ul className="mb-3 max-h-32 overflow-auto text-[11px] font-mono">
+                  {depDialog.missing.map((m, i) => (
+                    <li key={m} className="flex items-center justify-between gap-2 py-0.5">
+                      <span className="text-maia-text-secondary">{m}</span>
+                      <span className="text-maia-text-muted">
+                        {depDialog.install[i] && depDialog.install[i] !== m ? `→ ${depDialog.install[i]}` : ''}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+
+            {depDialog.missingTools && depDialog.missingTools.length > 0 && (
+              <div className="mb-3 rounded border border-amber-500/30 bg-amber-500/10 p-2 text-[11px]">
+                <div className="text-amber-600 font-medium mb-1">依赖的工具未安装</div>
+                <div className="font-mono text-maia-text-secondary break-all">
+                  {depDialog.missingTools.join('、')}
+                </div>
+                <div className="mt-1 text-[10px] text-maia-text-muted">
+                  请先在「工具空间」用 ⬆ 导入对应的 .sotatool.zip，再运行该 Agent。
+                </div>
+              </div>
+            )}
+
+            {depDialog.error && (
+              <div className="mb-2 max-h-28 overflow-auto rounded bg-maia-bg/60 p-2 text-[11px] text-maia-danger break-all whitespace-pre-wrap">
+                {depDialog.error}
+              </div>
+            )}
+
+            {depDialog.results && depDialog.results.length > 0 && (
+              <div className="mb-2 max-h-32 overflow-auto rounded bg-maia-bg/60 p-2 text-[11px]">
+                {depDialog.results.map((r) => (
+                  <div key={r.dep} className={r.success ? 'text-emerald-500' : 'text-maia-danger'}>
+                    {r.success ? '✓' : '✗'} {r.dep}
+                    {r.already ? '（已存在）' : ''}
+                    {!r.success && r.reason ? ` — ${String(r.reason).slice(-300)}` : ''}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2">
+              <button
+                onClick={() => setDepDialog(null)}
+                className="px-3 py-1 rounded text-[11px] text-maia-text-secondary hover:bg-maia-sidebar-hover"
+              >
+                {depDialog.results &&
+                depDialog.results.every((r) => r.success) &&
+                (depDialog.missingTools || []).length === 0
+                  ? '完成'
+                  : '稍后'}
+              </button>
+              {depDialog.install.length > 0 && (
+                <button
+                  onClick={handleInstallDeps}
+                  disabled={depDialog.installing}
+                  className="px-3 py-1 rounded text-[11px] bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50"
+                >
+                  {depDialog.installing ? '安装中…' : '一键安装'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

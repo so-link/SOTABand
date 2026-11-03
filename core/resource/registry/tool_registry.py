@@ -14,12 +14,13 @@
 """
 
 import json
+import re
 import time
 from pathlib import Path
 
 from core.user_context import get_current_user_id, is_visible_to, VISIBILITY_PUBLIC
 
-from core.resource.registry.registry_base import BaseRegistry
+from core.resource.registry.registry_base import BaseRegistry, bump_patch_version
 from core.resource import paths
 
 
@@ -27,6 +28,101 @@ def _write_json(path: Path, data) -> None:
     """写入 JSON 文件（自动创建父目录）。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+# ── 工具引用的归一化（id ↔ 显示名）────────────────────────────────────
+# MD 规范文档里，工具引用常写成显示名（需求描述输入 $ 选工具时自动带出
+# 【【问候程序】】）。而工具实现目录与执行层只认 id。registry 本身就是
+# 「id ↔ name」的唯一权威，故解析逻辑放在这里，供代码生成 / 规范解析 /
+# 接口层共用，避免各处各写一套 JSON 遍历。
+# 注意：这里只读文件，不建目录、不写 registry（可在只读部署下安全调用）。
+
+_CLEAN_RE = re.compile(r"^[\s`'\"【】\[\]]+|[\s`'\"【】\[\]]+$")
+
+
+def normalize_ref(ref) -> str:
+    """去掉【【】】/反引号/引号/首尾空白，得到干净的工具引用。"""
+    if not isinstance(ref, str):
+        return ""
+    s = ref.strip()
+    prev = None
+    while prev != s:
+        prev = s
+        s = _CLEAN_RE.sub("", s)
+    return s.strip()
+
+
+def iter_tool_entries() -> list[dict]:
+    """合并「内置 + 私有」两处 registry.json（私有同 id 覆盖内置）。
+
+    纯读取，不产生任何副作用（不 mkdir / 不写文件）。
+    """
+    merged: dict[str, dict] = {}
+    for root in paths.resource_roots():
+        rf = Path(root) / "tools" / "registry.json"
+        if not rf.exists():
+            continue
+        try:
+            entries = json.loads(rf.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(entries, list):
+            continue
+        for e in entries:
+            if isinstance(e, dict) and str(e.get("id") or "").strip():
+                merged[str(e["id"]).strip()] = e
+    return list(merged.values())
+
+
+def find_tool_entry(ref) -> dict | None:
+    """按「工具 id」或「显示名」查 registry 条目，查不到返回 None。"""
+    ref_n = normalize_ref(ref)
+    if not ref_n:
+        return None
+    entries = iter_tool_entries()
+
+    for e in entries:                                    # 1) id 精确
+        if str(e.get("id") or "").strip() == ref_n:
+            return e
+    for e in entries:                                    # 2) 显示名精确
+        if normalize_ref(e.get("name")) == ref_n:
+            return e
+    low = ref_n.lower()                                  # 3) 大小写不敏感
+    for e in entries:
+        if str(e.get("id") or "").strip().lower() == low:
+            return e
+    for e in entries:
+        if normalize_ref(e.get("name")).lower() == low:
+            return e
+    return None
+
+
+def _impl_exists(tool_id: str) -> bool:
+    for root in paths.resource_roots():
+        if (Path(root) / "tools" / "implementations" / tool_id / "tool.py").exists():
+            return True
+    return False
+
+
+def resolve_tool_id(ref) -> str:
+    """把工具引用（id 或显示名）解析为真实工具 id。
+
+    解析不到时原样返回 —— 由执行层给出「工具不存在」的明确报错，
+    不在这里吞掉错误。
+    """
+    ref_n = normalize_ref(ref)
+    if not ref_n:
+        return ref_n
+    entry = find_tool_entry(ref_n)
+    if entry is not None:
+        return str(entry.get("id") or "").strip() or ref_n
+    if _impl_exists(ref_n):
+        return ref_n
+    return ref_n
+
+
+# bump_patch_version 定义在 registry_base（工具 / Agent 共用），这里再导出一次，
+# 保持 `from core.resource.registry.tool_registry import bump_patch_version` 可用。
 
 
 # 内置资源根（随仓库分发）与私有资源根（本地新建，不入 git）
@@ -58,18 +154,7 @@ class ToolRegistry(BaseRegistry):
 
     def _read(self) -> list[dict]:
         """合并内置与私有 registry（私有同 id 覆盖内置）。"""
-        merged: dict[str, dict] = {}
-        for root in paths.resource_roots():
-            rf = root / "tools" / "registry.json"
-            if not rf.exists():
-                continue
-            try:
-                for e in json.loads(rf.read_text(encoding="utf-8")):
-                    if isinstance(e, dict) and e.get("id"):
-                        merged[e["id"]] = e
-            except Exception:
-                continue
-        return list(merged.values())
+        return iter_tool_entries()
 
     def _write(self, data: list[dict]):
         """写入私有 registry（内置资源不在此维护）。"""
@@ -91,22 +176,23 @@ class ToolRegistry(BaseRegistry):
     def _get_impl_dir(self) -> Path:
         return paths.ensure_private_dirs("tools") / "implementations"
 
-    # ── 多目录定位（读：内置优先，找不到再查私有）──
-    # 内置工具（随仓库分发的示例工具）的 spec/代码只存在于 resources/ 下，
-    # 私有工具才在 resources-private/ 下。打开详情若只用私有目录会读不到内置
-    # 工具的内容 → 界面空白。下面两个方法给出「实际存在」的路径。
+    # ── 多目录定位（读：私有优先，私有没有才回落内置）──
+    # 写入一律落私有根（新建 / 编辑 / 导入），注册表也是「私有覆盖内置」，
+    # 因此定位实际文件时必须以私有为先 —— 否则同 id 同时存在于两个根的工具
+    # 会永远读到内置那份旧文件（改了代码 / MD 重新打开还是旧的）。
+    # 私有根没有对应文件时自然回落到内置，未编辑过的内置资源不受影响。
 
     def find_def_file(self, tool_id: str, suffix: str = ".md") -> Path | None:
-        """在内置 / 私有目录中定位工具的定义文件（存在才返回）。"""
-        for root in paths.resource_roots():
+        """在内置 / 私有目录中定位工具的定义文件（私有优先，存在才返回）。"""
+        for root in paths.read_roots():
             p = root / "tools" / "definitions" / f"{tool_id}{suffix}"
             if p.exists():
                 return p
         return None
 
     def find_impl_dir(self, tool_id: str) -> Path | None:
-        """在内置 / 私有目录中定位工具的实现目录（含 tool.py 才返回）。"""
-        for root in paths.resource_roots():
+        """在内置 / 私有目录中定位工具的实现目录（私有优先，含 tool.py 才返回）。"""
+        for root in paths.read_roots():
             d = root / "tools" / "implementations" / tool_id
             if (d / "tool.py").exists():
                 return d
@@ -123,21 +209,25 @@ class ToolRegistry(BaseRegistry):
             return "", False
 
     def read_code_text(self, tool_id: str) -> str:
-        """读取工具实现代码（tool.py）；内置 / 私有均支持。"""
+        """读取工具实现代码（tool.py）；内置 / 私有均支持。
+
+        utf-8-sig：容忍 Windows 编辑器写入的 BOM，否则依赖检测的 AST
+        解析会失败（表现为「依赖永远显示齐备」）。
+        """
         d = self.find_impl_dir(tool_id)
         if d is None:
             return ""
         try:
-            return (d / "tool.py").read_text(encoding="utf-8")
+            return (d / "tool.py").read_text(encoding="utf-8-sig")
         except Exception:
             return ""
 
-    async def register(self, resource: dict) -> str:
-        tool_id = resource.get("id", f"tool-{int(time.time())}")
+    async def register(self, resource: dict, *, owner: str | None = None) -> str:
+        tool_id = resource.get("id") or f"tool-{int(time.time())}"
         entry = {
             "id": tool_id,
-            "name": resource.get("name", tool_id),
-            "version": resource.get("version", "0.1.0"),
+            "name": resource.get("name") or tool_id,
+            "version": resource.get("version") or "0.1.0",
             "type": resource.get("type", "function"),
             "language": resource.get("language", "python"),
             "status": "active",
@@ -148,19 +238,34 @@ class ToolRegistry(BaseRegistry):
             "param_meta": resource.get("param_meta", []),
             # 多模式支持：modes 列表（含 id/name/desc）；单模式工具为空或缺省
             "modes": resource.get("modes", []),
+            # 执行前是否由平台按 param_meta.required 做必填拦截。
+            # 默认开启；老条目缺省该字段时按 True 处理（见 core/resource/param_guard.py），
+            # 遇到兼容问题可把它设为 False 单独关掉。
+            "enforce_required": resource.get("enforce_required", True),
             "tags": resource.get("tags", []),
             "usage_count": 0,
             "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             # 归属与可见性：工具默认共享（public），owner 记录创建者。
             # 未来若要支持「私有工具 / 公共池」，改 visibility 即可，
             # 判定逻辑已预置在 is_visible() 中。
-            "owner": get_current_user_id(),
+            "owner": owner or get_current_user_id(),
             "visibility": VISIBILITY_PUBLIC,
         }
 
         data = self._read()
         existing = [i for i, e in enumerate(data) if e["id"] == tool_id]
         if existing:
+            old = data[existing[0]]
+            # 更新语义（编辑已发布工具后重新注册）：条目内容换成新的，
+            # 但「首次创建的事实」必须沿用旧值，否则每次编辑都会重置
+            # 创建时间 / 创建者 / 调用次数，历史信息就被抹掉了。
+            for key in ("created_at", "owner", "visibility", "usage_count", "status"):
+                if old.get(key) not in (None, ""):
+                    entry[key] = old[key]
+            # 必填拦截开关由使用者单独控制，重新注册不应把它重置回默认值
+            if "enforce_required" not in resource and old.get("enforce_required") is not None:
+                entry["enforce_required"] = old["enforce_required"]
+            entry["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             data[existing[0]] = entry
         else:
             data.append(entry)

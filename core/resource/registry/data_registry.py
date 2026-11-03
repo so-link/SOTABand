@@ -224,7 +224,7 @@ class DataRegistry(BaseRegistry):
             self._write(data)
         return claimed
 
-    async def register(self, resource: dict = None, **kwargs) -> str:
+    async def register(self, resource: dict = None, *, owner: str | None = None, **kwargs) -> str:
         if resource is None:
             resource = kwargs
         ds_id = resource.get("id", f"dataset-{int(time.time())}")
@@ -242,9 +242,9 @@ class DataRegistry(BaseRegistry):
             "tags": resource.get("tags", []),
             "quality_score": resource.get("quality_score"),
             "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            # 归属：数据集是「谁的」资源。不接受调用方传入，一律取当前用户，
-            # 避免伪造 owner 看到别人的数据。
-            "owner": get_current_user_id(),
+            # 归属：数据集是「谁的」资源。owner 由服务端从认证上下文解析后传入
+            # （未认证时回退机器身份），不信任客户端提交的任何 owner 字段。
+            "owner": owner or get_current_user_id(),
             # 可见性：数据集默认私有（数据在本机，他人本就访问不到）。
             # 未来数据集上云后，可设为 public 让所有人访问。
             "visibility": VISIBILITY_PRIVATE,

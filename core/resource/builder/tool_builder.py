@@ -2,18 +2,27 @@
 
 import ast as _ast
 import json
+import os as _os
 import re
 import subprocess
-import tempfile
-import os as _os
 import threading
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
+from core.deps import (
+    build_pip_argv,
+    dist_name_for,
+    dist_name_from_spec,
+    extract_declared_deps,
+    extract_missing_module,
+    import_name_for,
+    pip_name_for,
+)
 from core.resource.builder.builder_base import BaseBuilder
 
 # ── 全局调试状态：线程安全的停止标志 ──
-# key=tool_id, value=True 表示正在运行
+# key=tool_id, value=True 表示正在运行；False 表示调试中被请求停止；
+# 键不存在 = 当前不在调试上下文（独立安装依赖等场景）。
 _debug_states: dict[str, bool] = {}
 _debug_lock = threading.Lock()
 
@@ -37,8 +46,18 @@ def stop_debug(tool_id: str):
     with _debug_lock:
         if tool_id in _debug_states:
             _debug_states[tool_id] = False
-from core.llm.client import create_llm_client
 
+
+def is_debug_stop_requested(tool_id: str) -> bool:
+    """是否「处于调试上下文且被请求停止」。
+
+    与 is_debug_running 的区别：键不存在（None）表示根本不在调试里——
+    独立安装依赖、仓库加载工具等场景都属于这一类，不能当成"已停止"。
+    只有 stop_debug() 显式把值设为 False 才算停止请求。
+    """
+    with _debug_lock:
+        return _debug_states.get(tool_id, None) is False
+from core.llm.client import create_llm_client
 
 # ================================================================
 #   工具代码模板 — LLM 以此为基础生成完整文件
@@ -50,12 +69,39 @@ from pathlib import Path
 from typing import Any
 import requests
 
-# ── 项目根路径 ──
+# ── 项目根路径（位置无关：优先从 sys.path 反查）──
 _tool_dir = os.environ.get("TOOL_DIR", "")
-if _tool_dir:
-    _PROJECT_ROOT = Path(_tool_dir).resolve().parent.parent.parent.parent
-else:
-    _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
+
+
+def _detect_project_root() -> Path:
+    """定位项目根。
+
+    执行器（ToolExecutor / Agent 的 _call_tool_X）启动子进程时，已把真实的
+    项目根注入 sys.path，因此优先从 sys.path 反查 —— 这样不依赖资源根位于
+    项目内还是项目同级（私有资源根默认位于项目根的同级目录，用固定层数推导
+    会偏一级，导致 _resolve_path / _call_tool 找错目录）。
+
+    sys.path 未命中时，再从工具目录 / 文件位置向上查找：含 core/ 与 app/ 的
+    目录即为项目根。
+    """
+    for _p in list(sys.path):
+        try:
+            _c = Path(_p).resolve()
+        except Exception:
+            continue
+        if (_c / "core").is_dir() and (_c / "app").is_dir():
+            return _c
+    for _start in (Path(_tool_dir).resolve().parent if _tool_dir else None,
+                   Path(__file__).resolve().parent):
+        if _start is None:
+            continue
+        for _c in [_start, *_start.parents]:
+            if (_c / "core").is_dir() and (_c / "app").is_dir():
+                return _c
+    return Path(__file__).resolve().parent.parent.parent.parent.parent  # 兜底：内置布局
+
+
+_PROJECT_ROOT = _detect_project_root()
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
@@ -106,9 +152,13 @@ def _call_tool(tool_name: str, **params) -> dict:
                     break
         except Exception:
             pass
-    # 在「内置 + 私有」资源根中定位工具实现
+    # 在「内置 + 私有」资源根中定位工具实现：私有优先（写入一律落私有根，
+    # 否则编辑过的工具会调用到内置那份旧代码）
+    _private_root = os.environ.get("SOTABAND_PRIVATE_RESOURCES") or str(
+        _PROJECT_ROOT.parent / "resources-private"
+    )
     tool_dir = None
-    for _root in (_PROJECT_ROOT / "resources", _PROJECT_ROOT.parent / "resources-private"):
+    for _root in (Path(_private_root), _PROJECT_ROOT / "resources"):
         _cand = _root / "tools" / "implementations" / tool_id
         if (_cand / "tool.py").exists():
             tool_dir = _cand
@@ -504,7 +554,22 @@ CRITICAL RULES:
 15. Batch processing over many items MUST be per-item fault-tolerant: wrap each item's work in try/except, collect per-item errors, and only return status:"failed" if ALL items failed. If any item succeeds, return status:"success".
 16. NEVER hardcode any API key, token, password, or secret in the generated code — not as a literal, not as a default value, not in a comment or docstring. Credentials MUST come from input params (kwargs.get("api_key")) or from @LLM自定义配置对话API. If a credential is needed, accept it as an input parameter named api_key and pass it straight through to the API call; never store it, never log it, never print it.
 17. NEVER print, log, or echo credential values (api_key/token/secret) to stdout/stderr or include them in the returned "message"/"data". Tool stdout is recorded into debug logs and may be sent to an LLM for auto-debugging; leaking a key there is irreversible.
-18. Output ONLY Python code, no markdown, no explanation"""
+18. NEVER implement required-parameter validation inside the tool. Do NOT write
+    `if not kwargs.get("x"): return {{"status":"failed", ...}}` or `raise ValueError("缺少参数...")`
+    for missing inputs — the platform validates REQUIRED inputs BEFORE execution
+    (per the tool's registry spec) and returns a unified Chinese error. Duplicating
+    it here makes the code disagree with the spec whenever the user flips
+    "必填/可选" in the UI. Read values with kwargs.get("name", default) and continue;
+    optional params may legitimately be empty/None — handle that with a default or a
+    fallback branch instead of failing. Type/sanity checks on values that ARE
+    provided (rule 13) are still mandatory.
+19. NEVER wrap third-party imports in `try/except ImportError` (or `ModuleNotFoundError`) and
+    degrade to a "请先安装 xxx" message, and do NOT import heavy third-party libs inside
+    execute() just to catch the failure. Dependencies are installed by the platform BEFORE
+    execution; swallowing ImportError hides the real cause and makes the sandbox unable to
+    tell which package is missing (it then loops forever). Put third-party imports at module
+    top-level and let them fail loudly.
+20. Output ONLY Python code, no markdown, no explanation"""
 
         # 多模式规则：仅当 MD 声明了多个模式时注入
         modes = self.parse_modes(spec_md)
@@ -699,15 +764,15 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
         """
         python_exe = self._get_exec_python(tool_id)
         py_dir = Path(python_exe).parent
-        is_tool_venv = "resources/tools/implementations" in str(py_dir)
+        # 用路径分段判断，别用字符串匹配：Windows 上是反斜杠，
+        # "resources/tools/implementations"（正斜杠）永远匹配不到。
+        is_tool_venv = ".venv" in Path(python_exe).parts
 
         if is_tool_venv:
-            pip = str(py_dir / "pip")
-            if Path(pip).exists():
-                return pip
-            pip3 = str(py_dir / "pip3")
-            if Path(pip3).exists():
-                return pip3
+            for cand in ("pip", "pip3", "pip.exe"):
+                pip = py_dir / cand
+                if pip.exists():
+                    return str(pip)
 
         # 项目 venv 或回退：统一用 python -m pip（安全可靠）
         return f"{python_exe} -m pip"
@@ -727,7 +792,62 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
                     return str(sp)
         return ""
 
-    async def install_deps_stream(self, tool_id: str, dependencies: list[str], stop_event=None):
+    @staticmethod
+    def _probe_dep_state(python_exe: str, module_name: str, dist_name: str) -> dict:
+        """探测某个依赖在**目标解释器**里的真实状态。
+
+        Returns:
+            ``{"dist_version": str|None, "import_ok": bool, "providers": list[str]}``
+
+        为什么不能只 `import <module>` 判断"装了没"：PyPI 上存在与 import 名
+        同名的**无关包**。实测 ``barcode`` 是个 DNA 序列工具（依赖 Levenshtein），
+        真正的条码库叫 ``python-barcode``，两者都提供 ``barcode`` 模块；
+        只看 import 会误判"已安装"→ 跳过安装 → 工具继续在 AttributeError 上打转。
+
+        所以以**发行版**为准（``importlib.metadata.version``），同时把"谁提供了
+        这个模块"（``packages_distributions``）带回来，冲突时能直接告诉用户卸载谁。
+        """
+        script = (
+            "import json\n"
+            "info = {'dist_version': None, 'import_ok': False, 'providers': []}\n"
+            "try:\n"
+            "    from importlib.metadata import version\n"
+            f"    info['dist_version'] = version({dist_name!r})\n"
+            "except Exception:\n"
+            "    pass\n"
+            "try:\n"
+            f"    __import__({module_name!r})\n"
+            "    info['import_ok'] = True\n"
+            "except Exception:\n"
+            "    pass\n"
+            "try:\n"
+            "    from importlib.metadata import packages_distributions\n"
+            f"    info['providers'] = packages_distributions().get({module_name!r}, [])\n"
+            "except Exception:\n"
+            "    pass\n"
+            "print(json.dumps(info))\n"
+        )
+        try:
+            proc = subprocess.run(
+                [python_exe, "-c", script],
+                capture_output=True, text=True, timeout=20,
+            )
+            lines = [ln for ln in (proc.stdout or "").strip().splitlines() if ln.strip()]
+            if lines:
+                data = json.loads(lines[-1])
+                if isinstance(data, dict):
+                    return {
+                        "dist_version": data.get("dist_version"),
+                        "import_ok": bool(data.get("import_ok")),
+                        "providers": list(data.get("providers") or []),
+                    }
+        except Exception:
+            pass
+        # 探测失败时保守处理：当作"未安装"，交给 pip 去试（pip 自己幂等）
+        return {"dist_version": None, "import_ok": False, "providers": []}
+
+    async def install_deps_stream(self, tool_id: str, dependencies: list[str],
+                                  stop_event=None, as_pip_names: bool = False):
         """流式安装依赖：实时输出 pip 日志，失败时用 LLM 分析原因并调整命令重试。
         
         使用 asyncio.to_thread + subprocess.Popen + Queue 实现：
@@ -740,33 +860,42 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
         - 工具独立 .venv → 安装到工具自己的 .venv
         - 否则 → 安装到项目 venv 的 site-packages
         """
-        import asyncio, threading
+        import asyncio
+        import threading
 
         exec_python = self._get_exec_python(tool_id)
-        exec_pip = self._get_exec_pip(tool_id)
-        is_local = ".venv" in exec_python
+        # 同上：按路径分段判断跨平台布局（Windows: venv\Scripts\python.exe）
+        is_local = ".venv" in Path(exec_python).parts
         env_label = "local" if is_local else "project_venv"
 
-        # 如果不是工具独立 venv，安装到项目 venv 的 site-packages
-        install_target = "" if is_local else self._get_install_target()
+        # pip 命令一律用**列表**拼装，全程不做字符串切分：
+        # Windows 路径里的反斜杠会被 shlex 当转义符、含空格的路径会被拆散。
+        pip_base: list[str] = [exec_python, "-m", "pip"]
+        if is_local:
+            # 工具独立 .venv 时优先用自带的 pip 可执行文件
+            py_dir = Path(exec_python).parent
+            for cand in ("pip", "pip3", "pip.exe"):
+                candidate = py_dir / cand
+                if candidate.exists():
+                    pip_base = [str(candidate)]
+                    break
+
+        # 不再使用 --target：安装目标就是 exec_python 所属的那个 venv。
+        # 原实现把 --target 指向 venv/lib/python3.12/site-packages：
+        #   * Windows 的目录是 Lib/site-packages（大写），探测恒失败；
+        #   * --target 会绕过 pip 的安装记录，容易留下重复/半损坏的包。
 
         yield {"event": "deps_start", "deps": list(dependencies), "env": env_label}
 
-        def _is_installed(python_exe: str, module_name: str) -> bool:
-            proc = subprocess.run(
-                [python_exe, "-c", f"import {module_name}"],
-                capture_output=True, text=True, timeout=10,
-            )
-            return proc.returncode == 0
+        def _pip_worker(argv: list[str], output_queue: asyncio.Queue):
+            """在线程中执行 pip install，逐行推入 queue。
 
-        def _pip_worker(pip_cmd: str, dep: str, target: str, output_queue: asyncio.Queue):
-            """在线程中执行 pip install，逐行推入 queue"""
-            parts = pip_cmd.split() + ["install", dep]
-            if target:
-                parts += ["--target", target]
+            argv 是完整命令数组（由 build_pip_argv 拼好），全程不做字符串切分：
+            Windows 路径的反斜杠会被 shlex 当转义符、含空格的路径会被拆散。
+            """
             try:
                 proc = subprocess.Popen(
-                    parts,
+                    argv,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     # pip 在中文 Windows 上会输出中文警告，按系统默认 GBK 解码会炸
@@ -786,22 +915,68 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
             dep = dep.strip()
             if not dep: continue
 
-            module_name = dep.split("==")[0].split(">=")[0].split("<=")[0].strip()
+            # 依赖串有两种来源，处理方式不同：
+            #   * as_pip_names=True（MD「依赖环境」表）：已经是 pip 包名，
+            #     绝不能再做 import→pip 映射 —— 否则 `barcode`（DNA 包）会被
+            #     映射成 `python-barcode`（条码库），反方向同理。
+            #   * as_pip_names=False（AST 提取的 import 名，或前端安装接口）：
+            #     需要映射（`cv2`→`opencv-python`），同时反过来用 import 名探测
+            #     （不能拿 `opencv-python` 去 `import`，那是语法错误）。
+            if as_pip_names:
+                install_spec = dep
+                dist_name = dist_name_from_spec(dep) or dep
+                module_name = import_name_for(dep) or dist_name
+            else:
+                module_name = import_name_for(dep)
+                install_spec = pip_name_for(dep)
+                dist_name = dist_name_for(dep) or install_spec
 
-            if _is_installed(exec_python, module_name):
-                yield {"event": "dep_already", "dep": dep, "env": env_label}
+            state = self._probe_dep_state(exec_python, module_name, dist_name)
+            if state["dist_version"]:
+                yield {"event": "dep_already", "dep": dep, "package": install_spec,
+                       "version": state["dist_version"], "env": env_label}
                 results.append({"dep": dep, "success": True, "env": env_label, "already": True})
                 continue
 
-            yield {"event": "dep_installing", "dep": dep, "env": env_label}
+            # 只有「靠映射猜包名」时才判影子包冲突；MD 已明确指定包名，
+            # 模块被别的包占用正是需要装新包的理由（装完以 pip 的为准）。
+            if state["import_ok"] and not as_pip_names:
+                # 影子包：模块能 import，但提供它的不是我们要的发行版。
+                # 不自动覆盖安装（两个发行版会互相覆盖同名文件，留下半损坏环境），
+                # 直接告诉用户该卸载谁。
+                providers = [p for p in state["providers"] if p]
+                who = "、".join(providers) if providers else "另一个同名包"
+                yield {
+                    "event": "dep_conflict",
+                    "dep": dep,
+                    "package": install_spec,
+                    "module": module_name,
+                    "providers": providers,
+                    "env": env_label,
+                    "message": (
+                        f"模块 {module_name} 已被 {who} 提供，而这里需要的是 {dist_name}。"
+                        f"请先执行 pip uninstall -y {' '.join(providers) or module_name} 后重试。"
+                    ),
+                }
+                results.append({
+                    "dep": dep, "success": False, "env": env_label,
+                    "conflict": True, "reason": f"模块 {module_name} 由 {who} 提供",
+                })
+                continue
 
-            # 启动安装线程
-            current_dep = dep
-            max_retries = 2
+            yield {"event": "dep_installing", "dep": dep, "package": install_spec, "env": env_label}
+
+            # 启动安装线程：真正交给 pip 的是包名（install_spec）
+            current_dep = install_spec
+            # 只给一次「按 LLM 建议重试」的机会：装不上通常属于环境问题
+            # （内网 / 无 wheel / 无写权限），反复重试只会让沙箱一直卡住。
+            adjusted_cmd = ""
+            max_retries = 1
             for attempt in range(max_retries + 1):
                 q = asyncio.Queue()
                 all_output = ""
-                thread = threading.Thread(target=_pip_worker, args=(exec_pip, current_dep, install_target, q), daemon=True)
+                argv = build_pip_argv(pip_base, current_dep, adjusted_cmd)
+                thread = threading.Thread(target=_pip_worker, args=(argv, q), daemon=True)
                 thread.start()
 
                 # 从 queue 读取输出，短超时轮询 + 停止检查
@@ -809,8 +984,10 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
                 pip_start = asyncio.get_event_loop().time()
                 PIP_TOTAL_TIMEOUT = 300  # pip 总超时 5 分钟
                 while True:
-                    # 检查停止信号
-                    if not is_debug_running(tool_id):
+                    # 只在「确实处于调试上下文且被请求停止」时中断；
+                    # 键不存在表示根本不在调试里（仓库加载 / 导入后安装依赖），
+                    # 不能当成已停止，否则独立安装永远失败。
+                    if is_debug_stop_requested(tool_id):
                         all_output += "\n[已停止] 调试已停止\n"
                         retcode = -1
                         break
@@ -842,21 +1019,23 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
 
                 thread.join(timeout=5)
                 if retcode == 0:
-                    yield {"event": "pip_result", "ok": True, "output": all_output[-1000:]}
+                    yield {"event": "pip_result", "ok": True, "output": all_output[-2000:]}
                     break
 
                 if attempt >= max_retries:
-                    yield {"event": "pip_result", "ok": False, "output": all_output[-1000:]}
+                    yield {"event": "pip_result", "ok": False, "output": all_output[-2000:]}
                     break
 
                 # 安装失败，LLM 分析
                 yield {"event": "pip_analyzing", "dep": current_dep, "attempt": attempt + 1}
                 analysis = await self._llm_analyze_pip_error(current_dep, all_output[-2000:])
                 yield {"event": "pip_analysis", "dep": current_dep, "analysis": analysis}
-                if analysis.get("adjusted_command"):
-                    current_dep = analysis["adjusted_command"]
-                else:
-                    yield {"event": "pip_result", "ok": False, "output": all_output[-1000:]}
+                # adjusted_command 的语义是「整条安装命令」，由 build_pip_argv
+                # 解析成参数；不能直接当依赖名，否则会变成
+                # `pip install "pip install xxx --no-deps"`。
+                adjusted_cmd = str(analysis.get("adjusted_command") or "").strip()
+                if not adjusted_cmd:
+                    yield {"event": "pip_result", "ok": False, "output": all_output[-2000:]}
                     break
 
             # 汇总结果
@@ -864,8 +1043,10 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
                 results.append({"dep": dep, "success": True, "env": env_label})
                 yield {"event": "dep_installed", "dep": dep, "env": env_label}
             else:
-                results.append({"dep": dep, "success": False, "env": env_label, "reason": all_output[-300:]})
-                yield {"event": "dep_failed", "dep": dep, "env": env_label, "reason": all_output[-300:]}
+                results.append({"dep": dep, "success": False, "env": env_label,
+                                "reason": all_output[-1500:]})
+                yield {"event": "dep_failed", "dep": dep, "env": env_label,
+                       "reason": all_output[-1500:]}
 
         data = {"python": exec_python, "results": results}
         yield {"event": "deps_done", "data": data}
@@ -984,6 +1165,8 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
         import asyncio
 
         current_code = code
+        # 已经装好的依赖（import 名），避免每轮重复探测
+        installed_deps: set = set()
         # 记录安装失败的依赖（用于告诉 LLM 哪些依赖不可用）
         failed_deps: set = set()
         # 调试日志记录
@@ -993,14 +1176,103 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
         # 调试开始：立即通知前端
         yield {"event": "debug_start", "message": "自动调试启动", "max_rounds": max_rounds}
 
-        # 初始依赖安装（系统自动，LLM 不参与）
-        deps = self._extract_imports(current_code)
-        if deps:
-            async for dep_event in self.install_deps_stream(tool_id, deps, stop_event=stop_event):
-                if stop_event and stop_event.is_set():
-                    yield {"event": "stopped", "round": 0, "message": "用户手动停止调试"}
-                    return
-                yield dep_event
+        # ── 静态安全审查（初始代码）──
+        # block 级违规：不执行，直接要求 LLM 修复后再跑
+        from core.security.review import review_code as _review, block_violations as _blocks
+
+        security_feedback = ""
+        skip_exec_for_security = False
+        _init_violations = _review(current_code)
+        _init_blocks = _blocks(_init_violations)
+        if _init_blocks:
+            yield {
+                "event": "security_violation", "round": 0,
+                "violations": [v.to_dict() for v in _init_blocks],
+                "message": f"初始代码存在 {len(_init_blocks)} 项安全违规，跳过执行",
+            }
+            security_feedback = (
+                "\n[安全审查] 代码违反安全策略，必须修复以下违规后才能执行"
+                "（本地文件操作/系统调用只能通过 core API 完成）:\n"
+                + "\n".join(f"- {v.message}（第 {v.line} 行）" for v in _init_blocks)
+            )
+            skip_exec_for_security = True
+
+        # MD「依赖环境」表里写的是**pip 包名**，优先按它安装（可消歧：
+        # 例如 `barcode` 是 DNA 工具包、`python-barcode` 才是条码库，
+        # 只靠 import 名映射会装错）。表里没覆盖到的 import 再用映射兜底。
+        declared_deps = extract_declared_deps(spec_md)
+        declared_modules = {import_name_for(d) for d in declared_deps if d}
+
+        async def _install_round_deps(code_text: str, round_no: int):
+            """安装本轮代码里新增的第三方依赖；装不上则终止调试。
+
+            每轮都做（而不是只在开头做一次）：LLM 修代码时可能引入新的 import，
+            历史上只在第 1 轮安装，后续新依赖只能靠运行期兜底，而兜底又识别不到
+            （异常被工具自身 try/except 吞掉），于是陷入"换库 → 又缺"的死循环。
+            """
+            batches: list[tuple[list[str], bool]] = []
+
+            new_declared = [
+                d for d in declared_deps
+                if d not in installed_deps and d not in failed_deps
+            ]
+            if new_declared:
+                batches.append((new_declared, True))     # True = 已经是 pip 名
+
+            new_imports = [
+                m for m in self._extract_imports(code_text)
+                if m not in declared_modules
+                and m not in installed_deps and m not in failed_deps
+            ]
+            if new_imports:
+                batches.append((new_imports, False))     # False = import 名，需映射
+
+            if not batches:
+                return None, []
+
+            events: list[dict] = []
+            for batch, as_pip_names in batches:
+                fatal: dict | None = None
+                async for dep_event in self.install_deps_stream(
+                    tool_id, batch, stop_event=stop_event, as_pip_names=as_pip_names,
+                ):
+                    events.append(dep_event)
+                    ev = dep_event.get("event")
+                    dep_name = str(dep_event.get("dep") or "")
+                    if ev in ("dep_installed", "dep_already"):
+                        installed_deps.add(dep_name)
+                    elif ev == "dep_failed":
+                        failed_deps.add(dep_name)
+                        # 依赖装不上属于环境问题（内网 / 无 wheel / 无写权限）。
+                        # 继续让 LLM 换库只会一轮换一个，最终仍然失败 —— 直接终止，
+                        # 把"请手动安装"交回使用者。
+                        install_hint = dep_name if as_pip_names else pip_name_for(dep_name)
+                        fatal = {
+                            "event": "debug_blocked",
+                            "round": round_no,
+                            "dep": dep_name,
+                            "reason": str(dep_event.get("reason") or "")[-800:],
+                            "message": (
+                                f"依赖 {dep_name} 安装失败，已停止自动调试。"
+                                f"请手动安装后重试：pip install {install_hint}"
+                            ),
+                        }
+                        break
+                    elif ev == "dep_conflict":
+                        # 模块被另一个同名发行版占据（如 barcode 被 DNA 工具包占用），
+                        # 自动覆盖会互相破坏文件，必须人工卸载。
+                        failed_deps.add(dep_name)
+                        fatal = {
+                            "event": "debug_blocked",
+                            "round": round_no,
+                            "dep": dep_name,
+                            "reason": str(dep_event.get("message") or ""),
+                            "message": str(dep_event.get("message") or ""),
+                        }
+                        break
+                if fatal is not None:
+                    return fatal, events
+            return None, events
 
         for round_num in range(1, max_rounds + 1):
             # ── 每轮开始前检查停止标志（全局标志 + stop_event 双重保障）──
@@ -1013,26 +1285,50 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
 
             yield {"event": "round_start", "round": round_num, "max": max_rounds}
 
-            # ── ① 执行 ──
-            exec_task = asyncio.create_task(
-                self.sandbox_execute(current_code, test_input, tool_id)
-            )
-            exec_done = False
-            exec_result = None
-            while not exec_done:
+            # ── ⓿ 依赖（系统自动，LLM 不参与）──
+            fatal, dep_events = await _install_round_deps(current_code, round_num)
+            for dep_event in dep_events:
                 if stop_event and stop_event.is_set():
-                    exec_task.cancel()
-                    try:
-                        await asyncio.wait_for(exec_task, timeout=2.0)
-                    except (asyncio.TimeoutError, asyncio.CancelledError):
-                        pass
-                    yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试（执行已中断）"}
+                    yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试"}
                     return
-                try:
-                    exec_result = await asyncio.wait_for(asyncio.shield(exec_task), timeout=0.1)
-                    exec_done = True
-                except asyncio.TimeoutError:
-                    continue
+                yield dep_event
+            if fatal is not None:
+                yield fatal
+                await self._write_debug_log(tool_id, timestamp, debug_log_entries, success=False, final_round=round_num)
+                return
+
+            # ── ① 执行（安全审查未通过时跳过，用合成失败结果驱动 LLM 修复）──
+            if skip_exec_for_security:
+                exec_result = {
+                    "exit_code": 1,
+                    "stdout": json.dumps({
+                        "status": "failed",
+                        "message": "安全审查未通过，已跳过执行",
+                        "error": "SecurityViolation",
+                    }, ensure_ascii=False),
+                    "stderr": "安全审查未通过，已跳过执行，请修复违规代码",
+                    "success": False,
+                }
+            else:
+                exec_task = asyncio.create_task(
+                    self.sandbox_execute(current_code, test_input, tool_id)
+                )
+                exec_done = False
+                exec_result = None
+                while not exec_done:
+                    if stop_event and stop_event.is_set():
+                        exec_task.cancel()
+                        try:
+                            await asyncio.wait_for(exec_task, timeout=2.0)
+                        except (asyncio.TimeoutError, asyncio.CancelledError):
+                            pass
+                        yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试（执行已中断）"}
+                        return
+                    try:
+                        exec_result = await asyncio.wait_for(asyncio.shield(exec_task), timeout=0.1)
+                        exec_done = True
+                    except asyncio.TimeoutError:
+                        continue
 
             if stop_event and stop_event.is_set():
                 yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试"}
@@ -1062,6 +1358,18 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
 
             yield {"event": "exec_result", "round": round_num, "stdout": exec_result["stdout"], "stderr": exec_result["stderr"], "success": success}
 
+            # ── ②b 运行时安全事件上报 ──
+            if isinstance(output_data, dict) and output_data.get("_security_violations"):
+                _rt = output_data["_security_violations"]
+                yield {
+                    "event": "security_violation", "round": round_num, "runtime": True,
+                    "violations": [
+                        {"rule": "RUNTIME", "severity": "warn", "message": str(m), "line": 0, "snippet": ""}
+                        for m in _rt
+                    ],
+                    "message": f"运行时记录到 {len(_rt)} 项安全事件",
+                }
+
             if success:
                 yield {"event": "done", "round": round_num, "success": True, "code": current_code, "message": f"调试成功 (第{round_num}轮)"}
                 await self._write_debug_log(tool_id, timestamp, debug_log_entries, success=True, final_round=round_num)
@@ -1069,31 +1377,63 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
 
             # ── ③ 系统自动处理依赖（LLM 不参与）──
             dep_feedback = ""
-            if output_data and output_data.get("error") == "ModuleNotFoundError":
-                missing = output_data.get("missing_module", "")
-                if missing:
-                    install_ok = False
-                    install_reason = ""
-                    async for dep_event in self.install_deps_stream(tool_id, [missing], stop_event=stop_event):
-                        if stop_event and stop_event.is_set():
-                            yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试"}
-                            return
-                        yield dep_event
-                        if dep_event.get("event") == "dep_installed":
-                            install_ok = True
-                        elif dep_event.get("event") == "dep_failed":
-                            install_ok = False
-                            install_reason = dep_event.get("reason", "")
-                        elif dep_event.get("event") == "pip_analysis":
-                            a = dep_event.get("analysis", {})
-                            if a:
-                                install_reason += f" [分析: {a.get('reason', '')}]"
+            # 缺依赖识别：不能只看 error 字段 —— 生成的工具代码强制带
+            # `try/except Exception`，只要 import 写在 execute() 里，异常就会被
+            # 工具自己吞掉，只剩 message 里的一句 "No module named 'x'"。
+            missing = extract_missing_module(output_data, str(exec_result.get("stderr") or ""))
+            if missing and missing not in installed_deps:
+                install_ok = False
+                install_reason = ""
+                fatal_dep: dict | None = None
+                async for dep_event in self.install_deps_stream(tool_id, [missing], stop_event=stop_event):
+                    if stop_event and stop_event.is_set():
+                        yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试"}
+                        return
+                    yield dep_event
+                    ev = dep_event.get("event")
+                    if ev == "dep_installed":
+                        install_ok = True
+                        installed_deps.add(missing)
+                    elif ev == "dep_already":
+                        install_ok = True
+                        installed_deps.add(missing)
+                    elif ev == "dep_failed":
+                        install_reason = dep_event.get("reason", "")
+                        fatal_dep = {
+                            "event": "debug_blocked",
+                            "round": round_num,
+                            "dep": missing,
+                            "reason": str(install_reason)[-800:],
+                            "message": (
+                                f"依赖 {missing} 安装失败，已停止自动调试。"
+                                f"请手动安装后重试：pip install {pip_name_for(missing)}"
+                            ),
+                        }
+                    elif ev == "dep_conflict":
+                        fatal_dep = {
+                            "event": "debug_blocked",
+                            "round": round_num,
+                            "dep": missing,
+                            "reason": str(dep_event.get("message") or ""),
+                            "message": str(dep_event.get("message") or ""),
+                        }
+                    elif ev == "pip_analysis":
+                        a = dep_event.get("analysis", {})
+                        if a:
+                            install_reason += f" [分析: {a.get('reason', '')}]"
 
-                    if install_ok:
-                        dep_feedback = f"\n[系统已自动安装 {missing}，请保留现有 import，修复其他代码问题]"
-                    else:
-                        failed_deps.add(missing)
-                        dep_feedback = f"\n[依赖 {missing} 安装失败: {install_reason}。该依赖不可用，请换替代方案]"
+                if fatal_dep is not None:
+                    # 装不上就别再让 LLM 换库兜圈子（那是死循环的主因）
+                    failed_deps.add(missing)
+                    yield fatal_dep
+                    await self._write_debug_log(tool_id, timestamp, debug_log_entries, success=False, final_round=round_num)
+                    return
+
+                if install_ok:
+                    dep_feedback = f"\n[系统已自动安装 {missing}，请保留现有 import，修复其他代码问题]"
+                else:
+                    failed_deps.add(missing)
+                    dep_feedback = f"\n[依赖 {missing} 安装失败: {install_reason}。该依赖不可用，请换替代方案]"
 
             # ── ④ LLM 分析并修复代码 ──
             if round_num >= max_rounds:
@@ -1111,7 +1451,8 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
             # ── 构建本轮执行摘要（用于日志）──
             # 脱敏：以下内容会随 Prompt 发给第三方模型服务商，
             # 一旦 API Key 混入就无法撤回，因此必须在此拦截。
-            from core.security.secrets import redact_for_prompt as _redact, scrub_mapping as _scrub_mapping
+            from core.security.secrets import redact_for_prompt as _redact
+            from core.security.secrets import scrub_mapping as _scrub_mapping
 
             _safe_test_input = json.dumps(
                 _scrub_mapping(test_input), ensure_ascii=False, indent=2
@@ -1137,7 +1478,7 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
 stdout: {_safe_stdout}
 stderr: {_safe_stderr}
 === END RESULT ===
-{dep_feedback}
+{dep_feedback}{security_feedback}
 
 请分两部分输出，严格使用以下格式：
 
@@ -1293,6 +1634,27 @@ stderr: {_safe_stderr}
                     "message": f"LLM 返回代码过短（{len(code_text)} 字符），跳过本轮。LLM 实际返回: {llm_raw}",
                 }
                 continue
+
+            # ── ⑤b 静态安全审查（LLM 新代码）──
+            # block 级违规：不采纳这段代码，把违规反馈给 LLM 重新生成
+            _new_violations = _review(code_text)
+            _new_blocks = _blocks(_new_violations)
+            if _new_blocks:
+                yield {
+                    "event": "security_violation", "round": round_num,
+                    "violations": [v.to_dict() for v in _new_blocks],
+                    "message": f"LLM 生成代码存在 {len(_new_blocks)} 项安全违规，已驳回",
+                }
+                security_feedback = (
+                    "\n[安全审查] 上次修改后的代码仍违反安全策略，必须修复以下违规"
+                    "（本地文件操作/系统调用只能通过 core API 完成）:\n"
+                    + "\n".join(f"- {v.message}（第 {v.line} 行）" for v in _new_blocks)
+                )
+                continue  # 不更新 current_code，下一轮继续修
+
+            # 通过审查：清除安全反馈，恢复正常执行
+            security_feedback = ""
+            skip_exec_for_security = False
 
             current_code = code_text
             yield {"event": "code_updated", "round": round_num, "code": current_code}

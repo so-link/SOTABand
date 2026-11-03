@@ -494,7 +494,7 @@ function Step2Review() {
       </h3>
       <p className="text-sm text-maia-text-secondary mb-4">
         {isEditMode
-          ? <>正在编辑已有 Agent <span className="text-amber-500">{editingAgentName || editingAgentId}</span>，以下是其现有规范文档，可直接修改后重新生成代码。</>
+          ? <>正在编辑已有 Agent <span className="text-amber-500">{editingAgentName || editingAgentId}</span>，以下是其现有规范文档，可直接修改后重新生成代码。注册时会更新该 Agent 并把版本号 +1，不会新增重复 Agent。</>
           : '以下是 AI 生成的 Agent 规范文档，你可以直接编辑修改。'}
       </p>
 
@@ -707,7 +707,7 @@ function Step3Verify() {
 // ── Step 4: 完成 ─────────────────────────────────────────────
 
 function Step4Done() {
-  const { registeredId, reset } = useAgentEditorStore()
+  const { registeredId, reset, lastRegisterUpdated, lastRegisterVersion } = useAgentEditorStore()
   const setActiveView = useUIStore((s) => s.setActiveView)
 
   return (
@@ -719,7 +719,7 @@ function Step4Done() {
       </div>
 
       <h3 className="text-lg font-semibold text-maia-text-heading mb-2 tracking-wide">
-        Agent 已就绪！
+        {lastRegisterUpdated ? 'Agent 已更新' : 'Agent 已就绪！'}
       </h3>
 
       <Card className="border-maia-border mt-4">
@@ -729,9 +729,15 @@ function Step4Done() {
               <span className="text-maia-text-muted">Agent ID</span>
               <span className="font-mono text-maia-text">{registeredId}</span>
             </div>
+            {lastRegisterVersion && (
+              <div className="flex justify-between text-xs">
+                <span className="text-maia-text-muted">版本</span>
+                <span className="font-mono text-maia-text">v{lastRegisterVersion}</span>
+              </div>
+            )}
             <div className="flex justify-between text-xs">
               <span className="text-maia-text-muted">状态</span>
-              <Badge variant="success">已注册</Badge>
+              <Badge variant="success">{lastRegisterUpdated ? '已更新' : '已注册'}</Badge>
             </div>
           </div>
         </CardBody>

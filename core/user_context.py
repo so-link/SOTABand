@@ -166,3 +166,25 @@ def reset_cache() -> None:
     """清空缓存（供测试或切换用户时使用）"""
     global _cached_user_id
     _cached_user_id = None
+
+
+def resolve_owner_id(ctx=None) -> str:
+    """解析资源的归属标识（owner 键）。
+
+    8.1/8.2 引入「人身份」（``users.id``，UUID）后，资源归属应统一使用该身份，
+    否则会出现「机器身份 ``local-xxxx``」与「人身份 UUID」两套键互不相通的问题：
+
+    - 多用户共用一台机器时，彼此能看到 / 删除对方的数据集；
+    - 共享数据集时，接收方按 UUID 身份安装，而数据集过滤仍按 ``local-xxxx``，
+      导致接收方看不到已共享的数据集。
+
+    规则：
+
+    - 已认证请求（传入 ``AuthContext``）→ 使用 ``ctx.user_id``（UUID）；
+    - 未认证 / 无会话（CLI、Agent 子进程、后台任务）→ 回退到机器身份
+      :func:`get_current_user_id`（其优先读取 ``SOTABAND_USER_ID`` 环境变量，
+      因此工具子进程若被注入该变量，会自然拿到发起方的 UUID）。
+    """
+    if ctx is not None and getattr(ctx, "user_id", None):
+        return str(ctx.user_id)
+    return get_current_user_id()

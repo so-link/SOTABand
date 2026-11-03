@@ -15,6 +15,25 @@ import { apiFetchRaw, apiGet, apiPost, apiUpload, assertOk } from './client'
  * `apiFetchRaw` —— 它们需要拿 `res.body` 的 reader，不能先解析成 JSON。
  */
 
+/** 一个引用方（Agent 或其它工具） */
+export interface ToolReferenceItem {
+  id: string
+  name: string
+  role?: string
+  /** 引用途径：flow（Agent 流程/API）、text（正文【【】】）、code（_call_tool 调用） */
+  via: string[]
+  /** 是否显式传了被切换的参数；null 表示无法判断（仅正文引用） */
+  passes_param: boolean | null
+}
+
+export interface ToolReferences {
+  tool_id: string
+  param: string
+  agents: ToolReferenceItem[]
+  tools: ToolReferenceItem[]
+  total: number
+}
+
 function extractIdName(md: string) {
   const idMatch = md.match(/^id:\s*(.+)$/m)
   const nameMatch = md.match(/^name:\s*(.+)$/m)
@@ -160,17 +179,18 @@ export const toolApi = {
     return apiPost<unknown>('/api/tool/auto-debug/stop', { tool_id: toolId })
   },
 
-  async register(
-    specMd: string,
-    code: string,
-    testInputs: Record<string, string>,
-    demandDesc: string = '',
-    referenceCode: string = '',
-    tags: string[] = []
-  ) {
+  /**
+   * 注册工具。
+   *
+   * baseToolId：编辑已发布工具时传入原工具 id，作为注册的权威身份。
+   * 不传时退回 MD 里的 id（新建工具的旧行为）——否则重新生成文档
+   * 改掉了 frontmatter 的 id，就会多出一个重复工具。
+   */
+  async register(specMd: string, code: string, testInputs: Record<string, string>, demandDesc: string = '', referenceCode: string = '', tags: string[] = [], baseToolId?: string): Promise<{ tool_id: string; entry: Record<string, unknown>; updated?: boolean; version?: string; previous_version?: string }> {
     const { toolId, toolName } = extractIdName(specMd)
-    return apiPost<{ tool_id: string; entry: Record<string, unknown> }>('/api/tool/register', {
+    return apiPost<{ tool_id: string; entry: Record<string, unknown>; updated?: boolean; version?: string; previous_version?: string }>('/api/tool/register', {
       specMd, code, toolId, toolName, testData: testInputs, demandDesc, referenceCode, tags,
+      ...(baseToolId ? { baseToolId } : {}),
     })
   },
 
@@ -235,6 +255,63 @@ export const toolApi = {
   },
 
   /** 读取文档中的表格结构，供前端渲染可编辑表单 */
+  /**
+   * 切换某个参数的「必填 / 可选」。
+   *
+   * 确定性路径（不调 LLM）：后端只改 MD 表格里那一格，并同步 registry 的
+   * param_meta —— 对话 Agent 每次请求都读 param_meta，因此切换后立即生效，
+   * 既不用重新生成工具，也不用重启 Agent。
+   */
+  async setParamRequired(params: {
+    toolId: string
+    name: string
+    required: boolean
+    specMd?: string
+    save?: boolean
+  }): Promise<{
+    tool_id: string
+    name: string
+    required: boolean
+    spec_md: string
+    params: Array<Record<string, unknown>>
+    changed: number
+    saved: boolean
+    references: ToolReferences
+  }> {
+    return apiPost<{
+      tool_id: string
+      name: string
+      required: boolean
+      spec_md: string
+      params: Array<Record<string, unknown>>
+      changed: number
+      saved: boolean
+      references: ToolReferences
+    }>(
+      `/api/tool/${encodeURIComponent(params.toolId)}/param-required`,
+      {
+        name: params.name,
+        required: params.required,
+        spec_md: params.specMd || '',
+        save: params.save ?? true,
+      }
+    )
+  },
+
+  /** 引用体检：谁在用这个工具（Agent 流程/API、其它工具），纯只读 */
+  async getToolReferences(toolId: string, param: string = ''): Promise<ToolReferences> {
+    const q = param ? `?param=${encodeURIComponent(param)}` : ''
+    return apiGet<ToolReferences>(`/api/tool/${encodeURIComponent(toolId)}/references${q}`)
+  },
+
+  /** 开关：执行前是否按 param_meta.required 做必填拦截（默认开启） */
+  async setEnforceRequired(toolId: string, enabled: boolean): Promise<{ tool_id: string; enforce_required: boolean }> {
+    return apiPost<{ tool_id: string; enforce_required: boolean }>(
+      `/api/tool/${encodeURIComponent(toolId)}/enforce-required`,
+      { enabled }
+    )
+  },
+
   async getSpecTable(toolId: string, specMd: string = ''): Promise<SpecTable> {
     return apiPost<SpecTable>(
       `/api/tool/${encodeURIComponent(toolId)}/spec-table`,

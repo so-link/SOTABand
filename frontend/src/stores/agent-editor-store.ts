@@ -64,6 +64,10 @@ interface AgentEditorState {
   generatedCode: string
   sandboxResults: Record<string, unknown> | null
   registeredId: string | null
+  /** 上次注册是否命中了已有 Agent（原地更新，而非新增一条） */
+  lastRegisterUpdated: boolean
+  /** 上次注册后的版本号，用于完成页展示 */
+  lastRegisterVersion: string
   isGenerating: boolean
   error: string | null
   // ── 编辑已有 Agent 模式 ──
@@ -126,6 +130,8 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
   generatedCode: '',
   sandboxResults: null,
   registeredId: null,
+  lastRegisterUpdated: false,
+  lastRegisterVersion: '',
   isGenerating: false,
   error: null,
   editingAgentId: null,
@@ -161,6 +167,8 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
       generatedCode: '',
       sandboxResults: null,
       registeredId: null,
+      lastRegisterUpdated: false,
+      lastRegisterVersion: '',
       error: null,
       apiItems: [],
       toolItems: [],
@@ -183,6 +191,8 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
       baselineMd: specMd,
       sandboxResults: null,
       registeredId: agentId,
+      lastRegisterUpdated: false,
+      lastRegisterVersion: '',
       error: null,
       isGenerating: false,
       saveState: 'idle',
@@ -357,20 +367,31 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
   },
 
   registerAgent: async () => {
-    const { generatedMd, generatedCode } = get()
+    const { generatedMd, generatedCode, editingAgentId } = get()
     if (!generatedMd.trim()) return
 
     set({ isGenerating: true, error: null })
     try {
-      const result = await agentApi.register(generatedMd, generatedCode, get().description)
+      // 编辑态必须把原 Agent id 作为权威身份传过去：MD 里的 id 可能已被
+      // 「返回修改需求 → 重新生成文档」改掉，只按 MD 推导会新增重复 Agent。
+      const result = await agentApi.register(
+        generatedMd, generatedCode, get().description, editingAgentId || undefined,
+      )
       set({
         registeredId: result.agent_id,
         step: 4,
         isGenerating: false,
+        lastRegisterUpdated: Boolean(result.updated),
+        lastRegisterVersion: result.version || '',
       })
       // 刷新左侧 Agent 空间列表
       const { useResourceStore } = await import('@/stores/resource-store')
-      useResourceStore.getState().fetchAgentsFromApi()
+      await useResourceStore.getState().fetchAgentsFromApi()
+      // 编辑态：刷新后按同一 id 重新选中，让详情页重取 MD/代码与新版本徽标
+      if (editingAgentId) {
+        const fresh = useResourceStore.getState().agentResources.find(a => a.id === result.agent_id)
+        if (fresh) useResourceStore.getState().selectResource(fresh)
+      }
     } catch (e) { set({ error: String(e), isGenerating: false }) }
   },
 }))

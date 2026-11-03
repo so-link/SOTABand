@@ -37,6 +37,7 @@ export class ApiChatService implements IChatService {
     let buffer = ''
     let fullContent = ''
     let pendingCards: InlineCard[] = []
+    let currentEvent = ''
 
     try {
       while (true) {
@@ -49,10 +50,8 @@ export class ApiChatService implements IChatService {
         const parts = buffer.split('\n')
         buffer = parts.pop() || ''
 
-        let currentEvent = ''
-
         for (const line of parts) {
-          if (line === '') {
+          if (line.trim() === '') {
             currentEvent = ''
             continue
           }
@@ -89,6 +88,9 @@ export class ApiChatService implements IChatService {
                   break
 
                 case 'done':
+                  if (!fullContent.trim() && pendingCards.length === 0) {
+                    throw new Error('Agent 未返回内容')
+                  }
                   yield {
                     id: payload.messageId || `msg-${Date.now()}`,
                     role: 'agent',
@@ -119,6 +121,9 @@ export class ApiChatService implements IChatService {
             }
           }
         }
+      }
+      if (!fullContent.trim() && pendingCards.length === 0) {
+        throw new Error('连接已结束，但 Agent 未返回内容')
       }
     } finally {
       this.currentAbortController = null

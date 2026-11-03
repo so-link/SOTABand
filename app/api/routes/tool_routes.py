@@ -10,7 +10,7 @@ import time as _time
 from datetime import datetime
 from pathlib import Path as _Path
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -24,7 +24,16 @@ from core.resource.spec_outline import (
     parse_markdown_outline, replace_node_content, outline_context_for_prompt,
     parse_table, update_table_cell, replace_table_in_node,
 )
-from core.resource.registry.tool_registry import ToolRegistry
+from core.resource.registry.tool_registry import ToolRegistry, bump_patch_version
+from app.api.deps import get_optional_auth
+from core.auth.context import AuthContext
+from core.user_context import resolve_owner_id
+from core.resource.spec_param_meta import (
+    preserve_manual_required,
+    set_param_required as set_md_param_required,
+    sync_param_meta,
+)
+from core.resource.tool_usage import scan_references
 from core.resource.discoverer.tool_discoverer import ToolDiscoverer
 
 router = APIRouter()
@@ -77,6 +86,10 @@ created: {日期}
 | `file` | `{"file_path":"/path/to/result.csv"}` | 下载链接 |
 
 ## 4. 依赖环境
+
+<!-- 「依赖」列必须写 pip 安装名（不是 import 名）：例如 python-barcode（import barcode）、
+     opencv-python（import cv2）、pillow（import PIL）。import 名与包名不同时在「用途」里注明。
+     只用标准库/系统内置则把表格留空。平台按这一列安装依赖，写错会装错包。 -->
 
 | 依赖 | 版本 | 用途 |
 |------|------|------|
@@ -247,6 +260,27 @@ async def test_tool(
         spec = {"raw_md": spec_md, "id": tool_id, "name": tool_name}
         code = await builder.build(spec)
 
+    # ── 静态安全审查门禁 ──
+    from core.security.review import review_code as _review, block_violations as _blocks
+    from config.settings import settings as _settings
+
+    _violations = _review(code) if _settings.security.review_mode != "off" else []
+    _blocks_found = _blocks(_violations)
+    if _blocks_found and _settings.security.review_mode == "enforce":
+        async def _denied_stream():
+            yield {
+                "event": "security_violation",
+                "data": _json.dumps({
+                    "violations": [v.to_dict() for v in _blocks_found],
+                    "message": f"安全审查未通过（{len(_blocks_found)} 项 block 级违规），已阻止执行",
+                }, ensure_ascii=False),
+            }
+            yield {"event": "error", "data": _json.dumps({
+                "message": "安全审查未通过，代码未执行",
+                "violations": [v.to_dict() for v in _blocks_found],
+            }, ensure_ascii=False)}
+        return EventSourceResponse(_denied_stream())
+
     from core.executor.tool_executor import ToolExecutor
 
     queue: _asyncio.Queue = _asyncio.Queue()
@@ -321,51 +355,14 @@ async def check_deps(tool_id: str):
 
     code = registry.read_code_text(tool_id)
     if not code.strip():
-        return {"tool_id": tool_id, "deps": [], "missing": [], "install": [], "python": "", "env": ""}
+        return {"tool_id": tool_id, "deps": [], "missing": [], "install": [],
+                "pairs": [], "python": "", "env": ""}
 
-    deps = builder._extract_imports(code)
+    # 统一走 core.deps：import 名 ↔ pip 包名的映射只有一份，
+    # 避免检测用一套、安装用另一套导致 "装了还缺 / 每次都重装"。
+    from core.deps import check_tool_dependencies
 
-    from core.executor.tool_executor import ToolExecutor
-    import subprocess as _sp
-
-    python_exe = ToolExecutor._get_python_exe(tool_id)
-    env_label = "tool_venv" if ".venv" in python_exe else (
-        "project_venv" if "/venv/" in python_exe else "system"
-    )
-
-    # import 名 → pip 包名 的常见映射。
-    # 检测用 import 名（如 PIL），安装却必须用 pip 包名（pillow），
-    # 否则 pip install PIL 会失败。
-    _PIP_NAME = {
-        "PIL": "pillow", "cv2": "opencv-python", "sklearn": "scikit-learn",
-        "skimage": "scikit-image", "yaml": "pyyaml", "dotenv": "python-dotenv",
-        "bs4": "beautifulsoup4", "fit_zoo": "scipy", "dateutil": "python-dateutil",
-        "serial": "pyserial", "OpenSSL": "pyopenssl", "jwt": "pyjwt",
-        "win32com": "pywin32", "soundfile": "soundfile", "pkg_resources": "setuptools",
-    }
-
-    missing: list[str] = []
-    for mod in deps:
-        try:
-            proc = _sp.run(
-                [python_exe, "-c", f"import {mod}"],
-                capture_output=True, text=True, timeout=15,
-            )
-            if proc.returncode != 0:
-                missing.append(mod)
-        except Exception:
-            # 检测本身失败（超时/解释器不可用）不计入缺失，避免误报
-            continue
-
-    return {
-        "tool_id": tool_id,
-        "deps": deps,
-        "missing": missing,
-        # 安装时使用的 pip 包名（与 missing 一一对应）
-        "install": [_PIP_NAME.get(m, m) for m in missing],
-        "python": python_exe,
-        "env": env_label,
-    }
+    return check_tool_dependencies(tool_id, code)
 
 
 @router.post("/{tool_id}/install-deps")
@@ -462,10 +459,56 @@ async def stop_auto_debug(req: dict):
 # ── 注册 v2 — 不再强制沙箱测试 ──
 
 @router.post("/register")
-async def register_tool(req: RegisterToolRequest):
-    """注册工具"""
-    spec = {"raw_md": req.spec_md, "id": req.tool_id, "name": req.tool_name}
+async def register_tool(
+    req: RegisterToolRequest,
+    ctx: AuthContext | None = Depends(get_optional_auth),
+):
+    """注册工具；已存在时原地更新（编辑已发布工具后重新生成走这里）。
+
+    身份取自 ``baseToolId``（前端编辑态的原工具 id），而不是 MD 正文。
+    历史上 id 只由 MD 里的 ``id:`` 行推导，一旦重新生成文档让它变了，
+    就会 append 出一个重复工具 —— 因此这里以 baseToolId 为权威。
+    """
+    target_id = (req.base_tool_id or req.tool_id or "").strip()
+    if not target_id or re.search(r"[\\/\s]|\.\.", target_id):
+        raise HTTPException(400, f"工具 ID 非法: {target_id!r}")
+
+    existing = await registry.get(target_id)
+    updated = existing is not None
+
+    # 版本：显式指定 > 更新时 patch+1 > 新建 0.1.0
+    previous_version = str((existing or {}).get("version") or "")
+    if req.version.strip():
+        version = req.version.strip()
+    elif updated:
+        version = bump_patch_version(previous_version) or previous_version or "0.1.0"
+    else:
+        version = "0.1.0"
+
+    # 名称：编辑时若前端没有解析到有效名称，别把已有名称覆盖成占位值
+    name = (req.tool_name or "").strip()
+    if updated and (not name or name == "Custom Tool"):
+        name = str((existing or {}).get("name") or target_id)
+    name = name or target_id
+
+    # 标签：编辑时未显式传就沿用旧标签，避免被清空
+    tags = req.tags or list((existing or {}).get("tags") or [])
+
+    spec = {"raw_md": req.spec_md, "id": target_id, "name": name}
     code = req.code or (await builder.build(spec))
+
+    # ── 静态安全审查门禁 ──
+    from core.security.review import review_code as _review, block_violations as _blocks
+    from config.settings import settings as _settings
+
+    _violations = _review(code) if _settings.security.review_mode != "off" else []
+    _blocks_found = _blocks(_violations)
+    if _blocks_found and _settings.security.review_mode == "enforce":
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=400, content={
+            "detail": f"安全审查未通过：{len(_blocks_found)} 项 block 级违规，注册被拒绝",
+            "violations": [v.to_dict() for v in _blocks_found],
+        })
 
     param_meta = []
     try:
@@ -475,32 +518,47 @@ async def register_tool(req: RegisterToolRequest):
     if not param_meta:
         param_meta = builder._parse_spec_inputs(req.spec_md)
 
+    # 参数名集合没变时，沿用使用者在界面上手动设置的「必填/可选」，
+    # 否则人工微调会在每次重新注册后被 LLM 抽取结果改回去。
+    param_meta = preserve_manual_required(param_meta, (existing or {}).get("param_meta"))
+
     # 解析多模式（单模式工具返回空列表）
     modes = builder.parse_modes(req.spec_md)
 
     resource = {
-        "id": req.tool_id, "name": req.tool_name, "version": req.version,
-        "raw_md": req.spec_md, "code": code, "tags": req.tags,
+        "id": target_id, "name": name, "version": version,
+        "raw_md": req.spec_md, "code": code, "tags": tags,
         "param_meta": param_meta,
         "modes": modes,
     }
-    tool_id = await registry.register(resource)
+    tool_id = await registry.register(resource, owner=resolve_owner_id(ctx))
 
-    if hasattr(req, 'demand_desc') and req.demand_desc:
+    if req.demand_desc:
         (registry._get_def_dir() / f"{tool_id}-demand.md").write_text(req.demand_desc, encoding="utf-8")
 
     # 保存参考代码为独立文件
-    if hasattr(req, 'reference_code') and req.reference_code:
+    if req.reference_code:
         (registry._get_def_dir() / f"{tool_id}-reference.md").write_text(req.reference_code, encoding="utf-8")
 
     entry = await registry.get(tool_id)
 
-    # 异步 LLM 自动生成标签（不阻塞注册响应）
-    if not req.tags:
+    # 异步 LLM 自动生成标签（仅新建且无标签时；编辑时不能覆盖用户标签）
+    if not tags and not updated:
         import asyncio
-        asyncio.create_task(_auto_generate_tags(tool_id, req.tool_name, req.spec_md))
+        asyncio.create_task(_auto_generate_tags(tool_id, name, req.spec_md))
 
-    return {"tool_id": tool_id, "entry": entry}
+    response = {
+        "tool_id": tool_id,
+        "entry": entry,
+        "updated": updated,
+        "version": version,
+        "previous_version": previous_version,
+    }
+    # warn 级违规随注册结果返回（block 级已在上方拦截）
+    _warns = [v for v in _violations if v.severity == "warn"]
+    if _warns:
+        response["security_warnings"] = [v.to_dict() for v in _warns]
+    return response
 
 
 async def _auto_generate_tags(tool_id: str, name: str, spec_md: str):
@@ -643,14 +701,13 @@ async def remove_workspace_tool(tool_id: str):
 # ── 列表 / 详情 / 调用 / 搜索 / 删除 ──
 
 @router.get("/list")
-async def list_tools():
+async def list_tools(ctx: AuthContext | None = Depends(get_optional_auth)):
     tools = await registry.list_all()
     # is_user_generated：是否为使用者在本地生成的工具。
     # registry 中的内置示例工具没有 owner 字段；用户通过编辑器生成/注册的
-    # 工具会带 owner（注册时由 user_context 注入）。前端据此显示
+    # 工具会带 owner（注册时由认证上下文注入）。前端据此显示
     # 「⭐ 用户本地工具」标记，而不是把所有工具都当作本地工具。
-    from core.user_context import get_current_user_id
-    me = get_current_user_id()
+    me = resolve_owner_id(ctx)
     for t in tools:
         t["is_user_generated"] = bool(t.get("owner"))
     return {"tools": tools, "current_user": me}
@@ -1025,6 +1082,12 @@ async def update_table_cell_api(tool_id: str, req: UpdateTableCellRequest):
             spec_path.write_text(updated_md, encoding="utf-8")
         except Exception:
             pass
+        # 改的若是「必填」列，registry 的 param_meta 必须跟着走 —— 否则
+        # 对话 Agent 仍按旧必填列表追问（它只读 param_meta，不读 MD）。
+        if "必填" in (req.column or ""):
+            entry = await registry.get(tool_id) or {}
+            params = sync_param_meta(updated_md, entry.get("param_meta"))
+            await registry.update(tool_id, {"param_meta": params})
 
     return {
         "node_id": req.node_id,
@@ -1033,6 +1096,100 @@ async def update_table_cell_api(tool_id: str, req: UpdateTableCellRequest):
         "outline": new_outline.to_dict(),
         "saved": bool(req.save and not is_draft),
     }
+
+
+class ParamRequiredRequest(BaseModel):
+    """切换参数的「必填/可选」（确定性：只改 MD 表格一格 + 同步 param_meta）"""
+    name: str
+    required: bool
+    spec_md: str = ""
+    save: bool = True
+
+
+class EnforceRequiredRequest(BaseModel):
+    """开关：执行前是否由平台按 param_meta.required 拦截"""
+    enabled: bool = True
+
+
+def _write_spec_md(tool_id: str, md: str) -> None:
+    """把 MD 落到私有 definitions（与 save-spec / update-table-cell 一致）。"""
+    spec_path = registry._get_def_dir() / f"{tool_id}.md"
+    spec_path.parent.mkdir(parents=True, exist_ok=True)
+    spec_path.write_text(md, encoding="utf-8")
+
+
+@router.post("/{tool_id}/param-required")
+async def set_tool_param_required(tool_id: str, req: ParamRequiredRequest):
+    """切换某个参数的「必填 / 可选」。
+
+    全程确定性、不调 LLM：定位该参数所在的表格行 → 只改「必填」单元格 →
+    同步 registry 的 ``param_meta``。对话 Agent 每次请求都读 ``param_meta``，
+    因此切换后**下一轮对话立即生效**，既不用重启 Agent 进程，也不用重新生成
+    工具代码。
+    """
+    entry = await registry.get(tool_id)
+    if not entry:
+        raise HTTPException(404, f"Tool '{tool_id}' not found")
+
+    name = (req.name or "").strip()
+    if not name:
+        raise HTTPException(400, "参数名不能为空")
+
+    spec_md = req.spec_md
+    if not spec_md.strip():
+        spec_md, found = registry.read_def_text(tool_id, ".md")
+        if not found:
+            raise HTTPException(404, "该工具尚无规范文档")
+
+    new_md, changed = set_md_param_required(spec_md, name, req.required, tool_id)
+    if changed == 0:
+        raise HTTPException(404, f"未在「输入规范」表格中找到参数 {name!r} 的「必填」列")
+
+    params = sync_param_meta(new_md, entry.get("param_meta"))
+
+    if req.save:
+        await registry.update(tool_id, {"raw_md": new_md, "param_meta": params})
+        try:
+            _write_spec_md(tool_id, new_md)
+        except Exception:
+            pass
+
+    return {
+        "tool_id": tool_id,
+        "name": name,
+        "required": bool(req.required),
+        "spec_md": new_md,
+        "params": params,
+        "changed": changed,
+        "saved": bool(req.save),
+        "references": scan_references(tool_id, entry.get("name") or "", name),
+    }
+
+
+@router.get("/{tool_id}/references")
+async def tool_references(tool_id: str, param: str = ""):
+    """引用体检：谁在用这个工具（Agent 的 flow/apis、其它工具的调用），纯只读。
+
+    改「必填」前先看这里：调用方不会因为必填化而中断，但可能拿不到值。
+    """
+    entry = await registry.get(tool_id)
+    if not entry:
+        raise HTTPException(404, f"Tool '{tool_id}' not found")
+    return scan_references(tool_id, entry.get("name") or "", param)
+
+
+@router.post("/{tool_id}/enforce-required")
+async def set_enforce_required(tool_id: str, req: EnforceRequiredRequest):
+    """开关：执行前是否按 ``param_meta.required`` 做必填拦截（默认开启）。
+
+    存量工具里"param_meta 标必填、但代码本身能容忍空值"的调用方，可能因为
+    开启拦截而变严；遇到兼容问题时用这个接口单独关掉。
+    """
+    entry = await registry.get(tool_id)
+    if not entry:
+        raise HTTPException(404, f"Tool '{tool_id}' not found")
+    await registry.update(tool_id, {"enforce_required": bool(req.enabled)})
+    return {"tool_id": tool_id, "enforce_required": bool(req.enabled)}
 
 
 @router.post("/{tool_id}/spec-table")

@@ -4,7 +4,7 @@ import asyncio
 import re
 import time
 from pathlib import Path
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -17,6 +17,10 @@ from app.api.schemas.agent_schemas import (
 from core.llm.client import create_llm_client
 from core.resource.builder.agent_builder import AgentCodeBuilder
 from core.resource.registry.agent_registry import AgentRegistry
+from core.resource.registry.registry_base import bump_patch_version
+from app.api.deps import get_optional_auth
+from core.auth.context import AuthContext
+from core.user_context import resolve_owner_id
 from core.agent.factory import agent_factory
 
 router = APIRouter()
@@ -182,10 +186,10 @@ async def generate_spec(req: GenerateSpecRequest):
             if not params_desc:
                 params_desc = "（无参数定义）\n"
 
-            # 尝试从工具 MD spec 读取输出格式说明（内置 + 私有目录检索）
+            # 尝试从工具 MD spec 读取输出格式说明（私有优先，否则回落内置）
             from core.resource import paths as _paths
             spec_file = None
-            for _root in _paths.resource_roots():
+            for _root in _paths.read_roots():
                 _cand = _root / "tools" / "definitions" / f"{tr['id']}.md"
                 if _cand.exists():
                     spec_file = _cand
@@ -242,7 +246,10 @@ async def generate_spec(req: GenerateSpecRequest):
         max_tokens=100000,
     )
 
-    return {"spec_md": response.strip()}
+    # 边界归一化：把 flow/apis 里可能出现的「工具显示名」改写成真实工具 id，
+    # 让落库的规范文档从一开始就是 id（历史问题：私有用具查不到 → 显示名入 MD）
+    spec_md = builder.normalize_tool_refs(response.strip())
+    return {"spec_md": spec_md}
 
 
 # 三类 Agent 的 MD 结构约束（role → 提示词片段）
@@ -265,7 +272,9 @@ _ROLE_SPEC_GUIDANCE = {
         "]\n"
         "```\n"
         "- 参数引用语法：`{{input.xxx}}` 引用启动参数；`{{stepN.data.xxx}}` 引用第 N 步输出。\n"
-        "- tool 的值必须是真实存在的工具 id（参考上文工具信息）。"
+        "- tool 的值必须是**上文工具信息里给出的 tool_id**（英文标识）；"
+        "**禁止**写中文显示名（如【【问候程序】】里的 \"问候程序\"），"
+        "显示名只用于正文描述，执行层只认 id。"
     ),
     "web-service": (
         "- role 字段必须为 `web-service`。\n"
@@ -283,7 +292,9 @@ _ROLE_SPEC_GUIDANCE = {
         "]\n"
         "```\n"
         "- 参数引用语法：`{{param.xxx}}` 引用请求参数；`{{stepN.data.xxx}}` 引用第 N 步输出。\n"
-        "- tool 的值必须是真实存在的工具 id（参考上文工具信息）。"
+        "- flow 里 tool 的值必须是**上文工具信息里给出的 tool_id**（英文标识）；"
+        "**禁止**写中文显示名（如【【问候程序】】里的 \"问候程序\"），"
+        "显示名只用于正文描述，执行层只认 id。"
     ),
 }
 
@@ -317,36 +328,73 @@ async def generate_code(req: GenerateCodeRequest):
 
     code = await builder.build(spec)
 
-    # 沙箱测试
-    sandbox = await builder.dry_run(code)
+    # 沙箱测试（带上 role 以校验入口/出口契约）
+    sandbox = await builder.dry_run(code, role=spec.get("role"))
 
     return {"code": code, "sandbox_results": sandbox}
 
 
 @router.post("/register")
-async def register_agent(req: RegisterAgentRequest):
-    """注册 Agent 到资源空间"""
+async def register_agent(
+    req: RegisterAgentRequest,
+    ctx: AuthContext | None = Depends(get_optional_auth),
+):
+    """注册 Agent；已存在时原地更新（编辑已发布 Agent 后重新生成走这里）。
+
+    身份取自 ``baseAgentId``（前端编辑态的原 Agent id），而不是 MD 正文。
+    历史上 id 从 MD 的 ``id:`` 行推导，一旦重新生成文档让它变了就会新增
+    一个重复 Agent —— 因此这里以 baseAgentId 为权威。
+    """
     if not req.spec_md.strip():
         raise HTTPException(400, "specMd 不能为空")
 
-    agent_id = req.agent_id or "custom-agent"
+    target_id = (req.base_agent_id or req.agent_id or "").strip()
+    if not target_id or re.search(r"[\\/\s]|\.\.", target_id):
+        raise HTTPException(400, f"Agent ID 非法: {target_id!r}")
 
-    # 从 MD 中提取 agent-id
-    for line in req.spec_md.split("\n"):
-        if line.startswith("id:") and "---" not in line:
-            agent_id = line.split(":", 1)[1].strip()
-            break
+    # 落库前归一化：flow/apis 里的工具显示名 → 真实工具 id
+    spec_md = builder.normalize_tool_refs(req.spec_md)
+
+    existing = await registry.get(target_id)
+    updated = existing is not None
+
+    # 版本：显式指定 > 更新时 patch+1 > 新建 0.1.0
+    previous_version = str((existing or {}).get("version") or "")
+    if req.version.strip():
+        version = req.version.strip()
+    elif updated:
+        version = bump_patch_version(previous_version) or previous_version or "0.1.0"
+    else:
+        version = "0.1.0"
+
+    # 名称 / 角色：编辑时不要被前端兜底占位值覆盖
+    name = (req.agent_name or "").strip()
+    if updated and (not name or name == "Custom Agent"):
+        name = str((existing or {}).get("name") or target_id)
+    name = name or target_id
+    # 角色：MD 里的 role 是权威（三类 Agent 的入口/出口契约由它决定）；
+    # MD 没写时，更新沿用旧条目，避免被前端兜底的 "task" 降级。
+    role_match = re.search(r"^\s*role\s*:\s*([a-zA-Z_-]+)", spec_md, re.M)
+    if role_match:
+        role = role_match.group(1).strip()
+    elif updated:
+        role = str((existing or {}).get("role") or (req.role or "task"))
+    else:
+        role = (req.role or "").strip() or "task"
+
+    # 标签：编辑时未显式传就沿用旧标签
+    tags = req.tags or list((existing or {}).get("tags") or [])
 
     resource = {
-        "id": agent_id,
-        "name": req.agent_name,
-        "version": req.version,
-        "role": req.role,
-        "raw_md": req.spec_md,
-        "tags": req.tags,
+        "id": target_id,
+        "name": name,
+        "version": version,
+        "role": role,
+        "raw_md": spec_md,
+        "tags": tags,
     }
 
-    registered_id = await registry.register(resource)
+    registered_id = await registry.register(resource, owner=resolve_owner_id(ctx))
     entry = await registry.get(registered_id)
 
     # 保存生成的代码到 implementations 目录
@@ -354,11 +402,11 @@ async def register_agent(req: RegisterAgentRequest):
         impl_dir = registry._get_impl_dir() / registered_id
         impl_dir.mkdir(parents=True, exist_ok=True)
         (impl_dir / "agent.py").write_text(req.code, encoding="utf-8")
-        (impl_dir / "spec.md").write_text(req.spec_md, encoding="utf-8")
+        (impl_dir / "spec.md").write_text(spec_md, encoding="utf-8")
         (impl_dir / "config.yaml").write_text(
-            f"# {req.agent_name} 运行时配置\n"
-            f"role: {req.role}\n"
-            f"version: {req.version}\n",
+            f"# {name} 运行时配置\n"
+            f"role: {role}\n"
+            f"version: {version}\n",
             encoding="utf-8",
         )
 
@@ -370,14 +418,24 @@ async def register_agent(req: RegisterAgentRequest):
     # Web 服务式 Agent：生成 API 说明文档（api.md），随 Agent 一并产出
     _maybe_generate_api_doc(registered_id)
 
-    return {"agent_id": registered_id, "entry": entry}
+    return {
+        "agent_id": registered_id,
+        "entry": entry,
+        "updated": updated,
+        "version": version,
+        "previous_version": previous_version,
+    }
 
 
 def _locate_agent_spec_path(agent_id: str) -> Path | None:
-    """在「内置 + 私有」资源根中定位已有规范文档；不存在返回 None。"""
+    """定位已有规范文档（私有优先，不存在返回 None）。
+
+    私有优先：写入一律落私有根，内置那份是随仓库分发的旧版本，
+    编辑过的 Agent 必须读到私有副本。
+    """
     from core.resource import paths as _paths
 
-    for root in _paths.resource_roots():
+    for root in _paths.read_roots():
         f = root / "agents" / "definitions" / f"{agent_id}.md"
         if f.exists():
             return f
@@ -385,10 +443,10 @@ def _locate_agent_spec_path(agent_id: str) -> Path | None:
 
 
 def _locate_agent_impl_dir(agent_id: str) -> Path | None:
-    """在「内置 + 私有」资源根中定位已有实现目录；不存在返回 None。"""
+    """定位已有实现目录（私有优先，不存在返回 None）。"""
     from core.resource import paths as _paths
 
-    for root in _paths.resource_roots():
+    for root in _paths.read_roots():
         d = root / "agents" / "implementations" / agent_id
         if d.exists():
             return d
@@ -446,7 +504,7 @@ async def get_agent(agent_id: str):
         code = (impl_dir / "agent.py").read_text(encoding="utf-8")
 
     demand_path = None
-    for root in _paths.resource_roots():
+    for root in _paths.read_roots():
         cand = root / "agents" / "definitions" / f"{agent_id}-demand.md"
         if cand.exists():
             demand_path = cand
@@ -639,10 +697,20 @@ async def execute_agent(agent_id: str, req: AgentExecuteRequest):
 
     import json as _json
 
+    # 透传调用方提供的全部参数（task 的启动参数名各不相同，不能只取 content）。
+    # extra="allow" 已在 schema 中开启，这里只滤掉空值，保证「显式传空」与「没传」等价。
+    params = {
+        k: v for k, v in req.model_dump(exclude_unset=True).items()
+        if v not in (None, "")
+    }
+    if not params:
+        # 无参数时给一个空的 content，让 Agent 走自己的「未提供输入」提示分支
+        params = {"content": ""}
+
     async def event_gen():
         seen_done = False
         try:
-            async for event in agent_factory.execute(agent_id, req.content):
+            async for event in agent_factory.execute_stream(agent_id, params=params):
                 ev_type = event.get("event", "content")
                 if ev_type == "done":
                     seen_done = True
@@ -727,16 +795,23 @@ async def get_agent_service(agent_id: str):
         ]
 
     svc = agent_factory.get_service(agent_id)
-    if svc:
-        return {
-            "agent_id": agent_id,
-            "running": True,
-            "host": svc.get("host"),
-            "port": svc.get("port"),
-            "apis": apis,
-        }
+    entry = await registry.get(agent_id)
+    role = agent_factory._normalize_role((entry or {}).get("role"))
+    # 进程在跑但端口尚未上报（依赖导入慢、探测超时、旧版探针失败）时，
+    # 不能直接报"未运行" —— 否则服务明明起来了，界面却显示未启动。
+    alive = agent_factory.is_running(agent_id)
+    running = bool(svc) or (role == "web-service" and alive)
 
-    return {"agent_id": agent_id, "running": False, "host": None, "port": None, "apis": apis}
+    return {
+        "agent_id": agent_id,
+        "running": running,
+        "role": role,
+        "host": (svc or {}).get("host"),
+        "port": (svc or {}).get("port"),
+        # True 表示已拿到真实端口（可用于 API 测试）；False 时请重启 Agent 重试
+        "port_ready": bool(svc),
+        "apis": apis,
+    }
 
 
 class TestApiRequest(BaseModel):
@@ -759,9 +834,16 @@ async def test_agent_api(agent_id: str, req: TestApiRequest):
     # 在 API 定义中查找路径与方法
     entry = await registry.get(agent_id)
     api_def = None
-    base = registry._get_spec_dir()
     spec_path = entry.get("spec_path") if entry else None
-    for cand in ([base / spec_path] if spec_path else []) + [base / f"{agent_id}.md"]:
+    # 同时在内置(resources)与私有(resources-private)规范目录中查找 MD，
+    # 与 Agent 工厂解析保持一致——避免 MD 在内置目录但路由只读私有目录导致的 404。
+    search_dirs = registry.get_spec_search_dirs()
+    cands = []
+    for sd in search_dirs:
+        if spec_path:
+            cands.append(sd / spec_path)
+        cands.append(sd / f"{agent_id}.md")
+    for cand in cands:
         if cand and cand.exists():
             from core.agent.base import AgentSpec, AgentRole
             from core.agent.entrypoint import _parse_role_from_md
@@ -816,7 +898,7 @@ def _load_agent_spec(agent_id: str):
     from core.resource import paths as _paths
 
     candidates = []
-    for root in _paths.resource_roots():
+    for root in _paths.read_roots():
         d = root / "agents" / "definitions"
         if spec_name:
             candidates.append(d / Path(spec_name).name)

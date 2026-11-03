@@ -25,6 +25,8 @@ import json
 import sys
 from pathlib import Path
 
+from core.proc_utils import no_window_kwargs
+
 
 # 常驻 Worker 的宿主脚本：先预热常用重型库，再循环处理任务。
 _WORKER_SCRIPT = r"""
@@ -112,11 +114,15 @@ class ToolRuntime:
 
     @staticmethod
     def _tool_space_dirs() -> list[Path]:
-        """工具空间目录列表（内置 + 私有）。"""
+        """工具空间目录列表（私有在前、内置在后）。
+
+        与 ToolExecutor._tool_space_dirs 保持一致：写入落私有根，故定位也
+        私有优先，否则常驻工具进程加载的还是内置旧代码。
+        """
         try:
             from core.resource import paths as _paths
 
-            return [r / "tools" for r in _paths.resource_roots()]
+            return [r / "tools" for r in _paths.read_roots()]
         except Exception:
             from pathlib import Path as _P
 
@@ -174,6 +180,7 @@ class ToolRuntime:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     env={**__import__("os").environ, **env},
+                    **no_window_kwargs(),
                 )
                 # 等待 ready 事件（预热可能耗时数秒，给足超时）
                 ready = False

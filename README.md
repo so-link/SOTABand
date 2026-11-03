@@ -92,10 +92,14 @@ pip install -e ".[dev]"
 # 3. 检查并修复工具运行环境（自动安装所有工具所需的依赖）
 python scripts/check_tool_env.py --auto
 
-# 4. 启动后端（端口 8001）
+# 4. 初始化 / 升级数据库（创建 13 张业务表；命令幂等，可反复执行）
+#    中文 Windows 需先执行 $env:PYTHONUTF8=1，否则读文件会按 GBK 报错
+python -m alembic upgrade head
+
+# 5. 启动后端（端口 8001）
 uvicorn app.main:app --host 0.0.0.0 --port 8001
 
-# 5. 新终端，激活 venv 后安装前端依赖并启动
+# 6. 新终端，激活 venv 后安装前端依赖并启动
 cd frontend && npm install && npm run dev
 ```
 
@@ -122,7 +126,32 @@ python scripts/check_tool_env.py --auto
 
 脚本会扫描 `resources/tools/implementations/` 下所有工具的 `tool.py`，提取外部依赖，检查安装状态，并自动安装缺失的 Python 包。
 
+### 数据库迁移与部署
 
+后端使用 Alembic 管理数据库结构（SQLite / PostgreSQL 通用）。连接串来自
+`config.settings.storage.database_url`，可用环境变量 `DATABASE_URL` 覆盖
+（`migrations/env.py` 里注入，不在 `alembic.ini` 里配置，避免「应用连 A 库、
+迁移改 B 库」）。
+
+| 命令 | 作用 |
+|---|---|
+| `python -m alembic upgrade head` | 创建 / 升级到最新版本（13 张业务表，幂等） |
+| `python -m alembic current` | 查看当前迁移版本 |
+| `python -m alembic check` | 检查模型与迁移是否一致（无漂移） |
+
+> ⚠️ **首次部署或每次升级后必须执行 `upgrade head`**，否则调用接口会报「表不存在」。
+> 后端进程本身**不会**自动建表（仅测试环境用 `create_all` 代建）。
+
+#### Docker 部署（含 PostgreSQL，推荐）
+
+```powershell
+cd E:\Learn\SOTABand
+docker compose up -d --build      # 后端容器启动时自动执行 alembic upgrade head
+docker compose ps                 # db / backend / frontend 均应为 running/healthy
+```
+
+打开 http://localhost:5173。Docker 模式下迁移由容器入口脚本自动完成，无需手动执行；
+上面的本机 `uvicorn`（SQLite）方式则必须手动 `python -m alembic upgrade head`。
 
 ## 开发状态
 

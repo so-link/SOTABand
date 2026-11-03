@@ -12,11 +12,14 @@
 import json
 import asyncio
 import threading
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sse_starlette.sse import EventSourceResponse
 
+from app.api.deps import get_optional_auth
 from app.api.schemas.chat_schemas import ChatRequest
 from core.agent.factory import agent_factory
+from core.auth.context import AuthContext
+from core.user_context import resolve_owner_id
 
 # ── 系统默认交互 Agent 的标识 ──
 # 它是系统默认入口：引擎启动时自动拉起；用户自定义交互 Agent 则需手动启动。
@@ -62,7 +65,10 @@ async def ensure_default_interactive_agent():
 
 
 @router.post("/send")
-async def chat_send(request: ChatRequest):
+async def chat_send(
+    request: ChatRequest,
+    ctx: AuthContext | None = Depends(get_optional_auth),
+):
     """
     发送消息给交互 Agent，返回 SSE 流式响应。
 
@@ -101,7 +107,7 @@ async def chat_send(request: ChatRequest):
                     "attachments": attachments,
                     "workspace_tool_ids": request.workspace_tool_ids,
                 },
-                context={"session_id": session_id, "user_id": request.user_id or "default"},
+                context={"session_id": session_id, "user_id": resolve_owner_id(ctx)},
                 # 不设总超时：工具可能长时间执行（如模型训练），由用户通过
                 # 停止按钮主动中断，而非被固定超时提前截断。
                 timeout=None,

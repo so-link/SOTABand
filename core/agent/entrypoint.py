@@ -7,6 +7,7 @@ import argparse
 import asyncio
 import importlib.util
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -49,7 +50,8 @@ def load_agent(impl_path: Path, agent_id: str):
     else:
         try:
             from core.resource import paths as _paths
-            _def_dirs = [r / "agents" / "definitions" for r in _paths.resource_roots()]
+            # 私有优先：编辑过的 Agent 其 MD 在私有根，内置那份是旧的
+            _def_dirs = [r / "agents" / "definitions" for r in _paths.read_roots()]
         except Exception:
             _def_dirs = [PROJECT_ROOT / "resources" / "agents" / "definitions"]
         for _d in _def_dirs:
@@ -113,27 +115,24 @@ async def main():
         agent = None
         agent_loaded = False
 
-    # 通过 stdin/stdout JSON-line 协议通信
-    reader = asyncio.StreamReader()
-    protocol = asyncio.StreamReaderProtocol(reader)
-    await asyncio.get_event_loop().connect_read_pipe(lambda: protocol, sys.stdin)
-    w_transport, _ = await asyncio.get_event_loop().connect_write_pipe(
-        asyncio.streams.FlowControlMixin, sys.stdout
-    )
-    writer = asyncio.StreamWriter(w_transport, protocol, reader, asyncio.get_event_loop())
+    # 通过 stdin/stdout JSON-line 协议通信；Windows 的 Proactor 无法连接这里的标准流管道。
+    # 因此读写都走线程（asyncio.to_thread），完全绕开 pipe transport。
+    write_lock = asyncio.Lock()
+
+    def write_line(line: bytes):
+        sys.stdout.buffer.write(line)
+        sys.stdout.buffer.flush()
 
     async def send_event(event: dict):
         """发送 JSON 行到主进程。
 
-        注意：必须显式 await drain()。asyncio.StreamWriter.write() 仅把数据放入
-        缓冲区，不保证立即送出；若不 drain，事件会滞留在缓冲区，导致主进程读取端
-        「一直转圈」等待——每次用户输入都要等缓冲区满或进程结束才能真正收到。
-        这正是「交互 Agent 每步输入都要等很久」的根因。
+        每条事件写完立即 flush，避免主进程等待缓冲区填满；锁保证后台任务
+        与主循环同时发事件时不会交错写入。
         """
-        line = json.dumps(event, ensure_ascii=False) + "\n"
-        writer.write(line.encode())
+        line = (json.dumps(event, ensure_ascii=False) + "\n").encode("utf-8")
         try:
-            await writer.drain()
+            async with write_lock:
+                await asyncio.to_thread(write_line, line)
         except Exception:
             pass
 
@@ -180,7 +179,7 @@ async def main():
     try:
         while True:
             try:
-                line = await reader.readline()
+                line = await asyncio.to_thread(sys.stdin.buffer.readline)
                 if not line:
                     break  # stdin closed → 主进程要求退出
 
@@ -199,6 +198,14 @@ async def main():
                         user_id=ctx_data.get("user_id", "default"),
                         metadata=ctx_data.get("metadata", {}) or {},
                     )
+                    # 把发起方身份注入进程环境：工具子进程 / 常驻 Worker 继承后，
+                    # get_current_user_id() 会读到该 UUID，从而按「人」隔离数据集。
+                    # "default"/"http" 是哨兵值（未认证 / Web 服务直连），不注入，
+                    # 让 get_current_user_id() 回退到机器身份。
+                    if ctx.user_id and ctx.user_id not in ("default", "http"):
+                        os.environ["SOTABAND_USER_ID"] = ctx.user_id
+                    else:
+                        os.environ.pop("SOTABAND_USER_ID", None)
                     params = task.get("params", {})
 
                     try:

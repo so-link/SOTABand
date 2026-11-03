@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import {
-  Bot, Send, Play, Square, RefreshCw, Loader2, FileText, FileCode, X, Pencil, Save, FolderOpen,
+  Bot, Send, Play, Square, RefreshCw, Loader2, FileText, FileCode, X, Pencil, Save, FolderOpen, Download,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -45,7 +45,7 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   const [taskParams, setTaskParams] = useState<Record<string, string>>({})
 
   // Web 服务式 Agent：服务信息与 API 测试
-  const [serviceInfo, setServiceInfo] = useState<{ running: boolean; host?: string; port?: number; apis?: Array<{ name: string; method?: string; path?: string; params?: Array<{ name: string; type?: string; required?: boolean; desc?: string }> }> }>({ running: false })
+  const [serviceInfo, setServiceInfo] = useState<{ running: boolean; host?: string; port?: number; port_ready?: boolean; apis?: Array<{ name: string; method?: string; path?: string; params?: Array<{ name: string; type?: string; required?: boolean; desc?: string }> }> }>({ running: false })
   const [testApi, setTestApi] = useState('')
   const [testParams, setTestParams] = useState<Record<string, string>>({})
   const [testResult, setTestResult] = useState('')
@@ -67,6 +67,11 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   const [draftCode, setDraftCode] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
+
+  // 导出迁移包（.sotaagent.zip）的状态。必须声明在 `if (!agent) return` 之前，
+  // 否则 agent 由空变有会让 hooks 数量变化（React 会直接报错）。
+  const [exporting, setExporting] = useState(false)
+  const [exportInfo, setExportInfo] = useState<{ name: string; path: string; size: number } | null>(null)
 
   const setActiveView = useUIStore((s) => s.setActiveView)
 
@@ -97,14 +102,35 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agent?.id, isWebService])
 
-  // 读取 Agent 运行状态
+  // 读取 Agent 运行状态（轮询，避免"进程已退出/已在别处启动"时界面状态失真）
   useEffect(() => {
     if (!agent) return
-    apiGet<any>(`/api/agent/${agent.id}/status`)
-      .then((d) => setRunning(!!d.running))
-      .catch(() => {})
+    const agentId = agent.id
+    let alive = true
+
+    const tick = async () => {
+      try {
+        const d = await apiGet<any>(`/api/agent/${agentId}/status`)
+        if (!alive) return
+        setRunning(!!d.running)
+        // web-service：端口可能比进程晚就绪，或已在别处重启，顺带同步服务信息
+        if (isWebService) {
+          const svc = await apiGet<any>(`/api/agent/${agentId}/service`)
+          if (alive) {
+            setServiceInfo((prev) => ({ ...prev, ...svc }))
+          }
+        }
+      } catch { /* 网络抖动忽略，下一轮再试 */ }
+    }
+
+    void tick()
+    const timer = window.setInterval(tick, 5000)
+    return () => {
+      alive = false
+      window.clearInterval(timer)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agent?.id])
+  }, [agent?.id, isWebService])
 
   if (!agent) {
     return (
@@ -131,6 +157,10 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   // 发起 API 测试（走后端代理）
   const runApiTest = async () => {
     if (!agent || !testApi || testing) return
+    if (!serviceInfo.running || !serviceInfo.port) {
+      setTestResult('服务尚未就绪（端口未上报）：请稍候几秒，或点「重启」后重试')
+      return
+    }
     setTesting(true); setTestResult('')
     try {
       const data = await apiPost<any>(`/api/agent/${agent.id}/test-api`, {
@@ -157,18 +187,39 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
 
   const codeDirty = draftCode.trim() !== code.trim()
 
-  // 任务式 Agent：从 MD 规范文档的「## 输入」段落解析启动参数名
-  // 支持 "## 输入" / "## 参数" 段落下的 "- name: ..." 列表
+  // 任务式 Agent：从 MD 规范文档的输入段解析启动参数名。
+  // 与后端 AgentCodeBuilder._parse_spec_inputs 保持一致，支持：
+  //   - 标题："## 输入" / "## 3. 输入规范" / "### 参数"
+  //   - 列表："- name: 说明（string，必填）"
+  //   - 表格："| name | string | 是 | 说明 |"
+  // 解析不到参数名时，启动面板会显示「无启动参数」，Agent 便只能收到空参数。
   const taskInputNames: string[] = (() => {
     if (!isTask || !specMd) return []
-    const m = specMd.match(/^##+\s*(输入|参数|启动参数)\s*$([\s\S]*?)(^##+\s|\Z)/m)
-    if (!m) return []
-    const body = m[2] || ''
+    const lines = specMd.split('\n')
+    const headRe = /^#{2,3}\s*(?:[\d一二三四五六七八九十]+[.、)．]?\s*)?(输入|输入规范|参数|启动参数)\s*$/
     const names: string[] = []
-    const re = /^\s*[-*]\s*([A-Za-z_][\w-]*)\s*[:：]/gm
-    let mm: RegExpExecArray | null
-    while ((mm = re.exec(body)) !== null) names.push(mm[1])
-    return names
+    let inSection = false
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim()
+      if (!inSection) {
+        if (headRe.test(line)) inSection = true
+        continue
+      }
+      // 遇到同级或更高级标题即结束
+      if (/^#{1,3}\s+\S/.test(line)) break
+      if (!line) continue
+      const lm = line.match(/^[-*]\s*`?([A-Za-z_][\w-]*)`?\s*[:：]/)
+      if (lm) { names.push(lm[1]); continue }
+      if (line.startsWith('|')) {
+        const cells = line.replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim())
+        if (!cells[0] || /^[-:\s]+$/.test(cells[0])) continue          // 分隔行
+        const next = lines.slice(i + 1).map((l) => l.trim()).find(Boolean) || ''
+        if (/^\|[\s:|-]+\|?$/.test(next)) continue                     // 表头行
+        const cm = cells[0].replace(/`/g, '').match(/^[A-Za-z_][\w-]*$/)
+        if (cm) names.push(cm[0])
+      }
+    }
+    return Array.from(new Set(names))
   })()
 
   const handleSaveCode = async () => {
@@ -189,6 +240,23 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
     }
   }
 
+  // 导出为迁移包（.sotaagent.zip）
+  const handleExport = async () => {
+    if (!agent) return
+    setExporting(true)
+    try {
+      const data = await apiPost<{ file_name: string; bundle_path: string; size: number }>(
+        '/api/migrate/agent/export',
+        { agent_id: agent.id }
+      )
+      setExportInfo({ name: data.file_name, path: data.bundle_path, size: data.size })
+    } catch (e) {
+      window.alert(`导出失败：${(e as Error).message}`)
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const handleEditInEditor = () => {
     if (!agent) return
     // 带齐现有 MD/代码，从「审阅」步进入，避免被迫重走需求描述流程
@@ -205,13 +273,23 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   const start = async () => {
     setLoading(true)
     try {
-      await apiPost(`/api/agent/${agent.id}/start`)
-      setRunning(true)
-      setMessages([])
-      setStreaming('')
-      setStreamCards([])
-      if (isWebService) await loadServiceInfo()
-    } catch { /* ignore */ }
+      const data = await apiPost<any>(`/api/agent/${agent.id}/start`)
+      // 后端在「代码错误 / 端口被占 / 加载 spec 失败」时会返回 status=failed，
+      // 旧实现无条件 setRunning(true)，用户只能看到"看起来启动了但用不了"。
+      if (data.status === 'failed') {
+        setRunning(false)
+        setMessages([{ role: 'system', content: `⚠️ 启动失败：${data.error || data.detail || '未知错误'}` }])
+      } else {
+        setRunning(true)
+        setMessages([])
+        setStreaming('')
+        setStreamCards([])
+        if (isWebService) await loadServiceInfo()
+      }
+    } catch (e) {
+      setRunning(false)
+      setMessages([{ role: 'system', content: `⚠️ 启动请求失败：${String(e)}` }])
+    }
     setLoading(false)
   }
 
@@ -363,6 +441,15 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
           </Badge>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleExport}
+            disabled={exporting}
+            className="flex items-center gap-1 text-[11px] text-emerald-500 hover:underline disabled:opacity-50"
+            title="导出为 .sotaagent.zip，可在其它环境导入"
+          >
+            {exporting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+            {exporting ? '导出中…' : '导出'}
+          </button>
           {/* Detail toggle buttons */}
           {hasDemand && (
             <button
@@ -418,6 +505,28 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
           )}
         </div>
       </div>
+
+      {exportInfo && (
+        <div className="flex items-center gap-2 px-4 py-1.5 text-[11px] border-b border-maia-border bg-emerald-500/10 shrink-0">
+          <span className="text-emerald-600 shrink-0">
+            已导出 {Math.max(1, Math.round(exportInfo.size / 1024))} KB：
+          </span>
+          <a
+            className="text-maia-accent underline truncate"
+            href={`/api/migrate/agent/bundles/${encodeURIComponent(exportInfo.name)}`}
+            download
+            title={exportInfo.path}
+          >
+            {exportInfo.name}
+          </a>
+          <button
+            onClick={() => setExportInfo(null)}
+            className="ml-auto text-maia-text-muted hover:underline shrink-0"
+          >
+            关闭
+          </button>
+        </div>
+      )}
 
       {/* Content area */}
       <div className="flex-1 min-h-0 overflow-auto p-4">
@@ -542,7 +651,9 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-medium text-maia-text-secondary tracking-wide">服务状态</span>
                   <Badge variant={serviceInfo.running ? 'success' : 'default'}>
-                    {serviceInfo.running ? `运行中 :${serviceInfo.port}` : '未运行'}
+                    {serviceInfo.running
+                      ? (serviceInfo.port ? `运行中 :${serviceInfo.port}` : '运行中（端口未上报）')
+                      : '未运行'}
                   </Badge>
                 </div>
                 {(serviceInfo.apis?.length || 0) > 0 && (
@@ -622,11 +733,15 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                       )
                     })}
                     <div className="mt-2">
-                      <Button size="sm" variant="default" onClick={runApiTest} disabled={testing || !serviceInfo.running}>
+                      <Button size="sm" variant="default" onClick={runApiTest} disabled={testing || !serviceInfo.running || !serviceInfo.port}>
                         {testing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
                         发送测试请求
                       </Button>
-                      {!serviceInfo.running && <span className="text-[11px] text-maia-text-muted ml-2">（请先点击顶部「启动」）</span>}
+                      {!serviceInfo.running ? (
+                        <span className="text-[11px] text-maia-text-muted ml-2">（请先点击顶部「启动」）</span>
+                      ) : !serviceInfo.port ? (
+                        <span className="text-[11px] text-amber-500 ml-2">（服务端口未上报，请点「重启」后重试）</span>
+                      ) : null}
                     </div>
                     {testResult && (
                       <pre className="mt-3 text-[11px] font-mono leading-relaxed text-maia-text whitespace-pre-wrap max-h-[300px] overflow-auto bg-maia-bg rounded p-3 border border-maia-border">
