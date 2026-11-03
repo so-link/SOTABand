@@ -9,7 +9,7 @@ f-string 的花括号和引号极其易错），所以固化成脚本。
 ## 用法
 
 ```powershell
-cd E:\Learn\SOTABand
+# 在项目根目录执行
 $env:PYTHONUTF8=1
 
 # 默认读 storage/sotaband.db（SQLite）

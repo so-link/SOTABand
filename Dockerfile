@@ -68,13 +68,13 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 #
 # ⚠️ `resources-private` 必须显式指定路径：
 # ``core/resource/paths.py`` 的默认值是 ``PROJECT_ROOT.parent / "resources-private"``。
-# 宿主机上项目根是 ``E:\Learn\SOTABand``，父目录 ``E:\Learn`` 可写；
+# 宿主机上项目根通常位于某个可写目录，其父目录也可写；
 # 但容器里项目根是 ``/app``，父目录是 **``/``** —— 非 root 用户 mkdir 直接
 # `PermissionError: '/resources-private'`，应用起不来。
 #
 # 那个模块已经支持 ``SOTABAND_PRIVATE_RESOURCES`` 覆盖（见其模块文档），
 # 所以这里只管建目录 + 在 compose 里指过去，**不改代码默认行为**
-# （改默认值会动到宿主机上已有的 ``E:\Learn\resources-private`` 布局）。
+# （改默认值会动到宿主机上已有的 ``resources-private`` 布局）。
 RUN mkdir -p storage data output uploaded_images resources-private \
     && useradd --create-home --uid 10001 sotaband \
     && chown -R sotaband:sotaband /app

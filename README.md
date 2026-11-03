@@ -145,7 +145,7 @@ python scripts/check_tool_env.py --auto
 #### Docker 部署（含 PostgreSQL，推荐）
 
 ```powershell
-cd E:\Learn\SOTABand
+# 在项目根目录（含 docker-compose.yml 的目录）执行
 docker compose up -d --build      # 后端容器启动时自动执行 alembic upgrade head
 docker compose ps                 # db / backend / frontend 均应为 running/healthy
 ```
