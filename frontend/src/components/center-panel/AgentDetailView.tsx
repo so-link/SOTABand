@@ -49,23 +49,48 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   // Agent runtime state
   const [running, setRunning] = useState(false)
   const [input, setInput] = useState('')
-  // 对话消息：挂载时直接从 localStorage 惰性初始化（按 agentId 隔离），
-  // 避免「加载 effect 异步 setMessages + 保存 effect 同步写 []」的竞态导致历史被清空。
-  const [messages, setMessages] = useState<ChatMessage[]>(() => {
-    if (!agentId) return []
-    try {
-      const saved = localStorage.getItem(`sotaband-agent-messages-${agentId}`)
-      return saved ? JSON.parse(saved) : []
-    } catch { return [] }
-  })
-
-  // 消息变化时持久化到 localStorage
+  // 对话消息：后端 SQLite 为唯一状态源（chat_store，会话 ID agent-chat-{agentId}）。
+  // 此前只存 localStorage，换浏览器/清缓存即丢；现在挂载时从后端拉取。
+  // 后端历史为空但本地存有旧数据时（升级前的用户），先迁移到后端再拉取。
+  const [messages, setMessages] = useState<ChatMessage[]>([])
   useEffect(() => {
     if (!agentId) return
-    try {
-      localStorage.setItem(`sotaband-agent-messages-${agentId}`, JSON.stringify(messages))
-    } catch { /* ignore */ }
-  }, [messages, agentId])
+    let cancelled = false
+    const legacyKey = `sotaband-agent-messages-${agentId}`
+    const apply = (list: unknown[]) => {
+      if (cancelled) return
+      setMessages((list as Array<{ role: string; content: string; cards?: InlineCardType[] }>).map((m) => ({
+        role: m.role,
+        content: m.content,
+        cards: Array.isArray(m.cards) && m.cards.length > 0 ? m.cards : undefined,
+      })))
+    }
+    const load = (url: string, init?: RequestInit) =>
+      fetch(url, init).then((r) => (r.ok ? r.json() : { messages: [] })).then((d) => d.messages || [])
+    load(`${BASE_URL}/api/agent/${agentId}/chat-history`)
+      .then(async (msgs) => {
+        if (msgs.length === 0) {
+          let legacy: unknown[] = []
+          try { legacy = JSON.parse(localStorage.getItem(legacyKey) || '[]') } catch { /* ignore */ }
+          if (Array.isArray(legacy) && legacy.length > 0) {
+            const r = await fetch(`${BASE_URL}/api/agent/${agentId}/chat-history/migrate`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ messages: legacy }),
+            }).catch(() => null)
+            const d = r?.ok ? await r.json().catch(() => ({ migrated: 0 })) : { migrated: 0 }
+            if ((d.migrated ?? 0) > 0) {
+              localStorage.removeItem(legacyKey)
+              return load(`${BASE_URL}/api/agent/${agentId}/chat-history`)
+            }
+          }
+        }
+        return msgs
+      })
+      .then(apply)
+      .catch(() => { /* 后端不可用时显示空历史 */ })
+    return () => { cancelled = true }
+  }, [agentId])
   const [streaming, setStreaming] = useState('')
   const [streamCards, setStreamCards] = useState<InlineCardType[]>([])
   const [isSending, setIsSending] = useState(false)
@@ -329,7 +354,8 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
       const res = await fetch(`${BASE_URL}/api/agent/${agent.id}/execute`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(params),
+        // session_id：后端据此把本轮对话落入 SQLite（Agent 空间历史）
+        body: JSON.stringify({ ...params, session_id: `agent-chat-${agent.id}` }),
         signal: controller.signal,
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -449,6 +475,9 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
       return
     }
     setMessages([])
+    // 显示清空必须同步删后端历史（新一轮任务从干净历史开始），
+    // 否则刷新后旧历史又会冒出来，与显示分叉。
+    fetch(`${BASE_URL}/api/agent/${agent.id}/chat-history`, { method: 'DELETE' }).catch(() => {})
     await runExecute({ ...taskParams })
   }
 
@@ -557,7 +586,7 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
             onClick={() => {
               if (messages.length > 0 && confirm('确定清空当前对话历史？此操作不可恢复。')) {
                 setMessages([])
-                localStorage.removeItem(`sotaband-agent-messages-${agentId}`)
+                fetch(`${BASE_URL}/api/agent/${agentId}/chat-history`, { method: 'DELETE' }).catch(() => {})
               }
             }}
             disabled={messages.length === 0}
@@ -850,17 +879,18 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                 <div key={i} className="flex flex-col gap-2">
                   {/* 该轮执行的工作流程步骤（跟在该轮用户输入后面） */}
                   {msg.steps && msg.steps.length > 0 && renderSteps(msg.steps)}
-                  {msg.content && (
-                    <div className="text-[14px] leading-[24px] text-maia-text whitespace-pre-wrap">
-                      {msg.content}
-                    </div>
-                  )}
-                  {/* 结构化卡片：表格 / 图片 / 文件等完整展示（复用 InlineCard） */}
+                  {/* 结构化卡片在前（SSE 里 card 事件先于整理文本到达），
+                      助手的解析文本是对卡片结果的说明，应排在卡片下面 */}
                   {msg.cards && msg.cards.length > 0 && (
                     <div className="flex flex-col gap-2">
                       {msg.cards.map((card) => (
                         <InlineCard key={card.id} card={card} />
                       ))}
+                    </div>
+                  )}
+                  {msg.content && (
+                    <div className="text-[14px] leading-[24px] text-maia-text whitespace-pre-wrap">
+                      {msg.content}
                     </div>
                   )}
                 </div>
@@ -869,23 +899,21 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
 
             {(streaming || steps.length > 0) && (
               <div className="flex flex-col gap-2">
-                {/* 流式中实时显示当前轮的工作流程步骤（跟在最后的用户输入后面） */}
+                {/* 工作流程步骤与卡片先渲染，流式文本随后 —— 与 SSE 事件顺序一致 */}
                 {steps.length > 0 && renderSteps(steps)}
+                {streamCards.length > 0 && (
+                  <div className="flex flex-col gap-2">
+                    {streamCards.map((card) => (
+                      <InlineCard key={card.id} card={card} />
+                    ))}
+                  </div>
+                )}
                 {streaming && (
                   <div className="text-[14px] leading-[24px] text-maia-text whitespace-pre-wrap">
                     {streaming}
                     <span className="inline-block w-1.5 h-4 bg-maia-accent ml-0.5 animate-pulse" />
                   </div>
                 )}
-              </div>
-            )}
-
-            {/* 流式过程中已到达的卡片（实时展示） */}
-            {streamCards.length > 0 && (
-              <div className="flex flex-col gap-2">
-                {streamCards.map((card) => (
-                  <InlineCard key={card.id} card={card} />
-                ))}
               </div>
             )}
 

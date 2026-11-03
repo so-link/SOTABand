@@ -122,15 +122,25 @@ def get_messages(session_id: str, limit: int = 200) -> list[dict[str, Any]]:
     return rows
 
 
-def list_sessions(limit: int = 50) -> list[dict[str, Any]]:
-    """会话列表（按最近更新倒序），带消息条数。"""
+def list_sessions(limit: int = 50, include_agent_spaces: bool = False) -> list[dict[str, Any]]:
+    """会话列表（按最近更新倒序），带消息条数。
+
+    默认只返回交互 Agent 的会话：agent_id 为空（历史数据）或交互 Agent
+    的才要，Agent 空间落库的会话（agent_id=具体 Agent）不混入「对话历史」
+    面板——它们有自己的详情页历史。
+    """
+    cond = "" if include_agent_spaces else (
+        "WHERE s.agent_id = '' OR s.agent_id = ?"
+    )
+    args: tuple = (limit,) if include_agent_spaces else ("interactive-agent", limit)
     with _lock:
         return _rows(
             "SELECT s.session_id, s.agent_id, s.title, s.created_at, s.updated_at,"
             " COUNT(m.id) AS message_count"
             " FROM chat_sessions s LEFT JOIN chat_messages m ON m.session_id = s.session_id"
+            f" {cond}"
             " GROUP BY s.session_id ORDER BY s.updated_at DESC LIMIT ?",
-            (limit,),
+            args,
         )
 
 

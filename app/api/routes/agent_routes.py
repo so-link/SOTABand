@@ -887,30 +887,63 @@ async def execute_agent(agent_id: str, req: AgentExecuteRequest):
     import json as _json
 
     from core.observability import task_history
+    from core.observability import chat_store
     _entry = await registry.get(agent_id)
     task_id = task_history.start(
         agent_id, req.content if isinstance(req.content, str) else str(req.content),
         agent_name=(_entry or {}).get("name", ""))
     task_finished = False
 
+    # 对话落库：Agent 空间的对话此前只存浏览器 localStorage，换浏览器/清缓存即丢。
+    # 前端传 session_id（agent-chat-{agentId}，跨标签固定）则用户消息进入流前
+    # 落库、回复在流结束时落库（含卡片）；不传则跳过，脚本直连不受影响。
+    persist_sid = req.session_id.strip() if req.session_id else ""
+    user_text = req.content if isinstance(req.content, str) else str(req.content)
+    if persist_sid and user_text:
+        chat_store.append_message(persist_sid, agent_id, "user", user_text)
+
     async def event_gen():
         nonlocal task_finished
         seen_done = False
+        reply_parts: list[str] = []
+        reply_cards: list[dict] = []
+        persisted = False
+
+        def _persist_reply() -> None:
+            """回复落库（幂等：done 与断流 finally 各调一次，只生效一次）。"""
+            nonlocal persisted
+            if persisted or not persist_sid:
+                return
+            text = "".join(reply_parts).strip()
+            if not text and not reply_cards:
+                return
+            persisted = True
+            try:
+                chat_store.append_message(persist_sid, agent_id, "agent", text, reply_cards)
+            except Exception:
+                pass  # 落库失败不影响流式返回
+
         try:
             async for event in agent_factory.execute(agent_id, req.content):
                 ev_type = event.get("event", "content")
+                data = event.get("data", {})
                 if ev_type == "done":
                     seen_done = True
                     task_history.finish(task_id, "success")
                     task_finished = True
                 elif ev_type == "error":
-                    msg = str(event.get("data", {}).get("message", ""))[:200]
+                    msg = str(data.get("message", ""))[:200]
                     task_history.finish(task_id, "failed", msg)
                     task_finished = True
+                elif ev_type in ("content", "delta"):
+                    reply_parts.append(str(data.get("text", "")))
+                elif ev_type == "card":
+                    reply_cards.append(data if isinstance(data, dict) else {"data": data})
                 yield {
                     "event": ev_type,
-                    "data": _json.dumps(event.get("data", {}), ensure_ascii=False),
+                    "data": _json.dumps(data, ensure_ascii=False),
                 }
+            _persist_reply()
         except Exception as e:
             import traceback, logging
             logging.getLogger("sotaband").error(f"Agent {agent_id} 执行异常: {e}", exc_info=True)
@@ -921,6 +954,9 @@ async def execute_agent(agent_id: str, req: AgentExecuteRequest):
                 "event": "error",
                 "data": _json.dumps({"message": f"Agent 执行异常: {str(e)[:200]}"}, ensure_ascii=False),
             }
+        finally:
+            # 客户端中断/异常断流：已生成的半截回复也落库，刷新后不丢
+            _persist_reply()
         # 仅在 Agent 未自行发送 done 时补发，避免前端收到两个 done 导致消息重复展示。
         if not seen_done:
             if not task_finished:
@@ -931,6 +967,48 @@ async def execute_agent(agent_id: str, req: AgentExecuteRequest):
             }
 
     return EventSourceResponse(event_gen())
+
+
+@router.get("/{agent_id}/chat-history")
+async def get_agent_chat_history(agent_id: str):
+    """Agent 空间对话历史（SQLite chat_store，按时间正序）。"""
+    from core.observability import chat_store
+    sid = f"agent-chat-{agent_id}"
+    return {"session_id": sid, "messages": chat_store.get_messages(sid)}
+
+
+@router.delete("/{agent_id}/chat-history")
+async def delete_agent_chat_history(agent_id: str):
+    """清空 Agent 空间对话历史。"""
+    from core.observability import chat_store
+    sid = f"agent-chat-{agent_id}"
+    return {"deleted": agent_id, "removed": chat_store.delete_session(sid)}
+
+
+@router.post("/{agent_id}/chat-history/migrate")
+async def migrate_agent_chat_history(agent_id: str, req: dict):
+    """一次性迁移浏览器 localStorage 里的旧对话到 SQLite。
+
+    仅当该 Agent 的后端历史为空时执行（防止重复导入），导入成功后
+    前端删除本地 key。
+    """
+    from core.observability import chat_store
+    sid = f"agent-chat-{agent_id}"
+    if chat_store.message_count(sid) > 0:
+        return {"migrated": 0, "reason": "already_has_history"}
+    msgs = req.get("messages") or []
+    count = 0
+    for m in msgs[:200]:
+        if not isinstance(m, dict):
+            continue
+        role = str(m.get("role") or "")
+        content = str(m.get("content") or "")
+        if role not in ("user", "agent") or not content:
+            continue
+        cards = m.get("cards") if isinstance(m.get("cards"), list) else None
+        chat_store.append_message(sid, agent_id, role, content, cards)
+        count += 1
+    return {"migrated": count}
 
 
 @router.post("/{agent_id}/stop")

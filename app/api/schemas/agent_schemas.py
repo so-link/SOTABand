@@ -42,6 +42,9 @@ class AgentExecuteRequest(BaseModel):
     """向 Agent 发送输入"""
 
     content: str = ""
+    # Agent 空间对话落库的会话 ID（同一 Agent 一个会话，前端生成后固定传递；
+    # 不传则不落库，兼容脚本直接调用）
+    session_id: str = ""
 
 
 class AgentStatusResponse(BaseModel):
