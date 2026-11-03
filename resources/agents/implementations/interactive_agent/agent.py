@@ -250,6 +250,7 @@ class InteractiveAgent(BaseAgent):
         # ④ 无前置状态 → 先尝试「指定 Agent」派发，再回退到工具匹配
         need_create_tool_desc = None
         matched_tools: list[dict] = []
+        repo_tools: list[dict] = []
         if not matched_tool:
             agent_hit = await self._match_agent(content)
             if agent_hit:
@@ -277,7 +278,7 @@ class InteractiveAgent(BaseAgent):
                 async for ev in self._dispatch_to_agent(candidates[0], content, session_key):
                     yield ev
                 return
-            matched_tools, need_create_tool_desc = await self._pre_match_tool(content, workspace_tool_ids or [])
+            matched_tools, need_create_tool_desc, repo_tools = await self._pre_match_tool(content, workspace_tool_ids or [])
 
         history = self._sessions.get(session_key, [])
         if not history:
@@ -317,6 +318,31 @@ class InteractiveAgent(BaseAgent):
         # 唯一候选 → 直接使用
         if not matched_tool and len(matched_tools) == 1:
             matched_tool = matched_tools[0]
+
+        # 工具空间没有，但工具仓库里有现成的 → 提示一键加入工具空间后继续。
+        # 不直接执行：工具空间是用户圈定的能力边界，跨边界执行要有明确授权。
+        if not matched_tool and repo_tools:
+            infos = [{
+                "id": t.get("id", ""), "name": t.get("name", ""),
+                "tags": t.get("tags", []) or [], "index": i,
+            } for i, t in enumerate(repo_tools, 1)]
+            yield {
+                "event": "card",
+                "data": {
+                    "type": "add-workspace-tool",
+                    "title": "工具仓库里有现成的工具",
+                    "summary": f"当前工具空间没有匹配的工具，但工具仓库里找到 "
+                               f"{len(repo_tools)} 个可用工具，加入工具空间后即可使用",
+                    "data": {"candidates": infos, "request": content},
+                },
+            }
+            options = "、".join(f"「{t['name']}」" for t in infos)
+            yield {
+                "event": "content",
+                "data": {"text": f"当前工具空间里没有匹配的工具，不过工具仓库里已经有 {options}，"
+                                 f"点上方卡片加入工具空间，我马上就能用它处理。"},
+            }
+            return
 
         # 需要创建新工具 → 直接发卡片，提供跳转入口
         if not matched_tool and need_create_tool_desc:
@@ -852,22 +878,30 @@ class InteractiveAgent(BaseAgent):
         except Exception:
             pass
 
-    async def _pre_match_tool(self, query: str, workspace_tool_ids: list[str] = None) -> tuple[list[dict], str | None]:
+    async def _pre_match_tool(
+        self, query: str, workspace_tool_ids: list[str] = None
+    ) -> tuple[list[dict], str | None, list[dict]]:
         """预匹配：先用 LLM 语义匹配，失败时回退到关键词匹配。
 
-        返回 (匹配到的工具候选列表, 需要创建的工具描述 或 None)
+        返回 (工具空间内的匹配候选, 需要创建的工具描述 或 None,
+              工具仓库里的匹配候选（不在工具空间）)
+
+        匹配范围仍以工具空间为准（工具空间是用户显式圈定的能力边界，
+        不能因为仓库里有个名字相近的工具就擅自执行）。但仓库里确实有货时
+        不能装作没看见——此前正是这里让「查询广州的天气」对着仓库里的
+        城市天气预报静默失败。第三项就是给调用方发「加入工具空间」卡片的。
         """
         # 0. 明确「创建工具」意图 → 直接进入创建流程，不做工具匹配
         create_intent = self._detect_create_intent(query)
         if create_intent:
-            return [], create_intent
+            return [], create_intent, []
 
         # 0.5 平台元信息查询（"我有哪些数据集"等）→ 不做工具匹配，
         # 交给主流程的平台工具（function calling）用真实数据回答。
         if self._is_platform_meta_query(query):
-            return [], None
+            return [], None, []
 
-        # 收集活跃工具（限定工具空间范围）
+        # 收集活跃工具（限定工具空间范围），其余的留作「仓库候选」
         try:
             from core.resource.registry.tool_registry import ToolRegistry
             reg = ToolRegistry()
@@ -875,28 +909,37 @@ class InteractiveAgent(BaseAgent):
             active = [t for t in tools if t.get("status") == "active"]
             if workspace_tool_ids:
                 ws_set = set(workspace_tool_ids)
+                outside = [t for t in active if t.get("id") not in ws_set]
                 active = [t for t in active if t.get("id") in ws_set]
+            else:
+                outside = []
         except Exception:
-            return [], None
+            return [], None, []
 
-        # 工具空间为空 → 判断是否需要创建工具
-        if not active:
-            need_create = await self._llm_check_create_needed(query)
-            return [], need_create
-
-        # 1. 优先：LLM 语义匹配（返回多个候选，同时判断是否需创建新工具）
+        # 1. 优先：工具空间内 LLM 语义匹配（返回多个候选，同时判断是否需创建新工具）
         llm_candidates, llm_create = await self._llm_semantic_match(query, active)
         if llm_candidates:
-            return llm_candidates, None
-        if llm_create:
-            return [], llm_create
-
-        # 2. 回退：关键词匹配（返回多个候选）
+            return llm_candidates, None, []
+        # 关键词匹配兜底仅在工具空间内做（规则宽松，跨范围容易误伤）
         kw_candidates = self._keyword_match(query, active)
         if kw_candidates:
-            return kw_candidates, None
+            return kw_candidates, None, []
 
-        return [], None
+        # 2. 工具空间没命中 → 查工具仓库（用户只是还没把它加进工具空间）
+        repo_candidates, _ = await self._llm_semantic_match(query, outside)
+        if not repo_candidates:
+            repo_candidates = self._keyword_match(query, outside)
+        if repo_candidates:
+            # 仓库有现成工具 → 不要再去建议新建
+            return [], None, repo_candidates
+
+        # 3. 两边都没有 → 判断是否需要创建工具
+        if llm_create:
+            return [], llm_create, []
+        if not active:
+            need_create = await self._llm_check_create_needed(query)
+            return [], need_create, []
+        return [], None, []
 
     def _detect_create_intent(self, query: str) -> str | None:
         """检测用户是否明确表达「创建工具」意图，返回工具描述（或 None）"""

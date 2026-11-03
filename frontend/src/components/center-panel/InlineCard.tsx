@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { useUIStore, type ActiveView } from '@/stores/ui-store'
 import { useToolEditorStore } from '@/stores/tool-editor-store'
 import { useChatStore } from '@/stores/chat-store'
+import { useWorkspaceToolStore } from '@/stores/workspace-tool-store'
 import {
   Database,
   Wrench,
@@ -52,6 +53,8 @@ export function InlineCard({ card, messageId }: InlineCardProps) {
       return <OrchestrationPreviewCard title={title} summary={summary} data={data} setActiveView={setActiveView} />
     case 'create-tool':
       return <CreateToolCard title={title} summary={summary} data={data} />
+    case 'add-workspace-tool':
+      return <AddWorkspaceToolCard title={title} summary={summary} data={data} />
     case 'platform-confirm':
       return <PlatformConfirmCard cardId={card.id} title={title} summary={summary} data={data} messageId={messageId} />
     case 'platform-result':
@@ -460,6 +463,57 @@ function CreateToolCard({ title, summary, data }: { title: string; summary: stri
         <Button size="sm" className="text-[13px]" onClick={handleCreate}>
           创建新工具 <ArrowRight className="h-3 w-3" />
         </Button>
+      </CardBody>
+    </Card>
+  )
+}
+
+// ── Add Workspace Tool Card（工具仓库有货但不在工具空间） ──
+
+function AddWorkspaceToolCard({ title, summary, data }: { title: string; summary: string; data: Record<string, unknown> }) {
+  const sendDirectMessage = useChatStore((s) => s.sendDirectMessage)
+  const addTool = useWorkspaceToolStore((s) => s.addTool)
+  const request = String(data.request || '')
+  const candidates = (data.candidates as Array<{ id: string; name: string; tags?: string[]; index: number }>) || []
+  // 记录已加入的工具 id，按钮变灰避免重复点击
+  const [added, setAdded] = useState<string[]>([])
+
+  const handleAdd = (t: { id: string; name: string; tags?: string[] }) => {
+    addTool({ id: t.id, name: t.name, tags: t.tags || [], loadedAt: new Date().toISOString() })
+    setAdded((prev) => [...prev, t.id])
+    // 加入后直接重发原始需求，让助手用新工具继续处理
+    if (request) sendDirectMessage(request)
+  }
+
+  return (
+    <Card className="border-maia-card-blue bg-maia-card-blue">
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Wrench className="h-4 w-4 text-blue-500" />
+          <span className="text-[13px] font-medium">{title}</span>
+          <Badge variant="default">{candidates.length} 个候选</Badge>
+        </div>
+      </CardHeader>
+      <CardBody>
+        <p className="text-[13px] text-maia-text-secondary mb-2">{summary}</p>
+        <div className="space-y-1.5">
+          {candidates.map((t) => {
+            const done = added.includes(t.id)
+            return (
+              <button
+                key={t.id}
+                onClick={() => !done && handleAdd(t)}
+                disabled={done}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded border border-maia-border bg-maia-surface hover:bg-maia-accent/10 hover:border-maia-accent/40 transition-colors text-left group disabled:opacity-60 disabled:cursor-default"
+              >
+                <span className="flex-1 truncate text-[13px] text-maia-text">{t.name}</span>
+                {done
+                  ? <span className="flex items-center gap-1 text-[12px] text-emerald-600 shrink-0"><CheckCircle2 className="h-3.5 w-3.5" />已加入</span>
+                  : <span className="flex items-center gap-1 text-[12px] text-maia-accent shrink-0">加入工具空间 <ArrowRight className="h-3 w-3" /></span>}
+              </button>
+            )
+          })}
+        </div>
       </CardBody>
     </Card>
   )

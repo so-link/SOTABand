@@ -16,6 +16,7 @@ export type CardType =
   | 'result-summary'
   | 'orchestration-preview'
   | 'create-tool'
+  | 'add-workspace-tool'
   | 'platform-confirm'
   | 'platform-result'
 
