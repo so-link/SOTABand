@@ -421,6 +421,35 @@ class ObservabilityConfig:
     alert_webhook_url: Optional[str] = None
 
 
+# ── 调试执行阈值：全系统唯一读取入口 ─────────────────────────────
+# 工具调试、Agent 调试、modify-and-debug 三处必须从这里取值。
+# 此前各自维护默认值（60 / 180）并在 modify-and-debug 里硬编码 30，
+# 导致「系统设置」里改大了超时、实际执行仍被小值掐断。
+DEBUG_EXEC_TIMEOUT_DEFAULT = 60.0
+DEBUG_MAX_ROUNDS_DEFAULT = 10
+
+
+def get_debug_exec_timeout() -> float:
+    """自动调试单轮沙箱执行超时（秒），读 .env 的 DEBUG_EXEC_TIMEOUT。
+
+    每次调用现读环境变量，因此「系统设置」保存后（写 .env + 同步
+    os.environ）无需重启即对下一次调试生效。
+    被调试的工具/Agent 代码若陷入死循环，没有超时会让整条调试流永久挂起。
+    """
+    try:
+        return max(5.0, float(os.getenv("DEBUG_EXEC_TIMEOUT", "") or DEBUG_EXEC_TIMEOUT_DEFAULT))
+    except (TypeError, ValueError):
+        return DEBUG_EXEC_TIMEOUT_DEFAULT
+
+
+def get_debug_max_rounds() -> int:
+    """自动调试最大轮数，读 .env 的 DEBUG_MAX_ROUNDS；超过即停止。"""
+    try:
+        return max(1, int(os.getenv("DEBUG_MAX_ROUNDS", "") or DEBUG_MAX_ROUNDS_DEFAULT))
+    except (TypeError, ValueError):
+        return DEBUG_MAX_ROUNDS_DEFAULT
+
+
 @dataclass
 class ChatConfig:
     """对话内平台控制（docs/chat-platform-control-design.md §6.5/§6.6）"""
@@ -431,9 +460,14 @@ class ChatConfig:
         not in ("0", "false", "no")
     )
     # 每用户每分钟 platform-call 上限
-    rate_limit_per_minute: int = 30
-    # 生成类工具（create_tool/create_agent）成本更高，单独更严的限制
-    gen_limit_per_10min: int = 5
+    rate_limit_per_minute: int = field(
+        default_factory=lambda: int(os.getenv("SOTABAND_CHAT_RATE_LIMIT_PER_MIN", "30") or 30)
+    )
+    # 生成类工具（create_tool/create_agent）成本更高，单独更严的限制。
+    # 注意单次生成要跑数分钟，窗口内 5 次实际很容易触顶，可按需放宽。
+    gen_limit_per_10min: int = field(
+        default_factory=lambda: int(os.getenv("SOTABAND_CHAT_GEN_LIMIT_PER_10MIN", "5") or 5)
+    )
 
 
 @dataclass

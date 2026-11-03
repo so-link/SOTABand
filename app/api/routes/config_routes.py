@@ -20,7 +20,14 @@ import os
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from config.settings import LLMConfig, PROVIDER_PRESETS, resolve_gen_llm_config, settings
+from config.settings import (
+    LLMConfig,
+    PROVIDER_PRESETS,
+    get_debug_exec_timeout,
+    get_debug_max_rounds,
+    resolve_gen_llm_config,
+    settings,
+)
 from core.llm.client import get_llm_concurrency, set_llm_concurrency
 
 router = APIRouter(tags=["config"])
@@ -49,6 +56,10 @@ class LLMConfigUpdate(BaseModel):
     max_concurrency: int | None = None    # LLM 并发上限
     debug_exec_timeout: float | None = None  # 调试单轮执行超时（秒）
     debug_max_rounds: int | None = None      # 调试最大轮数
+    # 对话内平台控制（None = 本次不改动）
+    rate_limit_per_minute: int | None = None    # 每用户每分钟 platform 调用上限
+    gen_limit_per_10min: int | None = None      # 生成类调用每 10 分钟上限
+    platform_control_enabled: bool | None = None  # 平台控制熔断总开关
     # 「生成/推理增强模型」（工具与 Agent 的规格/代码生成链专用，可选）：
     # None = 本次不改动；"" = 关闭并回退全局对话模型；
     # 其他 = <provider>:<模型> 复合值
@@ -104,20 +115,14 @@ def _gen_snapshot() -> dict:
     }
 
 
-def _env_float(name: str, default: float) -> float:
-    """读取浮点型环境变量，非法值回退默认"""
-    try:
-        return float(os.getenv(name, "") or default)
-    except (TypeError, ValueError):
-        return default
-
-
-def _env_int(name: str, default: int) -> int:
-    """读取整型环境变量，非法值回退默认"""
-    try:
-        return int(os.getenv(name, "") or default)
-    except (TypeError, ValueError):
-        return default
+def _chat_snapshot() -> dict:
+    """对话内平台控制的当前生效值（网关每次调用现读 settings.chat）"""
+    chat = settings.chat
+    return {
+        "platform_control_enabled": bool(chat.platform_control_enabled),
+        "rate_limit_per_minute": int(chat.rate_limit_per_minute),
+        "gen_limit_per_10min": int(chat.gen_limit_per_10min),
+    }
 
 
 def _read_env() -> dict[str, str]:
@@ -268,10 +273,12 @@ async def get_llm_config():
         "supported_models": options,
         "timeout": settings.llm.timeout,
         "max_concurrency": get_llm_concurrency(),
-        "debug_exec_timeout": _env_float("DEBUG_EXEC_TIMEOUT", 60.0),
-        "debug_max_rounds": _env_int("DEBUG_MAX_ROUNDS", 10),
+        "debug_exec_timeout": get_debug_exec_timeout(),
+        "debug_max_rounds": get_debug_max_rounds(),
         # 生成/推理增强模型（可选，未配置时跟随上面的对话模型）
         "gen": _gen_snapshot(),
+        # 对话内平台控制（限流与熔断）
+        "chat": _chat_snapshot(),
     }
 
 
@@ -315,6 +322,17 @@ async def update_llm_config(payload: LLMConfigUpdate):
         env["DEBUG_EXEC_TIMEOUT"] = str(max(5, min(1800, int(payload.debug_exec_timeout))))
     if payload.debug_max_rounds is not None:
         env["DEBUG_MAX_ROUNDS"] = str(max(1, min(100, int(payload.debug_max_rounds))))
+    # 对话内平台控制：限流阈值 + 熔断开关
+    if payload.rate_limit_per_minute is not None:
+        env["SOTABAND_CHAT_RATE_LIMIT_PER_MIN"] = str(
+            max(1, min(1000, int(payload.rate_limit_per_minute)))
+        )
+    if payload.gen_limit_per_10min is not None:
+        env["SOTABAND_CHAT_GEN_LIMIT_PER_10MIN"] = str(
+            max(1, min(100, int(payload.gen_limit_per_10min)))
+        )
+    if payload.platform_control_enabled is not None:
+        env["SOTABAND_PLATFORM_CONTROL"] = "1" if payload.platform_control_enabled else "0"
     gen_removals = _apply_gen_update(payload, env)
     _write_env(env, gen_removals)
 
@@ -332,6 +350,16 @@ async def update_llm_config(payload: LLMConfigUpdate):
         os.environ["DEBUG_EXEC_TIMEOUT"] = env["DEBUG_EXEC_TIMEOUT"]
     if "DEBUG_MAX_ROUNDS" in env:
         os.environ["DEBUG_MAX_ROUNDS"] = env["DEBUG_MAX_ROUNDS"]
+    # 对话内平台控制：网关每次调用现读 settings.chat，同步内存 + 环境变量即即时生效
+    if "SOTABAND_CHAT_RATE_LIMIT_PER_MIN" in env:
+        settings.chat.rate_limit_per_minute = int(env["SOTABAND_CHAT_RATE_LIMIT_PER_MIN"])
+        os.environ["SOTABAND_CHAT_RATE_LIMIT_PER_MIN"] = env["SOTABAND_CHAT_RATE_LIMIT_PER_MIN"]
+    if "SOTABAND_CHAT_GEN_LIMIT_PER_10MIN" in env:
+        settings.chat.gen_limit_per_10min = int(env["SOTABAND_CHAT_GEN_LIMIT_PER_10MIN"])
+        os.environ["SOTABAND_CHAT_GEN_LIMIT_PER_10MIN"] = env["SOTABAND_CHAT_GEN_LIMIT_PER_10MIN"]
+    if "SOTABAND_PLATFORM_CONTROL" in env:
+        settings.chat.platform_control_enabled = env["SOTABAND_PLATFORM_CONTROL"] != "0"
+        os.environ["SOTABAND_PLATFORM_CONTROL"] = env["SOTABAND_PLATFORM_CONTROL"]
     if payload.gen_model is not None:
         # 生成链客户端每次调用现算配置，同步 os.environ 即即时生效
         for k in ("LLM_GEN_PROVIDER", "LLM_GEN_MODEL", "LLM_GEN_API_KEY"):
@@ -349,7 +377,8 @@ async def update_llm_config(payload: LLMConfigUpdate):
         "has_api_key": bool(final_key),
         "timeout": settings.llm.timeout,
         "max_concurrency": get_llm_concurrency(),
-        "debug_exec_timeout": _env_float("DEBUG_EXEC_TIMEOUT", 60.0),
-        "debug_max_rounds": _env_int("DEBUG_MAX_ROUNDS", 10),
+        "debug_exec_timeout": get_debug_exec_timeout(),
+        "debug_max_rounds": get_debug_max_rounds(),
         "gen": _gen_snapshot(),
+        "chat": _chat_snapshot(),
     }

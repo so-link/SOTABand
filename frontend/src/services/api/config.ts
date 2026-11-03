@@ -19,6 +19,15 @@ export interface GenLLMConfig {
   has_api_key: boolean
 }
 
+export interface ChatControlConfig {
+  /** 平台控制熔断总开关；关闭后对话内一切平台操作返回「能力已停用」 */
+  platform_control_enabled: boolean
+  /** 每用户每分钟 platform 调用上限 */
+  rate_limit_per_minute: number
+  /** 生成类调用（创建工具/Agent）每 10 分钟上限 */
+  gen_limit_per_10min: number
+}
+
 export interface LLMConfig {
   model: string
   api_key: string
@@ -31,6 +40,7 @@ export interface LLMConfig {
   debug_exec_timeout: number
   debug_max_rounds: number
   gen: GenLLMConfig
+  chat: ChatControlConfig
 }
 
 export interface LLMConfigUpdatePayload {
@@ -40,6 +50,9 @@ export interface LLMConfigUpdatePayload {
   max_concurrency?: number
   debug_exec_timeout?: number
   debug_max_rounds?: number
+  rate_limit_per_minute?: number
+  gen_limit_per_10min?: number
+  platform_control_enabled?: boolean
   /** 生成模型：不传 = 不改动，'' = 关闭并跟随对话模型，其他 = `<provider>:<模型>` */
   gen_model?: string
   gen_api_key?: string

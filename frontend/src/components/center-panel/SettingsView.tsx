@@ -21,6 +21,10 @@ export function SettingsView() {
   const [maxConcurrency, setMaxConcurrency] = useState('1')
   const [debugExecTimeout, setDebugExecTimeout] = useState('60')
   const [debugMaxRounds, setDebugMaxRounds] = useState('10')
+  // 对话内平台控制：限流阈值 + 熔断开关
+  const [rateLimit, setRateLimit] = useState('30')
+  const [genLimit, setGenLimit] = useState('5')
+  const [platformControl, setPlatformControl] = useState(true)
   // 生成/推理增强模型（可选）：'' 表示跟随上面的对话模型
   const [genModel, setGenModel] = useState('')
   const [genApiKey, setGenApiKey] = useState('')
@@ -40,6 +44,9 @@ export function SettingsView() {
         setMaxConcurrency(String(cfg.max_concurrency ?? 1))
         setDebugExecTimeout(String(cfg.debug_exec_timeout ?? 60))
         setDebugMaxRounds(String(cfg.debug_max_rounds ?? 10))
+        setRateLimit(String(cfg.chat?.rate_limit_per_minute ?? 30))
+        setGenLimit(String(cfg.chat?.gen_limit_per_10min ?? 5))
+        setPlatformControl(cfg.chat?.platform_control_enabled ?? true)
         setGenModel(cfg.gen?.model ?? '')
         setGenApiKey('')
       } catch (e) {
@@ -67,6 +74,9 @@ export function SettingsView() {
         max_concurrency: Number(maxConcurrency) || undefined,
         debug_exec_timeout: Number(debugExecTimeout) || undefined,
         debug_max_rounds: Number(debugMaxRounds) || undefined,
+        rate_limit_per_minute: Number(rateLimit) || undefined,
+        gen_limit_per_10min: Number(genLimit) || undefined,
+        platform_control_enabled: platformControl,
         gen_model: genModel,
         gen_api_key: genApiKey.trim(),
       })
@@ -288,6 +298,59 @@ export function SettingsView() {
                     </p>
                   </div>
                 </div>
+              </div>
+
+              {/* 对话内平台控制：Agent 通过对话操作平台时的限流与熔断 */}
+              <div className="pt-4 border-t border-maia-border">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-[13px] font-medium text-maia-text-secondary">对话内平台操作</span>
+                  {platformControl
+                    ? <Badge variant="accent" className="text-[12px] shrink-0">已启用</Badge>
+                    : <Badge variant="default" className="text-[12px] shrink-0">已停用</Badge>}
+                </div>
+                <p className="text-[12px] text-maia-text-muted mb-3">
+                  Agent 在对话中创建/修改工具与 Agent 时的调用频率上限。批量作业时若被提示「过于频繁」，可临时调高。
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[12px] text-maia-text-muted mb-1">每分钟调用上限</label>
+                    <Input
+                      type="number" min={1} max={1000}
+                      value={rateLimit}
+                      onChange={(e) => setRateLimit(e.target.value)}
+                      className="font-mono"
+                    />
+                    <p className="text-[11px] text-maia-text-muted mt-1">
+                      每个用户；环境变量 <span className="font-mono">SOTABAND_CHAT_RATE_LIMIT_PER_MIN</span>
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-[12px] text-maia-text-muted mb-1">生成类每 10 分钟上限</label>
+                    <Input
+                      type="number" min={1} max={100}
+                      value={genLimit}
+                      onChange={(e) => setGenLimit(e.target.value)}
+                      className="font-mono"
+                    />
+                    <p className="text-[11px] text-maia-text-muted mt-1">
+                      创建工具/Agent 单次需数分钟，默认 5 易触顶；环境变量 <span className="font-mono">SOTABAND_CHAT_GEN_LIMIT_PER_10MIN</span>
+                    </p>
+                  </div>
+                </div>
+                <label className="flex items-start gap-2 mt-3 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={platformControl}
+                    onChange={(e) => setPlatformControl(e.target.checked)}
+                    className="mt-0.5 accent-[var(--maia-accent, currentColor)]"
+                  />
+                  <span className="text-[12px] text-maia-text-secondary">
+                    允许 Agent 通过对话操作平台
+                    <span className="block text-[11px] text-maia-text-muted">
+                      关闭即熔断：对话内一切平台操作返回「能力已停用」，用于紧急止血
+                    </span>
+                  </span>
+                </label>
               </div>
 
               {/* 保存结果反馈 */}
