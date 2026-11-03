@@ -1465,36 +1465,83 @@ class InteractiveAgent(BaseAgent):
     async def _extract_params_for_mode(
         self, query: str, tool_id: str, mode: str, dataset_paths: list[str] = None
     ) -> dict:
-        """提取指定模式的参数：只自动填充该模式的路径参数，其余交由引导"""
-        from pathlib import Path as _Path
+        """提取指定模式的参数：附件先填路径参数，其余交给 LLM 从话里抽取"""
+        return await self._extract_params(query, tool_id, dataset_paths, mode)
 
+    async def _extract_params(
+        self, query: str, tool_id: str, dataset_paths: list[str] = None, mode: str = None
+    ) -> dict:
+        """从用户输入中尽力提取工具参数（附件填路径类参数，其余走 LLM 抽取）。
+
+        曾经一度改成「只自动填附件路径、其他参数一律追问用户」（04035e3），
+        结果「查询广州的天气」也要用户手报一次 city 才肯执行——城市名明明
+        就在话里。参数抽取是工具自动化的核心，因此恢复抽取；抽不到的参数
+        仍走原引导流程逐个追问，不会瞎填。
+        """
         params = {}
-        if not mode:
-            return await self._extract_params(query, tool_id, dataset_paths)
 
-        # 只自动填充该模式下的文件/路径类参数（来自附件）
+        # 附件优先填文件/路径类参数（比让 LLM 猜路径可靠）
         path_param_names = self._get_path_params(tool_id, mode)
         if dataset_paths and path_param_names:
             for i, param_name in enumerate(path_param_names):
                 if i < len(dataset_paths):
                     params[param_name] = dataset_paths[i]
-        return params
 
-    async def _extract_params(self, query: str, tool_id: str, dataset_paths: list[str] = None) -> dict:
-        """只自动填充文件路径参数，其他参数不自动提取，交由后续引导流程让用户输入"""
-        from pathlib import Path as _Path
+        try:
+            from core.resource.registry.tool_registry import ToolRegistry
+            entry = await ToolRegistry().get(tool_id)
+            if not entry:
+                return params
+            param_meta = [
+                p for p in (entry.get("param_meta", []) or [])
+                if p.get("name") != "mode"
+                and not (mode and p.get("mode") and p.get("mode") != mode)
+            ]
+            if not param_meta:
+                return params
 
-        params = {}
+            prompt = (
+                "从用户输入中提取工具参数，只返回能从输入中明确得到的参数，"
+                "不确定的不要编造。\n"
+                f"参数定义: {json.dumps(param_meta, ensure_ascii=False)}\n"
+                f"用户输入: \"{query}\"\n"
+            )
+            if params:
+                prompt += f"已注入: {json.dumps(params, ensure_ascii=False)}\n"
+            prompt += "只返回 JSON 对象（无则返回 {}）："
 
-        # 只自动填充文件/路径类参数（来自附件）
-        path_param_names = self._get_path_params(tool_id)
-        if dataset_paths and path_param_names:
-            for i, param_name in enumerate(path_param_names):
-                if i < len(dataset_paths):
-                    params[param_name] = dataset_paths[i]
+            resp = await self.llm.chat(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0, max_tokens=300,
+            )
+            text = (resp or "").strip()
+            if text.startswith("```"):
+                text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+            extra = json.loads(text)
+            if not isinstance(extra, dict):
+                return params
 
-        # 不再调用 LLM 自动提取其他参数
-        # 未填写的参数会触发 _check_missing_params → 引导用户逐一输入
+            # 只采纳参数表里定义过的参数名，并按声明类型纠正
+            valid = {p.get("name"): p for p in param_meta if p.get("name")}
+            for name, val in extra.items():
+                p = valid.get(name)
+                if not p or val in (None, ""):
+                    continue
+                ptype = (p.get("type", "") or "").lower()
+                if "int" in ptype or "float" in ptype:
+                    num = self._coerce_number(str(val), want_float="float" in ptype)
+                    if num is not None:
+                        params[name] = num
+                elif self._is_path_param(p):
+                    resolved = self._resolve_path_answer(str(val))
+                    if resolved:
+                        params[name] = resolved
+                    # 路径解析不到就不填，交给引导流程要用户提供真实文件
+                else:
+                    params[name] = val
+        except Exception:
+            pass
+
         return params
 
     def _get_path_params(self, tool_id: str, mode: str = None) -> list[str]:
