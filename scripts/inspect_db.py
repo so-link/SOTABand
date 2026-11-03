@@ -22,8 +22,8 @@ $env:DATABASE_URL='postgresql+asyncpg://sotaband:sotaband@localhost:55432/sotaba
 
 ## 期望看到
 
-- 迁移版本 = 当前 head（写这份文档时是 ``0005``）
-- **12 张业务表** + ``alembic_version``
+- 迁移版本 = 当前 head（写这份文档时是 ``0007``）
+- **13 张业务表** + ``alembic_version``
 - **外键数量 = 0** —— 这是刻意的（阿里开发手册【强制】不得使用外键与级联，
   见 ADR-08-11）。如果这里不是 0，说明有人加了外键，要回头核对决策。
 """
