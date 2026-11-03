@@ -1,7 +1,5 @@
 import { create } from 'zustand'
 
-const STORAGE_KEY = 'sotaband_workspace_tools'
-
 export interface WorkspaceTool {
   id: string
   name: string
@@ -11,44 +9,31 @@ export interface WorkspaceTool {
 
 interface WorkspaceToolState {
   tools: WorkspaceTool[]
+  /** 后端不可达标记：UI 可据此提示"清单加载失败"，与"清单为空"区分 */
+  loadError: boolean
   fetchFromApi: () => Promise<void>
-  addTool: (tool: WorkspaceTool) => void
-  removeTool: (id: string) => void
+  addTool: (tool: WorkspaceTool) => Promise<void>
+  removeTool: (id: string) => Promise<void>
   isLoaded: (id: string) => boolean
 }
 
-// localStorage 仅作降级缓存。真实状态源是后端 storage/workspace_tools.json：
-// 以前清单只存 localStorage，换浏览器 / 无痕窗口 / 清缓存后工具空间就全空了。
-function loadFromStorage(): WorkspaceTool[] {
-  try {
-    const data = localStorage.getItem(STORAGE_KEY)
-    return data ? JSON.parse(data) : []
-  } catch { return [] }
-}
-
-function saveToStorage(tools: WorkspaceTool[]) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(tools)) } catch { /* ignore */ }
-}
-
+// 后端 storage/workspace_tools.json 是唯一状态源，不做任何 localStorage
+// 缓存/降级：网络不可达就显示空清单（loadError 标记可让 UI 提示加载失败）。
+// 曾经的 localStorage 降级导致后端重启/清空后，前端仍显示早已不存在的
+// 旧工具，用户端看到的数据与后端不一致。
 export const useWorkspaceToolStore = create<WorkspaceToolState>((set, get) => ({
-  // 首次渲染用 localStorage 占位；马上被 fetchFromApi 覆盖
-  tools: loadFromStorage(),
+  tools: [],
+  loadError: false,
 
-  // 后端是单一状态源。只有网络层真的不可达（fetch reject）时才降级到
-  // localStorage——后端 200 OK 返回空数组必须覆盖本地，否则任何短暂
-  // 的后端重启 / 网络抖动都会让前端继续显示早已被清空的旧清单。
   fetchFromApi: async () => {
     try {
       const res = await fetch('/api/tool/workspace', { cache: 'no-store' })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
-      const tools: WorkspaceTool[] = Array.isArray(data.tools) ? data.tools : []
-      set({ tools })
-      saveToStorage(tools)
+      set({ tools: Array.isArray(data.tools) ? data.tools : [], loadError: false })
     } catch {
-      // 后端不可达：保留 localStorage 数据（这是 localStorage 的唯一
-      // 真实用途——缓存 + 离线降级）。UI 侧仍可正常交互，后端恢复后
-      // 下一次 fetchFromApi 会自动对齐。
+      // 网络不可达：显示空清单，不保留旧数据
+      set({ tools: [], loadError: true })
     }
   },
 
@@ -63,11 +48,10 @@ export const useWorkspaceToolStore = create<WorkspaceToolState>((set, get) => ({
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
     } catch {
-      return  // 后端挂了，不乐观更新——下次 fetchFromApi 会自动对齐
+      set({ loadError: true })
+      return
     }
-    const updated = [...tools, { ...tool, loadedAt: new Date().toISOString() }]
-    set({ tools: updated })
-    saveToStorage(updated)
+    set({ tools: [...tools, { ...tool, loadedAt: new Date().toISOString() }], loadError: false })
   },
 
   removeTool: async (id) => {
@@ -75,14 +59,16 @@ export const useWorkspaceToolStore = create<WorkspaceToolState>((set, get) => ({
       const res = await fetch(`/api/tool/workspace/${id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
     } catch {
+      set({ loadError: true })
       return
     }
-    const updated = get().tools.filter(t => t.id !== id)
-    set({ tools: updated })
-    saveToStorage(updated)
+    set({ tools: get().tools.filter(t => t.id !== id), loadError: false })
   },
 
   isLoaded: (id) => {
     return get().tools.some(t => t.id === id)
   },
 }))
+
+// 清掉历史版本遗留的 localStorage 键（升级前工具空间只存本地）
+try { localStorage.removeItem('sotaband_workspace_tools') } catch { /* ignore */ }

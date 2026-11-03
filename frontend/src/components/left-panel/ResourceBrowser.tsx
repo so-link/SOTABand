@@ -115,6 +115,7 @@ export function ResourceBrowser() {
   // 工具空间：从 workspace store 读取已加载的工具
   const workspaceTools = useWorkspaceToolStore((s) => s.tools)
   const workspaceRemoveTool = useWorkspaceToolStore((s) => s.removeTool)
+  const workspaceLoadError = useWorkspaceToolStore((s) => s.loadError)
 
   const getResources = (type: ResourceType): Resource[] => {
     switch (type) {
@@ -402,7 +403,9 @@ export function ResourceBrowser() {
                 ))}
                 {resources.length === 0 && (
                   <p className="text-[12px] text-maia-text-muted py-1 px-1.5">
-                    暂无资源
+                    {section.type === 'tool' && workspaceLoadError
+                      ? '清单加载失败（后端不可达）'
+                      : '暂无资源'}
                   </p>
                 )}
               </div>
