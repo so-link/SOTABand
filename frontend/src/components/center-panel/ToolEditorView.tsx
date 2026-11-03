@@ -687,7 +687,7 @@ function Step2() {
 function Step3() {
   const { generatedCode, params, modes, selectedMode, setSelectedMode, testInputs, testOutput, registerTool, runTest, stopTest, autoDebug, stopAutoDebug,
           setStep, isGenerating, isTesting, isAutoDebugging, error, debugRounds, debugStream, setTestInput,
-          setGeneratedCode, editingToolId, editingToolName, baselineCode, syncSpecFromCode, stopGeneration } = useToolEditorStore()
+          setGeneratedCode, editingToolId, editingToolName, baselineCode, syncSpecFromCode, stopGeneration, reasoningStream } = useToolEditorStore()
   const logEndRef = useRef<HTMLDivElement>(null)
   const fileInputRefs = useRef<Map<string, HTMLInputElement>>(new Map())
   // 导师分支的行号/可编辑代码 ref 已随代码区统一为"手工微调切换 + Highlight 预览"而移除

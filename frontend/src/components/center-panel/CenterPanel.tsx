@@ -115,7 +115,7 @@ function ViewTabBar() {
   }, [activeView, openViews.length])
 
   // 按 viewId 渲染单个标签（对话标签与滚动标签共用）
-  const renderTab = (viewId: string) => {
+  const renderTab = (viewId: ActiveView) => {
     // 参数化视图（单个 Agent/工具/模型）动态解析标题与图标
     const agentId = parseAgentDetailView(viewId)
     const toolId = parseToolDetailView(viewId)
