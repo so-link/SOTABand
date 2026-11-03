@@ -324,7 +324,23 @@ export function RepositoryView() {
                         )}
                       </div>
                       <div className="flex items-center justify-between text-[12px] text-maia-text-muted mb-1.5 mt-auto shrink-0">
-                        <span className="font-mono">v{tool.version}</span>
+                        <span className="flex items-center gap-1.5 min-w-0">
+                          <span className="font-mono">v{tool.version}</span>
+                          {/* 来源徽章：内置不可直接改（编辑时先复制副本），
+                              我的副本=私有覆盖层，我的工具=纯私有创建 */}
+                          {tool.source === 'builtin' && (
+                            <span title="内置工具（随系统分发）：要修改请先复制为我的副本"
+                              className="inline-flex items-center px-1.5 py-px rounded-full text-[12px] font-semibold border bg-maia-sidebar-active text-maia-text-secondary border-maia-border">内置</span>
+                          )}
+                          {tool.source === 'private' && tool.forked && (
+                            <span title="已复制为私有副本：编辑与执行都用副本，内置版本不受影响"
+                              className="inline-flex items-center px-1.5 py-px rounded-full text-[12px] font-semibold border bg-maia-warning-bg text-maia-warning border-maia-warning/20">我的副本</span>
+                          )}
+                          {tool.source === 'private' && !tool.forked && (
+                            <span title="我创建的工具（私有目录）"
+                              className="inline-flex items-center px-1.5 py-px rounded-full text-[12px] font-semibold border bg-maia-success-bg text-maia-success border-maia-success/20">我的工具</span>
+                          )}
+                        </span>
                         <span>已用 {tool.usage_count} 次</span>
                       </div>
                       <div className="flex items-center gap-1 shrink-0 border-t border-maia-border/40 pt-2 mt-0.5">

@@ -9,6 +9,10 @@ export interface RepositoryTool {
   tags: string[]
   usage_count: number
   created_at: string
+  /** 命中的资源根（registry 合并时派生）：builtin=内置、private=私有目录 */
+  source?: string
+  /** 是否由内置「复制为我的副本」而来（forked_from 落盘在私有条目上） */
+  forked?: boolean
 }
 
 interface RepositoryState {
@@ -51,6 +55,8 @@ export const useRepositoryStore = create<RepositoryState>((set, get) => ({
         tags: Array.isArray(t.tags) ? t.tags : [],
         usage_count: (t.usage_count as number) || 0,
         created_at: (t.created_at as string) || '',
+        source: (t.source as string) || '',
+        forked: Boolean(t.forked_from),
       }))
       set({ tools, tagStats: data.tag_stats || {}, loading: false })
     } catch {
