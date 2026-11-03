@@ -26,10 +26,12 @@ import secrets
 import time
 from pathlib import Path
 
-from core.resource import paths
+from core.user_paths import auth_dir
 from core.resource.json_store import write_json_atomic
 
-USERS_DIR = paths.PRIVATE_ROOT / "users"
+# 系统级例外：登录用户表与令牌密钥是**平台级实体**（验证任何用户的令牌
+# 都需要同一把密钥），放 SYSTEM_ROOT/storage/auth/，不随用户目录走。
+USERS_DIR = auth_dir()
 USERS_FILE = USERS_DIR / "users.json"
 SECRET_FILE = USERS_DIR / "secret.key"
 

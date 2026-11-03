@@ -21,7 +21,10 @@ try:  # 部分发行版（如 Debian 旧 libsqlite3）的系统 sqlite3 缺符�
 except ImportError:
     import pysqlite3 as sqlite3  # type: ignore[no-redef]
 
-_DB_PATH = Path(__file__).resolve().parent.parent.parent / "storage" / "platform.db"
+from core.user_paths import platform_db
+
+# 用户目录下 platform.db（每用户一库；默认 /root/SB-USER/0/platform.db）
+_DB_PATH = platform_db()
 
 _lock = threading.Lock()
 _conn: sqlite3.Connection | None = None

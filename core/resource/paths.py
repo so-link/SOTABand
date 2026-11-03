@@ -1,17 +1,18 @@
 """资源根目录解析
 
-SOTABand 的资源分为两类：
+【归属】SOTABand 的资源分为两类：
 
-1. **内置资源**（``resources/``）：随项目仓库分发，可提交到 git。
-2. **私有资源**（``resources-private/``）：用户在本机客户端新创建的资源
-   （数据集 / 工具集 / 智能体集），**不提交 git**，仅存于本地环境。
+1. **内置资源**（``SYSTEM_ROOT/resources/``）：随项目仓库分发，可提交到 git。
+2. **用户私有资源**（``USER_HOME/resources-private/``）：用户创建的资源
+   （数据集 / 工具集 / 智能体集），**不提交 git**，仅存于用户目录。
 
-平台加载时**同时读取**两个目录下的同类资源（后者覆盖 / 追加），
-而**新建的资源一律写入私有目录**——这样「公共模板」与「个人资产」自然隔离。
+平台加载时**同时读取**两类资源（私有覆盖 / 追加内置），
+而**新建的资源一律写入用户私有目录**。
 
-目录位置：私有目录位于项目根目录的同级位置（与 resources/ 平级），
-默认路径为 ``<项目根>/resources-private``，可通过环境变量
-``SOTABAND_PRIVATE_RESOURCES`` 覆盖。
+多用户路径规划（2026-11）：系统资产在 SYSTEM_ROOT（项目根），用户数据
+在 USER_HOME = ``<SOTABAND_HOME>/<当前uid>/``（默认 /root/SB-USER/0/，
+暂未启用多用户，默认 uid="0"）。解析逻辑的唯一实现在 ``core.user_paths``，
+本模块只是薄封装并保持 ``PRIVATE_ROOT`` 兼容别名。
 """
 
 from __future__ import annotations
@@ -20,25 +21,24 @@ import os
 import re
 from pathlib import Path
 
-# 项目根：core/resource/paths.py → core/resource → core → 项目根
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+from core.user_paths import SYSTEM_ROOT, current_uid, user_home
+
+# 项目根：保留旧名以兼容既有引用（语义 = SYSTEM_ROOT）
+PROJECT_ROOT = SYSTEM_ROOT
 
 # 内置资源根（随仓库分发）
-BUILTIN_ROOT = PROJECT_ROOT / "resources"
-
-# 私有资源根（本地新建，不入 git）
-# 需求指定位置为「SOTABand 目录下」——即项目根的父目录（/hdd/sdc1/jmlv/SOTABand）下的 resources-private。
-# 兼容两种约定：优先使用环境变量；否则用项目根同级目录。
-_PRIVATE_ENV = os.environ.get("SOTABAND_PRIVATE_RESOURCES", "").strip()
+BUILTIN_ROOT = SYSTEM_ROOT / "resources"
 
 
-def _default_private_root() -> Path:
-    # 优先：<项目根>/resources-private（若存在或可创建）
-    # 备选：<项目根父目录>/resources-private（按用户指定的“SOTABand 目录下”）
-    return PROJECT_ROOT.parent / "resources-private"
+def private_root(uid: str | None = None) -> Path:
+    """用户私有资源根（动态：登录态下不同用户不同目录）。"""
+    return user_home(uid) / "resources-private"
 
 
-PRIVATE_ROOT = Path(_PRIVATE_ENV) if _PRIVATE_ENV else _default_private_root()
+# 兼容别名：**仅供模块导入期默认值使用**（如 registry 构造时）。
+# 运行期读写一律走 private_root()（按当前请求身份动态解析），
+# 不要用本常量——登录态下它会固定到导入时刻的用户。
+PRIVATE_ROOT = private_root()
 
 
 # 资源 id 命名约束：小写字母/数字开头，仅含小写字母、数字、-、_，长度 ≤100。
@@ -53,10 +53,11 @@ def is_valid_resource_id(value: str) -> bool:
 
 
 def resource_roots() -> list[Path]:
-    """返回所有资源根目录（内置 + 私有），用于「读」时合并。"""
+    """返回所有资源根目录（内置 + 当前用户私有），用于「读」时合并。"""
     roots = [BUILTIN_ROOT]
-    if PRIVATE_ROOT not in roots:
-        roots.append(PRIVATE_ROOT)
+    pr = private_root()
+    if pr not in roots:
+        roots.append(pr)
     return roots
 
 
@@ -71,8 +72,8 @@ def builtin_space_dir(space: str) -> Path:
 
 
 def private_space_dir(space: str) -> Path:
-    """返回某资源空间的私有目录（唯一，新建资源写入此处）。"""
-    return PRIVATE_ROOT / space
+    """返回当前用户某资源空间的私有目录（新建资源写入此处）。"""
+    return private_root() / space
 
 
 def ensure_private_dirs(space: str) -> Path:

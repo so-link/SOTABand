@@ -41,25 +41,14 @@ SOTABand 的三类资源可见性**不同**，改动前务必确认：
 1. 请求级登录身份 —— ``/api/auth/login`` 签发令牌，中间件解析后经
    ``core/auth/session.py`` 的 contextvar 携带（见 ``core/auth``）
 2. 环境变量 ``SOTABAND_USER_ID``  —— 多人/多环境显式区分时使用
-3. ``storage/user.json`` 中持久化的标识 —— 首次运行自动生成
-4. 兜底 ``local``
-
-无登录态时（2-4）即"实例身份"，行为与加身份层之前完全一致。
-
-``storage/`` 通常在版本控制之外，因此复制项目不会带走过别人的身份标识，
-天然实现"每个安装实例是独立用户"。
+3. 默认用户 ``"0"`` —— 暂未启用多用户；用户数据落 USER_HOME
+   （``/root/SB-USER/0/``，路径解析的唯一实现在 core.user_paths）
 """
 
-import json
 import os
-import time
-import uuid
-from pathlib import Path
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_USER_FILE = _PROJECT_ROOT / "storage" / "user.json"
-
-_DEFAULT_USER_ID = "local"
+# 暂未支持多用户：默认用户 ID = "0"（数据落 /root/SB-USER/0/）
+_DEFAULT_USER_ID = "0"
 
 # ── 可见性 ──
 VISIBILITY_PRIVATE = "private"
@@ -113,39 +102,14 @@ def detect_storage(data_path: str) -> str:
     return "local"
 
 
-def _load_persisted() -> str | None:
-    try:
-        if _USER_FILE.exists():
-            data = json.loads(_USER_FILE.read_text(encoding="utf-8"))
-            uid = data.get("user_id")
-            if isinstance(uid, str) and uid.strip():
-                return uid.strip()
-    except (OSError, json.JSONDecodeError, ValueError):
-        pass
-    return None
-
-
-def _persist(uid: str) -> None:
-    try:
-        _USER_FILE.parent.mkdir(parents=True, exist_ok=True)
-        _USER_FILE.write_text(
-            json.dumps(
-                {"user_id": uid, "created_at": time.strftime("%Y-%m-%d %H:%M:%S")},
-                ensure_ascii=False,
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
-    except OSError:
-        # 持久化失败不影响使用，退化为仅本次进程有效
-        pass
-
-
 def get_current_user_id() -> str:
-    """获取当前用户 / 工作区标识（带进程内缓存）
+    """获取当前用户标识。
 
-    优先级：请求级登录身份（auth 中间件设置）> 环境变量 > user.json > local。
-    无登录态时行为与加身份层之前完全一致（单用户实例不受影响）。
+    优先级：请求级登录身份（auth 中间件设置）> 环境变量 SOTABAND_USER_ID
+    > 默认用户 "0"。
+
+    多用户路径规划（2026-11）后不再随机生成 ``local-xxx`` 实例身份——
+    未登录即默认用户 "0"，数据落 USER_HOME=/root/SB-USER/0/。
     """
     # 0) 请求级身份：登录用户（见 core/auth/session.py）
     from core.auth.session import current_identity
@@ -163,16 +127,8 @@ def get_current_user_id() -> str:
         _cached_user_id = env_uid
         return _cached_user_id
 
-    # 2) 已持久化的标识
-    persisted = _load_persisted()
-    if persisted:
-        _cached_user_id = persisted
-        return _cached_user_id
-
-    # 3) 首次运行：生成一个稳定的本地标识并持久化
-    uid = f"local-{uuid.uuid4().hex[:8]}"
-    _persist(uid)
-    _cached_user_id = uid
+    # 2) 默认用户
+    _cached_user_id = _DEFAULT_USER_ID
     return _cached_user_id
 
 

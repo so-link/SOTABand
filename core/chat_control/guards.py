@@ -18,13 +18,18 @@ class PathNotAllowed(Exception):
 
 
 def allowed_roots() -> list[Path]:
-    """允许读写的根目录：私有资源区 + 项目工作区（含 storage/、resources/）。
+    """允许读写的根目录：当前用户数据区（USER_HOME）+ 系统工作区（SYSTEM_ROOT）。
 
-    工作区整体在允许范围内是刻意的——平台的资源与数据本就托管在这里；
-    真正要挡的是工作区之外的任意文件系统。
+    多用户规划（2026-11）：用户数据在 USER_HOME=<SOTABAND_HOME>/<uid>/，
+    这里按当前请求身份动态解析——只放行当前用户自己的目录，其他用户目录
+    即使在同一台机器上也算越界。系统资产（resources/、storage/）整体放行
+    是刻意的——平台的资源与数据本就托管在这里；真正要挡的是这两者之外
+    的任意文件系统。
     """
+    from core.user_paths import user_home
+
     roots = [
-        paths.PRIVATE_ROOT,
+        user_home(),
         paths.PROJECT_ROOT,
     ]
     out = []

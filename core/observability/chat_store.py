@@ -20,7 +20,12 @@ try:  # 部分发行版（如 Debian 旧 libsqlite3）的系统 sqlite3 缺符�
 except ImportError:
     import pysqlite3 as sqlite3  # type: ignore[no-redef]
 
-_DB_PATH = Path(__file__).resolve().parent.parent.parent / "storage" / "platform.db"
+from core.user_paths import platform_db
+
+# 用户目录下 platform.db（多用户规划 2026-11：每用户一库；暂未启用多用户，
+# 默认 USER_HOME=/root/SB-USER/0/。登录态真正启用时，需把下方单连接改为
+# 按 uid 的连接池，见 core.user_paths 模块注释）。
+_DB_PATH = platform_db()
 
 _lock = threading.Lock()
 _conn: sqlite3.Connection | None = None

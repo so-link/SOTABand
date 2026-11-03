@@ -647,11 +647,17 @@ def _extract_tags_json(text: str) -> list[str] | None:
 # ── 工具空间（已加载清单）—— 后端持久化 ──
 # "工具空间"显示哪些工具属于引擎状态而非浏览器状态：以前清单只存前端
 # localStorage，换浏览器 / 无痕窗口 / 清缓存后工作空间就全空了。
-# 现在状态源是 storage/workspace_tools.json（前端不再本地缓存）。
+# 状态源是 USER_HOME/workspace_tools.json（前端不再本地缓存）。
 _PROJECT_ROOT = _Path(__file__).resolve().parent.parent.parent.parent
-_WORKSPACE_FILE = _PROJECT_ROOT / "storage" / "workspace_tools.json"
+
+
+def _workspace_file():
+    from core.user_paths import user_home
+    return user_home() / "workspace_tools.json"
+
+
 # 读-改-写锁 + 原子写：并发增删不再互相覆盖丢条目；崩溃不再留半截 JSON
-# （半截文件会被 _read_workspace 静默吞成 []，表现为"工具空间被清空"）
+# （半截文件会被读函数静默吞成 []，表现为"工具空间被清空"）
 _WORKSPACE_LOCK = _threading.Lock()
 
 
@@ -662,9 +668,10 @@ class WorkspaceToolItem(BaseModel):
 
 
 def _read_workspace_locked() -> list[dict]:
+    f = _workspace_file()
     try:
-        if _WORKSPACE_FILE.exists():
-            data = _json.loads(_WORKSPACE_FILE.read_text(encoding="utf-8"))
+        if f.exists():
+            data = _json.loads(f.read_text(encoding="utf-8"))
             if isinstance(data, list):
                 return [t for t in data if isinstance(t, dict) and t.get("id")]
     except Exception:
@@ -674,7 +681,9 @@ def _read_workspace_locked() -> list[dict]:
 
 def _write_workspace_locked(items: list[dict]) -> None:
     from core.resource.json_store import write_json_atomic
-    write_json_atomic(_WORKSPACE_FILE, items)
+    f = _workspace_file()
+    write_json_atomic(f, items)
+
 
 
 @router.get("/workspace")

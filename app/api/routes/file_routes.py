@@ -24,9 +24,16 @@ _SENSITIVE_NAMES = {"secret.key", "id_rsa", "id_ed25519", "authorized_keys", "cr
 
 
 def _sensitive_dirs() -> set[Path]:
+    from core.user_paths import auth_dir
+
+    # 密钥/身份文件是系统级（storage/auth）；历史版本曾在私有根 users/，一并拦截
     from core.resource import paths as _paths
 
-    return {(_paths.PRIVATE_ROOT / "users").resolve(), (Path.home() / ".ssh").resolve()}
+    return {
+        auth_dir().resolve(),
+        (_paths.private_root() / "users").resolve(),
+        (Path.home() / ".ssh").resolve(),
+    }
 
 
 def _assert_path_allowed(path: Path) -> None:
@@ -41,17 +48,19 @@ def _assert_path_allowed(path: Path) -> None:
             continue
         raise HTTPException(403, "不允许访问该路径")
 
-# 上传文件存储根目录
-UPLOAD_ROOT = Path(__file__).resolve().parent.parent.parent.parent / "data" / "uploads"
+# 上传文件存储根目录（用户目录：USER_HOME/uploads，每用户隔离）
+from core.user_paths import user_home as _user_home
+
+UPLOAD_ROOT = _user_home() / "uploads"
 UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
 
 # ── 工作区间文件树 —— 后端持久化 ──
 # 「工作区间」里用户上传 / 导入 / 打开的文件与目录属于引擎状态，而非浏览器状态。
 # 以前整棵树只存在前端 localStorage，换浏览器 / 无痕窗口 / 清缓存后工作区间就全空了，
-# 且后端完全无从知晓用户的工作现场。现在状态源是 storage/workspace_tree.json，
-# 前端 localStorage 仅作降级缓存（与工具空间 storage/workspace_tools.json 同一范式）。
+# 且后端完全无从知晓用户的工作现场。现在状态源是 USER_HOME/workspace_tree.json，
+# 前端 localStorage 仅作降级缓存（与工具空间 workspace_tools.json 同一范式）。
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-_WORKSPACE_TREE_FILE = _PROJECT_ROOT / "storage" / "workspace_tree.json"
+_WORKSPACE_TREE_FILE = _user_home() / "workspace_tree.json"
 
 
 class WorkspaceTreePayload(BaseModel):
