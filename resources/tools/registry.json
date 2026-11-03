@@ -276,8 +276,8 @@
         "name": "output_dir",
         "type": "string",
         "required": false,
-        "default": "./models",
-        "desc": "模型保存目录",
+        "default": null,
+        "desc": "模型保存目录；留空落 USER_HOME/data/meal-replacement-shape-prediction-training/models",
         "hints": [
           "输出目录",
           "模型保存路径",

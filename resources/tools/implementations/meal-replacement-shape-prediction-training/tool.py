@@ -1,7 +1,25 @@
 import os
+from pathlib import Path
+
 import pandas as pd
 import numpy as np
 from typing import Any, Dict
+
+# ── 运行目录（由平台注入，禁止写死绝对路径或按 __file__ 层级反推）──
+# SOTABAND_USER_HOME 当前用户目录：本工具的一切产物写这里
+def _env_path(name):
+    v = os.environ.get(name, "").strip()
+    return Path(v) if v else None
+
+_ROOT = _env_path("SOTABAND_ROOT") or Path.cwd()
+# 用户目录：env 缺失时按「SOTABAND_HOME 根 + uid」还原，绝不退回系统根
+_USER_HOME = _env_path("SOTABAND_USER_HOME") or (
+    (_env_path("SOTABAND_HOME") or _ROOT.parent / "SB-USER")
+    / (os.environ.get("SOTABAND_USER_ID", "").strip() or "0")
+)
+
+# ── 数据目录（产物一律落用户目录，系统根随 git 分发不可写脏）──
+_DATA_DIR = _USER_HOME / "data"
 
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
@@ -13,6 +31,13 @@ from sklearn.metrics import r2_score, mean_squared_error
 import joblib
 
 
+def _out_dir(*parts) -> Path:
+    """本工具产物目录：USER_HOME/data/<工具或子目录>/<...>，自动创建。"""
+    d = _DATA_DIR.joinpath(*parts) if parts else _DATA_DIR
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def execute(**kwargs) -> Dict[str, Any]:
     """
     代餐奶昔形状预测模型训练
@@ -22,7 +47,7 @@ def execute(**kwargs) -> Dict[str, Any]:
         model_type: str, 模型类型，支持: random_forest, gradient_boosting, linear_regression, svr, mlp (默认: random_forest)
         random_state: int, 随机种子 (默认: 42)
         test_size: float, 测试集比例 (默认: 0.2)
-        output_dir: str, 模型保存目录 (默认: ./models)
+        output_dir: str, 模型保存目录 (默认: USER_HOME/data/meal-replacement-shape-prediction-training/models)
 
     Returns:
         dict: 包含 status, message, output_format, data 的标准输出字典
@@ -32,7 +57,9 @@ def execute(**kwargs) -> Dict[str, Any]:
     model_type = kwargs.get('model_type', 'random_forest')
     random_state = kwargs.get('random_state', 42)
     test_size = kwargs.get('test_size', 0.2)
-    output_dir = kwargs.get('output_dir', './models')
+    # 未指定目录时落用户数据目录：相对 CWD 的默认值会随执行目录漂移，写脏别处
+    output_dir = str(kwargs.get('output_dir') or '').strip() or str(
+        _out_dir('meal-replacement-shape-prediction-training', 'models'))
 
     # 1. 校验必填参数
     if data_path is None:

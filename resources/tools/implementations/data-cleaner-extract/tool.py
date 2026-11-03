@@ -1,6 +1,32 @@
 import os
+import sys
+from pathlib import Path
+
 import pandas as pd
 from typing import Any, Dict
+
+# ── 运行目录（由平台注入，禁止写死绝对路径或按 __file__ 层级反推）──
+# SOTABAND_USER_HOME 当前用户目录：本工具的一切产物写这里
+def _env_path(name):
+    v = os.environ.get(name, "").strip()
+    return Path(v) if v else None
+
+_ROOT = _env_path("SOTABAND_ROOT") or Path.cwd()
+# 用户目录：env 缺失时按「SOTABAND_HOME 根 + uid」还原，绝不退回系统根
+_USER_HOME = _env_path("SOTABAND_USER_HOME") or (
+    (_env_path("SOTABAND_HOME") or _ROOT.parent / "SB-USER")
+    / (os.environ.get("SOTABAND_USER_ID", "").strip() or "0")
+)
+
+# ── 数据目录（产物一律落用户目录，系统根随 git 分发不可写脏）──
+_DATA_DIR = _USER_HOME / "data"
+
+def _out_dir(*parts) -> Path:
+    """本工具产物目录：USER_HOME/data/<工具或子目录>/<...>，自动创建。"""
+    d = _DATA_DIR.joinpath(*parts) if parts else _DATA_DIR
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
 
 def execute(**kwargs) -> Dict[str, Any]:
     """
@@ -35,7 +61,10 @@ def execute(**kwargs) -> Dict[str, Any]:
             "data": {}
         }
 
-    output_file = kwargs.get('output_file', 'output.csv')
+    output_file = str(kwargs.get('output_file') or '').strip() or 'output.csv'
+    # 只给文件名时落用户数据目录：CWD 不可作为产物落点（换机器/换用户会写脏别处）
+    if not os.path.dirname(output_file):
+        output_file = str(_out_dir('data-cleaner-extract') / output_file)
     delimiter = kwargs.get('delimiter', '\t')
     encoding = kwargs.get('encoding', 'utf-8')
 

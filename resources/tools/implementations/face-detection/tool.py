@@ -1,5 +1,29 @@
 import os
+from pathlib import Path
 from typing import Any, Dict
+
+# ── 运行目录（由平台注入，禁止写死绝对路径或按 __file__ 层级反推）──
+# SOTABAND_USER_HOME 当前用户目录：本工具的一切产物写这里
+def _env_path(name):
+    v = os.environ.get(name, "").strip()
+    return Path(v) if v else None
+
+_ROOT = _env_path("SOTABAND_ROOT") or Path.cwd()
+# 用户目录：env 缺失时按「SOTABAND_HOME 根 + uid」还原，绝不退回系统根
+_USER_HOME = _env_path("SOTABAND_USER_HOME") or (
+    (_env_path("SOTABAND_HOME") or _ROOT.parent / "SB-USER")
+    / (os.environ.get("SOTABAND_USER_ID", "").strip() or "0")
+)
+
+# ── 数据目录（产物一律落用户目录，系统根随 git 分发不可写脏）──
+_DATA_DIR = _USER_HOME / "data"
+
+def _out_dir(*parts) -> Path:
+    """本工具产物目录：USER_HOME/data/<工具或子目录>/<...>，自动创建。"""
+    d = _DATA_DIR.joinpath(*parts) if parts else _DATA_DIR
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
 
 def execute(**kwargs) -> Dict[str, Any]:
     """
@@ -71,15 +95,13 @@ def execute(**kwargs) -> Dict[str, Any]:
         face_list = [[int(x), int(y), int(w), int(h)] for (x, y, w, h) in faces]
 
         # 在原图上绘制人脸框
-        import tempfile
         output_img = img.copy()
         for (x, y, w, h) in faces:
             cv2.rectangle(output_img, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
-        # 保存标注图片到数据目录
-        output_dir = os.path.join(os.path.dirname(image_path) or tempfile.gettempdir(), "results")
-        os.makedirs(output_dir, exist_ok=True)
-        result_path = os.path.join(output_dir, f"face_detected_{os.path.basename(image_path)}")
+        # 保存标注图片到用户数据目录（不写进输入图片所在目录，避免污染数据源）
+        out_dir = _out_dir("face-detection")
+        result_path = str(out_dir / f"face_detected_{os.path.basename(image_path)}")
         cv2.imwrite(result_path, output_img)
 
         return {

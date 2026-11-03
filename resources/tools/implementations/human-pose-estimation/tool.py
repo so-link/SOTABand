@@ -1,23 +1,46 @@
 """Human Pose Estimation Tool — mediapipe 0.10.x Task API"""
 
 import os
-import tempfile
 import cv2
 import numpy as np
 from typing import Any
 from pathlib import Path
 
-# 模型自动下载路径
-MODEL_DIR = Path(__file__).resolve().parent / "models"
-MODEL_PATH = MODEL_DIR / "pose_landmarker_lite.task"
+# ── 运行目录（由平台注入，禁止写死绝对路径或按 __file__ 层级反推）──
+# SOTABAND_USER_HOME 当前用户目录：本工具的一切产物写这里
+def _env_path(name):
+    v = os.environ.get(name, "").strip()
+    return Path(v) if v else None
+
+_ROOT = _env_path("SOTABAND_ROOT") or Path.cwd()
+# 用户目录：env 缺失时按「SOTABAND_HOME 根 + uid」还原，绝不退回系统根
+_USER_HOME = _env_path("SOTABAND_USER_HOME") or (
+    (_env_path("SOTABAND_HOME") or _ROOT.parent / "SB-USER")
+    / (os.environ.get("SOTABAND_USER_ID", "").strip() or "0")
+)
+
+# ── 数据目录（产物一律落用户目录，系统根随 git 分发不可写脏）──
+_DATA_DIR = _USER_HOME / "data"
+
+def _out_dir(*parts) -> Path:
+    """本工具产物目录：USER_HOME/data/<工具或子目录>/<...>，自动创建。"""
+    d = _DATA_DIR.joinpath(*parts) if parts else _DATA_DIR
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+# 模型：优先用工具目录内随 git 分发的内置副本；缺失时下载到用户目录缓存，
+# 不往工具目录写（内置资源只读，复制到系统目录后写进去就是污染）
+_tool_dir = _env_path("TOOL_DIR") or (Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd())
+_BUNDLED_MODEL = _tool_dir / "models" / "pose_landmarker_lite.task"
+MODEL_PATH = _BUNDLED_MODEL if _BUNDLED_MODEL.exists() else _USER_HOME / "models" / "pose_landmarker_lite.task"
 MODEL_URL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task"
 
 
 def _ensure_model() -> str:
-    """确保模型文件存在，不存在则下载"""
-    MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    """确保模型文件存在，不存在则下载到用户目录缓存"""
     if not MODEL_PATH.exists():
         import urllib.request
+        MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
         urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
     return str(MODEL_PATH)
 
@@ -142,10 +165,9 @@ def execute(**kwargs) -> dict[str, Any]:
                 line_color = conn_color_map.get(conn_key, (0, 0, 0))  # 默认黑色
                 cv2.line(output_img, (x1, y1), (x2, y2), line_color, 2)  # 原为4，改为30更粗更醒目
 
-        # 保存结果图像
-        result_dir = os.path.join(os.path.dirname(image_path) or tempfile.gettempdir(), "results")
-        os.makedirs(result_dir, exist_ok=True)
-        result_path = os.path.join(result_dir, f"pose_{os.path.basename(image_path)}")
+        # 保存结果图像到用户数据目录（不写进输入图片所在目录，避免污染数据源）
+        result_dir = _out_dir("human-pose-estimation")
+        result_path = str(result_dir / f"pose_{os.path.basename(image_path)}")
         cv2.imwrite(result_path, output_img)
 
         return {

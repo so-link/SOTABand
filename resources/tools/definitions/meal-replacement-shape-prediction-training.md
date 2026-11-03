@@ -23,7 +23,7 @@ created: 2025-04-01
 | model_type | string | 否 | random_forest | 模型类型，支持：random_forest, gradient_boosting, linear_regression, svr, mlp |
 | random_state | int | 否 | 42 | 随机种子，保证结果可复现 |
 | test_size | float | 否 | 0.2 | 测试集比例 |
-| output_dir | string | 否 | ./models | 模型保存目录 |
+| output_dir | string | 否 |  | 模型保存目录；留空则落用户数据目录 USER_HOME/data/meal-replacement-shape-prediction-training/models |
 
 ## 3. 输出规范
 
@@ -82,14 +82,13 @@ created: 2025-04-01
   "data_path": "./data/shake_sample.csv",
   "model_type": "random_forest",
   "random_state": 123,
-  "test_size": 0.2,
-  "output_dir": "./models"
+  "test_size": 0.2
 }
 ```
 
 预期结果：
 - 训练集R² > 0.85，测试集R² > 0.7（示例基线）
-- 模型保存至 `./models/model.pkl`，返回路径正确
+- 模型保存至用户数据目录（`USER_HOME/data/meal-replacement-shape-prediction-training/models/model.pkl`），返回路径正确
 
 ### 6.2 边界条件
 
