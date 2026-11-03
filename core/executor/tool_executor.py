@@ -90,14 +90,17 @@ class ToolExecutor:
         sec = _settings.security
 
         # 文件写入白名单 → 绝对路径
+        # 注意：构建侧（本进程）与 hook 运行侧（子进程）同机同平台，
+        # 统一 normpath+normcase 规范化，避免 Windows 反斜杠/正斜杠混用
+        # 导致 startswith 失配（合法写入被误杀）
         roots: list[str] = []
         for p in sec.allowed_write_paths:
             p = str(p)
-            if not p.startswith("/"):
-                p = f"{project_root}/{p}"
-            roots.append(p)
-        roots.append(tool_dir)          # 工具自身目录
-        roots.append("/tmp")            # 临时文件
+            if not os.path.isabs(p):
+                p = os.path.join(project_root, p)
+            roots.append(os.path.normcase(os.path.normpath(p)))
+        roots.append(os.path.normcase(os.path.normpath(tool_dir)))  # 工具自身目录
+        roots.append(os.path.normcase(os.path.normpath(tempfile.gettempdir())))  # 系统临时目录
 
         mode = sec.review_mode if sec.review_mode in ("enforce", "audit") else "off"
 
@@ -135,8 +138,8 @@ class ToolExecutor:
             "        except Exception:\n"
             "            return\n"
             "        if any(c in mode for c in 'wa+'):\n"
-            "            rp = _sec_os.path.realpath(path)\n"
-            "            if not any(rp.startswith(r) for r in _sec_write_roots):\n"
+            "            rp = _sec_os.path.normcase(_sec_os.path.realpath(path))\n"
+            "            if not any(rp == r or rp.startswith(r + _sec_os.sep) for r in _sec_write_roots):\n"
             "                msg = 'FILE_WRITE_DENY: ' + rp\n"
             "                enforceable = True\n"
             "    elif event in ('os.system', 'os.posix_spawn', 'pty.spawn'):\n"
