@@ -144,10 +144,62 @@ def main() -> None:
             reg.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
             moved.append(f"{space}/registry.json: owner→{DEFAULT_UID}, data_path 前缀改写")
 
+    # 7) SQLite 里的 owner 归一为默认用户。
+    #    历史值（local-xxx / default / 测试身份）与现在解析出的 uid="0" 不匹配，
+    #    按 owner 过滤的读路径（定时任务列表、对话内平台操作审计）会查不到自己的数据。
+    _normalize_db_owners()
+
     print(f"\n完成，共迁移 {len(moved)} 项:")
     for m in moved:
         print(f"  {m}")
     print(f"\nUSER_HOME = {NEW_HOME}")
+
+
+def _normalize_db_owners() -> None:
+    """把 platform.db 中历史 owner/身份值统一改写为 DEFAULT_UID。
+
+    暂未启用多用户：库里残留的 local-xxx、default、以及单用户实例的匿名身份，
+    在旧的 get_current_user_id()（随机 local-xxx）下都能匹配，改造后统一解析为
+    DEFAULT_UID，不改写就会表现为「数据凭空消失」。
+    """
+    db = NEW_HOME / "platform.db"
+    if not db.exists():
+        return
+    try:
+        import sqlite3
+        sqlite3.sqlite_version
+    except ImportError:  # 系统 sqlite3 缺符号时退回自带库（与 store.py 同策略）
+        import pysqlite3 as sqlite3  # type: ignore[no-redef]
+
+    conn = sqlite3.connect(str(db))
+    try:
+        # (表, 列) —— 这两处是读路径按当前身份过滤的唯一位置
+        targets = [("cron_jobs", "owner"), ("chat_ops", "owner")]
+        for table, col in targets:
+            exists = conn.execute(
+                "select 1 from sqlite_master where type='table' and name=?", (table,)
+            ).fetchone()
+            if not exists:
+                continue
+            cols = {r[1] for r in conn.execute(f'PRAGMA table_info("{table}")')}
+            if col not in cols:
+                continue
+            before = conn.execute(
+                f'select count(*) from "{table}" where COALESCE({col},\'\') <> ?', (DEFAULT_UID,)
+            ).fetchone()[0]
+            if not before:
+                continue
+            owners = [r[0] for r in conn.execute(
+                f'select distinct {col} from "{table}" where COALESCE({col},\'\') <> ?', (DEFAULT_UID,)
+            )]
+            conn.execute(
+                f'update "{table}" set {col}=? where COALESCE({col},\'\') <> ?',
+                (DEFAULT_UID, DEFAULT_UID),
+            )
+            conn.commit()
+            moved.append(f"{table}.{col}: {before} 行 owner {owners} → {DEFAULT_UID}")
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":
