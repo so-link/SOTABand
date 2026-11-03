@@ -493,7 +493,7 @@ Git 代理规则仅作用于本工具子进程：direct 设置显式禁用代理
 
 最后第八轮随机种子 1750619586，通过平台 ToolExecutor 实测 facebookresearch/dino（提交 7c446df5b9f45747937fb0d72314eb9f7b66930a）、ACL 2022 图方向检索（15 篇、抽查 12 篇详情）、《Hypergraph Transformer: Weakly-Supervised Multi-hop Reasoning for Knowledge-based Visual Question Answering》的官方摘要写作。实际操作包含缺少模型配置时明确提示、普通文字“麻烦你重试一下”继续真实模型请求、“导出这篇文稿”后用“Word 就行”完成导出，以及真实 GPU/Docker 检查和普通文字创建固定快照计划。该轮仅创建计划，没有提交新训练。人工复核确认生成的是全文提纲，内容与官方摘要相符；未把引用格式检查等同于全文证据验证。最后一轮无未预期失败、无后续代码修改。
 
-实测入口：`python -m resources.tools._academic.tests.live_conversation_round --round 8`；会创建独立临时数据目录并发起真实网络/模型请求。当前证据目录为 `C:/Users/kepu/AppData/Local/Temp/sotaband-dialogue-round8-e5fjye53`，包含每一步真实响应和 summary.json。前端路由、SSE、其他工具与平台框架未改动，不把工具执行器层面的验收表述为前端传输已修复。
+实测入口：`python -m resources.tools._academic.tests.live_conversation_round --round 8`；会创建独立临时数据目录并发起真实网络/模型请求。当前证据在测试脚本生成的临时目录下，包含每一步真实响应和 summary.json。前端路由、SSE、其他工具与平台框架未改动，不把工具执行器层面的验收表述为前端传输已修复。
 
 ## 7. 版本历史
 
