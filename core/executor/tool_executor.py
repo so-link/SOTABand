@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from core.proc_utils import no_window_kwargs
+from core.resource import param_guard
 
 
 class ToolExecutor:
@@ -48,11 +49,16 @@ class ToolExecutor:
 
     @staticmethod
     def _tool_space_dirs() -> list[Path]:
-        """返回工具空间目录列表（内置 + 私有）。"""
+        """返回工具空间目录列表（私有在前、内置在后）。
+
+        顺序决定「同 id 同时存在于两个根」时跑哪一份代码：写入一律落私有根，
+        注册表也是私有覆盖内置，故执行必须同样私有优先 —— 否则用户改完代码
+        会看到详情页/测试是新的，实际执行却仍是内置旧代码。
+        """
         try:
             from core.resource import paths as _paths
 
-            return [r / "tools" for r in _paths.resource_roots()]
+            return [r / "tools" for r in _paths.read_roots()]
         except Exception:
             return [Path(__file__).resolve().parent.parent.parent / "resources" / "tools"]
 
@@ -150,6 +156,12 @@ class ToolExecutor:
         Returns:
             {"status": "success"|"failed", "message": ..., "data": ...}
         """
+        # 必填参数兜底：按 registry 的 param_meta 统一拦截，直接返回失败，
+        # 不启动子进程（工具代码里已不再自带缺参校验）。
+        guard = param_guard.check_params(tool_id, params)
+        if guard is not None:
+            return guard
+
         project_root = str(cls._project_root())
         impl_dir = cls._resolve_impl_dir(tool_id)
         python_exe = cls._get_python_exe(tool_id)
@@ -226,6 +238,10 @@ class ToolExecutor:
         Returns:
             {"status": "success"|"failed", "message": ..., "data": ...}
         """
+        guard = param_guard.check_params(tool_id, params)
+        if guard is not None:
+            return guard
+
         project_root = str(cls._project_root())
         impl_dir = cls._resolve_impl_dir(tool_id)
         python_exe = cls._get_python_exe(tool_id)

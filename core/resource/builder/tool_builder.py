@@ -146,9 +146,13 @@ def _call_tool(tool_name: str, **params) -> dict:
                     break
         except Exception:
             pass
-    # 在「内置 + 私有」资源根中定位工具实现
+    # 在「内置 + 私有」资源根中定位工具实现：私有优先（写入一律落私有根，
+    # 否则编辑过的工具会调用到内置那份旧代码）
+    _private_root = os.environ.get("SOTABAND_PRIVATE_RESOURCES") or str(
+        _PROJECT_ROOT.parent / "resources-private"
+    )
     tool_dir = None
-    for _root in (_PROJECT_ROOT / "resources", _PROJECT_ROOT.parent / "resources-private"):
+    for _root in (Path(_private_root), _PROJECT_ROOT / "resources"):
         _cand = _root / "tools" / "implementations" / tool_id
         if (_cand / "tool.py").exists():
             tool_dir = _cand
@@ -544,7 +548,16 @@ CRITICAL RULES:
 15. Batch processing over many items MUST be per-item fault-tolerant: wrap each item's work in try/except, collect per-item errors, and only return status:"failed" if ALL items failed. If any item succeeds, return status:"success".
 16. NEVER hardcode any API key, token, password, or secret in the generated code — not as a literal, not as a default value, not in a comment or docstring. Credentials MUST come from input params (kwargs.get("api_key")) or from @LLM自定义配置对话API. If a credential is needed, accept it as an input parameter named api_key and pass it straight through to the API call; never store it, never log it, never print it.
 17. NEVER print, log, or echo credential values (api_key/token/secret) to stdout/stderr or include them in the returned "message"/"data". Tool stdout is recorded into debug logs and may be sent to an LLM for auto-debugging; leaking a key there is irreversible.
-18. Output ONLY Python code, no markdown, no explanation"""
+18. NEVER implement required-parameter validation inside the tool. Do NOT write
+    `if not kwargs.get("x"): return {{"status":"failed", ...}}` or `raise ValueError("缺少参数...")`
+    for missing inputs — the platform validates REQUIRED inputs BEFORE execution
+    (per the tool's registry spec) and returns a unified Chinese error. Duplicating
+    it here makes the code disagree with the spec whenever the user flips
+    "必填/可选" in the UI. Read values with kwargs.get("name", default) and continue;
+    optional params may legitimately be empty/None — handle that with a default or a
+    fallback branch instead of failing. Type/sanity checks on values that ARE
+    provided (rule 13) are still mandatory.
+19. Output ONLY Python code, no markdown, no explanation"""
 
         # 多模式规则：仅当 MD 声明了多个模式时注入
         modes = self.parse_modes(spec_md)

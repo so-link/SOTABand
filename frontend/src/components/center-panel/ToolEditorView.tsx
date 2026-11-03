@@ -545,7 +545,7 @@ function Step2() {
       <h3 className="text-lg font-semibold text-maia-text-heading mb-2 tracking-wide">Step 2: 审阅 &amp; 编辑 MD 规范文档</h3>
       <p className="text-sm text-maia-text-secondary mb-3">
         {isEditMode
-          ? <>正在编辑已有工具 <span className="text-amber-500">{editingToolName || editingToolId}</span>，以下是其现有规范文档，可直接修改后重新生成代码。</>
+          ? <>正在编辑已有工具 <span className="text-amber-500">{editingToolName || editingToolId}</span>，以下是其现有规范文档，可直接修改后重新生成代码。注册时会更新该工具并把版本号 +1，不会新增重复工具。</>
           : '以下是 AI 生成的工具规范文档，你可以直接编辑修改。'}
       </p>
 
@@ -914,7 +914,7 @@ function Step3() {
 }
 
 function Step4() {
-  const { registeredId, reset } = useToolEditorStore()
+  const { registeredId, reset, lastRegisterUpdated, lastRegisterVersion } = useToolEditorStore()
   const setActiveView = useUIStore((s) => s.setActiveView)
   const selectedResource = useResourceStore((s) => s.selectedResource)
   // 注册完成后回到该工具详情页，让使用者立刻看到发布结果。
@@ -928,8 +928,8 @@ function Step4() {
   return (
     <div className="max-w-md mx-auto text-center py-12">
       <div className="flex justify-center mb-4"><div className="flex items-center justify-center h-16 w-16 rounded-full bg-maia-success/10"><Rocket className="h-8 w-8 text-maia-success" /></div></div>
-      <h3 className="text-lg font-semibold text-maia-text-heading mb-2 tracking-wide">工具已发布！</h3>
-      <Card className="border-maia-border mt-4"><CardBody><div className="space-y-2 text-left"><div className="flex justify-between text-xs"><span className="text-maia-text-muted">Tool ID</span><span className="font-mono text-maia-text">{registeredId}</span></div><div className="flex justify-between text-xs"><span className="text-maia-text-muted">状态</span><Badge variant="success">已注册</Badge></div></div></CardBody></Card>
+      <h3 className="text-lg font-semibold text-maia-text-heading mb-2 tracking-wide">{lastRegisterUpdated ? '工具已更新' : '工具已发布！'}</h3>
+      <Card className="border-maia-border mt-4"><CardBody><div className="space-y-2 text-left"><div className="flex justify-between text-xs"><span className="text-maia-text-muted">Tool ID</span><span className="font-mono text-maia-text">{registeredId}</span></div>{lastRegisterVersion && (<div className="flex justify-between text-xs"><span className="text-maia-text-muted">版本</span><span className="font-mono text-maia-text">v{lastRegisterVersion}</span></div>)}<div className="flex justify-between text-xs"><span className="text-maia-text-muted">状态</span><Badge variant="success">{lastRegisterUpdated ? '已更新' : '已注册'}</Badge></div></div></CardBody></Card>
       <div className="flex gap-3 justify-center mt-6">
         <Button variant="outline" onClick={handleBack}>
           {selectedResource?.type === 'tool' && (selectedResource as { id?: string }).id === registeredId

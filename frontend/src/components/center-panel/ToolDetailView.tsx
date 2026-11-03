@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   Wrench, FileCode, FileText, X, Play, Loader2, Download,
   CheckCheck, Save, Bot, Code, Pencil, Plus, Square,
@@ -13,6 +13,8 @@ import { useWorkspaceDatasetStore } from '@/stores/workspace-dataset-store'
 import { useUIStore } from '@/stores/ui-store'
 import { useToolEditorStore } from '@/stores/tool-editor-store'
 import { useTabIndent } from '@/hooks/use-tab-indent'
+import { toolApi } from '@/services/api/tool'
+import type { ToolReferences } from '@/services/api/tool'
 import type { ToolResource } from '@/types/resources'
 
 const BASE_URL = ''
@@ -37,7 +39,9 @@ function parseInputs(md: string): InputField[] {
       if (parts.length >= 4 && parts[0]) {
         fields.push({
           name: parts[0], type: parts[1] || 'string',
-          required: parts[2] === '是',
+          // 与后端 _parse_spec_inputs 对齐（用 includes 而非全等）：
+          // 手写成「是（必填）」「仅模式1」这类文本时也应视为必填。
+          required: (parts[2] || '').includes('是'),
           default: parts[3] === '-' || parts[3] === '—' || !parts[3] ? null : parts[3],
           desc: parts[4] || '',
         })
@@ -72,6 +76,10 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
   const [hasReference, setHasReference] = useState(false)
   const [formValues, setFormValues] = useState<Record<string, string>>({})
   const [pickerFor, setPickerFor] = useState<string | null>(null)  // 正在选择文件的参数名
+  // ── 必填/可选切换（确定性：后端只改 MD 一格 + 同步 param_meta，不调 LLM）──
+  const [enforceRequired, setEnforceRequired] = useState(true)
+  const [togglingParam, setTogglingParam] = useState('')
+  const [refHint, setRefHint] = useState<{ param: string; refs: ToolReferences } | null>(null)
   // output 只被渲染消费（沙箱执行走的是 modify-and-debug 流），不再有独立 setter
   const [output] = useState<Record<string, unknown> | null>(null)
   const [isTesting, setIsTesting] = useState(false)
@@ -114,6 +122,8 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
         const init: Record<string, string> = {}
         fields.forEach(f => { init[f.name] = f.default || '' })
         setFormValues(init)
+        // 老条目没有该字段时按「开启」处理（与后端 param_guard 一致）
+        setEnforceRequired(data.enforce_required !== false)
         // 切换工具时必须无条件重置：若只在"有值"时 set，上一个工具的
         // 需求描述/参考代码会残留到没有这些内容的工具上（内容错位）
         setDemandText(data.has_demand && data.demand_md ? data.demand_md : '')
@@ -154,6 +164,34 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
       window.alert(`导出失败：${(e as Error).message}`)
     } finally {
       setExporting(false)
+    }
+  }
+
+  const toggleParamRequired = async (field: InputField) => {
+    if (!tool) return
+    const next = !field.required
+    setTogglingParam(field.name)
+    setError(null)
+    try {
+      const res = await toolApi.setParamRequired({
+        toolId: tool.id, name: field.name, required: next, specMd, save: true,
+      })
+      // 后端只改了 MD 表格里那一格并同步了 param_meta，这里同步本地副本
+      setSpecMd(res.spec_md)
+      setRefHint(res.references && res.references.total > 0 ? { param: field.name, refs: res.references } : null)
+    } catch (e) { setError(String(e)) }
+    setTogglingParam('')
+  }
+
+  const toggleEnforceRequired = async () => {
+    if (!tool) return
+    const next = !enforceRequired
+    setEnforceRequired(next)
+    try {
+      await toolApi.setEnforceRequired(tool.id, next)
+    } catch (e) {
+      setError(String(e))
+      setEnforceRequired(!next)
     }
   }
 
@@ -212,7 +250,10 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
   const failed = (testResults?.failed as string[]) || []
 
   // AI 辅助修改 + 自动调试
-  const handleModify = useCallback(async () => {
+  // 注意：这里刻意用普通函数而不是 useCallback —— 它位于 `if (!tool)` 提前返回之后，
+  // 若写成 hook，tool 在挂载期间由空变有值时 hook 数量会变，React 会抛
+  // "Rendered more hooks than during the previous render"（整块详情面板白屏）。
+  const handleModify = async () => {
     const req = modifyRequest.trim()
     if (!req || isDebugging || !tool) return
     setModifyHistory(prev => [...prev, req])
@@ -324,9 +365,9 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
       if ((e as Error).name !== 'AbortError') setError(String(e))
       setIsDebugging(false)
     }
-  }, [modifyRequest, isDebugging, tool, editedCode, specMd, formValues, modifyHistory])
+  }
 
-  const handleStopDebug = useCallback(() => {
+  const handleStopDebug = () => {
     abortRef.current?.abort()
     setIsDebugging(false)
     // 通知后端停止
@@ -334,7 +375,7 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tool_id: tool?.id }),
     }).catch(() => {})
-  }, [tool])
+  }
 
   return (
     <div className="flex flex-col h-full bg-maia-surface">
@@ -504,12 +545,36 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
             {/* 右：参数 + 执行 + AI修改 */}
             <div className="shrink-0 space-y-4 overflow-auto" style={{ width: rightPanelWidth }}>
               <div>
-                <h3 className="text-sm font-semibold text-maia-text-heading mb-3 tracking-wide">输入参数</h3>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-maia-text-heading tracking-wide">输入参数</h3>
+                  <button onClick={toggleEnforceRequired}
+                    title="执行前是否按「必填」拦截（默认开启）。关闭后缺参不再由平台拦截，交由工具自身处理。"
+                    className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${enforceRequired ? 'border-maia-accent/40 text-maia-accent' : 'border-maia-border text-maia-text-muted'}`}>
+                    必填校验：{enforceRequired ? '开' : '关'}
+                  </button>
+                </div>
+                {refHint && (
+                  <div className="mb-2 rounded border border-amber-300/60 bg-amber-50/60 px-2 py-1.5 text-[10px] text-amber-700 leading-relaxed">
+                    「{refHint.param}」被 {refHint.refs.agents.length} 个 Agent、{refHint.refs.tools.length} 个工具引用
+                    {[...refHint.refs.agents, ...refHint.refs.tools].some(r => r.passes_param === false)
+                      ? '，其中部分调用未显式传该参数' : ''}
+                    。必填化不会中断已有的调用，但可能整条链路拿不到值。
+                    <button onClick={() => setRefHint(null)} className="ml-1 underline">知道了</button>
+                  </div>
+                )}
                 {inputs.length === 0 ? (<p className="text-xs text-maia-text-muted">此工具无需输入参数</p>) : (
                   <div className="space-y-3">
                     {inputs.map(f => (<div key={f.name}>
-                      <label className="text-[11px] font-medium text-maia-text-secondary tracking-wide">
-                        {f.name}{f.required && <span className="text-maia-danger ml-0.5">*</span>}<span className="text-maia-text-muted font-normal ml-1">({f.type})</span></label>
+                      <div className="flex items-center gap-1">
+                        <label className="text-[11px] font-medium text-maia-text-secondary tracking-wide">
+                          {f.name}{f.required && <span className="text-maia-danger ml-0.5">*</span>}<span className="text-maia-text-muted font-normal ml-1">({f.type})</span></label>
+                        <button onClick={() => void toggleParamRequired(f)}
+                          disabled={togglingParam === f.name}
+                          title="切换必填/可选：只改 MD 表格一格并同步 param_meta，对话 Agent 下一轮即生效"
+                          className="ml-auto text-[9px] px-1.5 py-0.5 rounded border border-maia-border text-maia-text-muted hover:text-maia-accent hover:border-maia-accent/40 disabled:opacity-50 transition-colors">
+                          {togglingParam === f.name ? '切换中…' : f.required ? '必填 → 可选' : '可选 → 必填'}
+                        </button>
+                      </div>
                       {f.desc && <p className="text-[10px] text-maia-text-muted mb-1">{f.desc}</p>}
                       <div className="flex items-center gap-1.5">
                         <input type="text" value={formValues[f.name] || ''} onChange={(e) => setFormValues(p => ({ ...p, [f.name]: e.target.value }))}

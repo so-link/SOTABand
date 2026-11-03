@@ -7,6 +7,25 @@ import type {
  */
 const BASE_URL = ''
 
+/** 一个引用方（Agent 或其它工具） */
+export interface ToolReferenceItem {
+  id: string
+  name: string
+  role?: string
+  /** 引用途径：flow（Agent 流程/API）、text（正文【【】】）、code（_call_tool 调用） */
+  via: string[]
+  /** 是否显式传了被切换的参数；null 表示无法判断（仅正文引用） */
+  passes_param: boolean | null
+}
+
+export interface ToolReferences {
+  tool_id: string
+  param: string
+  agents: ToolReferenceItem[]
+  tools: ToolReferenceItem[]
+  total: number
+}
+
 function extractIdName(md: string) {
   const idMatch = md.match(/^id:\s*(.+)$/m)
   const nameMatch = md.match(/^name:\s*(.+)$/m)
@@ -130,14 +149,24 @@ export const toolApi = {
     return res.json()
   },
 
-  async register(specMd: string, code: string, testInputs: Record<string, string>, demandDesc: string = '', referenceCode: string = '', tags: string[] = []) {
+  /**
+   * 注册工具。
+   *
+   * baseToolId：编辑已发布工具时传入原工具 id，作为注册的权威身份。
+   * 不传时退回 MD 里的 id（新建工具的旧行为）——否则重新生成文档
+   * 改掉了 frontmatter 的 id，就会多出一个重复工具。
+   */
+  async register(specMd: string, code: string, testInputs: Record<string, string>, demandDesc: string = '', referenceCode: string = '', tags: string[] = [], baseToolId?: string) {
     const { toolId, toolName } = extractIdName(specMd)
     const res = await fetch(`${BASE_URL}/api/tool/register`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ specMd, code, toolId, toolName, testData: testInputs, demandDesc, referenceCode, tags }),
+      body: JSON.stringify({
+        specMd, code, toolId, toolName, testData: testInputs, demandDesc, referenceCode, tags,
+        ...(baseToolId ? { baseToolId } : {}),
+      }),
     })
     if (!res.ok) { const err = await res.json().catch(() => ({ detail: res.statusText })); throw new Error(err.detail) }
-    return res.json() as Promise<{ tool_id: string; entry: Record<string, unknown> }>
+    return res.json() as Promise<{ tool_id: string; entry: Record<string, unknown>; updated?: boolean; version?: string; previous_version?: string }>
   },
 
   async list() {
@@ -218,6 +247,69 @@ export const toolApi = {
   },
 
   /** 读取文档中的表格结构，供前端渲染可编辑表单 */
+  /**
+   * 切换某个参数的「必填 / 可选」。
+   *
+   * 确定性路径（不调 LLM）：后端只改 MD 表格里那一格，并同步 registry 的
+   * param_meta —— 对话 Agent 每次请求都读 param_meta，因此切换后立即生效，
+   * 既不用重新生成工具，也不用重启 Agent。
+   */
+  async setParamRequired(params: {
+    toolId: string
+    name: string
+    required: boolean
+    specMd?: string
+    save?: boolean
+  }): Promise<{
+    tool_id: string
+    name: string
+    required: boolean
+    spec_md: string
+    params: Array<Record<string, unknown>>
+    changed: number
+    saved: boolean
+    references: ToolReferences
+  }> {
+    const res = await fetch(`${BASE_URL}/api/tool/${encodeURIComponent(params.toolId)}/param-required`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: params.name,
+        required: params.required,
+        spec_md: params.specMd || '',
+        save: params.save ?? true,
+      }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }))
+      throw new Error(err.detail || `HTTP ${res.status}`)
+    }
+    return res.json()
+  },
+
+  /** 引用体检：谁在用这个工具（Agent 流程/API、其它工具），纯只读 */
+  async getToolReferences(toolId: string, param: string = ''): Promise<ToolReferences> {
+    const q = param ? `?param=${encodeURIComponent(param)}` : ''
+    const res = await fetch(`${BASE_URL}/api/tool/${encodeURIComponent(toolId)}/references${q}`)
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }))
+      throw new Error(err.detail || `HTTP ${res.status}`)
+    }
+    return res.json()
+  },
+
+  /** 开关：执行前是否按 param_meta.required 做必填拦截（默认开启） */
+  async setEnforceRequired(toolId: string, enabled: boolean): Promise<{ tool_id: string; enforce_required: boolean }> {
+    const res = await fetch(`${BASE_URL}/api/tool/${encodeURIComponent(toolId)}/enforce-required`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }))
+      throw new Error(err.detail || `HTTP ${res.status}`)
+    }
+    return res.json()
+  },
+
   async getSpecTable(toolId: string, specMd: string = ''): Promise<SpecTable> {
     const res = await fetch(`${BASE_URL}/api/tool/${encodeURIComponent(toolId)}/spec-table`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },

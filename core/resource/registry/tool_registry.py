@@ -20,7 +20,7 @@ from pathlib import Path
 
 from core.user_context import get_current_user_id, is_visible_to, VISIBILITY_PUBLIC
 
-from core.resource.registry.registry_base import BaseRegistry
+from core.resource.registry.registry_base import BaseRegistry, bump_patch_version
 from core.resource import paths
 
 
@@ -121,6 +121,10 @@ def resolve_tool_id(ref) -> str:
     return ref_n
 
 
+# bump_patch_version 定义在 registry_base（工具 / Agent 共用），这里再导出一次，
+# 保持 `from core.resource.registry.tool_registry import bump_patch_version` 可用。
+
+
 # 内置资源根（随仓库分发）与私有资源根（本地新建，不入 git）
 TOOLS_DIR = paths.BUILTIN_ROOT / "tools"
 REGISTRY_FILE = TOOLS_DIR / "registry.json"
@@ -172,22 +176,23 @@ class ToolRegistry(BaseRegistry):
     def _get_impl_dir(self) -> Path:
         return paths.ensure_private_dirs("tools") / "implementations"
 
-    # ── 多目录定位（读：内置优先，找不到再查私有）──
-    # 内置工具（随仓库分发的示例工具）的 spec/代码只存在于 resources/ 下，
-    # 私有工具才在 resources-private/ 下。打开详情若只用私有目录会读不到内置
-    # 工具的内容 → 界面空白。下面两个方法给出「实际存在」的路径。
+    # ── 多目录定位（读：私有优先，私有没有才回落内置）──
+    # 写入一律落私有根（新建 / 编辑 / 导入），注册表也是「私有覆盖内置」，
+    # 因此定位实际文件时必须以私有为先 —— 否则同 id 同时存在于两个根的工具
+    # 会永远读到内置那份旧文件（改了代码 / MD 重新打开还是旧的）。
+    # 私有根没有对应文件时自然回落到内置，未编辑过的内置资源不受影响。
 
     def find_def_file(self, tool_id: str, suffix: str = ".md") -> Path | None:
-        """在内置 / 私有目录中定位工具的定义文件（存在才返回）。"""
-        for root in paths.resource_roots():
+        """在内置 / 私有目录中定位工具的定义文件（私有优先，存在才返回）。"""
+        for root in paths.read_roots():
             p = root / "tools" / "definitions" / f"{tool_id}{suffix}"
             if p.exists():
                 return p
         return None
 
     def find_impl_dir(self, tool_id: str) -> Path | None:
-        """在内置 / 私有目录中定位工具的实现目录（含 tool.py 才返回）。"""
-        for root in paths.resource_roots():
+        """在内置 / 私有目录中定位工具的实现目录（私有优先，含 tool.py 才返回）。"""
+        for root in paths.read_roots():
             d = root / "tools" / "implementations" / tool_id
             if (d / "tool.py").exists():
                 return d
@@ -218,11 +223,11 @@ class ToolRegistry(BaseRegistry):
             return ""
 
     async def register(self, resource: dict) -> str:
-        tool_id = resource.get("id", f"tool-{int(time.time())}")
+        tool_id = resource.get("id") or f"tool-{int(time.time())}"
         entry = {
             "id": tool_id,
-            "name": resource.get("name", tool_id),
-            "version": resource.get("version", "0.1.0"),
+            "name": resource.get("name") or tool_id,
+            "version": resource.get("version") or "0.1.0",
             "type": resource.get("type", "function"),
             "language": resource.get("language", "python"),
             "status": "active",
@@ -233,6 +238,10 @@ class ToolRegistry(BaseRegistry):
             "param_meta": resource.get("param_meta", []),
             # 多模式支持：modes 列表（含 id/name/desc）；单模式工具为空或缺省
             "modes": resource.get("modes", []),
+            # 执行前是否由平台按 param_meta.required 做必填拦截。
+            # 默认开启；老条目缺省该字段时按 True 处理（见 core/resource/param_guard.py），
+            # 遇到兼容问题可把它设为 False 单独关掉。
+            "enforce_required": resource.get("enforce_required", True),
             "tags": resource.get("tags", []),
             "usage_count": 0,
             "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -246,6 +255,17 @@ class ToolRegistry(BaseRegistry):
         data = self._read()
         existing = [i for i, e in enumerate(data) if e["id"] == tool_id]
         if existing:
+            old = data[existing[0]]
+            # 更新语义（编辑已发布工具后重新注册）：条目内容换成新的，
+            # 但「首次创建的事实」必须沿用旧值，否则每次编辑都会重置
+            # 创建时间 / 创建者 / 调用次数，历史信息就被抹掉了。
+            for key in ("created_at", "owner", "visibility", "usage_count", "status"):
+                if old.get(key) not in (None, ""):
+                    entry[key] = old[key]
+            # 必填拦截开关由使用者单独控制，重新注册不应把它重置回默认值
+            if "enforce_required" not in resource and old.get("enforce_required") is not None:
+                entry["enforce_required"] = old["enforce_required"]
+            entry["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             data[existing[0]] = entry
         else:
             data.append(entry)

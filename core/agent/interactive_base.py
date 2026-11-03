@@ -133,7 +133,8 @@ class InteractiveAgentBase(BaseAgent):
             p = None
             try:
                 from core.resource import paths as _paths
-                _def_dirs = [r / "tools" / "definitions" for r in _paths.resource_roots()]
+                # 私有优先：编辑过的工具其 MD 在私有根，内置那份是旧的
+                _def_dirs = [r / "tools" / "definitions" for r in _paths.read_roots()]
             except Exception:
                 _def_dirs = [root / "resources" / "tools" / "definitions"]
             for _d in _def_dirs:

@@ -114,11 +114,15 @@ class ToolRuntime:
 
     @staticmethod
     def _tool_space_dirs() -> list[Path]:
-        """工具空间目录列表（内置 + 私有）。"""
+        """工具空间目录列表（私有在前、内置在后）。
+
+        与 ToolExecutor._tool_space_dirs 保持一致：写入落私有根，故定位也
+        私有优先，否则常驻工具进程加载的还是内置旧代码。
+        """
         try:
             from core.resource import paths as _paths
 
-            return [r / "tools" for r in _paths.resource_roots()]
+            return [r / "tools" for r in _paths.read_roots()]
         except Exception:
             from pathlib import Path as _P
 

@@ -192,6 +192,14 @@ class BaseAgent(ABC):
         """
         params = dict(params or {})
 
+        # 0) 必填参数兜底：常驻 Worker 不经过 ToolExecutor，必须在这里拦，
+        #    否则「界面把参数设为必填」会被常驻路径绕过。
+        from core.resource import param_guard
+
+        guard = param_guard.check_params(tool_id, params)
+        if guard is not None:
+            return guard
+
         # 1) 尝试常驻路径
         runtime = self._tool_runtime
         if runtime is not None:

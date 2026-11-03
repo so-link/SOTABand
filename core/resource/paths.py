@@ -41,11 +41,32 @@ PRIVATE_ROOT = Path(_PRIVATE_ENV) if _PRIVATE_ENV else _default_private_root()
 
 
 def resource_roots() -> list[Path]:
-    """返回所有资源根目录（内置 + 私有），用于「读」时合并。"""
+    """返回所有资源根目录（内置在前、私有在后），用于「读」时合并。
+
+    顺序有语义：``iter_tool_entries()`` 等做法是「后面的覆盖前面的」，
+    因此私有根排在后面 = 私有条目覆盖内置条目。**不要翻转这个顺序**，
+    否则会变成内置覆盖私有，注册表合并整体失效。
+
+    需要「定位实际存在的文件」时用 :func:`read_roots`（私有优先）。
+    """
     roots = [BUILTIN_ROOT]
     if PRIVATE_ROOT not in roots:
         roots.append(PRIVATE_ROOT)
     return roots
+
+
+def read_roots() -> list[Path]:
+    """定位文件时的查找顺序：私有在前、内置在后。
+
+    为什么与 :func:`resource_roots` 相反：写入一律落私有根（新建 / 编辑 /
+    导入都是），而 ``register`` 的合并语义也是「私有覆盖内置」。若查找时
+    内置优先，「同 id 同时存在于两个根」的工具就会永远读到内置那份旧文件 ——
+    表现为「改了代码 / MD，重新打开还是旧的」（历史上真实出现过：
+    b5cb0eb 引入内置优先读取后，save-code 写入私有根的文件被内置副本遮蔽）。
+
+    私有根没有对应文件时自然回落到内置，因此未编辑过的内置资源不受影响。
+    """
+    return list(reversed(resource_roots()))
 
 
 def space_dirs(space: str) -> list[Path]:

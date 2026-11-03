@@ -46,7 +46,7 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   const [taskParams, setTaskParams] = useState<Record<string, string>>({})
 
   // Web 服务式 Agent：服务信息与 API 测试
-  const [serviceInfo, setServiceInfo] = useState<{ running: boolean; host?: string; port?: number; apis?: Array<{ name: string; method?: string; path?: string; params?: Array<{ name: string; type?: string; required?: boolean; desc?: string }> }> }>({ running: false })
+  const [serviceInfo, setServiceInfo] = useState<{ running: boolean; host?: string; port?: number; port_ready?: boolean; apis?: Array<{ name: string; method?: string; path?: string; params?: Array<{ name: string; type?: string; required?: boolean; desc?: string }> }> }>({ running: false })
   const [testApi, setTestApi] = useState('')
   const [testParams, setTestParams] = useState<Record<string, string>>({})
   const [testResult, setTestResult] = useState('')
@@ -104,15 +104,37 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agent?.id, isWebService])
 
-  // 读取 Agent 运行状态
+  // 读取 Agent 运行状态（轮询，避免"进程已退出/已在别处启动"时界面状态失真）
   useEffect(() => {
     if (!agent) return
-    fetch(`${BASE_URL}/api/agent/${agent.id}/status`)
-      .then((r) => r.json())
-      .then((d) => setRunning(!!d.running))
-      .catch(() => {})
+    const agentId = agent.id
+    let alive = true
+
+    const tick = async () => {
+      try {
+        const r = await fetch(`${BASE_URL}/api/agent/${agentId}/status`)
+        const d = await r.json()
+        if (!alive) return
+        setRunning(!!d.running)
+        // web-service：端口可能比进程晚就绪，或已在别处重启，顺带同步服务信息
+        if (isWebService) {
+          const rs = await fetch(`${BASE_URL}/api/agent/${agentId}/service`)
+          if (rs.ok && alive) {
+            const svc = await rs.json()
+            setServiceInfo((prev) => ({ ...prev, ...svc }))
+          }
+        }
+      } catch { /* 网络抖动忽略，下一轮再试 */ }
+    }
+
+    void tick()
+    const timer = window.setInterval(tick, 5000)
+    return () => {
+      alive = false
+      window.clearInterval(timer)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agent?.id])
+  }, [agent?.id, isWebService])
 
   if (!agent) {
     return (
@@ -142,6 +164,10 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   // 发起 API 测试（走后端代理）
   const runApiTest = async () => {
     if (!agent || !testApi || testing) return
+    if (!serviceInfo.running || !serviceInfo.port) {
+      setTestResult('服务尚未就绪（端口未上报）：请稍候几秒，或点「重启」后重试')
+      return
+    }
     setTesting(true); setTestResult('')
     try {
       const res = await fetch(`${BASE_URL}/api/agent/${agent.id}/test-api`, {
@@ -259,13 +285,24 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   const start = async () => {
     setLoading(true)
     try {
-      await fetch(`${BASE_URL}/api/agent/${agent.id}/start`, { method: 'POST' })
-      setRunning(true)
-      setMessages([])
-      setStreaming('')
-      setStreamCards([])
-      if (isWebService) await loadServiceInfo()
-    } catch { /* ignore */ }
+      const res = await fetch(`${BASE_URL}/api/agent/${agent.id}/start`, { method: 'POST' })
+      const data = await res.json().catch(() => ({} as Record<string, unknown>))
+      // 后端在「代码错误 / 端口被占 / 加载 spec 失败」时会返回 status=failed，
+      // 旧实现无条件 setRunning(true)，用户只能看到"看起来启动了但用不了"。
+      if (!res.ok || data.status === 'failed') {
+        setRunning(false)
+        setMessages([{ role: 'system', content: `⚠️ 启动失败：${data.error || data.detail || `HTTP ${res.status}`}` }])
+      } else {
+        setRunning(true)
+        setMessages([])
+        setStreaming('')
+        setStreamCards([])
+        if (isWebService) await loadServiceInfo()
+      }
+    } catch (e) {
+      setRunning(false)
+      setMessages([{ role: 'system', content: `⚠️ 启动请求失败：${String(e)}` }])
+    }
     setLoading(false)
   }
 
@@ -628,7 +665,9 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-medium text-maia-text-secondary tracking-wide">服务状态</span>
                   <Badge variant={serviceInfo.running ? 'success' : 'default'}>
-                    {serviceInfo.running ? `运行中 :${serviceInfo.port}` : '未运行'}
+                    {serviceInfo.running
+                      ? (serviceInfo.port ? `运行中 :${serviceInfo.port}` : '运行中（端口未上报）')
+                      : '未运行'}
                   </Badge>
                 </div>
                 {(serviceInfo.apis?.length || 0) > 0 && (
@@ -709,11 +748,15 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                       )
                     })}
                     <div className="mt-2">
-                      <Button size="sm" variant="default" onClick={runApiTest} disabled={testing || !serviceInfo.running}>
+                      <Button size="sm" variant="default" onClick={runApiTest} disabled={testing || !serviceInfo.running || !serviceInfo.port}>
                         {testing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
                         发送测试请求
                       </Button>
-                      {!serviceInfo.running && <span className="text-[11px] text-maia-text-muted ml-2">（请先点击顶部「启动」）</span>}
+                      {!serviceInfo.running ? (
+                        <span className="text-[11px] text-maia-text-muted ml-2">（请先点击顶部「启动」）</span>
+                      ) : !serviceInfo.port ? (
+                        <span className="text-[11px] text-amber-500 ml-2">（服务端口未上报，请点「重启」后重试）</span>
+                      ) : null}
                     </div>
                     {testResult && (
                       <pre className="mt-3 text-[11px] font-mono leading-relaxed text-maia-text whitespace-pre-wrap max-h-[300px] overflow-auto bg-maia-bg rounded p-3 border border-maia-border">
