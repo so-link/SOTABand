@@ -9,7 +9,6 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardBody } from '@/components/ui/card'
 import { useResourceStore } from '@/stores/resource-store'
-import { useWorkspaceDatasetStore } from '@/stores/workspace-dataset-store'
 import { useUIStore } from '@/stores/ui-store'
 import { useToolEditorStore } from '@/stores/tool-editor-store'
 import { useTabIndent } from '@/hooks/use-tab-indent'
@@ -682,22 +681,27 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
   )
 }
 
-/** 工作区间文件选择弹窗：列出已加载数据集及其内部文件，选中后返回完整路径 */
+/** 工作区间文件选择弹窗：列出所有已注册的后端数据集及其内部文件。
+ *
+ * 历史：曾经只列出"加入空间"的数据集（workspace-dataset-store），
+ * 但那个 store 只存 localStorage、不被对话读取、后端也没有接口——
+ * "加入空间"是个假功能，刷新即丢。改为直接用后端 dataResources：
+ * 数据空间里所有已注册的数据集都是工作区间的一部分，不需要再单独
+ * "加入空间"。 */
 function WorkspaceFilePicker({ paramName, currentValue, onClose, onSelect }: {
   paramName: string
   currentValue: string
   onClose: () => void
   onSelect: (path: string) => void
 }) {
-  const workspaceDatasets = useWorkspaceDatasetStore(s => s.datasets)
   const dataResources = useResourceStore(s => s.dataResources)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [filesMap, setFilesMap] = useState<Record<string, { name: string; path: string; size?: number }[]>>({})
   const [loadingFiles, setLoadingFiles] = useState<Record<string, boolean>>({})
 
-  // 解析工作区数据集的 data_path：优先从 dataResources 匹配，否则调用后端详情接口
+  const datasets = dataResources.filter(d => d.type === 'data')
   const resolveDataPath = (id: string): string => {
-    const hit = dataResources.find(d => d.id === id)
+    const hit = datasets.find(d => d.id === id)
     return (hit && 'filePath' in hit && hit.filePath) ? hit.filePath : ''
   }
 
@@ -739,14 +743,14 @@ function WorkspaceFilePicker({ paramName, currentValue, onClose, onSelect }: {
               当前值：<span className="text-maia-text font-mono">{currentValue}</span>
             </div>
           )}
-          {workspaceDatasets.length === 0 ? (
+          {datasets.length === 0 ? (
             <div className="text-center py-10 text-[13px] text-maia-text-muted">
-              工作区间暂无数据文件<br />请先在数据空间加载数据集
+              暂无数据集<br />请先在资源空间 → 数据空间上传注册
             </div>
           ) : (
             <>
-              <p className="text-[12px] text-maia-text-muted px-1">工作区间数据（点击展开查看文件）</p>
-              {workspaceDatasets.map(ds => {
+              <p className="text-[12px] text-maia-text-muted px-1">数据空间已注册的数据集（点击展开查看文件）</p>
+              {datasets.map(ds => {
                 const files = filesMap[ds.id] || []
                 const isExpanded = expandedId === ds.id
                 return (

@@ -2,8 +2,7 @@ import { useEffect, useState } from 'react'
 import { useUIStore } from '@/stores/ui-store'
 import { useResourceStore } from '@/stores/resource-store'
 import { useDatasetRepositoryStore, getFilteredDatasets, formatFileSize, type RepositoryDataset } from '@/stores/dataset-repository-store'
-import { useWorkspaceDatasetStore } from '@/stores/workspace-dataset-store'
-import { ArrowLeft, Search, Trash2, Plus, Package, ChevronLeft, ChevronRight, ChevronDown, Loader2, AlertTriangle, Image as ImageIcon, Table, FileText, Brain, Tag, Folder } from 'lucide-react'
+import { ArrowLeft, Search, Trash2, Package, ChevronLeft, ChevronRight, ChevronDown, Loader2, AlertTriangle, Image as ImageIcon, Table, FileText, Brain, Tag, Folder } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 const BASE_URL = ''
@@ -25,7 +24,6 @@ export function DatasetRepositoryView() {
   const { setActiveView } = useUIStore()
   const selectResource = useResourceStore((s) => s.selectResource)
   const store = useDatasetRepositoryStore()
-  const { addDataset, removeDataset, isLoaded } = useWorkspaceDatasetStore()
 
   const [showSort, setShowSort] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
@@ -43,18 +41,9 @@ export function DatasetRepositoryView() {
     setDeleting(id)
     try {
       await fetch(`${BASE_URL}/api/data/${id}`, { method: 'DELETE' })
-      removeDataset(id)
       await store.fetchDatasets()
     } catch { alert('删除失败') }
     finally { setDeleting(null) }
-  }
-
-  const handleAddToWorkspace = (ds: RepositoryDataset) => {
-    addDataset({ id: ds.id, name: ds.name, tags: ds.tags, loadedAt: new Date().toISOString() })
-  }
-
-  const handleRemoveFromWorkspace = (ds: RepositoryDataset) => {
-    removeDataset(ds.id)
   }
 
   const handleCardClick = (ds: RepositoryDataset) => {
@@ -187,7 +176,6 @@ export function DatasetRepositoryView() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
             {pageDatasets.map((ds) => {
-              const loaded = isLoaded(ds.id)
               const isDeleting = deleting === ds.id
               return (
                 <div key={ds.id || ds.name}
@@ -252,28 +240,9 @@ export function DatasetRepositoryView() {
 
                   {/* 操作按钮 */}
                   <div className="mt-auto px-3 pb-3 pt-1.5 flex gap-2" onClick={(e) => e.stopPropagation()}>
-                    {loaded ? (
-                      <>
-                        <Button size="sm" variant="outline" disabled
-                          className="flex-1 h-7 text-[12px] opacity-50">
-                          已添加
-                        </Button>
-                        <Button size="sm" variant="outline"
-                          onClick={() => handleRemoveFromWorkspace(ds)}
-                          className="flex-1 h-7 text-[12px] border-maia-border text-maia-text-muted hover:text-maia-danger hover:border-maia-danger/50 transition-colors">
-                          移除
-                        </Button>
-                      </>
-                    ) : (
-                      <Button size="sm" variant="outline"
-                        onClick={() => handleAddToWorkspace(ds)}
-                        className="flex-1 h-7 text-[12px] border-maia-accent/30 text-maia-accent hover:bg-maia-accent/10 transition-colors">
-                        <Plus className="h-3 w-3" />添加
-                      </Button>
-                    )}
                     <Button size="sm" variant="ghost"
                       onClick={() => handleDelete(ds.id)} disabled={isDeleting}
-                      className="h-7 w-7 p-0 text-maia-text-muted hover:text-maia-danger hover:bg-maia-danger/10 transition-colors"
+                      className="ml-auto h-7 w-7 p-0 text-maia-text-muted hover:text-maia-danger hover:bg-maia-danger/10 transition-colors"
                       title="删除数据集">
                       {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                     </Button>
