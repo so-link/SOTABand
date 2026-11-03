@@ -133,7 +133,7 @@ export function ToolEditorView() {
     Boolean(store.editingToolId)
   )
 
-  const handleClose = () => {
+  const handleClose = async () => {
     const isEditingExisting = Boolean(store.editingToolId)
     const backTo = isEditingExisting && selectedResource?.type === 'tool' ? 'tool-detail' : 'chat'
     // 有未保存改动时先确认，避免静默丢失
@@ -144,7 +144,11 @@ export function ToolEditorView() {
         '点击「取消」：留在编辑器（不保存）'
       )
       if (!ok) return
-      void store.flushSave()
+      // 必须等保存结果再决定去留：此前是 void flushSave() 后立刻 reset()，
+      // 保存失败（例如代码没过静态安全审查）也会被 reset 清掉，
+      // 使用者的改动既没落盘也没留在界面上，等于静默丢失。
+      await store.flushSave()
+      if (useToolEditorStore.getState().saveState === 'error') return
     }
     setActiveView(backTo)
     store.reset()
@@ -391,16 +395,44 @@ function OutlineSection({
   // 记录缓存对应的文档内容：文档被修改后旧节点树即失效，需重新解析
   const [cachedFor, setCachedFor] = useState('')
 
-  // 文档变化时丢弃缓存，避免展示与当前文档不符的节点树
+  // 文档变化时刷新节点树。
+  //
+  // 此前是「直接丢弃缓存 + 折叠面板」：改了任一单元格都会走
+  // onApply → setGeneratedMd → md 变化 → 概览被清空收起。
+  // 于是「改一个默认值」的观感是面板自己关掉，再点开还要重新解析，
+  // 连续改几个参数就得反复开关。
+  //
+  // 结构解析与表格解析都是毫秒级纯文本处理（不调模型），所以这里
+  // 改成就地重新解析：只在使用者已经加载过概览时刷新，保持展开状态，
+  // 摘要（要调模型，按文档内容缓存）也无需清空重取。
+  // 从未展开过概览的人不受影响，不产生任何额外请求。
   useEffect(() => {
-    if (outline && cachedFor !== md) {
-      setOutline(null)
-      setOpen(false)
-      // 文档变了，已生成的摘要与表格数据均失效
-      setSummaryLoaded(false)
-      setTable(null)
-    }
-  }, [md, outline, cachedFor])
+    if (!outline || cachedFor === md) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const { toolApi } = await import('@/services/api/tool')
+        const [res, tbl] = await Promise.all([
+          toolApi.getSpecOutline(toolId, md, false),
+          toolApi.getSpecTable(toolId, md).catch(() => ({
+            has_table: false, header: [], rows: [], align: [],
+          })),
+        ])
+        if (cancelled) return
+        setOutline(res)
+        setTable(tbl)
+        setCachedFor(md)
+        // 摘要是按旧文档内容生成的，不能沿用：本次刷新用的是
+        // with_summary=false，节点里的摘要会是空的，这里同步把标记复位，
+        // 让使用者按需重新生成（后端按内容哈希缓存，没改过的文档直接命中）。
+        setSummaryLoaded(false)
+      } catch {
+        // 刷新失败就收起面板，比停在一份与当前文档不符的旧节点树上更安全
+        if (!cancelled) { setOutline(null); setOpen(false) }
+      }
+    })()
+    return () => { cancelled = true }
+  }, [md, outline, cachedFor, toolId])
 
   // 默认只加载结构（约 1ms，秒开）。
   // 人话摘要需调用推理模型，实测 30 秒左右 —— 不能让它阻塞"查看概览"，
@@ -502,7 +534,10 @@ function OutlineSection({
               toolId={toolId}
               table={table}
               md={md}
-              onApplied={(updatedMd) => { onApply(updatedMd); setOutline(null); setTable(null); setOpen(false) }}
+              /* 只把新文档交回上层，节点树/表格交给上面的 effect 就地刷新。
+                 这里曾额外 setOutline(null)+setOpen(false)：改一个单元格
+                 面板就自己收起，连续改几个参数要反复开关。 */
+              onApplied={onApply}
             />
           )}
 
@@ -536,7 +571,8 @@ function OutlineSection({
           <SpecOutlineView
             outline={outline}
             toolId={toolId}
-            onApply={(updatedMd) => { onApply(updatedMd); setOutline(null); setOpen(false) }}
+            /* 同上：应用精化结果后由 effect 就地刷新节点树，不再收起面板 */
+            onApply={onApply}
           />
         </div>
       )}

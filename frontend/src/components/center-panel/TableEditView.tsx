@@ -26,6 +26,17 @@ export function TableEditView({ toolId, table, md, onApplied }: Props) {
   // 本地乐观更新：先改本地值再落盘，保证 0 延迟的视觉反馈
   const [localRows, setLocalRows] = useState<string[][]>(table.rows)
 
+  // 外部改了文档（概览现在会在原地震新节点树，不再卸载本组件）时，
+  // 本地乐观值必须跟上新内容，否则单元格会停在旧值上、和文档不符。
+  // 正在编辑某个单元格时不重刷，免得把使用者刚输入到一半的内容覆盖掉。
+  //
+  // 这是 React 官方推荐的「渲染期间根据 props 调整 state」写法：
+  // 用相等性判断兜底，避免无限重渲染；比 useEffect 少一次多余绘制。
+  const externalChanged = JSON.stringify(localRows) !== JSON.stringify(table.rows)
+  if (!editing && externalChanged) {
+    setLocalRows(table.rows)
+  }
+
   if (!table.has_table || !table.header?.length) return null
 
   const startEdit = (row: number, col: number) => {

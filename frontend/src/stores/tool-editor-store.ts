@@ -153,11 +153,17 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
         original_code: baselineCode,
         current_spec: generatedMd,
       })
-      set((s) => ({
-        generatedMd: result.spec_md || s.generatedMd,
-        baselineCode: s.generatedCode, // 同步后重置基线，避免重复同步
+      const nextMd = result.spec_md || generatedMd
+      // 两个基线一起推进：后端这个接口在返回前已经把新文档**落盘**了
+      // （还顺带重算了 param_meta），若只推进 baselineCode，界面会一直
+      // 挂着「文档未保存」，再点保存又把同一份文档重写一遍。
+      set({
+        generatedMd: nextMd,
+        baselineCode: generatedCode,
+        baselineMd: nextMd,
         isGenerating: false,
-      }))
+      })
+      get().notifyEdit()
     } catch (e) {
       set({ error: String(e), isGenerating: false })
     }
@@ -390,6 +396,18 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
   generateCode: async () => {
     const { generatedMd } = get()
     if (!generatedMd.trim()) return
+
+    // 生成会整份覆写代码：若第 3 步已有手工微调且尚未保存，先确认。
+    // 以前点一下就把没保存的代码连同参数表一起清掉，没有任何提示。
+    const s = get()
+    if (s.editingToolId && s.generatedCode.trim() && s.generatedCode !== s.baselineCode) {
+      const ok = window.confirm(
+        '重新生成会覆盖当前那份经过手工修改、且尚未保存的代码。\n\n' +
+        '点击「确定」：丢弃这些改动并重新生成\n' +
+        '点击「取消」：留在当前页面（可先点「保存代码」）'
+      )
+      if (!ok) return
+    }
 
     const abort = new AbortController()
     // 即刻切到第 3 步（与 AgentEditor 一致）：点击有响应，代码在核验页内
