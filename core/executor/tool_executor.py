@@ -20,6 +20,8 @@ from typing import Any
 from core.proc_utils import no_window_kwargs
 from config.settings import settings as _settings
 
+from core.resource import param_guard
+
 
 class ToolExecutor:
     """工具执行器单例。
@@ -49,31 +51,49 @@ class ToolExecutor:
 
     @staticmethod
     def _tool_space_dirs() -> list[Path]:
-        """返回工具空间目录列表（内置 + 私有）。"""
+        """返回工具空间目录列表（私有在前、内置在后）。
+
+        顺序决定「同 id 同时存在于两个根」时跑哪一份代码：写入一律落私有根，
+        注册表也是私有覆盖内置，故执行必须同样私有优先 —— 否则用户改完代码
+        会看到详情页/测试是新的，实际执行却仍是内置旧代码。
+        """
         try:
             from core.resource import paths as _paths
 
-            return [r / "tools" for r in _paths.resource_roots()]
+            return [r / "tools" for r in _paths.read_roots()]
         except Exception:
             return [Path(__file__).resolve().parent.parent.parent / "resources" / "tools"]
 
     @classmethod
     def _get_python_exe(cls, tool_id: str) -> str:
-        """获取工具执行所用的 Python 解释器。
+        """获取工具执行所用的 Python 解释器（同时也是 pip 的安装目标）。
 
         优先级：
-        1. 工具独立 .venv/bin/python（在内置/私有目录中查找）
-        2. 项目 venv/bin/python（避免污染系统全局 Python）
-        3. 当前进程的 sys.executable
-        """
-        for space in cls._tool_space_dirs():
-            venv_py = space / "implementations" / tool_id / ".venv" / "bin" / "python"
-            if venv_py.exists():
-                return str(venv_py)
+        1. 工具独立 ``.venv`` 的解释器（在内置/私有目录中查找）
+        2. 项目 ``venv`` 的解释器（避免污染系统全局 Python）
+        3. 当前进程的 ``sys.executable``
 
-        project_venv_py = cls._project_root() / "venv" / "bin" / "python"
-        if project_venv_py.exists():
-            return str(project_venv_py)
+        注意：venv 的目录布局跨平台不同 —— Windows 是 ``Scripts/python.exe``，
+        Linux/macOS 是 ``bin/python``。历史实现只查 ``bin/python``，在 Windows
+        上**永远探测不到**，于是一律回退到 ``sys.executable``：若后端由全局
+        Python 启动，pip 就装进全局环境（服务器上常因无写权限直接失败），
+        表现为「依赖装了还缺 / 每轮都报缺依赖」。
+        """
+        candidates_rel = (
+            ("Scripts", "python.exe"),   # Windows
+            ("bin", "python"),           # Linux / macOS
+        )
+        for space in cls._tool_space_dirs():
+            impl_dir = space / "implementations" / tool_id
+            for rel in candidates_rel:
+                venv_py = impl_dir.joinpath(".venv", *rel)
+                if venv_py.exists():
+                    return str(venv_py)
+
+        for rel in candidates_rel:
+            project_venv_py = cls._project_root().joinpath("venv", *rel)
+            if project_venv_py.exists():
+                return str(project_venv_py)
 
         return sys.executable
 
@@ -269,6 +289,12 @@ class ToolExecutor:
         Returns:
             {"status": "success"|"failed", "message": ..., "data": ...}
         """
+        # 必填参数兜底：按 registry 的 param_meta 统一拦截，直接返回失败，
+        # 不启动子进程（工具代码里已不再自带缺参校验）。
+        guard = param_guard.check_params(tool_id, params)
+        if guard is not None:
+            return guard
+
         project_root = str(cls._project_root())
         impl_dir = cls._resolve_impl_dir(tool_id)
         python_exe = cls._get_python_exe(tool_id)
@@ -345,6 +371,10 @@ class ToolExecutor:
         Returns:
             {"status": "success"|"failed", "message": ..., "data": ...}
         """
+        guard = param_guard.check_params(tool_id, params)
+        if guard is not None:
+            return guard
+
         project_root = str(cls._project_root())
         impl_dir = cls._resolve_impl_dir(tool_id)
         python_exe = cls._get_python_exe(tool_id)

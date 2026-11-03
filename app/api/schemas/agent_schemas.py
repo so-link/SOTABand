@@ -30,8 +30,12 @@ class RegisterAgentRequest(BaseModel):
     code: str = ""
     agent_id: str = Field(alias="agentId")
     agent_name: str = Field(default="Custom Agent", alias="agentName")
+    # 编辑已发布 Agent 时传入「原 Agent id」——注册的权威身份。
+    # 未传时退回 agent_id（由 MD 内容推导），即新建 Agent 的旧行为。
+    base_agent_id: str = Field(default="", alias="baseAgentId")
     role: str = "task"
-    version: str = "0.1.0"
+    # 留空表示由服务端决定：更新时 patch+1，新建时 0.1.0
+    version: str = ""
     tags: list[str] = Field(default_factory=list)
     demand_desc: str = Field(default="", alias="demandDesc")
 

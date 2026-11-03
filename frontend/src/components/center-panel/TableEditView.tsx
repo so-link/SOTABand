@@ -55,6 +55,21 @@ export function TableEditView({ toolId, table, md, onApplied }: Props) {
 
     try {
       const { toolApi } = await import('@/services/api/tool')
+      if (column.includes('必填')) {
+        // 「必填」列走专用接口：只改这一格 + 同步 param_meta（对话 Agent 共用），
+        // 而不是当作普通单元格自由文本 —— 否则写成「是（必填）」之类会让前后端判定分叉。
+        const paramName = localRows[row]?.[0] ?? ''
+        const res = await toolApi.setParamRequired({
+          toolId,
+          name: paramName,
+          required: draft.includes('是'),
+          specMd: md,
+          save: false,
+        })
+        onApplied(res.spec_md)
+        cancel()
+        return
+      }
       const res = await toolApi.updateTableCell({
         toolId,
         nodeId: table.node_id!,
@@ -109,6 +124,17 @@ export function TableEditView({ toolId, table, md, onApplied }: Props) {
                     <td key={ci} className="px-2 py-1 align-top">
                       {isEditing ? (
                         <div className="flex items-center gap-1">
+                          {table.header[ci]?.includes('必填') ? (
+                            <select
+                              autoFocus
+                              value={draft.includes('是') ? '是' : '否'}
+                              onChange={(e) => setDraft(e.target.value)}
+                              className="rounded border border-maia-accent/40 bg-maia-bg px-1 py-0.5 text-[10px] outline-none"
+                            >
+                              <option value="是">是（必填）</option>
+                              <option value="否">否（可选）</option>
+                            </select>
+                          ) : (
                           <input
                             autoFocus
                             value={draft}
@@ -119,6 +145,7 @@ export function TableEditView({ toolId, table, md, onApplied }: Props) {
                             }}
                             className="w-full min-w-[60px] rounded border border-maia-accent/40 bg-maia-bg px-1 py-0.5 text-[10px] outline-none"
                           />
+                          )}
                           <button
                             onClick={() => void save()}
                             disabled={busy}

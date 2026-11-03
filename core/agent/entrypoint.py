@@ -49,7 +49,8 @@ def load_agent(impl_path: Path, agent_id: str):
     else:
         try:
             from core.resource import paths as _paths
-            _def_dirs = [r / "agents" / "definitions" for r in _paths.resource_roots()]
+            # 私有优先：编辑过的 Agent 其 MD 在私有根，内置那份是旧的
+            _def_dirs = [r / "agents" / "definitions" for r in _paths.read_roots()]
         except Exception:
             _def_dirs = [PROJECT_ROOT / "resources" / "agents" / "definitions"]
         for _d in _def_dirs:

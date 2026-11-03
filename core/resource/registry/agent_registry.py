@@ -61,12 +61,17 @@ class AgentRegistry(BaseRegistry):
         return paths.ensure_private_dirs("agents") / "implementations"
 
     def get_spec_search_dirs(self) -> list[Path]:
-        """规范文档的检索目录（内置 + 私有），用于「读」时定位已有 MD。"""
-        return [root / "agents" / "definitions" for root in paths.resource_roots()]
+        """规范文档的检索目录（私有在前、内置在后），用于「读」时定位已有 MD。
+
+        写入一律落私有根，注册表也是私有覆盖内置，故定位必须私有优先 ——
+        否则同 id 同时存在于两个根的 Agent 会永远读到内置那份旧文档
+        （编辑后重新打开还是旧的）。
+        """
+        return [root / "agents" / "definitions" for root in paths.read_roots()]
 
     def get_impl_search_dirs(self) -> list[Path]:
-        """实现目录的检索目录（内置 + 私有）。"""
-        return [root / "agents" / "implementations" for root in paths.resource_roots()]
+        """实现目录的检索目录（私有在前、内置在后）。"""
+        return [root / "agents" / "implementations" for root in paths.read_roots()]
 
     def _read(self) -> list[dict]:
         """合并内置与私有 registry（私有同 id 覆盖内置）。"""
@@ -97,11 +102,11 @@ class AgentRegistry(BaseRegistry):
         _write_json(self._private_registry_file(), data)
 
     async def register(self, resource: dict) -> str:
-        agent_id = resource.get("id", f"agent-{int(time.time())}")
+        agent_id = resource.get("id") or f"agent-{int(time.time())}"
         entry = {
             "id": agent_id,
-            "name": resource.get("name", agent_id),
-            "version": resource.get("version", "0.1.0"),
+            "name": resource.get("name") or agent_id,
+            "version": resource.get("version") or "0.1.0",
             "role": resource.get("role", "task"),
             "status": "active",
             "spec_path": f"definitions/{agent_id}.md",
@@ -120,6 +125,14 @@ class AgentRegistry(BaseRegistry):
         data = self._read()
         existing = [i for i, e in enumerate(data) if e["id"] == agent_id]
         if existing:
+            old = data[existing[0]]
+            # 更新语义（编辑已发布 Agent 后重新注册）：条目内容换成新的，
+            # 但「首次创建的事实」沿用旧值，否则每次编辑都会重置创建时间 /
+            # 创建者 / 健康状态。
+            for key in ("created_at", "owner", "visibility", "health", "status"):
+                if old.get(key) not in (None, ""):
+                    entry[key] = old[key]
+            entry["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             data[existing[0]] = entry
         else:
             data.append(entry)
