@@ -187,8 +187,12 @@ async def generate_spec(req: GenerateToolSpecRequest):
 
             spec_md = full.strip()
 
-            # 同时生成标签（小调用，非流式，在 done 里返回）
+            # 同时生成标签（小调用，非流式，在 done 里返回）。
+            # 这个调用要 10~30 秒，期间主流已无 token 输出——不推状态事件
+            # 的话，前端只看到"思考中"面板空转，观感等同于界面卡死。
             tags: list[str] = []
+            yield {"event": "status", "data": _json.dumps(
+                {"message": "规范文档已生成，正在生成标签…"}, ensure_ascii=False)}
             try:
                 tag_prompt = f"""根据以下工具信息，生成3-5个简短的中文标签（每个2-4字），用于工具分类和检索。只输出 JSON 数组，不要输出任何其他内容。
 

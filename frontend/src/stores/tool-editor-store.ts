@@ -46,6 +46,8 @@ interface ToolEditorState {
   saveState: 'idle' | 'dirty' | 'saving' | 'saved' | 'error'
   saveError: string | null
   isGenerating: boolean
+  /** 生成过程中的阶段提示（如"正在生成标签…"），来自后端 status 事件 */
+  genStatus: string
   isTesting: boolean
   isAutoDebugging: boolean
   abortController: AbortController | null
@@ -101,7 +103,7 @@ interface ToolEditorState {
 export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
   step: 1, description: '', referenceCode: '', generatedMd: '', generatedCode: '', tags: [],
   params: [], modes: [], selectedMode: '', testInputs: {}, testOutput: null, registeredId: null,
-  isGenerating: false, isTesting: false, isAutoDebugging: false, abortController: null, testAbortController: null, error: null,
+  isGenerating: false, genStatus: '', isTesting: false, isAutoDebugging: false, abortController: null, testAbortController: null, error: null,
   debugRounds: [], debugStream: '', reasoningStream: '', generationAbort: null,
   editingToolId: null, editingToolName: '', baselineCode: '', baselineMd: '',
   saveState: 'idle', saveError: null,
@@ -241,7 +243,7 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
   reset: () => set({
     step: 1, description: '', referenceCode: '', generatedMd: '', generatedCode: '', tags: [],
     testInputs: {}, testOutput: null, registeredId: null,
-    isGenerating: false, isTesting: false, isAutoDebugging: false,
+    isGenerating: false, genStatus: '', isTesting: false, isAutoDebugging: false,
     error: null, debugRounds: [], debugStream: '', params: [], modes: [], selectedMode: '',
     reasoningStream: '', generationAbort: null,
     editingToolId: null, editingToolName: '', baselineCode: '', baselineMd: '',
@@ -253,15 +255,16 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
     if (!description.trim()) return
 
     const abort = new AbortController()
-    set({ isGenerating: true, error: null, generatedMd: '', reasoningStream: '', step: 2, generationAbort: abort })
+    set({ isGenerating: true, genStatus: '', error: null, generatedMd: '', reasoningStream: '', step: 2, generationAbort: abort })
     try {
       const result = await toolApi.generateSpec(
         description, referenceCode,
         (token) => set((s) => ({ generatedMd: s.generatedMd + token })),
         (token) => set((s) => ({ reasoningStream: s.reasoningStream + token })),
         abort.signal,
+        (message) => set({ genStatus: message }),
       )
-      set({ generatedMd: result.spec_md, tags: result.tags || [], isGenerating: false, generationAbort: null })
+      set({ generatedMd: result.spec_md, tags: result.tags || [], isGenerating: false, genStatus: '', generationAbort: null })
       // 文档生成后，后台预生成「人话摘要」。
       // 摘要需调用推理模型，实测约 30 秒——不能并入主流程（会让生成文档
       // 从 27 秒变成 57 秒，产生卡死感）。因此这里后台静默发起，
@@ -297,7 +300,10 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
     if (!generatedMd.trim()) return
 
     const abort = new AbortController()
-    set({ isGenerating: true, error: null, generatedCode: '', reasoningStream: '', generationAbort: abort })
+    // 即刻切到第 3 步（与 AgentEditor 一致）：点击有响应，代码在核验页内
+    // 流式长出。此前停留在第 2 步，靠一个要滚到页面底部才可见的 pre 显示
+    // 进度，长文档下观感如同无响应。
+    set({ isGenerating: true, error: null, generatedCode: '', reasoningStream: '', step: 3, generationAbort: abort })
     try {
       const result = await toolApi.generateCode(
         generatedMd,
@@ -319,7 +325,8 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
       })
     } catch (e) {
       if (abort.signal.aborted) {
-        set({ isGenerating: false, generationAbort: null })
+        // 中止时代码不完整，留在核验页无意义——退回文档步骤继续编辑
+        set({ isGenerating: false, generationAbort: null, step: 2 })
         return
       }
       set({ error: String(e), isGenerating: false, generationAbort: null })

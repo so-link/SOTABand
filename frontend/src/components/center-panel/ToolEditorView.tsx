@@ -555,7 +555,7 @@ function ReasoningPanel({ text, active }: { text: string; active: boolean }) {
 
 function Step2() {
   const { generatedMd, setGeneratedMd, tags, addTag, removeTag, generateCode, stopGeneration, setStep, isGenerating, error,
-          reasoningStream, generatedCode, editingToolId, editingToolName } = useToolEditorStore()
+          reasoningStream, genStatus, editingToolId, editingToolName } = useToolEditorStore()
   const [editing, setEditing] = useState(false)
   const [newTag, setNewTag] = useState('')
   const isEditMode = Boolean(editingToolId)
@@ -563,15 +563,11 @@ function Step2() {
   const onTabIndent = useTabIndent('  ')
   const notifyEdit = useToolEditorStore((s) => s.notifyEdit)
   const mdRef = useRef<HTMLTextAreaElement>(null)
-  const codeRef = useRef<HTMLPreElement>(null)
 
   // 流式输出时自动滚动到底部
   useEffect(() => {
     if (mdRef.current) mdRef.current.scrollTop = mdRef.current.scrollHeight
   }, [generatedMd])
-  useEffect(() => {
-    if (codeRef.current) codeRef.current.scrollTop = codeRef.current.scrollHeight
-  }, [generatedCode])
 
   // 内容变更后标记「未保存」（仅对已注册工具生效）
   const handleMdChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -602,7 +598,15 @@ function Step2() {
           : '以下是 AI 生成的工具规范文档，你可以直接编辑修改。'}
       </p>
 
-      <ReasoningPanel text={reasoningStream} active={isGenerating} />
+      <ReasoningPanel text={reasoningStream} active={isGenerating && !genStatus} />
+
+      {/* 文档流式结束后，后端还要非流式生成标签（10~30 秒）——
+          明确告知阶段，避免看起来像卡死 */}
+      {isGenerating && genStatus && (
+        <div className="mb-3 flex items-center gap-1.5 text-[13px] text-maia-accent">
+          <Loader2 className="h-3 w-3 animate-spin" />{genStatus}
+        </div>
+      )}
 
       {/* 标签 — 与 ToolDetailView 保持一致的内联风格 */}
       <div className="flex items-center gap-1 mb-3">
@@ -660,21 +664,8 @@ function Step2() {
         />
       )}
 
-      {/* 生成代码时的流式预览 */}
-      {isGenerating && generatedCode.trim().length > 0 && (
-        <div className="mt-4">
-          <div className="text-[12px] text-maia-text-secondary mb-1.5 flex items-center gap-1.5">
-            <Loader2 className="h-3 w-3 animate-spin text-maia-accent" />
-            正在生成代码...
-          </div>
-          <pre
-            ref={codeRef}
-            className="w-full max-h-[300px] overflow-auto rounded-lg border border-maia-border bg-maia-bg/50 px-4 py-3 text-[12px] font-mono text-maia-text-secondary whitespace-pre-wrap break-all"
-          >
-            {generatedCode}
-          </pre>
-        </div>
-      )}
+      {/* 生成代码的流式预览已移至 Step3（点击「生成代码」即刻切换，
+          代码在第 3 步核验页内长出），此处不再需要 */}
 
       {error && <div className="flex items-center gap-1.5 mt-2 text-[13px] text-maia-danger"><XCircle className="h-3 w-3" />{error}</div>}
       <div className="flex justify-between mt-4">
@@ -696,7 +687,7 @@ function Step2() {
 function Step3() {
   const { generatedCode, params, modes, selectedMode, setSelectedMode, testInputs, testOutput, registerTool, runTest, stopTest, autoDebug, stopAutoDebug,
           setStep, isGenerating, isTesting, isAutoDebugging, error, debugRounds, debugStream, setTestInput,
-          setGeneratedCode, editingToolId, editingToolName, baselineCode, syncSpecFromCode } = useToolEditorStore()
+          setGeneratedCode, editingToolId, editingToolName, baselineCode, syncSpecFromCode, stopGeneration } = useToolEditorStore()
   const logEndRef = useRef<HTMLDivElement>(null)
   const fileInputRefs = useRef<Map<string, HTMLInputElement>>(new Map())
   // 导师分支的行号/可编辑代码 ref 已随代码区统一为"手工微调切换 + Highlight 预览"而移除
@@ -761,6 +752,20 @@ function Step3() {
         )}
       </div>
 
+      {/* 点击「生成代码」后即刻进入本步：先显示模型思考流，代码开始输出后
+          在下方代码区流式长出——与 AgentEditor 的行为保持一致 */}
+      {isGenerating && (
+        <div className="mb-2 shrink-0">
+          <ReasoningPanel text={reasoningStream} active={!generatedCode.trim()} />
+          <button
+            onClick={stopGeneration}
+            className="flex items-center gap-1 text-[12px] text-maia-danger hover:underline"
+          >
+            <XCircle className="h-3 w-3" />中止生成，返回文档
+          </button>
+        </div>
+      )}
+
       {/* 上半部分：代码 + 测试区（水平分割） */}
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         <div className="grid grid-cols-5 gap-4 flex-1 min-h-0">
@@ -769,7 +774,10 @@ function Step3() {
             <div className="flex items-center justify-between mb-2 shrink-0">
               <div className="flex items-center gap-1.5">
                 <FileCode className="h-3.5 w-3.5 text-amber-400" />
-                <span className="text-[13px] font-medium text-maia-text-secondary">生成代码</span>
+                <span className="text-[13px] font-medium text-maia-text-secondary">
+                  {isGenerating ? '正在生成代码…' : '生成代码'}
+                </span>
+                {isGenerating && <Loader2 className="h-3 w-3 animate-spin text-maia-accent" />}
                 {codeDirty && <span className="text-[12px] text-amber-500">已手工修改</span>}
               </div>
               <div className="flex items-center gap-1.5">

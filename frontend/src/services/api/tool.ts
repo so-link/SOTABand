@@ -14,6 +14,7 @@ async function _consumeSse(
   onDelta?: (token: string) => void,
   onReasoning?: (token: string) => void,
   contentKey: string = 'spec_md',
+  onStatus?: (message: string) => void,
 ): Promise<Record<string, unknown>> {
   const reader = res.body?.getReader()
   if (!reader) throw new Error('No response body')
@@ -35,6 +36,9 @@ async function _consumeSse(
           onDelta(data.token)
         } else if (currentEvent === 'reasoning' && onReasoning && typeof data.token === 'string') {
           onReasoning(data.token)
+        } else if (currentEvent === 'status' && onStatus) {
+          // 后端非流式收尾阶段（如标签生成）的进度提示
+          onStatus(String(data.message || ''))
         } else if (currentEvent === 'error') {
           throw new Error(String(data.detail || '生成失败'))
         } else if (currentEvent === 'done') {
@@ -64,6 +68,7 @@ export const toolApi = {
     onDelta?: (token: string) => void,
     onReasoning?: (token: string) => void,
     signal?: AbortSignal,
+    onStatus?: (message: string) => void,
   ): Promise<{ spec_md: string; tags: string[] }> {
     const res = await fetch(`${BASE_URL}/api/tool/generate-spec`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -71,7 +76,7 @@ export const toolApi = {
       signal,
     })
     if (!res.ok) { const err = await res.json().catch(() => ({ detail: res.statusText })); throw new Error(err.detail) }
-    const data = await _consumeSse(res, onDelta, onReasoning)
+    const data = await _consumeSse(res, onDelta, onReasoning, 'spec_md', onStatus)
     return data as { spec_md: string; tags: string[] }
   },
 
