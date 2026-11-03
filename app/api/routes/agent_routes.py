@@ -876,10 +876,13 @@ async def sync_spec_from_code(agent_id: str, req: SyncSpecRequest):
     if not cleaned:
         raise HTTPException(500, "同步失败：模型未返回有效文档")
 
-    # 落盘：更新 registry 的 raw_md 与 spec 目录下的两份文档
+    # 落盘：更新 registry 的 raw_md 与 spec 目录下的两份文档。
+    # 必须就地写回原位置：读按「内置 + 私有」顺序检索，写若固定落私有目录，
+    # 内置 Agent 同步出来的新文档就会被内置那份遮蔽（表现为同步没生效）。
     await registry.update(agent_id, {"raw_md": cleaned})
-    for p in (registry._get_spec_dir() / f"{agent_id}.md",
-              registry._get_impl_dir() / agent_id / "spec.md"):
+    spec_path = _locate_agent_spec_path(agent_id) or (registry._get_spec_dir() / f"{agent_id}.md")
+    impl_dir = _locate_agent_impl_dir(agent_id) or (registry._get_impl_dir() / agent_id)
+    for p in (spec_path, impl_dir / "spec.md"):
         try:
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(cleaned, encoding="utf-8")
