@@ -637,6 +637,22 @@ def _locate_agent_impl_dir(agent_id: str) -> Path | None:
     return None
 
 
+def _locate_agent_demand_path(agent_id: str) -> Path:
+    """需求描述的写入路径：已有文件就地更新，否则落私有目录新建。
+
+    读（get_agent）按「内置 + 私有」顺序检索 definitions/<id>-demand.md，
+    写若固定落私有目录，编辑内置 Agent 的需求就会出现「保存成功但内容没变」
+    ——与工具侧同样的读写根不一致问题。
+    """
+    from core.resource import paths as _paths
+
+    for root in _paths.resource_roots():
+        f = root / "agents" / "definitions" / f"{agent_id}-demand.md"
+        if f.exists():
+            return f
+    return registry._get_spec_dir() / f"{agent_id}-demand.md"
+
+
 def _maybe_generate_api_doc(agent_id: str) -> None:
     """若该 Agent 为 Web 服务式且声明了 API，则生成 api.md 说明文档。"""
     try:
@@ -751,6 +767,27 @@ async def save_agent_code(agent_id: str, req: SaveCodeRequest):
     impl_dir.mkdir(parents=True, exist_ok=True)
     (impl_dir / "agent.py").write_text(req.code, encoding="utf-8")
     return {"saved": agent_id}
+
+
+class SaveStep1Request(BaseModel):
+    """Step1（需求描述）保存请求"""
+    demand_md: str
+
+
+@router.post("/{agent_id}/save-step1")
+async def save_agent_step1(agent_id: str, req: SaveStep1Request):
+    """单独保存 Step1 的需求描述，不动规范文档与代码。
+
+    此前需求描述只在注册时落盘，编辑器里改了必须重新注册才留得下——
+    而重新注册会连带覆盖文档与代码。这里提供独立落盘通道。
+    """
+    entry = await registry.get(agent_id)
+    if not entry:
+        raise HTTPException(404, f"Agent '{agent_id}' not found")
+    p = _locate_agent_demand_path(agent_id)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(req.demand_md, encoding="utf-8")
+    return {"saved": agent_id, "written": ["demand"]}
 
 
 class SyncSpecRequest(BaseModel):

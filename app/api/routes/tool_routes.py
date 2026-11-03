@@ -34,6 +34,68 @@ discoverer = ToolDiscoverer()
 # 规格/代码生成走「生成模型」（LLM_GEN_*，未配置时回退全局对话模型）
 llm = create_gen_llm_client()
 
+
+# ── 写路径解析（内置资源就地更新）──────────────────────────────
+# 读走 registry.find_def_file/find_impl_dir：内置根优先，找不到再查私有根。
+# 而写此前一律落 registry._get_def_dir()/_get_impl_dir()（私有根）。
+# 后果：编辑**内置工具**时，改动写进私有根，读仍命中内置根那份 →
+# 界面「保存成功」但内容没变（表现为改了没生效）。
+# 因此写入前统一询问：原文件在哪个根就地写回；确实不存在才落私有根新建。
+
+def _def_text_write_path(tool_id: str, suffix: str) -> _Path:
+    """按后缀定位定义类文件（-demand.md / -reference.md）的写入路径。"""
+    return registry.find_def_file(tool_id, suffix) or (
+        registry._get_def_dir() / f"{tool_id}{suffix}")
+
+
+def _impl_write_dir(tool_id: str) -> _Path:
+    """实现目录的写入路径（内置实现就地更新）。"""
+    return registry.find_impl_dir(tool_id) or (registry._get_impl_dir() / tool_id)
+
+
+def _write_def_text(tool_id: str, suffix: str, text: str) -> _Path:
+    """写定义类文件并返回落盘路径（自动建目录）。"""
+    p = _def_text_write_path(tool_id, suffix)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(text, encoding="utf-8")
+    return p
+
+
+def _parse_params_from_spec(spec_md: str, old_entries: list[dict]) -> tuple[list, list]:
+    """从 MD 确定性解析 param_meta/modes，并继承同名参数的 hints。
+
+    确定性解析优先：界面手工编辑是高频操作，LLM 提取既慢又可能改写参数
+    语义（改一个默认值顺带把参数名和说明都换了）。
+
+    返回 (param_meta, modes)。解析不到参数时返回空列表，由调用方决定是否
+    走 LLM 兜底（见 _parse_params_from_spec_async）。
+    """
+    param_meta = builder._parse_spec_inputs(spec_md)
+    if param_meta:
+        old_hints = {
+            (p.get("name"), p.get("mode")): p.get("hints")
+            for p in (old_entries or []) if p.get("hints")
+        }
+        for p in param_meta:
+            if not p.get("hints"):
+                hints = old_hints.get((p.get("name"), p.get("mode")))
+                if hints:
+                    p["hints"] = hints
+    return param_meta, builder.parse_modes(spec_md)
+
+
+async def _parse_params_from_spec_async(spec_md: str, old_entries: list[dict]) -> tuple[list, list]:
+    """确定性解析失败时用 LLM 兜底（仅在表格结构缺失、无法机械解析时用）。"""
+    param_meta, modes = _parse_params_from_spec(spec_md, old_entries)
+    if param_meta:
+        return param_meta, modes
+    try:
+        param_meta = await builder.extract_param_metadata(spec_md)
+    except Exception:
+        param_meta = []
+    return param_meta, modes
+
+
 SPEC_PROMPT = """你是一个工具规格文档生成器。根据用户的自然语言描述，生成标准化的 Tool MD 规范文档。
 
 严格按照以下 Markdown 模板输出：
@@ -547,12 +609,14 @@ async def register_tool(req: RegisterToolRequest):
     }
     tool_id = await registry.register(resource)
 
+    # 需求描述/参考代码：编辑已有工具时（含内置工具）就地更新原文件，
+    # 新建才落私有目录——与详情接口的读取顺序保持一致
     if hasattr(req, 'demand_desc') and req.demand_desc:
-        (registry._get_def_dir() / f"{tool_id}-demand.md").write_text(req.demand_desc, encoding="utf-8")
+        _write_def_text(tool_id, "-demand.md", req.demand_desc)
 
     # 保存参考代码为独立文件
     if hasattr(req, 'reference_code') and req.reference_code:
-        (registry._get_def_dir() / f"{tool_id}-reference.md").write_text(req.reference_code, encoding="utf-8")
+        _write_def_text(tool_id, "-reference.md", req.reference_code)
 
     entry = await registry.get(tool_id)
 
@@ -1051,6 +1115,29 @@ class UpdateTableCellRequest(BaseModel):
     save: bool = False
 
 
+async def _save_spec_deterministic(tool_id: str, md: str, entry: dict) -> None:
+    """落盘规范文档，并确定性重算 param_meta/modes（不调 LLM）。
+
+    update-table-cell / refine-spec-node / sync-spec-from-code 都改了文档
+    正文，但此前只写 raw_md：registry 里的 param_meta 仍是旧值，于是
+    「在表格里把默认值从 8 改成 4」保存后，执行参数表单里还是 8。
+    编辑表格本身就是一次参数改动，必须同步。
+
+    这里刻意用确定性解析（无 LLM 兜底）：解析不到参数说明改的不是输入
+    规范表格，保持原 param_meta 不动，免得把参数语义换掉。
+    """
+    updates: dict = {"raw_md": md}
+    param_meta, modes = _parse_params_from_spec(md, entry.get("param_meta") or [])
+    if param_meta:
+        updates["param_meta"] = param_meta
+        updates["modes"] = modes
+    await registry.update(tool_id, updates)
+    try:
+        _write_def_text(tool_id, ".md", md)
+    except Exception:
+        pass
+
+
 @router.post("/{tool_id}/update-table-cell")
 async def update_table_cell_api(tool_id: str, req: UpdateTableCellRequest):
     """修改表格中的单个单元格，由系统确定性应用，**不调用 LLM**。
@@ -1100,13 +1187,8 @@ async def update_table_cell_api(tool_id: str, req: UpdateTableCellRequest):
     new_outline.version = outline.version + 1
 
     if req.save and not is_draft:
-        await registry.update(tool_id, {"raw_md": updated_md})
-        try:
-            spec_path = registry._get_def_dir() / f"{tool_id}.md"
-            spec_path.parent.mkdir(parents=True, exist_ok=True)
-            spec_path.write_text(updated_md, encoding="utf-8")
-        except Exception:
-            pass
+        entry = await registry.get(tool_id) or {}
+        await _save_spec_deterministic(tool_id, updated_md, entry)
 
     return {
         "node_id": req.node_id,
@@ -1251,13 +1333,8 @@ async def refine_spec_node(tool_id: str, req: RefineSpecNodeRequest):
         raise HTTPException(code, err)
 
     if req.save:
-        await registry.update(tool_id, {"raw_md": updated_md})
-        try:
-            spec_path = registry._get_def_dir() / f"{tool_id}.md"
-            spec_path.parent.mkdir(parents=True, exist_ok=True)
-            spec_path.write_text(updated_md, encoding="utf-8")
-        except Exception:
-            pass
+        entry = await registry.get(tool_id) or {}
+        await _save_spec_deterministic(tool_id, updated_md, entry)
 
     return {
         "node_id": req.node_id,
@@ -1859,14 +1936,9 @@ async def refine_spec_node_stream(tool_id: str, req: RefineSpecNodeRequest):
 
             saved = False
             if req.save and not is_draft:
-                await registry.update(tool_id, {"raw_md": updated_md})
-                try:
-                    spec_path = registry._get_def_dir() / f"{tool_id}.md"
-                    spec_path.parent.mkdir(parents=True, exist_ok=True)
-                    spec_path.write_text(updated_md, encoding="utf-8")
-                    saved = True
-                except Exception:
-                    pass
+                entry = await registry.get(tool_id) or {}
+                await _save_spec_deterministic(tool_id, updated_md, entry)
+                saved = True
 
             yield {"event": "done", "data": _json.dumps({
                 "node_id": req.node_id,
@@ -1896,7 +1968,7 @@ async def save_code(tool_id: str, req: dict):
     scan = scan_code(code)
     if not scan.ok:
         raise HTTPException(400, "静态安全审查未通过：\n" + "\n".join(scan.errors))
-    impl_dir = registry._get_impl_dir() / tool_id
+    impl_dir = _impl_write_dir(tool_id)
     impl_dir.mkdir(parents=True, exist_ok=True)
     (impl_dir / "tool.py").write_text(code, encoding="utf-8")
     return {"saved": tool_id}
@@ -1905,6 +1977,11 @@ async def save_code(tool_id: str, req: dict):
 class SaveSpecRequest(BaseModel):
     """保存工具 MD 规范文档请求"""
     spec_md: str
+    # 是否随文档重算 param_meta/modes。
+    # 默认 true 保持原行为；只改了说明性段落（不动输入规范表格）时传
+    # false，可避免「改一句描述却把参数元数据重算一遍」——确定性解析
+    # 拿不到参数时会退到 LLM 提取，等于顺手改了参数语义，不是用户要的。
+    resync_params: bool = True
 
 
 @router.post("/{tool_id}/save-spec")
@@ -1925,33 +2002,55 @@ async def save_spec(tool_id: str, req: SaveSpecRequest):
     # 又可能改写参数语义），仅当确定性解析拿不到参数时才走 LLM 兜底；
     # 同名参数继承旧条目的 hints，避免编辑一次默认值就把候选值弄丢。
     updates: dict = {"raw_md": req.spec_md}
-    param_meta = builder._parse_spec_inputs(req.spec_md)
-    if not param_meta:
-        try:
-            param_meta = await builder.extract_param_metadata(req.spec_md)
-        except Exception:
-            param_meta = []
-    if param_meta:
-        old_hints = {
-            (p.get("name"), p.get("mode")): p.get("hints")
-            for p in (entry.get("param_meta") or []) if p.get("hints")
-        }
-        for p in param_meta:
-            if not p.get("hints"):
-                hints = old_hints.get((p.get("name"), p.get("mode")))
-                if hints:
-                    p["hints"] = hints
-        updates["param_meta"] = param_meta
-    updates["modes"] = builder.parse_modes(req.spec_md)
+    param_meta: list = []
+    if req.resync_params:
+        param_meta, modes = await _parse_params_from_spec_async(
+            req.spec_md, entry.get("param_meta") or [])
+        if param_meta:
+            updates["param_meta"] = param_meta
+        updates["modes"] = modes
 
     await registry.update(tool_id, updates)
     try:
-        spec_path = registry._get_def_dir() / f"{tool_id}.md"
-        spec_path.parent.mkdir(parents=True, exist_ok=True)
-        spec_path.write_text(req.spec_md, encoding="utf-8")
+        _write_def_text(tool_id, ".md", req.spec_md)
     except Exception:
         pass
-    return {"saved": tool_id, "param_meta": updates.get("param_meta", []), "modes": updates["modes"]}
+    return {
+        "saved": tool_id,
+        "param_meta": updates.get("param_meta", entry.get("param_meta") or []),
+        "modes": updates.get("modes", entry.get("modes") or []),
+    }
+
+
+class SaveStep1Request(BaseModel):
+    """Step1（需求描述 / 参考代码）保存请求：给了哪个字段就只写哪个文件"""
+    demand_md: str | None = None
+    reference_code: str | None = None
+
+
+@router.post("/{tool_id}/save-step1")
+async def save_step1(tool_id: str, req: SaveStep1Request):
+    """单独保存 Step1 的需求描述与参考代码，不动规范文档、代码与参数。
+
+    此前这两个字段只在注册时落盘（tool_routes 注册分支），编辑器里改了
+    只能靠「重新注册」才留得下来——而重新注册会连带覆盖文档与代码。
+    这里给出独立落盘通道：写 definitions/<id>-demand.md 与
+    definitions/<id>-reference.md，与详情接口读取的文件一致。
+    """
+    entry = await registry.get(tool_id)
+    if not entry:
+        raise HTTPException(404, f"Tool '{tool_id}' not found")
+    if req.demand_md is None and req.reference_code is None:
+        raise HTTPException(400, "demand_md 与 reference_code 至少给一个")
+
+    written: list[str] = []
+    if req.demand_md is not None:
+        _write_def_text(tool_id, "-demand.md", req.demand_md)
+        written.append("demand")
+    if req.reference_code is not None:
+        _write_def_text(tool_id, "-reference.md", req.reference_code)
+        written.append("reference")
+    return {"saved": tool_id, "written": written}
 
 
 class SyncSpecRequest(BaseModel):
@@ -2042,14 +2141,8 @@ async def sync_spec_from_code(tool_id: str, req: SyncSpecRequest):
     if not cleaned:
         raise HTTPException(500, "同步失败：模型未返回有效文档")
 
-    # 落盘：更新 registry 中的 raw_md 与 definitions 下的 spec 文件
-    await registry.update(tool_id, {"raw_md": cleaned})
-    try:
-        spec_path = registry._get_def_dir() / f"{tool_id}.md"
-        spec_path.parent.mkdir(parents=True, exist_ok=True)
-        spec_path.write_text(cleaned, encoding="utf-8")
-    except Exception:
-        pass  # 文档落盘失败不影响返回，registry 已更新
+    # 落盘：更新 registry 中的 raw_md / param_meta 与 definitions 下的 spec 文件
+    await _save_spec_deterministic(tool_id, cleaned, entry)
 
     return {"spec_md": cleaned}
 
