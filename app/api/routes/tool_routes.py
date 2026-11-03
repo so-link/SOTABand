@@ -5,6 +5,7 @@ import json as _json
 import os as _os
 import re
 import shutil
+import threading as _threading
 import time as _time
 from datetime import datetime
 from pathlib import Path as _Path
@@ -646,9 +647,12 @@ def _extract_tags_json(text: str) -> list[str] | None:
 # ── 工具空间（已加载清单）—— 后端持久化 ──
 # "工具空间"显示哪些工具属于引擎状态而非浏览器状态：以前清单只存前端
 # localStorage，换浏览器 / 无痕窗口 / 清缓存后工作空间就全空了。
-# 现在状态源是 storage/workspace_tools.json，localStorage 仅作降级缓存。
+# 现在状态源是 storage/workspace_tools.json（前端不再本地缓存）。
 _PROJECT_ROOT = _Path(__file__).resolve().parent.parent.parent.parent
 _WORKSPACE_FILE = _PROJECT_ROOT / "storage" / "workspace_tools.json"
+# 读-改-写锁 + 原子写：并发增删不再互相覆盖丢条目；崩溃不再留半截 JSON
+# （半截文件会被 _read_workspace 静默吞成 []，表现为"工具空间被清空"）
+_WORKSPACE_LOCK = _threading.Lock()
 
 
 class WorkspaceToolItem(BaseModel):
@@ -657,51 +661,55 @@ class WorkspaceToolItem(BaseModel):
     tags: list[str] = []
 
 
-def _read_workspace() -> list[dict]:
+def _read_workspace_locked() -> list[dict]:
     try:
         if _WORKSPACE_FILE.exists():
-            return _json.loads(_WORKSPACE_FILE.read_text(encoding="utf-8"))
+            data = _json.loads(_WORKSPACE_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                return [t for t in data if isinstance(t, dict) and t.get("id")]
     except Exception:
         pass
     return []
 
 
-def _write_workspace(items: list[dict]) -> None:
-    _WORKSPACE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    _WORKSPACE_FILE.write_text(
-        _json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+def _write_workspace_locked(items: list[dict]) -> None:
+    from core.resource.json_store import write_json_atomic
+    write_json_atomic(_WORKSPACE_FILE, items)
 
 
 @router.get("/workspace")
 async def get_workspace():
     """返回工作区工具清单，并过滤已从工具空间删除的条目（防止失效残留）。"""
-    items = _read_workspace()
     alive_ids = {t.get("id") for t in await registry.list_all()}
-    alive = [t for t in items if t.get("id") in alive_ids]
-    if len(alive) != len(items):
-        _write_workspace(alive)
+    with _WORKSPACE_LOCK:
+        items = _read_workspace_locked()
+        alive = [t for t in items if t.get("id") in alive_ids]
+        if len(alive) != len(items):
+            _write_workspace_locked(alive)
     return {"tools": alive}
 
 
 @router.post("/workspace")
 async def add_workspace_tool(item: WorkspaceToolItem):
-    items = _read_workspace()
-    if not any(t.get("id") == item.id for t in items):
-        items.append({
-            "id": item.id,
-            "name": item.name,
-            "tags": item.tags,
-            "loadedAt": datetime.now().isoformat(),
-        })
-        _write_workspace(items)
-    return {"ok": True, "tools": items}
+    with _WORKSPACE_LOCK:
+        items = _read_workspace_locked()
+        if not any(t.get("id") == item.id for t in items):
+            items.append({
+                "id": item.id,
+                "name": item.name,
+                "tags": item.tags,
+                "loadedAt": datetime.now().isoformat(),
+            })
+            _write_workspace_locked(items)
+        result = list(items)
+    return {"ok": True, "tools": result}
 
 
 @router.delete("/workspace/{tool_id}")
 async def remove_workspace_tool(tool_id: str):
-    items = [t for t in _read_workspace() if t.get("id") != tool_id]
-    _write_workspace(items)
+    with _WORKSPACE_LOCK:
+        items = [t for t in _read_workspace_locked() if t.get("id") != tool_id]
+        _write_workspace_locked(items)
     return {"ok": True, "tools": items}
 
 
@@ -1424,6 +1432,7 @@ async def modify_and_debug(tool_id: str, req: "ModifyAndDebugRequest"):
     from sse_starlette.sse import EventSourceResponse
     from core.resource.builder.tool_builder import (
         is_debug_running, set_debug_running, set_debug_stopped,
+        _debug_exec_timeout,
     )
 
     entry = await registry.get(tool_id)
@@ -1565,9 +1574,12 @@ async def modify_and_debug(tool_id: str, req: "ModifyAndDebugRequest"):
             with open(_log_file, "a", encoding="utf-8") as lf:
                 lf.write(f"代码 ({len(code)}字符)\n")
 
-            # 沙箱执行
+            # 沙箱执行（超时与工具自动调试同源，读 DEBUG_EXEC_TIMEOUT；
+            # 原先硬编码 30 会让「系统设置」里调大的超时对本流程失效）
             try:
-                result = await builder.sandbox_execute(code, test_params, tool_id, exec_timeout=30)
+                result = await builder.sandbox_execute(
+                    code, test_params, tool_id, exec_timeout=_debug_exec_timeout()
+                )
                 stdout = result.get("stdout", "")
                 stderr = result.get("stderr", "")
                 exit_code = result.get("exit_code", -1)
