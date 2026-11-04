@@ -459,8 +459,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const datasetRefs = pathRefs.filter((r) => r.kind === 'dataset')
     const datasetTokens = datasetRefs.map((r) => r.fileId).filter(Boolean)
     const textWithDatasets = [finalText, ...datasetTokens].filter(Boolean).join(' ')
+    // 附件只带 file_id：真实大小/格式由后端从登记表解析（前端不猜、不查）
     const fileAttachments: FileAttachment[] = fileRefs.map((r) => ({
-      id: r.fileId, fileName: r.name, fileId: r.fileId, filePath: '', fileSize: 0, format: '',
+      id: r.fileId,
+      fileName: r.name,
+      fileId: r.fileId,
+      filePath: '',
+      fileSize: 0,
+      format: '',
     }))
     const allAttachments = [...attachedFiles, ...fileAttachments]
 

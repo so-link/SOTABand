@@ -282,6 +282,25 @@ def test_build_user_message_binary_only_metadata():
     assert len(image_urls) == 1
 
 
+def test_build_user_message_uses_server_metadata():
+    """前端传的 fileSize 恒为 0 时，服务器应以登记表为准（否则 LLM 误判空文件）。"""
+    agent_mod = pytest.importorskip(
+        "resources.agents.implementations.interactive_agent.agent")
+    InteractiveAgent = agent_mod.InteractiveAgent
+    p = _make_file("favicon.ico", b"\x00\x00\x01\x00" + b"x" * 252)
+    rec = user_files.register(p)
+
+    agent = object.__new__(InteractiveAgent)
+    msg, _ = agent._build_user_message(
+        "这是什么文件",
+        [{"fileName": "favicon.ico", "fileId": rec["file_id"],
+          "format": "", "fileSize": 0}],  # 前端不传真实大小
+    )
+    assert "0B" not in msg  # 不再显示 0 字节
+    assert "256B" in msg    # 真实大小来自登记表
+    assert "ICO" in msg     # 格式由服务器从文件名解析
+
+
 def test_build_user_message_small_image_inlined():
     """小图片（≤2MB）作为多模态内容随消息发送，不写进文本。"""
     agent_mod = pytest.importorskip(

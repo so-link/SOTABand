@@ -1816,6 +1816,17 @@ class InteractiveAgent(BaseAgent):
             else:
                 continue
 
+            # 大小/格式由**服务器**从登记表解析：前端只带 file_id，
+            # 传上来的 fileSize 恒为 0（曾导致 LLM 误报"0 字节空文件"）
+            meta = self._file_meta(file_id) if file_id else None
+            if meta:
+                name = name or meta.get("name") or "unknown"
+                size = meta.get("size", size)
+                if meta.get("name"):
+                    ext = meta["name"].rsplit(".", 1)[-1] if "." in meta["name"] else ""
+                    if ext:
+                        fmt = ext
+
             if size > 1048576:
                 size_str = f"{size / 1048576:.1f}MB"
             elif size > 1024:
@@ -1844,6 +1855,18 @@ class InteractiveAgent(BaseAgent):
             parts.append(f"\n数据集文件路径: {', '.join(dataset_paths)}")
 
         return "\n".join(parts), image_urls
+
+    def _file_meta(self, file_id: str) -> dict | None:
+        """从当前用户的文件登记表取真实元数据（大小/文件名）。
+
+        前端只带 file_id，大小/格式一律以服务器登记为准——前端传的值
+        不可信（拖拽构造的 attachment 里恒为 0，曾让 LLM 误判文件为空）。
+        """
+        try:
+            from core import user_files
+            return user_files.get(file_id)
+        except Exception:
+            return None
 
     # 小图片随消息发送的上限：2MB（base64 约 2.7MB，仍可控）
     _INLINE_IMAGE_MAX = 2 * 1024 * 1024
