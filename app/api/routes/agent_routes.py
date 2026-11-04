@@ -726,6 +726,9 @@ async def save_agent_spec(agent_id: str, req: SaveSpecRequest):
     entry = await registry.get(agent_id)
     if not entry:
         raise HTTPException(404, f"Agent '{agent_id}' not found")
+    # 就地写回命中的层：内置版本仅超级管理员可改，普通用户先 fork
+    from app.api.deps import ensure_can_touch_builtin
+    ensure_can_touch_builtin(entry.get("source"), action="修改")
     if not req.spec_md.strip():
         raise HTTPException(400, "文档内容不能为空")
 
@@ -754,6 +757,9 @@ async def save_agent_code(agent_id: str, req: SaveCodeRequest):
     entry = await registry.get(agent_id)
     if not entry:
         raise HTTPException(404, f"Agent '{agent_id}' not found")
+    # 就地写回命中的层：内置版本仅超级管理员可改，普通用户先 fork
+    from app.api.deps import ensure_can_touch_builtin
+    ensure_can_touch_builtin(entry.get("source"), action="修改")
     if not req.code.strip():
         raise HTTPException(400, "代码不能为空")
 
@@ -784,6 +790,9 @@ async def save_agent_step1(agent_id: str, req: SaveStep1Request):
     entry = await registry.get(agent_id)
     if not entry:
         raise HTTPException(404, f"Agent '{agent_id}' not found")
+    # demand 文件按「已存在就地更新」写，可能落在内置根：内置层仅超级管理员可改
+    from app.api.deps import ensure_can_touch_builtin
+    ensure_can_touch_builtin(entry.get("source"), action="修改")
     p = _locate_agent_demand_path(agent_id)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(req.demand_md, encoding="utf-8")
@@ -1136,29 +1145,38 @@ async def restart_agent(agent_id: str):
 
 @router.delete("/{agent_id}")
 async def delete_agent(agent_id: str):
-    """删除 Agent（registry + 代码 + 规范 + 停止进程）。
+    """删除 Agent（按命中层生效，内置与个人定制版互不牵连）。
 
     规则：
-    - 内置 Agent（仅在内置资源根中存在）不可删除，避免「删掉又出现」；
+    - 命中私有层（我的副本 / 我创建的 Agent）→ 删除私有文件与私有条目；
+      fork 副本删除后合并视图回落到内置原样，内置条目与文件都不受影响；
+    - 命中内置层（无个人副本的内置 Agent）→ **仅超级管理员可删**，且只
+      移除内置 registry 条目——内置文件随 git 分发，不落删除，重新注册
+      （或 git 恢复条目）即可挂回；普通用户要改内置请先复制为我的副本；
     - 文件删除失败时返回明确的 500 错误，前端可提示，而不是裸 traceback。
     """
     entry = await registry.get(agent_id)
     if not entry:
         raise HTTPException(404, f"Agent '{agent_id}' not found")
 
+    from app.api.deps import ensure_can_touch_builtin
+    ensure_can_touch_builtin(entry.get("source"), action="删除")
+
     from core.resource import paths as resource_paths
+
+    # 停止进程（两层的删除都需要先停，stop 对未运行进程是幂等的）
+    await agent_factory.stop(agent_id)
+
+    if entry.get("source") != "private":
+        # 内置层：只移内置 registry 条目，git 管理的内置文件保留原处
+        await registry.unregister(agent_id, scope="builtin")
+        return {"deleted": agent_id, "scope": "builtin"}
 
     private_dir = resource_paths.private_space_dir("agents")
     private_spec = private_dir / "definitions" / f"{agent_id}.md"
     private_demand = private_dir / "definitions" / f"{agent_id}-demand.md"
     private_impl = private_dir / "implementations" / agent_id
-    builtin_spec = resource_paths.builtin_space_dir("agents") / "definitions" / f"{agent_id}.md"
 
-    if builtin_spec.exists() and not private_spec.exists():
-        raise HTTPException(400, f"'{agent_id}' 属于内置 Agent，不能删除")
-
-    # 停止进程
-    await agent_factory.stop(agent_id)
     # 删除代码与规范（含生成期产生的 -demand.md）
     try:
         _remove_tree(private_impl)
@@ -1167,8 +1185,8 @@ async def delete_agent(agent_id: str):
                 f.unlink()
     except OSError as e:
         raise HTTPException(500, f"删除 Agent '{agent_id}' 的文件失败：{type(e).__name__}: {e}")
-    await registry.unregister(agent_id)
-    return {"deleted": agent_id}
+    await registry.unregister(agent_id, scope="private")
+    return {"deleted": agent_id, "scope": "private"}
 
 # ══════════════════════════════════════════════════════════════════════
 #  Web 服务式 Agent 支持（见 docs/agent-types-design.md）

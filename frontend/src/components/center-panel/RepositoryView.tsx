@@ -10,6 +10,7 @@ import { useUIStore } from '@/stores/ui-store'
 import { useResourceStore } from '@/stores/resource-store'
 import { useRepositoryStore, getFilteredTools, type RepositoryTool } from '@/stores/repository-store'
 import { useWorkspaceToolStore } from '@/stores/workspace-tool-store'
+import { useAuthStore } from '@/stores/auth-store'
 import { toolApi } from '@/services/api/tool'
 
 const PAGE_SIZE_OPTIONS = [8, 12, 16, 24, 32]
@@ -35,6 +36,9 @@ export function RepositoryView() {
   const store = useRepositoryStore()
   const { tools, tagStats, selectedTags, searchQuery, sortBy, page, pageSize, loading, fetchTools, toggleTag, setSearch, setSort, setPage, setPageSize } = store
   const { isLoaded, addTool } = useWorkspaceToolStore()
+  // 内置层资源（未 fork 的内置工具）仅超级管理员可删除（后端 403 兜底）；
+  // 单用户模式匿名即以超管身份，/me 返回 role=admin，这里不会误伤。
+  const isAdmin = useAuthStore((s) => s.user?.role === 'admin')
 
   useEffect(() => { fetchTools() }, [])
 
@@ -60,7 +64,14 @@ export function RepositoryView() {
   } | null>(null)
 
   const handleDelete = async (tool: RepositoryTool) => {
-    if (!confirm(`确定删除工具 "${tool.id}"？\n此操作不可撤销，将永久删除代码文件和注册记录。`)) return
+    // 删除按命中的层生效：内置删内置登记、个人版删个人版，互不牵连；
+    // 任何一层都只移除注册记录，代码文件保留在仓库目录里。
+    const msg = tool.source === 'private'
+      ? (tool.forked
+        ? `确定删除「我的副本」${tool.id}？\n仅移除个人定制版，内置版本不受影响（将回落到直接使用内置）。`
+        : `确定删除工具 "${tool.id}"？\n仅移除注册记录，代码文件保留在仓库中。`)
+      : `确定将内置工具 "${tool.id}" 从仓库移除？\n仅移除内置注册记录（重新添加可挂回），不影响我的副本。`
+    if (!confirm(msg)) return
     try {
       const res = await fetch(`${BASE_URL}/api/tool/${tool.id}`, { method: 'DELETE' })
       if (res.ok) {
@@ -352,10 +363,14 @@ export function RepositoryView() {
                           className="flex-1 inline-flex items-center justify-center gap-1.5 h-7 rounded text-[12px] whitespace-nowrap text-maia-text-muted hover:text-maia-accent hover:bg-maia-sidebar-hover transition-colors">
                           <Download className="h-3 w-3 shrink-0" />导出
                         </a>
+                        {/* 内置工具仅超级管理员可删除：普通用户看到的是添加
+                            （用内置）与 fork（改自己的副本），没有删除入口 */}
+                        {!(tool.source === 'builtin' && !isAdmin) && (
                         <Button size="sm" variant="ghost" className="flex-1 h-7 px-0 text-[12px] whitespace-nowrap text-maia-danger hover:text-maia-danger hover:bg-maia-danger-bg"
                           onClick={(e) => { e.stopPropagation(); handleDelete(tool) }}>
                           <Trash2 className="h-3 w-3 shrink-0 mr-1" />删除
                         </Button>
+                        )}
                         {loaded ? (
                           <span className="flex-1 inline-flex items-center justify-center gap-1.5 h-7 rounded text-[12px] whitespace-nowrap text-maia-text-muted">
                             <Check className="h-3 w-3 shrink-0" />已加载

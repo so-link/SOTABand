@@ -22,35 +22,43 @@
   ↕
 资源层 (resources/)   ← 六空间：数据/工具/模型/智能体/用户/任务
   ↕
-存储层 (storage/)     ← 持久化、缓存、文件存储
+存储层 (storage/)     ← 平台级实体与文件存储；每用户数据在 SB-USER/<uid>/
 ```
 
 ## 项目结构
 
 ```
 sotaband-engine/
-├── app/                    应用层 — 用户交互界面
-│   ├── api/                REST/GraphQL API 接口
-│   ├── ui/                 Web 前端页面 & 组件
-│   └── workspace/          工作区间管理（数据选择、探索历史）
+├── app/                    应用层 — REST API 接口（FastAPI）
+│   └── api/                路由（routes/）、鉴权依赖（deps.py）、请求模型（schemas/）
+│
+├── frontend/               应用层 — Web 前端（React 19 + Vite + Zustand，无路由库）
+│   └── src/                三栏界面（components/）、领域状态（stores/）、API 客户端（services/）
 │
 ├── core/                   核心层 — 系统大脑与执行引擎
-│   ├── engine/             工作流引擎子系统
-│   ├── resource/           资源生命周期管理子系统
-│   ├── scheduler/          调度与算力管理子系统
-│   ├── agent/              多智能体协作子系统
-│   ├── security/           安全与治理子系统
-│   └── observability/      可观测性子系统
+│   ├── resource/           资源生命周期管理子系统（registry / builder / discoverer）
+│   ├── executor/           工具执行子系统（子进程执行 + 工具独立 .venv）
+│   ├── api/                系统 API 子系统（工具经 _call_api 调用的受控通道）
+│   ├── agent/              多智能体协作子系统（子进程 + JSON-line 协议 + 总线）
+│   ├── chat_control/       对话内平台控制网关（function calling → 校验 → 审计）
+│   ├── cron/               定时任务调度子系统
+│   ├── auth/               本地身份层（超管 + 普通用户、PBKDF2 + HMAC 令牌）
+│   ├── llm/                LLM 接入子系统（OpenAI 兼容）
+│   ├── security/           安全与治理子系统（密钥脱敏 + AST 静态审查）
+│   ├── observability/      可观测性子系统（对话持久化、任务历史）
+│   ├── engine/             工作流引擎子系统（规划中，占位）
+│   └── scheduler/          调度与算力管理子系统（规划中，占位）
 │
-├── resources/              资源层 — 六空间统一建模
-│   ├── data/               数据空间
+├── resources/              资源层 — 六空间统一建模（内置根，随 git 分发）
+│   ├── data/               数据空间（注册记录；数据目录指向本机）
 │   ├── tools/              工具空间
 │   ├── models/             模型空间
 │   ├── agents/             智能体空间
-│   ├── users/              用户空间
-│   └── tasks/              任务空间
+│   └── tasks/              任务空间（运行时历史在 observability）
 │
-├── storage/                存储层 — 持久化 & 缓存
+├── storage/                存储层 — 平台级实体（storage/auth/ 用户表与令牌密钥）
+│                           每用户数据落 <SOTABAND_HOME>/<uid>/（默认 /root/SB-USER，
+│                           每用户一库 platform.db + resources-private/ + uploads/ 等）
 ├── config/                 全局配置
 ├── docs/                   设计文档
 └── tests/                  测试
@@ -112,7 +120,7 @@ python scripts/serve.py dev --mirror https://pypi.tuna.tsinghua.edu.cn/simple
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `SOTABAND_API_HOST` | `0.0.0.0` | 后端监听地址。配反向代理/隧道时建议 `127.0.0.1` |
+| `SOTABAND_API_HOST` | `127.0.0.1` | 后端监听地址。仅反向代理/隧道访问时保持默认；对外直连需显式改为 `0.0.0.0` 并配置鉴权 |
 | `SOTABAND_API_PORT` | `8201` | 后端端口 |
 | `SOTABAND_WEB_PORT` | `8200` | 前端端口（dev 与 preview 共用） |
 

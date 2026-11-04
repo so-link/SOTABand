@@ -1015,9 +1015,17 @@ async def delete_resource(args: DeleteResourceArgs, ctx: CallContext) -> dict:
         entry = await _tools.get(rid)
         if not entry:
             return {"error": f"工具不存在: {rid}"}
-        # 与 DELETE /api/tool/{id} 一致：取消收藏语义，只注销，实现保留在仓库
-        await _tools.unregister(rid)
-        return {"deleted": rid, "type": "tool"}
+        # 与 DELETE /api/tool/{id} 一致：取消收藏语义，按命中的层删除——
+        # 只注销条目、实现保留在仓库；内置与个人定制版互不牵连。
+        # 内置层仅超级管理员可删（网关内 current_role 按会话归属人查表）。
+        from app.api.deps import current_role
+        source = entry.get("source")
+        if source != "private" and current_role() != "admin":
+            return {"error": f"'{rid}' 是内置工具，仅超级用户可删除；"
+                             "你可以先「复制为我的副本」再管理自己的版本"}
+        scope = "private" if source == "private" else "builtin"
+        await _tools.unregister(rid, scope=scope)
+        return {"deleted": rid, "type": "tool", "scope": scope}
 
     if rtype == "model":
         entry = await _models.get(rid)
@@ -1027,28 +1035,31 @@ async def delete_resource(args: DeleteResourceArgs, ctx: CallContext) -> dict:
         return {"deleted": rid, "type": "model"}
 
     if rtype == "agent":
-        from app.api.routes.agent_routes import _remove_tree
-        from core.agent.factory import agent_factory
-        from core.resource import paths as res_paths
+        from app.api.deps import current_role
+        from core.resource import fork as _fork
 
         entry = await _agents.get(rid)
         if not entry:
             return {"error": f"Agent 不存在: {rid}"}
-        private_dir = res_paths.private_space_dir("agents")
-        private_spec = private_dir / "definitions" / f"{rid}.md"
-        builtin_spec = res_paths.builtin_space_dir("agents") / "definitions" / f"{rid}.md"
-        if builtin_spec.exists() and not private_spec.exists():
-            return {"error": f"'{rid}' 属于内置 Agent，不能删除"}
+        from core.agent.factory import agent_factory
+
+        source = entry.get("source")
         await agent_factory.stop(rid)
-        try:
-            _remove_tree(private_dir / "implementations" / rid)
-            for f in (private_spec, private_dir / "definitions" / f"{rid}-demand.md"):
-                if f.exists():
-                    f.unlink()
-        except OSError as e:
-            return {"error": f"删除 Agent 文件失败: {type(e).__name__}: {e}"}
-        await _agents.unregister(rid)
-        return {"deleted": rid, "type": "agent"}
+
+        if source != "private":
+            # 内置层：仅超级管理员可删，只移除内置 registry 条目——内置文件
+            # 随 git 分发不落删除，重新注册即可挂回（与 REST 侧一致）
+            if current_role() != "admin":
+                return {"error": f"'{rid}' 是内置 Agent，仅超级用户可删除；"
+                                 "你可以先「复制为我的副本」再管理自己的版本"}
+            await _agents.unregister(rid, scope="builtin")
+            return {"deleted": rid, "type": "agent", "scope": "builtin"}
+
+        # 私有层：删文件（definitions/<id>* + implementations/<id>/，含
+        # -demand.md；drop_copy 对缺失路径幂等）+ 删私有条目
+        _fork.drop_copy("agents", rid)
+        await _agents.unregister(rid, scope="private")
+        return {"deleted": rid, "type": "agent", "scope": "private"}
 
     if rtype == "cron_job":
         from core.cron import store as cron_store

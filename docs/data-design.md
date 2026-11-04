@@ -164,7 +164,7 @@ resources/data/                       # 内置根（随仓库分发，通常为�
 ├── definitions/
 └── datasets/                         # 仅为兼容保留的目录，注册流程不向其复制数据
 
-../resources-private/data/            # 私有根（SOTABAND_PRIVATE_RESOURCES 可覆盖）
+<USER_HOME>/<uid>/resources-private/data/   # 私有根（USER_HOME 默认 /root/SB-USER，SOTABAND_HOME 可覆盖）
 ├── registry.json                     # 新注册条目一律写这里
 └── definitions/{id}.md               # MD 规范文档写入私有根
 ```

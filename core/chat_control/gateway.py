@@ -55,6 +55,21 @@ def resolve_owner(raw: str | None = None) -> str:
     return get_current_user_id()
 
 
+def _role_of(uid: str) -> str:
+    """网关内按 owner 查真实角色（注入 AuthUser 用）。
+
+    网关是进程内路径，没有 HTTP 依赖注入；此前恒以 role="user" 注入，
+    超级用户在对话里也删不掉内置资源。角色必须回用户表查，超管 uid=0
+    恒为 admin。
+    """
+    from core.auth import SUPERUSER_UID, get_user_by_id
+
+    if str(uid) == SUPERUSER_UID:
+        return "admin"
+    row = get_user_by_id(str(uid)) or {}
+    return "admin" if row.get("role") == "admin" else "user"
+
+
 def _cfg() -> Any:
     return getattr(settings, "chat", None)
 
@@ -153,7 +168,7 @@ async def platform_call(
 async def execute_read(name: str, clean: dict, tool, *, owner: str,
                        session_id: str,
                        emit: Callable[[dict], Awaitable[None]] | None = None) -> dict:
-    token = set_current_user(AuthUser(id=owner, username="", role="user"))
+    token = set_current_user(AuthUser(id=owner, username="", role=_role_of(owner)))
     started = time.time()
     try:
         result = await tool.handler(tool.args_model.model_validate(clean),
@@ -209,7 +224,7 @@ async def execute_confirmed(op, *, emit=None) -> dict:
     if tool is None:
         return {"status": "error", "op_id": op.op_id, "tool": op.tool,
                 "error": f"工具已不存在: {op.tool}"}
-    token = set_current_user(AuthUser(id=op.owner, username="", role="user"))
+    token = set_current_user(AuthUser(id=op.owner, username="", role=_role_of(op.owner)))
     started = time.time()
     try:
         result = await tool.handler(tool.args_model.model_validate(op.args),

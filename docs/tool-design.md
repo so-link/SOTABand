@@ -408,7 +408,7 @@ resources/tools/                      # 内置根（随仓库分发，含预置�
     ├── tool.py                       # 工具实现
     └── spec.md                       # MD 规范文档副本
 
-../resources-private/tools/           # 私有根（SOTABAND_PRIVATE_RESOURCES 可覆盖）
+<USER_HOME>/<uid>/resources-private/tools/  # 私有根（USER_HOME 默认 /root/SB-USER，SOTABAND_HOME 可覆盖）
 ├── registry.json                     # 新注册工具一律写这里
 └── implementations/{tool-id}/
     ├── .venv/                        # 工具独立虚拟环境（uv 管理，装依赖时自动创建）

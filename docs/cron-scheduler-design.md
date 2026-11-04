@@ -26,7 +26,7 @@
 | `SchedulerConfig`（`config/settings.py`） | 是算力/GPU 调度配置，与时间调度无关，**不可复用其语义**（建议新配置类改名避免混淆） |
 | `docs/agent-types-design.md` | 已明确记录「任务式 Agent 定时触发（cron）—— 当前仅手动」，本方案即补齐该项 |
 | 生命周期 | `app/main.py` 已用 `lifespan` asynccontextmanager，startup/shutdown 钩子现成 |
-| 持久化惯例 | `core/observability/task_history.py` 与 `chat_store.py` 各持一份 `_db()`，同指向 `storage/platform.db`，WAL + `CREATE TABLE IF NOT EXISTS` + `check_same_thread=False` |
+| 持久化惯例 | `core/observability/task_history.py` 与 `chat_store.py` 经 `core/user_db.py` 按当前身份选库（每用户一库 `<USER_HOME>/<uid>/platform.db`），WAL + `CREATE TABLE IF NOT EXISTS` + `check_same_thread=False` |
 
 ## 3. 总体架构
 
@@ -34,7 +34,7 @@
 前端 CronJobsView ──HTTP──> app/api/routes/cron_routes.py  (/api/cron)
                                     │  CRUD
                                     ▼
-                          core/cron/store.py   ── SQLite storage/platform.db
+                          core/cron/store.py   ── SQLite <USER_HOME>/<uid>/platform.db
                                     │           表: cron_jobs / cron_runs
                                     ▼
                           core/cron/scheduler.py  (CronScheduler，零依赖)
@@ -63,7 +63,7 @@
 
 ## 4. 数据模型
 
-沿用 `storage/platform.db`（不新建库文件，与 task_history/chat_store 同库不同表）。
+沿用每用户一库的 `platform.db`（不新建库文件，与 task_history/chat_store 同库不同表；cron 调度器没有请求身份，经 `core/user_db.py` 的 `get(uid)` 显式使用任务归属人的库）。
 
 ```sql
 CREATE TABLE IF NOT EXISTS cron_jobs (

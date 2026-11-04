@@ -160,10 +160,17 @@ class AgentRegistry(BaseRegistry):
 
         return agent_id
 
-    async def unregister(self, resource_id: str) -> None:
-        # 从内置与私有两个 registry 中移除（只写内置时合并视图会把它加载
-        # 回来，表现为「删除后刷新又出现」，见 tool_registry.unregister）
-        for root in paths.resource_roots():
+    async def unregister(self, resource_id: str, scope: str = "all") -> None:
+        # 按层移除注册条目（与 tool_registry.unregister 同款三态）：
+        # "builtin" 只删内置条目、"private" 只删私有条目、"all" 两层全删。
+        # 内置与个人定制版独立——删除任一层不得牵连另一层。
+        if scope == "private":
+            roots = [paths.private_root()]
+        elif scope == "builtin":
+            roots = [paths.BUILTIN_ROOT]
+        else:
+            roots = paths.resource_roots()
+        for root in roots:
             rf = root / "agents" / "registry.json"
             if not rf.exists():
                 continue

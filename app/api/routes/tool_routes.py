@@ -610,7 +610,14 @@ async def register_tool(req: RegisterToolRequest):
     tool_id = await registry.register(resource)
 
     # 需求描述/参考代码：编辑已有工具时（含内置工具）就地更新原文件，
-    # 新建才落私有目录——与详情接口的读取顺序保持一致
+    # 新建才落私有目录——与详情接口的读取顺序保持一致。
+    # 内置版本仅超级管理员可改：普通用户走到这里只会是新建或改自己的副本，
+    # 若目标 id 已命中内置层，先过闸门（403 提示走 fork）。
+    if (req.demand_desc or req.reference_code):
+        _prev = await registry.get(req.tool_id)
+        if _prev is not None:
+            from app.api.deps import ensure_can_touch_builtin
+            ensure_can_touch_builtin(_prev.get("source"), action="修改")
     if hasattr(req, 'demand_desc') and req.demand_desc:
         _write_def_text(tool_id, "-demand.md", req.demand_desc)
 
@@ -1121,14 +1128,17 @@ class UpdateTableCellRequest(BaseModel):
 async def _save_spec_deterministic(tool_id: str, md: str, entry: dict) -> None:
     """落盘规范文档，并确定性重算 param_meta/modes（不调 LLM）。
 
-    update-table-cell / refine-spec-node / sync-spec-from-code 都改了文档
-    正文，但此前只写 raw_md：registry 里的 param_meta 仍是旧值，于是
-    「在表格里把默认值从 8 改成 4」保存后，执行参数表单里还是 8。
-    编辑表格本身就是一次参数改动，必须同步。
+    update-table-cell / refine-spec-node / refine-spec-node-stream /
+    sync-spec-from-code 都改了文档正文，但此前只写 raw_md：registry 里的
+    param_meta 仍是旧值，于是「在表格里把默认值从 8 改成 4」保存后，执行
+    参数表单里还是 8。编辑表格本身就是一次参数改动，必须同步。
 
     这里刻意用确定性解析（无 LLM 兜底）：解析不到参数说明改的不是输入
     规范表格，保持原 param_meta 不动，免得把参数语义换掉。
     """
+    # 统一 choke point：raw_md 落盘走「命中层就地写」，内置文档仅超级管理员可改
+    from app.api.deps import ensure_can_touch_builtin
+    ensure_can_touch_builtin((entry or {}).get("source"), action="修改")
     updates: dict = {"raw_md": md}
     param_meta, modes = _parse_params_from_spec(md, entry.get("param_meta") or [])
     if param_meta:
@@ -1964,6 +1974,9 @@ async def save_code(tool_id: str, req: dict):
     """保存工具代码到文件系统"""
     entry = await registry.get(tool_id)
     if not entry: raise HTTPException(404, f"Tool '{tool_id}' not found")
+    # 就地写回命中的层：内置版本仅超级管理员可改，普通用户先 fork
+    from app.api.deps import ensure_can_touch_builtin
+    ensure_can_touch_builtin(entry.get("source"), action="修改")
     code = req.get("code", "")
     if not code.strip():
         raise HTTPException(400, "代码不能为空")
@@ -1993,6 +2006,10 @@ async def save_spec(tool_id: str, req: SaveSpecRequest):
     entry = await registry.get(tool_id)
     if not entry:
         raise HTTPException(404, f"Tool '{tool_id}' not found")
+    # registry.update 对内置条目会隐式 fork 条目到私有，但 _write_def_text
+    # 是就地写 definitions/<id>.md——内置文档仅超级管理员可改，普通用户先 fork
+    from app.api.deps import ensure_can_touch_builtin
+    ensure_can_touch_builtin(entry.get("source"), action="修改")
     if not req.spec_md.strip():
         raise HTTPException(400, "文档内容不能为空")
 
@@ -2043,6 +2060,9 @@ async def save_step1(tool_id: str, req: SaveStep1Request):
     entry = await registry.get(tool_id)
     if not entry:
         raise HTTPException(404, f"Tool '{tool_id}' not found")
+    # 两个文件都按「已存在就地更新」写：内置层仅超级管理员可改
+    from app.api.deps import ensure_can_touch_builtin
+    ensure_can_touch_builtin(entry.get("source"), action="修改")
     if req.demand_md is None and req.reference_code is None:
         raise HTTPException(400, "demand_md 与 reference_code 至少给一个")
 
@@ -2250,19 +2270,25 @@ async def search_tools(q: str = "", tags: str = ""):
 
 @router.delete("/{tool_id}")
 async def delete_tool(tool_id: str):
-    """从工具空间（registry）移除该工具。
+    """删除工具（取消收藏语义：只移除注册条目，不删磁盘文件）。
 
-    这是「取消收藏」语义：只从 registry 中移除条目，实现目录与定义文件
-    保留在工具仓库中，后续可通过「添加到工具空间」重新注册回来。
-    若工具不存在于 registry 则返回 404。
+    按合并视图命中的层删除，内置与个人定制版互不影响：
+    - 命中内置（未 fork）→ **仅超级管理员可删**，只移除内置 registry 条目，
+      代码留在仓库，可通过「添加到工具空间」重新挂回
+    - 命中私有（我的副本 / 我创建的工具）→ 只移除私有条目；「我的副本」
+      删除后合并视图回落到内置原样，内置条目与文件都不动。
+    若工具不存在于任何 registry 则返回 404。
     """
     entry = await registry.get(tool_id)
     if not entry:
         raise HTTPException(404, f"Tool '{tool_id}' not found")
 
-    # 仅从内置与私有 registry 中移除条目，不删除仓库中的实现文件
-    await registry.unregister(tool_id)
-    return {"deleted": tool_id}
+    # source 是 _read 注入的派生字段：private=个人层命中，builtin=内置命中
+    scope = "private" if entry.get("source") == "private" else "builtin"
+    from app.api.deps import ensure_can_touch_builtin
+    ensure_can_touch_builtin(entry.get("source"), action="删除")
+    await registry.unregister(tool_id, scope=scope)
+    return {"deleted": tool_id, "scope": scope}
 
 
 @router.get("/{tool_id}/export")

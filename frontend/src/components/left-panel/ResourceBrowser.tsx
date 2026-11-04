@@ -17,9 +17,10 @@ import { useUIStore, parseAgentDetailView, parseToolDetailView, parseModelDetail
 import { useToolEditorStore } from '@/stores/tool-editor-store'
 import { useAgentEditorStore } from '@/stores/agent-editor-store'
 import { useWorkspaceToolStore } from '@/stores/workspace-tool-store'
+import { useAuthStore } from '@/stores/auth-store'
 import { useUnsavedMarks } from '@/hooks/use-unsaved-marks'
 import { cn } from '@/lib/utils'
-import type { Resource, ResourceType, ToolResource, TaskResource } from '@/types/resources'
+import type { Resource, ResourceType, ToolResource, TaskResource, AgentResource } from '@/types/resources'
 
 interface ResourceSectionDef {
   type: ResourceType
@@ -117,6 +118,9 @@ export function ResourceBrowser() {
   // 工具空间：从 workspace store 读取已加载的工具
   const workspaceTools = useWorkspaceToolStore((s) => s.tools)
   const workspaceRemoveTool = useWorkspaceToolStore((s) => s.removeTool)
+  // 内置 Agent（source=builtin）仅超级管理员可删除（后端 403 兜底）；
+  // 单用户模式匿名即以超管身份，不会误伤。
+  const isAdmin = useAuthStore((s) => s.user?.role === 'admin')
   const workspaceLoadError = useWorkspaceToolStore((s) => s.loadError)
 
   const getResources = (type: ResourceType): Resource[] => {
@@ -196,9 +200,11 @@ export function ResourceBrowser() {
       } catch { /* ignore */ }
       return
     }
-    // Agent：确认后彻底删除（数据/模型已在上方分支处理）
+    // Agent：确认后删除（数据/模型已在上方分支处理）。后端按命中层删除：
+    // 我的副本删除后回落内置；内置 Agent 仅超级管理员可删（非超管看不到
+    // 删除按钮，直接请求会被后端 403 拒绝并经下方 alert 透出）。
     if (resource.type !== 'agent') return
-    if (!confirm(`确定删除 "${resource.name}"？此操作不可恢复。`)) return
+    if (!confirm(`确定删除 "${resource.name}"？\n仅作用于个人定制版（我的副本删除后回落到内置；内置原版不受影响）。`)) return
     const BASE_URL = ''
     try {
       const res = await fetch(`${BASE_URL}/api/agent/${resource.id}`, { method: 'DELETE' })
@@ -407,7 +413,9 @@ export function ResourceBrowser() {
                           ? (resource as TaskResource).executionLog[0] || '执行失败' : undefined}
                       />
                     )}
-                    {/* Remove button — tool: 从空间移除, data/agent: 删除 */}
+                    {/* Remove button — tool: 从空间移除, data/agent: 删除。
+                        内置 Agent 对非超管不渲染删除（内置版仅超级管理员可删） */}
+                    {!(resource.type === 'agent' && (resource as AgentResource).source !== 'private' && !isAdmin) && (
                     <button
                       onClick={(e) => handleDelete(resource, e)}
                       className="opacity-0 group-hover:opacity-100 hover:!opacity-100 flex items-center justify-center h-4 w-4 rounded hover:bg-maia-danger-bg text-maia-text-muted hover:text-maia-danger transition-all shrink-0"
@@ -415,6 +423,7 @@ export function ResourceBrowser() {
                     >
                       <Minus className="h-3 w-3" />
                     </button>
+                    )}
                   </div>
                 ))}
                 {resources.length === 0 && (

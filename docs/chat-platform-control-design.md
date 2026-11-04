@@ -178,7 +178,7 @@ SSE card: {type:'platform-confirm', op_id, tool, summary, args_view, risk}
 - 生成链路超时沿用现状；网关调用全链路硬超时 300s（`GATEWAY_TIMEOUT`）。
 
 ### 6.6 审计与熔断
-- 新表 `chat_ops`（storage/platform.db）：op_id, session_id, owner, tool,
+- 新表 `chat_ops`（每用户一库 `<USER_HOME>/<uid>/platform.db`，经 `core/user_db.py` 选库）：op_id, session_id, owner, tool,
   args_json, risk, status(pending/confirmed/cancelled/expired/superseded/executed/failed/rate_limited),
   result_json, error, duration_ms, created_at, finished_at。每次调用
   （含只读与状态流转）各追加一行事件流水，仅保留最近 5000 条；前端经

@@ -231,13 +231,26 @@ class ToolRegistry(BaseRegistry):
 
         return tool_id
 
-    async def unregister(self, tool_id: str):
-        """从内置与私有两个 registry 中移除该工具。
+    async def unregister(self, tool_id: str, scope: str = "all"):
+        """按层移除该工具的注册条目。
 
-        旧实现只写私有 registry：若工具在内置 registry 中存在，刷新后
-        ``_read`` 合并内置条目又会把它加载回来，表现为「删除后刷新又出现」。
+        scope 三态（内置与个人定制版相互独立，删一层不影响另一层）：
+        - ``"builtin"``：只移除内置 registry 条目——个人副本（条目+文件）原样保留；
+        - ``"private"``：只移除私有 registry 条目——内置条目不动；
+        - ``"all"``（默认）：两层都移除，供彻底清除该 id 的场景使用。
+
+        两种删除都只动 registry，不删磁盘文件：实现目录与定义文件保留在
+        仓库中，重新挂回走 register/导入。「删除后刷新又出现」是旧 bug，
+        但当年用「两层连坐删除」修复过头了——那会让删除内置时连个人
+        定制版一起消失，违背覆盖层模型的独立性约定。
         """
-        for root in paths.resource_roots():
+        if scope == "private":
+            roots = [paths.private_root()]
+        elif scope == "builtin":
+            roots = [paths.BUILTIN_ROOT]
+        else:
+            roots = paths.resource_roots()
+        for root in roots:
             rf = root / "tools" / "registry.json"
             if not rf.exists():
                 continue

@@ -50,9 +50,11 @@
 │  资源层 (resources/)                                 │
 │  数据空间 │ 工具空间 │ 模型空间 │ Agent空间 │ 用户空间 │ 任务空间 │
 ├─────────────────────────────────────────────────────┤
-│  存储层 (storage/ + 资源 registry.json + 私有资源根)   │
-│  文件存储 + SQLite（storage/platform.db：对话、        │
-│  任务历史、定时任务、平台操作审计）；缓存为规划项        │
+│  存储层 (storage/ + 用户目录 SB-USER/<uid>/ + 私有资源根) │
+│  文件存储 + SQLite：平台级实体在 storage/auth/          │
+│  （用户表 users.json、令牌密钥 secret.key）；每用户一库  │
+│  SB-USER/<uid>/platform.db（对话、任务历史、定时任务、   │
+│  平台操作审计、个人偏好）；缓存为规划项                  │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -66,7 +68,7 @@
 
 | 组件 | 文件 | 职责 |
 |------|------|------|
-| 资源路径模型 | `paths.py` | 双资源根：内置根 `resources/`（随仓库分发）+ 私有根 `../resources-private/`（可用 `SOTABAND_PRIVATE_RESOURCES` 覆盖）；读取时合并，写入只进私有根 |
+| 资源路径模型 | `paths.py` | 双资源根：内置根 `resources/`（随仓库分发，只读系统资产）+ 用户私有根 `<USER_HOME>/<uid>/resources-private/`（USER_HOME 默认 `/root/SB-USER`，`SOTABAND_HOME` 可覆盖）；读取时私有优先合并（覆盖层语义，fork 副本覆盖内置），写入只进私有根 |
 | 资源构建器 | `builder/tool_builder.py` | 根据用户需求自动生成工具代码，沙箱自测 + 自动调试循环，核验后注册 |
 | Agent 构建器 | `builder/agent_builder.py` | MD 规范文档 → Agent Python 代码 |
 | API 文档构建器 | `builder/api_doc_builder.py` | 为 Web 服务式 Agent 生成对外 API 文档 |
@@ -131,7 +133,7 @@
 
 | 组件 | 文件 | 职责 |
 |------|------|------|
-| 对话存储 | `chat_store.py` | 会话与消息持久化（`storage/platform.db` 的 `chat_sessions`/`chat_messages` 表，SQLite WAL + 全局锁）；会话列表、消息读写、标题管理 |
+| 对话存储 | `chat_store.py` | 会话与消息持久化（每用户一库 `<USER_HOME>/<uid>/platform.db` 的 `chat_sessions`/`chat_messages` 表，连接与写锁经 `core/user_db.py` 统一按当前身份选库，SQLite WAL）；会话列表、消息读写、标题管理 |
 | 任务历史 | `task_history.py` | 任务执行历史（`task_history` 表）：Agent 运行与对话会话聚合为任务记录，记录轮数、耗时、状态；经 `/api/task/*` 暴露给任务空间 |
 
 监控、告警、链路追踪仍为设计目标，尚未实现。
@@ -142,7 +144,7 @@
 |------|------|------|
 | Cron 解析器 | `cron_parse.py` | 零依赖自研五段 cron 表达式解析与下次触发时间计算 |
 | 调度器 | `scheduler.py` | 每个任务一个 asyncio 循环的常驻调度（`max_instances=1`、misfire 跳过/补火一次语义） |
-| 存储 | `store.py` | `cron_jobs`/`cron_runs` 表读写（SQLite，运行记录按任务保留上限截断） |
+| 存储 | `store.py` | `cron_jobs`/`cron_runs` 表读写（每用户一库 `<USER_HOME>/<uid>/platform.db`，运行记录按任务保留上限截断） |
 | 执行器 | `runner.py` | 到点触发：Agent 任务经 `execute_stream` 执行，工具任务经 ToolExecutor 执行 |
 
 引擎启动时随 lifespan 拉起，详见 `docs/cron-scheduler-design.md`。
@@ -158,6 +160,21 @@
 ---
 
 ## 五、资源层六空间
+
+工具与 Agent 分**系统内置**与**个人定制版**两层，全空间统一遵循覆盖层模型
+（`core/resource/fork.py`，方案 C）：
+
+- **内置**（`resources/`，随 git 分发）：默认只读使用。个人把内置工具/Agent
+  添加进空间后不做修改，就是直接使用内置实现；**修改或删除内置版本仅超级
+  管理员可以**（`app/api/deps.ensure_can_touch_builtin` 按 registry 合并视图
+  命中层判定，非超管 403；对话内平台网关同源收口）；
+- **个人定制版**：普通用户要改内置资源，先「复制为我的副本」（fork 到私有
+  根，registry 条目记 `forked_from` 血缘哈希），此后编辑与执行都命中私有
+  副本（读取私有优先），内置版本不受影响；内置被上游升级时按哈希比对提示
+  「内置已更新」；
+- **两层独立**：删除任一层不牵连另一层——删除内置登记不影响个人定制版
+  （合并视图继续命中私有副本），丢弃/删除个人副本回落到直接使用内置。
+  registry `unregister` 的 scope 三态（builtin/private/all）即此语义的实现。
 
 ### 5.1 数据空间 (`resources/data/`)
 
@@ -186,12 +203,12 @@
 - **可见性**: Agent 与工具同为共享代码资产，默认全局可见
 - **实现位置**: 实现在 `resources/agents/implementations/`（非 `core/agent/`，后者是运行时框架）
 
-### 5.5 用户空间 (`<私有根>/users/`)
+### 5.5 用户空间 (`storage/auth/` + `<USER_HOME>/<uid>/`)
 
-- **管理内容**: 本地用户身份与资源归属上下文。已提供本地多用户身份层（`core/auth/`）：注册/登录（PBKDF2-HMAC-SHA256 密码散列 + HMAC 签名令牌，零第三方依赖），用户数据存 `<私有根>/users/users.json`，令牌密钥 `secret.key`（0600，可用 `SOTABAND_AUTH_SECRET` 覆盖）
-- **请求身份**: `/api/auth/*` 登录后返回令牌；`Authorization: Bearer <token>` 经中间件解析写入请求级上下文（`core/auth/session.py`），`core/user_context.get_current_user_id()` 优先返回登录身份。未带令牌的请求回退实例身份（`SOTABAND_USER_ID` 环境变量 → `storage/user.json` → `local`），单用户本地使用行为不变；携带无效/过期令牌则直接 401，不静默降级
-- **角色**: 首个注册用户为 `admin`（可注册新用户、查看用户列表），其余为 `user`
-- **记录信息**: 用户标识、用户名、角色、资源 owner 归属；对话内平台操作按 owner 落 `chat_ops` 审计流水；租户信息与资源配额为设计目标，尚未实现
+- **管理内容**: 本地多用户身份与每用户数据根。身份层在 `core/auth/`：注册/登录（PBKDF2-HMAC-SHA256 密码散列 + HMAC 签名令牌，零第三方依赖）；用户表与令牌密钥是**平台级实体**，存 `storage/auth/users.json` / `secret.key`（0600，可用 `SOTABAND_AUTH_SECRET` 覆盖）。每用户数据根 `<USER_HOME>/<uid>/`（USER_HOME 默认 `/root/SB-USER`，`SOTABAND_HOME` 可覆盖）：platform.db（对话/任务/cron/审计/偏好）、resources-private/、uploads/、工作区清单等
+- **两种模式**（由 `.env` 是否配置 `SOTABAND_ROOT_PASSWORD` 决定）：**单用户兼容模式**（未配置）——匿名请求直接以超级用户（uid=0）身份执行，本机打开就用；**多用户模式**（已配置）——除登录/探活外的 `/api` 请求一律要求携带有效令牌，携带无效/过期令牌直接 401，不静默降级
+- **账号模型**: 超级用户类比 Linux root——密码只存 `.env`（用户表中有行但无散列，验证走独立通道），uid 固定 `0`，是唯一能管理用户、改系统配置的角色；用户名/显示名存用户表，界面上可改。普通用户 uid 从 1000 起顺序分配、**永不回填**（uid 即用户目录名），只能登录、改自己的密码、保存自己的偏好
+- **记录信息**: 用户标识、用户名、显示名、角色（admin/user）、builtin 标记；对话内平台操作按 owner 落各自库的 `chat_ops` 审计流水；租户信息与资源配额为设计目标，尚未实现
 
 ### 5.6 任务空间 (`resources/tasks/`)
 

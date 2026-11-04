@@ -208,6 +208,7 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
           id: a.id as string, name: (a.name as string) || (a.id as string), description: '', type: 'agent' as const,
           version: (a.version as string) || '0.1.0', status: 'active' as const, createdAt: (a.created_at as string) || '',
           updatedAt: '', tags: (a.tags as string[]) || [], role: (a.role as AgentResource['role']) || 'task',
+          source: (a.source as AgentResource['source']) || 'builtin',
           capabilities: '', requiredTools: (a.tools as string[]) || [], inputFormat: 'text', outputFormat: 'text',
           collaborationProtocol: 'pub-sub', healthStatus: (a.health as AgentResource['healthStatus']) || 'healthy',
         })) })

@@ -115,3 +115,34 @@ def test_update_strips_derived_source(roots):
     raw = json.loads((roots[1] / "tools" / "registry.json").read_text(encoding="utf-8"))
     assert "source" not in raw[0]
     assert raw[0]["tags"] == ["x"]
+
+
+def test_unregister_scopes_keep_layers_independent(roots):
+    """删除按层生效，内置与个人定制版互不牵连（覆盖层模型的独立性约定）。"""
+    import asyncio
+
+    from core.resource.registry.tool_registry import ToolRegistry
+
+    builtin, private = roots
+    reg = ToolRegistry()
+    fork.fork_copy("tools", "demo")
+    asyncio.run(reg.update("demo", {"name": "我的副本"}))
+
+    # 删除个人层（我的副本）：内置条目必须原样保留
+    asyncio.run(reg.unregister("demo", scope="private"))
+    entries = [e for e in reg._read() if e["id"] == "demo"]
+    assert len(entries) == 1 and entries[0]["source"] == "builtin"
+
+    # 重新 fork 后删除内置层：个人条目必须原样保留
+    fork.fork_copy("tools", "demo")
+    asyncio.run(reg.update("demo", {"name": "我的副本"}))
+    asyncio.run(reg.unregister("demo", scope="builtin"))
+    raw_builtin = json.loads((builtin / "tools" / "registry.json").read_text(encoding="utf-8"))
+    assert raw_builtin == []
+    entries = [e for e in reg._read() if e["id"] == "demo"]
+    assert len(entries) == 1 and entries[0]["source"] == "private"
+    assert fork.exists_in_private("tools", "demo")
+
+    # scope=all：两层全清（彻底清除 id 的场景）
+    asyncio.run(reg.unregister("demo", scope="all"))
+    assert [e for e in reg._read() if e["id"] == "demo"] == []

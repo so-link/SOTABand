@@ -31,3 +31,40 @@ def require_superuser() -> AuthUser:
     if not user.is_admin:
         raise HTTPException(status_code=403, detail="仅超级用户可以执行该操作")
     return user
+
+
+def current_role() -> str:
+    """当前请求角色；匿名（单用户模式已在中间件注入超管）按 admin 处理。
+
+    网关等没有 HTTP 依赖注入的进程内路径用它取角色：那里 set_current_user
+    注入的是会话归属人，角色必须回用户表查，不能像中间件那样默认。
+    """
+    u = get_current_user()
+    if u is None:
+        return "admin"
+    if u.is_admin:
+        return "admin"
+    from core.auth import get_user_by_id
+
+    row = get_user_by_id(u.id) or {}
+    return "admin" if row.get("role") == "admin" else "user"
+
+
+def ensure_can_touch_builtin(layer_hit: str | None, *, action: str = "修改") -> None:
+    """内置层资源的写/删闸门：仅超级用户可以修改或删除内置版本。
+
+    ``layer_hit`` 传 registry 合并视图命中层（条目 ``source`` 派生字段）：
+    - ``"private"``：个人定制版，任何登录用户都可以改自己的副本，直接放行；
+    - ``"builtin"``（或未标注）：内置版本，非超管一律 403。
+
+    普通用户的出路是「复制为我的副本」——fork 端点写的是私有根，不受本
+    闸门限制。``action`` 只影响提示文案（修改/删除）。
+    """
+    if layer_hit == "private":
+        return
+    if current_role() == "admin":
+        return
+    raise HTTPException(
+        status_code=403,
+        detail=f"内置资源仅超级用户可以{action}；你可以「复制为我的副本」后修改自己的版本",
+    )
