@@ -9,13 +9,13 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardBody } from '@/components/ui/card'
 import { useResourceStore } from '@/stores/resource-store'
-import { useWorkspaceDatasetStore } from '@/stores/workspace-dataset-store'
 import { useUIStore } from '@/stores/ui-store'
 import { useToolEditorStore } from '@/stores/tool-editor-store'
 import { useTabIndent } from '@/hooks/use-tab-indent'
 import { toolApi } from '@/services/api/tool'
 import type { ToolReferences } from '@/services/api/tool'
 import type { ToolResource } from '@/types/resources'
+import { clearToolDraft, loadToolDraft, saveToolDraft, type ToolDetailDraft } from '@/lib/tool-detail-draft'
 
 const BASE_URL = ''
 
@@ -102,6 +102,8 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
   const [modifyHistory, setModifyHistory] = useState<string[]>([])
   const abortRef = useRef<AbortController | null>(null)
   const logEndRef = useRef<HTMLDivElement>(null)
+  /** 已按哪个 toolId 初始化过表单（用于区分"换工具"与"同一工具重新拉取"） */
+  const loadedToolIdRef = useRef('')
   // 导出迁移包（.sotatool.zip）的状态。必须声明在 `if (!tool) return` 之前，
   // 否则 tool 由空变有会让 hooks 数量变化（React 会直接报错）。
   const [exporting, setExporting] = useState(false)
@@ -110,18 +112,17 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
   useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: 'auto' }) }, [debugRounds, debugStream])
 
   useEffect(() => {
-    if (!tool) return
-    fetch(`${BASE_URL}/api/tool/${tool.id}`)
+    const id = tool?.id
+    if (!id) return
+    const sameTool = loadedToolIdRef.current === id
+
+    fetch(`${BASE_URL}/api/tool/${id}`)
       .then(r => r.json())
       .then(data => {
-        setSpecMd(data.spec_md || '')
+        const md = data.spec_md || ''
         const c = data.code || ''
+        setSpecMd(md)
         setCode(c)
-        setEditedCode(c)
-        const fields = parseInputs(data.spec_md || '')
-        const init: Record<string, string> = {}
-        fields.forEach(f => { init[f.name] = f.default || '' })
-        setFormValues(init)
         // 老条目没有该字段时按「开启」处理（与后端 param_guard 一致）
         setEnforceRequired(data.enforce_required !== false)
         // 切换工具时必须无条件重置：若只在"有值"时 set，上一个工具的
@@ -134,9 +135,65 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
           setReferenceCode('')
           setHasReference(false)
         }
+
+        // 同一工具被重新拉取（列表刷新/注册后 tools 换新数组）：保留用户
+        // 已输入的参数与未保存的代码，否则会出现"边填边被清空"。
+        if (sameTool) return
+
+        loadedToolIdRef.current = id
+        const draft = loadToolDraft(id)
+        const fields = parseInputs(md)
+        const defaultForm: Record<string, string> = {}
+        fields.forEach(f => { defaultForm[f.name] = f.default || '' })
+        setFormValues(draft?.formValues ? { ...defaultForm, ...draft.formValues } : defaultForm)
+
+        const draftCode = typeof draft?.editedCode === 'string' ? draft.editedCode : ''
+        const nextCode = draftCode && draftCode !== c ? draftCode : c
+        setEditedCode(nextCode)
+        setCodeModified(nextCode !== c)
       })
       .catch(() => {})
-  }, [tool])
+    // 依赖 tool.id 而不是 tool 对象：后者在每次 toolResources 刷新后都是新引用，
+    // 会让 effect 重跑并重置表单（历史 bug：参数输入后偶发被清空）。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tool?.id])
+
+  // 草稿持久化：参数与未保存代码按 toolId 落到 localStorage（防抖 300ms）。
+  // 切页签会导致组件卸载，重新挂载时由上面的 effect 从草稿恢复。
+  useEffect(() => {
+    const id = tool?.id
+    if (!id || loadedToolIdRef.current !== id) return
+    const timer = window.setTimeout(() => {
+      // 只在"有未保存修改"时记代码，保存成功后自动不写（草稿不会越积越大）
+      saveToolDraft(id, codeModified
+        ? { formValues, editedCode, codeModified: true }
+        : { formValues })
+    }, 300)
+    return () => window.clearTimeout(timer)
+  }, [tool?.id, formValues, editedCode, codeModified])
+
+  // 卸载时决定「落盘」还是「清空」：
+  // - 切到别的页签（本视图仍在 openViews 里）→ 落盘，切回来能恢复
+  // - 关闭本页签（已不在 openViews 里）→ 清空草稿（关闭即丢弃）
+  // 同时补上 300ms 防抖未触发的最后一次输入。
+  const latestDraftRef = useRef<ToolDetailDraft>({})
+  latestDraftRef.current = { formValues, editedCode, codeModified }
+  useEffect(() => {
+    const id = tool?.id
+    return () => {
+      if (!id || loadedToolIdRef.current !== id) return
+      const stillOpen = useUIStore.getState().openViews.includes(`tool-detail:${id}`)
+      if (!stillOpen) {
+        clearToolDraft(id)
+        return
+      }
+      const d = latestDraftRef.current
+      if (!d.formValues) return
+      saveToolDraft(id, d.codeModified
+        ? { formValues: d.formValues, editedCode: d.editedCode, codeModified: true }
+        : { formValues: d.formValues })
+    }
+  }, [tool?.id])
 
   if (!tool) {
     return (
@@ -753,45 +810,167 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
 }
 
 /** 工作区间文件选择弹窗：列出已加载数据集及其内部文件，选中后返回完整路径 */
+/** 可选的数据集条目（来自 /api/data/repository，带可用性标记） */
+interface PickableDataset {
+  id: string
+  name: string
+  tags?: string[]
+  file_count?: number
+  data_path?: string
+  /** 数据目录在本机存在且有内容 */
+  is_local?: boolean
+  /** 条目归属当前用户 */
+  owner_match?: boolean
+}
+
+const RECENT_DATASETS_KEY = 'sotaband_picker_recent_datasets'
+
+function loadRecentDatasets(): string[] {
+  try {
+    const raw = localStorage.getItem(RECENT_DATASETS_KEY)
+    const arr = raw ? JSON.parse(raw) : []
+    return Array.isArray(arr) ? arr.filter((x) => typeof x === 'string') : []
+  } catch { return [] }
+}
+
+function saveRecentDatasets(ids: string[]) {
+  try { localStorage.setItem(RECENT_DATASETS_KEY, JSON.stringify(ids.slice(0, 5))) } catch { /* ignore */ }
+}
+
 function WorkspaceFilePicker({ paramName, currentValue, onClose, onSelect }: {
   paramName: string
   currentValue: string
   onClose: () => void
   onSelect: (path: string) => void
 }) {
-  const workspaceDatasets = useWorkspaceDatasetStore(s => s.datasets)
-  const dataResources = useResourceStore(s => s.dataResources)
+  // 数据源：数据集仓库 + 可用性标记。
+  // 曾经读的是 localStorage 里「已加入工作区间」的白名单，但它的写入入口
+  // （dataset-repository 卡片上的「添加」）在当前 UI 里没有入口，导致选择框永远为空。
+  // 现在直接列仓库条目，并用 is_local 区分「本机有数据」与「注册于其他机器的幽灵条目」。
+  const [datasets, setDatasets] = useState<PickableDataset[]>([])
+  const [loadingList, setLoadingList] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [keyword, setKeyword] = useState('')
+  const [recentIds, setRecentIds] = useState<string[]>(loadRecentDatasets)
+  const [showUnavailable, setShowUnavailable] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [filesMap, setFilesMap] = useState<Record<string, { name: string; path: string; size?: number }[]>>({})
+  const [fileError, setFileError] = useState<Record<string, string>>({})
   const [loadingFiles, setLoadingFiles] = useState<Record<string, boolean>>({})
 
-  // 解析工作区数据集的 data_path：优先从 dataResources 匹配，否则调用后端详情接口
-  const resolveDataPath = (id: string): string => {
-    const hit = dataResources.find(d => d.id === id)
-    return (hit && 'filePath' in hit && hit.filePath) ? hit.filePath : ''
+  useEffect(() => { void loadDatasets() }, [])
+
+  const loadDatasets = async () => {
+    setLoadingList(true); setLoadError('')
+    try {
+      const res = await fetch(`/api/data/repository`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      setDatasets(Array.isArray(data.datasets) ? data.datasets : [])
+    } catch (e) { setLoadError(String((e as Error).message || e)) }
+    setLoadingList(false)
   }
 
-  const toggleFiles = async (id: string) => {
-    if (expandedId === id) { setExpandedId(null); return }
-    setExpandedId(id)
-    if (!filesMap[id]) {
-      setLoadingFiles(p => ({ ...p, [id]: true }))
-      try {
-        let dataPath = resolveDataPath(id)
-        if (!dataPath) {
-          const detail = await (await fetch(`/api/data/${id}`)).json()
-          dataPath = (detail && detail.data_path) || ''
-        }
-        const res = await fetch(`/api/data/${id}/files`)
-        const data = await res.json()
-        const files = (data.files || []).map((f: { name: string; path: string; size?: number }) => ({
-          ...f,
-          path: f.path.startsWith(dataPath) ? f.path : `${dataPath}/${f.path}`,
-        }))
-        setFilesMap(p => ({ ...p, [id]: files }))
-      } catch { setFilesMap(p => ({ ...p, [id]: [] })) }
-      setLoadingFiles(p => ({ ...p, [id]: false }))
+  const remember = (id: string) => {
+    const next = [id, ...recentIds.filter(x => x !== id)].slice(0, 5)
+    setRecentIds(next)
+    saveRecentDatasets(next)
+  }
+
+  const dataRoot = (ds: PickableDataset): string => (ds.data_path || '').replace(/[\\/]+$/, '')
+
+  const toggleFiles = async (ds: PickableDataset) => {
+    if (expandedId === ds.id) { setExpandedId(null); return }
+    setExpandedId(ds.id)
+    if (filesMap[ds.id]) return
+    setLoadingFiles(p => ({ ...p, [ds.id]: true }))
+    setFileError(p => ({ ...p, [ds.id]: '' }))
+    try {
+      let root = dataRoot(ds)
+      if (!root) {
+        const detailRes = await fetch(`/api/data/${ds.id}`)
+        const detail = detailRes.ok ? await detailRes.json() : {}
+        root = (detail && detail.data_path) || ''
+      }
+      const res = await fetch(`/api/data/${ds.id}/files`)
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.detail || `HTTP ${res.status}`)
+      }
+      const data = await res.json()
+      const files = (data.files || []).map((f: { name: string; path: string; size?: number }) => ({
+        ...f,
+        // 后端返回相对路径；拼上数据集根目录得到可执行用的完整路径
+        path: f.path.startsWith('/') || /^[A-Za-z]:/.test(f.path) ? f.path : `${root}/${f.path}`,
+      }))
+      setFilesMap(p => ({ ...p, [ds.id]: files }))
+    } catch (e) {
+      setFilesMap(p => ({ ...p, [ds.id]: [] }))
+      setFileError(p => ({ ...p, [ds.id]: String((e as Error).message || e) }))
     }
+    setLoadingFiles(p => ({ ...p, [ds.id]: false }))
+  }
+
+  const kw = keyword.trim().toLowerCase()
+  const matches = (ds: PickableDataset) =>
+    !kw || [ds.name, ds.id, ...(ds.tags || [])].some(x => String(x || '').toLowerCase().includes(kw))
+  const available = datasets.filter(d => d.is_local && matches(d))
+  const unavailable = datasets.filter(d => !d.is_local && matches(d))
+  const recentSet = new Set(recentIds)
+  const recentList = recentIds
+    .map(id => available.find(d => d.id === id))
+    .filter((d): d is PickableDataset => Boolean(d))
+  const restList = available.filter(d => !recentSet.has(d.id))
+
+  const renderDataset = (ds: PickableDataset) => {
+    const files = filesMap[ds.id] || []
+    const isExpanded = expandedId === ds.id
+    const root = dataRoot(ds)
+    return (
+      <div key={ds.id} className="rounded border border-maia-border bg-maia-surface overflow-hidden">
+        <button
+          className="w-full flex items-center gap-2 px-2.5 py-2 hover:bg-maia-bg transition-colors text-left"
+          onClick={() => void toggleFiles(ds)}
+        >
+          {loadingFiles[ds.id] ? <Loader2 className="h-3.5 w-3.5 animate-spin text-maia-accent shrink-0" />
+            : isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-maia-text-muted shrink-0" />
+            : <ChevronRight className="h-3.5 w-3.5 text-maia-text-muted shrink-0" />}
+          <Folder className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+          <span className="text-[12px] text-maia-text truncate flex-1">{ds.name}</span>
+          {root && <span className="text-[10px] text-maia-text-muted truncate max-w-[150px]" title={root}>{root}</span>}
+        </button>
+        {isExpanded && (
+          <div className="border-t border-maia-border max-h-[220px] overflow-auto">
+            <button
+              className={`w-full flex items-center gap-2 px-3 py-1.5 text-left ${root ? 'hover:bg-maia-accent/10' : 'opacity-50 cursor-not-allowed'}`}
+              onClick={() => { if (root) { remember(ds.id); onSelect(root) } }}
+              title={root ? '选择数据集根目录' : '该数据集没有可用的目录路径'}
+            >
+              <Folder className="h-3 w-3 text-maia-accent shrink-0" />
+              <span className="text-[11px] text-maia-text-secondary">使用数据集目录路径</span>
+            </button>
+            {fileError[ds.id] && (
+              <div className="px-3 py-2 text-[10px] text-maia-danger leading-relaxed">{fileError[ds.id]}</div>
+            )}
+            {!fileError[ds.id] && files.length === 0 && !loadingFiles[ds.id] && (
+              <div className="px-3 py-2 text-[10px] text-maia-text-muted">该数据集内没有文件</div>
+            )}
+            {files.map((f, i) => (
+              <button
+                key={i}
+                className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-maia-accent/10 text-left"
+                onClick={() => { remember(ds.id); onSelect(f.path) }}
+                title={f.path}
+              >
+                <File className="h-3 w-3 text-maia-text-muted shrink-0" />
+                <span className="text-[11px] text-maia-text truncate flex-1">{f.name}</span>
+                {f.size != null && <span className="text-[10px] text-maia-text-muted shrink-0">{(f.size / 1024).toFixed(1)}KB</span>}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    )
   }
 
   return (
@@ -803,66 +982,86 @@ function WorkspaceFilePicker({ paramName, currentValue, onClose, onSelect }: {
           </span>
           <button onClick={onClose} className="text-maia-text-muted hover:text-maia-text"><X className="h-4 w-4" /></button>
         </div>
+        <div className="px-3 pt-2 shrink-0">
+          <input
+            value={keyword}
+            onChange={e => setKeyword(e.target.value)}
+            placeholder="按名称 / ID / 标签筛选数据集"
+            className="w-full rounded border border-maia-border bg-maia-surface px-2 py-1 text-[11px] outline-none focus:border-maia-accent/40"
+          />
+        </div>
         <div className="flex-1 overflow-auto p-3 space-y-1.5">
           {currentValue && (
             <div className="mb-2 px-2 py-1 rounded bg-maia-surface border border-maia-border text-[11px] text-maia-text-muted">
-              当前值：<span className="text-maia-text font-mono">{currentValue}</span>
+              当前值：<span className="text-maia-text font-mono break-all">{currentValue}</span>
             </div>
           )}
-          {workspaceDatasets.length === 0 ? (
-            <div className="text-center py-10 text-xs text-maia-text-muted">
-              工作区间暂无数据文件<br />请先在数据空间加载数据集
+          {loadingList && (
+            <div className="flex items-center justify-center py-10 text-xs text-maia-text-muted gap-2">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />正在读取数据集…
             </div>
-          ) : (
+          )}
+          {!loadingList && loadError && (
+            <div className="text-center py-8 text-xs text-maia-danger">
+              读取数据集失败：{loadError}
+              <button onClick={() => void loadDatasets()} className="block mx-auto mt-2 underline text-maia-text-muted">重试</button>
+            </div>
+          )}
+          {!loadingList && !loadError && datasets.length === 0 && (
+            <div className="text-center py-10 text-xs text-maia-text-muted leading-relaxed">
+              数据空间还没有数据集<br />
+              请先在「资源空间」上传或注册数据，也可以直接在输入框里手填文件绝对路径
+            </div>
+          )}
+          {!loadingList && !loadError && datasets.length > 0 && available.length === 0 && (
+            <div className="py-6 px-2 text-xs text-maia-text-muted leading-relaxed text-center">
+              本机没有可用数据集
+              <div className="mt-2 text-[10px] text-maia-text-muted/90">
+                注册表里有 {datasets.length} 个数据集，但数据目录都不在本机
+                {unavailable[0]?.data_path ? `（例如 ${unavailable[0].data_path}）` : ''}。
+                这类条目通常是随项目目录一起拷贝过来的，文件仍在原机器上。
+                <br />请在「资源空间」重新上传数据，或直接在输入框里手填文件绝对路径。
+              </div>
+            </div>
+          )}
+          {recentList.length > 0 && (
             <>
-              <p className="text-[10px] text-maia-text-muted px-1">工作区间数据（点击展开查看文件）</p>
-              {workspaceDatasets.map(ds => {
-                const files = filesMap[ds.id] || []
-                const isExpanded = expandedId === ds.id
-                return (
-                  <div key={ds.id} className="rounded border border-maia-border bg-maia-surface overflow-hidden">
-                    <button
-                      className="w-full flex items-center gap-2 px-2.5 py-2 hover:bg-maia-bg transition-colors text-left"
-                      onClick={() => toggleFiles(ds.id)}
-                    >
-                      {loadingFiles[ds.id] ? <Loader2 className="h-3.5 w-3.5 animate-spin text-maia-accent shrink-0" />
-                        : isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-maia-text-muted shrink-0" />
-                        : <ChevronRight className="h-3.5 w-3.5 text-maia-text-muted shrink-0" />}
-                      <Folder className="h-3.5 w-3.5 text-amber-500 shrink-0" />
-                      <span className="text-[12px] text-maia-text truncate flex-1">{ds.name}</span>
-                      {resolveDataPath(ds.id) && <span className="text-[10px] text-maia-text-muted truncate max-w-[140px]">{resolveDataPath(ds.id)}</span>}
-                    </button>
-                    {isExpanded && (
-                      <div className="border-t border-maia-border max-h-[220px] overflow-auto">
-                        <button
-                          className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-maia-accent/10 text-left"
-                          onClick={() => onSelect(resolveDataPath(ds.id) || ds.name)}
-                          title="选择数据集根目录"
-                        >
-                          <Folder className="h-3 w-3 text-maia-accent shrink-0" />
-                          <span className="text-[11px] text-maia-text-secondary">使用数据集目录路径</span>
-                        </button>
-                        {files.length === 0 && !loadingFiles[ds.id] && (
-                          <div className="px-3 py-2 text-[10px] text-maia-text-muted">该数据集内没有文件</div>
-                        )}
-                        {files.map((f, i) => (
-                          <button
-                            key={i}
-                            className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-maia-accent/10 text-left"
-                            onClick={() => onSelect(f.path)}
-                            title={f.path}
-                          >
-                            <File className="h-3 w-3 text-maia-text-muted shrink-0" />
-                            <span className="text-[11px] text-maia-text truncate flex-1">{f.name}</span>
-                            {f.size != null && <span className="text-[10px] text-maia-text-muted shrink-0">{(f.size / 1024).toFixed(1)}KB</span>}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
+              <p className="text-[10px] text-maia-text-muted px-1">最近使用</p>
+              {recentList.map(renderDataset)}
             </>
+          )}
+          {restList.length > 0 && (
+            <>
+              <p className="text-[10px] text-maia-text-muted px-1 pt-1">
+                本机可用数据集（{available.length}）— 点击展开查看文件
+              </p>
+              {restList.map(renderDataset)}
+            </>
+          )}
+          {!loadingList && unavailable.length > 0 && (
+            <div className="pt-2">
+              <button
+                onClick={() => setShowUnavailable(v => !v)}
+                className="w-full flex items-center gap-1 px-1 text-[10px] text-maia-text-muted hover:text-maia-text"
+              >
+                {showUnavailable ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                不可用（{unavailable.length}）：数据目录不在本机
+              </button>
+              {showUnavailable && (
+                <div className="mt-1 space-y-1">
+                  {unavailable.map(ds => (
+                    <div key={ds.id} className="rounded border border-maia-border/70 bg-maia-surface/50 px-2.5 py-1.5 opacity-60">
+                      <div className="flex items-center gap-2">
+                        <Folder className="h-3 w-3 text-maia-text-muted shrink-0" />
+                        <span className="text-[11px] text-maia-text-muted truncate flex-1">{ds.name}</span>
+                        <span className="text-[9px] text-maia-text-muted shrink-0">不可用</span>
+                      </div>
+                      {ds.data_path && <p className="mt-0.5 text-[9px] text-maia-text-muted font-mono truncate" title={ds.data_path}>{ds.data_path}</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
         </div>
         <div className="px-4 py-2 border-t border-maia-border text-[10px] text-maia-text-muted shrink-0">

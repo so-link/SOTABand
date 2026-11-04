@@ -16,6 +16,52 @@ from app.api.schemas.data_schemas import (
 from core.llm.client import create_llm_client
 from core.resource.registry.data_registry import DataRegistry
 from core.user_context import get_current_user_id
+
+_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".webp", ".gif"}
+_TEXT_SUFFIXES = {".txt", ".md", ".csv", ".json"}
+_PREVIEW_MAX_CHARS = 120
+
+
+def _find_first_image(dataset_id: str, data_path: str) -> str:
+    """找数据集里的第一张图片（绝对路径），用于列表缩略图；找不到返回空串。
+
+    历史遗留：``/repository`` 一直在调用这个函数，但仓库里从来没有它的定义，
+    该接口实际是 500（因为对应的"数据集仓库"视图没有入口，一直没暴露）。
+    """
+    try:
+        dir_path = registry.resolve_data_path(data_path)
+        if not dir_path.exists() or not dir_path.is_dir():
+            return ""
+        for p in sorted(dir_path.rglob("*")):
+            if p.is_file() and p.suffix.lower() in _IMAGE_SUFFIXES:
+                return str(p)
+    except Exception:
+        # 缩略图只是列表的装饰，任何异常都不能让整个仓库列表失败
+        return ""
+    return ""
+
+
+def _get_first_sentence(dataset_id: str, data_path: str, description: str) -> str:
+    """取一段文字预览：优先数据集描述首句，其次第一个文本文件的首行。"""
+    text = (description or "").strip()
+    if text:
+        first = text.splitlines()[0].strip()
+        if first:
+            return first[:_PREVIEW_MAX_CHARS]
+    try:
+        dir_path = registry.resolve_data_path(data_path)
+        if dir_path.exists() and dir_path.is_dir():
+            for p in sorted(dir_path.rglob("*")):
+                if p.is_file() and p.suffix.lower() in _TEXT_SUFFIXES:
+                    with p.open("r", encoding="utf-8", errors="replace") as f:
+                        line = f.readline().strip()
+                    if line:
+                        return line[:_PREVIEW_MAX_CHARS]
+    except Exception:
+        pass
+    return ""
+
+
 def _parse_files_from_spec(spec_md: str) -> list[dict]:
     """从 MD 规范的"数据格式"表格中解析文件列表"""
     files = []
@@ -324,8 +370,23 @@ def _extract_tags_json(text: str) -> list[str] | None:
 
 @router.get("/repository")
 async def get_dataset_repository():
-    """获取数据集仓库列表（含标签统计和缩略图）"""
+    """获取数据集仓库列表（含标签统计、缩略图与**可用性标记**）。
+
+    为什么要带 is_local：注册表 ``data/registry.json`` 随项目目录走，而数据本身
+    不随（``data_path`` 常是原机器的绝对路径，如 ``/Users/leo/...``）。从别人环境
+    复制项目后，条目能看到但文件打不开 —— 前端需要据此区分"可选"与"不可选"，
+    并在选择框里给出具体原因，而不是只显示一句"暂无数据集"。
+    """
     datasets = await registry.list_all()
+
+    current_user = get_current_user_id()
+    for ds in datasets:
+        ds["is_local"] = registry.is_present_locally(ds)
+        owner = ds.get("owner")
+        # 无 owner 的历史条目：数据在本机就视为本人的（与 is_visible 的启发式一致）
+        ds["owner_match"] = (owner == current_user) if owner else ds["is_local"]
+        ds.setdefault("data_path", "")
+
     # 计算标签统计
     tag_stats: dict[str, int] = {}
     for ds in datasets:

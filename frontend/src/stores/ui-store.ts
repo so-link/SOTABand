@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 
+import { clearToolDraft } from '@/lib/tool-detail-draft'
+
 export type ActiveView =
   | 'chat'
   | 'data-preview'
@@ -77,6 +79,11 @@ export const useUIStore = create<UIState>((set) => ({
   closeView: (view) =>
     set((s) => {
       if (view === 'chat') return s
+      // 关闭工具详情页签 = 丢弃该工具的输入草稿（参数值 + 未保存代码）。
+      // 非激活页签不会被挂载，组件侧没有卸载钩子，所以必须在这里清。
+      // 草稿只用于跨"页签切换 / 页面刷新"保活，不是长期存储。
+      const closedToolId = parseToolDetailView(String(view))
+      if (closedToolId) clearToolDraft(closedToolId)
       const next = s.openViews.filter((v) => v !== view)
       let nextActive = s.activeView
       if (s.activeView === view) {
