@@ -453,7 +453,12 @@ class InteractiveAgent(BaseAgent):
                         "title": f"工具执行结果：{matched_tool.get('name', matched_tool.get('id', ''))}",
                         "summary": str(tool_result.get("message", "")
                                        or tool_result.get("summary", ""))[:200],
-                        "data": tool_result,
+                        # 结果卡只给状态+摘要；详细数据交给 LLM 分析后呈现，
+                        # 不把原始 JSON 丢给用户看
+                        "data": {
+                            "status": tool_result.get("status", ""),
+                            "message": tool_result.get("message", ""),
+                        },
                     },
                 }
                 # 检测工具执行过程中是否注册了新数据集
@@ -537,7 +542,8 @@ class InteractiveAgent(BaseAgent):
             user_msg += (
                 f"\n\n[系统提示: 工具 {matched_tool['id']} 已自动执行。"
                 f"结果: {summary}。"
-                f"请基于此真实结果回复用户，不要自行推测或计算。]"
+                f"请基于该真实结果，用自然语言分析其结构与含义（关键字段、关键发现、结论），"
+                f"回复用户；不要逐字复述 JSON 数据，也不要自行推测或计算。]"
             )
         # 小图片作为多模态内容随消息发送（大图片/二进制只给元数据+file_id）
         if image_urls:

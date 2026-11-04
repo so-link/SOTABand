@@ -588,7 +588,7 @@ function ToolConfirmCard({ title, summary, data }: { title: string; summary: str
 function ToolResultCard({ title, summary, data }: { title: string; summary: string; data: Record<string, unknown> }) {
   const status = String(data.status || 'unknown')
   const ok = status === 'success'
-  const detail = data.data
+  // 不展示原始 JSON：详细结果由 LLM 分析后以自然语言呈现
   return (
     <Card className={ok ? 'border-maia-card-green bg-maia-card-green' : 'border-maia-danger/30 bg-maia-danger-bg'}>
       <CardHeader>
@@ -599,12 +599,7 @@ function ToolResultCard({ title, summary, data }: { title: string; summary: stri
         </div>
       </CardHeader>
       <CardBody>
-        {summary && <p className="text-[13px] text-maia-text-secondary mb-2">{summary}</p>}
-        {detail !== undefined && detail !== null && (
-          <pre className="text-[12px] font-mono leading-[20px] bg-maia-bg rounded p-2 border border-maia-border overflow-auto max-h-[200px] text-maia-text">
-            {JSON.stringify(detail, null, 2).slice(0, 2000)}
-          </pre>
-        )}
+        {summary && <p className="text-[13px] text-maia-text-secondary">{summary}</p>}
       </CardBody>
     </Card>
   )
