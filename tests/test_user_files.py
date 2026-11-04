@@ -252,13 +252,14 @@ def test_build_user_message_includes_file_content():
     rec = user_files.register(p)
 
     agent = object.__new__(InteractiveAgent)
-    msg = agent._build_user_message(
+    msg, image_urls = agent._build_user_message(
         "分析这个文件",
         [{"fileName": "note.md", "fileId": rec["file_id"],
           "format": "md", "fileSize": p.stat().st_size}],
     )
     assert "# 标题" in msg and "正文内容" in msg
     assert rec["file_id"] in msg
+    assert image_urls == []
 
 
 def test_build_user_message_binary_only_metadata():
@@ -270,16 +271,55 @@ def test_build_user_message_binary_only_metadata():
     rec = user_files.register(p)
 
     agent = object.__new__(InteractiveAgent)
-    msg = agent._build_user_message(
+    msg, image_urls = agent._build_user_message(
         "看看这个图",
         [{"fileName": "img.png", "fileId": rec["file_id"],
           "format": "png", "fileSize": p.stat().st_size}],
     )
     assert "img.png" in msg
-    # 图片：只给元数据 + file_id，绝不把字节塞进 prompt
-    assert "图片文件" in msg and "视觉工具" in msg
     assert rec["file_id"] in msg
-    assert "\x89PNG" not in msg  # 图片字节未进 prompt
+    # 8 字节小图：作为多模态内容发送
+    assert len(image_urls) == 1
+
+
+def test_build_user_message_small_image_inlined():
+    """小图片（≤2MB）作为多模态内容随消息发送，不写进文本。"""
+    agent_mod = pytest.importorskip(
+        "resources.agents.implementations.interactive_agent.agent")
+    InteractiveAgent = agent_mod.InteractiveAgent
+    p = _make_file("small.png", b"\x89PNG\r\n\x1a\n" + b"x" * 1024)
+    rec = user_files.register(p)
+
+    agent = object.__new__(InteractiveAgent)
+    text, image_urls = agent._build_user_message(
+        "看看这张图",
+        [{"fileName": "small.png", "fileId": rec["file_id"],
+          "format": "png", "fileSize": p.stat().st_size}],
+    )
+    assert len(image_urls) == 1
+    assert image_urls[0].startswith("data:image/png;base64,")
+    # 图片字节只在多模态 URL 里，不进文本
+    assert "x" * 100 not in text
+    assert "已随消息发送" in text
+
+
+def test_build_user_message_large_image_metadata_only():
+    """大图片（>2MB）只给元数据 + file_id，不进消息。"""
+    agent_mod = pytest.importorskip(
+        "resources.agents.implementations.interactive_agent.agent")
+    InteractiveAgent = agent_mod.InteractiveAgent
+    p = _make_file("big.png", b"\x89PNG\r\n\x1a\n" + b"x" * (3 * 1024 * 1024))
+    rec = user_files.register(p)
+
+    agent = object.__new__(InteractiveAgent)
+    text, image_urls = agent._build_user_message(
+        "这张大图",
+        [{"fileName": "big.png", "fileId": rec["file_id"],
+          "format": "png", "fileSize": p.stat().st_size}],
+    )
+    assert image_urls == []
+    assert "图片较大" in text
+    assert rec["file_id"] in text
 
 
 def test_build_user_message_large_file_head():
@@ -292,13 +332,14 @@ def test_build_user_message_large_file_head():
     rec = user_files.register(p)
 
     agent = object.__new__(InteractiveAgent)
-    msg = agent._build_user_message(
+    msg, image_urls = agent._build_user_message(
         "分析这个大文件",
         [{"fileName": "big.csv", "fileId": rec["file_id"],
           "format": "csv", "fileSize": len(content)}],
     )
     assert "col1,col2,col3" in msg
     assert "大文件" in msg and "工具处理" in msg
+    assert image_urls == []
 
 
 def test_workspace_tool_schemas():

@@ -496,7 +496,7 @@ class InteractiveAgent(BaseAgent):
         if tool_failed:
             return
 
-        user_msg = self._build_user_message(content, attachments, dataset_paths)
+        user_msg, image_urls = self._build_user_message(content, attachments, dataset_paths)
         # 工具结果作为上下文注入（包含 data 中的详细内容）
         if tool_result:
             # 提取 summary：优先 message → data.text → 其他关键字段
@@ -528,7 +528,17 @@ class InteractiveAgent(BaseAgent):
                 f"结果: {summary}。"
                 f"请基于此真实结果回复用户，不要自行推测或计算。]"
             )
-        history.append({"role": "user", "content": user_msg})
+        # 小图片作为多模态内容随消息发送（大图片/二进制只给元数据+file_id）
+        if image_urls:
+            history.append({
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": user_msg},
+                    *[{"type": "image_url", "image_url": {"url": u}} for u in image_urls],
+                ],
+            })
+        else:
+            history.append({"role": "user", "content": user_msg})
 
         # 裁剪历史
         max_history = self.config.get("max_history", 20)
@@ -1755,16 +1765,18 @@ class InteractiveAgent(BaseAgent):
             pass
         return paths
 
-    def _build_user_message(self, content: str, attachments: list, dataset_paths: list[str] = None) -> str:
-        """构建带附件上下文的用户消息。
+    def _build_user_message(self, content: str, attachments: list, dataset_paths: list[str] = None):
+        """构建带附件上下文的用户消息，返回 (文本, 小图片 URL 列表)。
 
-        只给名字/大小对 LLM 没用——它看不到文件里写了什么。这里把文本类
-        附件的**内容预览**读出来拼进 prompt，并附上 file_id 供 LLM 填工具参数；
-        二进制/图片/大文件只给元数据 + 提示用工具分析。
+        只给名字/大小对 LLM 没用——它看不到文件里写了什么。这里：
+        - 文本类附件：把内容预览读出来拼进 prompt；
+        - 小图片（≤2MB）：作为多模态内容随消息发送（OpenAI image_url）；
+        - 大图片/二进制：只给元数据 + file_id，提示用工具分析。
         """
         if not attachments:
-            return content
+            return content, []
 
+        image_urls: list[str] = []
         parts = [content, "", "附加文件:"]
         for att in attachments:
             # 兼容 Pydantic 模型和 dict
@@ -1794,9 +1806,13 @@ class InteractiveAgent(BaseAgent):
                 if preview:
                     parts.append(f"  内容:\n{preview}")
                 elif fmt.lower() in ("png", "jpg", "jpeg", "gif", "bmp", "webp", "tif", "tiff", "svg", "ico"):
-                    # 图片：绝不把字节/base64 塞进 prompt（700KB 图 base64 近 1MB，
-                    # 直接撑爆上下文）。只给元数据 + file_id，让 LLM 调视觉工具分析。
-                    parts.append(f"  （图片文件，内容不直接展示，请用视觉工具分析）")
+                    url = self._inline_image_url(file_id)
+                    if url:
+                        # 小图片随消息发送（多模态），大图片只给元数据
+                        image_urls.append(url)
+                        parts.append(f"  （图片已随消息发送，可直接查看）")
+                    else:
+                        parts.append(f"  （图片较大，内容不直接发送，请用视觉工具分析）")
                 else:
                     parts.append(f"  （二进制/大文件，内容无法直接展示，请用工具分析）")
                 parts.append(f"  file_id: {file_id}（工具参数请用这个 id）")
@@ -1804,7 +1820,25 @@ class InteractiveAgent(BaseAgent):
         if dataset_paths:
             parts.append(f"\n数据集文件路径: {', '.join(dataset_paths)}")
 
-        return "\n".join(parts)
+        return "\n".join(parts), image_urls
+
+    # 小图片随消息发送的上限：2MB（base64 约 2.7MB，仍可控）
+    _INLINE_IMAGE_MAX = 2 * 1024 * 1024
+
+    def _inline_image_url(self, file_id: str) -> str | None:
+        """小图片转 data URL 随消息发送；超过上限或非图片返回 None。"""
+        try:
+            from core import user_files
+            path = user_files.resolve(file_id)
+            if path.stat().st_size > self._INLINE_IMAGE_MAX:
+                return None
+            import base64
+            import mimetypes
+            data = base64.b64encode(path.read_bytes()).decode("ascii")
+            mime = mimetypes.guess_type(str(path))[0] or "image/png"
+            return f"data:{mime};base64,{data}"
+        except Exception:
+            return None
 
     def _read_file_preview(self, file_id: str, limit: int = 100_000, head: int = 10_000):
         """读取文本文件内容预览（供 LLM 理解文件）；非文本返回 None。
