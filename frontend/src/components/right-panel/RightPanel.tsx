@@ -123,7 +123,8 @@ function FileProperties() {
       <div className="p-3 flex flex-col gap-3">
         <Prop label="名称" value={selectedFile.name} />
         <Prop label="类型" value={selectedFile.type === 'directory' ? '文件夹' : (selectedFile.format?.toUpperCase() ?? '文件')} />
-        <Prop label="路径" value={selectedFile.path} mono />
+        {selectedFile.fileId && <Prop label="文件 ID" value={selectedFile.fileId} mono />}
+        {selectedFile.datasetRelPath && <Prop label="数据集内路径" value={selectedFile.datasetRelPath} mono />}
         {selectedFile.size !== undefined && (
           <Prop
             label="大小"

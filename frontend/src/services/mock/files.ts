@@ -6,7 +6,6 @@ const MOCK_FILE_TREE: FileTreeNode = {
   name: 'my_project',
   type: 'directory',
   category: 'folder',
-  path: '/my_project',
   expanded: true,
   children: [
     {
@@ -14,7 +13,6 @@ const MOCK_FILE_TREE: FileTreeNode = {
       name: 'eeg_data',
       type: 'directory',
       category: 'folder',
-      path: '/my_project/eeg_data',
       expanded: false,
       children: [
         {
@@ -22,7 +20,7 @@ const MOCK_FILE_TREE: FileTreeNode = {
           name: 'subj01.edf',
           type: 'file',
           category: 'eeg',
-          path: '/my_project/eeg_data/subj01.edf',
+          fileId: 'f_000000000001',
           format: 'edf',
           size: 47185920,
         },
@@ -31,7 +29,7 @@ const MOCK_FILE_TREE: FileTreeNode = {
           name: 'subj02.edf',
           type: 'file',
           category: 'eeg',
-          path: '/my_project/eeg_data/subj02.edf',
+          fileId: 'f_000000000002',
           format: 'edf',
           size: 48234496,
         },
@@ -40,7 +38,7 @@ const MOCK_FILE_TREE: FileTreeNode = {
           name: 'labels.csv',
           type: 'file',
           category: 'table',
-          path: '/my_project/eeg_data/labels.csv',
+          fileId: 'f_000000000003',
           format: 'csv',
           size: 2048,
         },
@@ -51,7 +49,6 @@ const MOCK_FILE_TREE: FileTreeNode = {
       name: 'images',
       type: 'directory',
       category: 'folder',
-      path: '/my_project/images',
       expanded: false,
       children: [
         {
@@ -59,7 +56,7 @@ const MOCK_FILE_TREE: FileTreeNode = {
           name: 'scan01.png',
           type: 'file',
           category: 'image',
-          path: '/my_project/images/scan01.png',
+          fileId: 'f_000000000004',
           format: 'png',
           size: 2097152,
         },
@@ -68,7 +65,7 @@ const MOCK_FILE_TREE: FileTreeNode = {
           name: 'scan02.png',
           type: 'file',
           category: 'image',
-          path: '/my_project/images/scan02.png',
+          fileId: 'f_000000000005',
           format: 'png',
           size: 1835008,
         },
@@ -79,7 +76,6 @@ const MOCK_FILE_TREE: FileTreeNode = {
       name: 'results',
       type: 'directory',
       category: 'folder',
-      path: '/my_project/results',
       expanded: false,
       children: [
         {
@@ -87,7 +83,7 @@ const MOCK_FILE_TREE: FileTreeNode = {
           name: 'anomaly_report.json',
           type: 'file',
           category: 'result',
-          path: '/my_project/results/anomaly_report.json',
+          fileId: 'f_000000000006',
           format: 'json',
           size: 4096,
         },
@@ -96,7 +92,7 @@ const MOCK_FILE_TREE: FileTreeNode = {
           name: 'spectrogram.png',
           type: 'file',
           category: 'image',
-          path: '/my_project/results/spectrogram.png',
+          fileId: 'f_000000000007',
           format: 'png',
           size: 524288,
         },
@@ -107,7 +103,7 @@ const MOCK_FILE_TREE: FileTreeNode = {
       name: 'notes.md',
       type: 'file',
       category: 'text',
-      path: '/my_project/notes.md',
+      fileId: 'f_000000000008',
       format: 'md',
       size: 1024,
     },
@@ -139,7 +135,7 @@ export class MockFileService implements IFileService {
       name: file.name,
       type: 'file' as const,
       category: 'unknown' as const,
-      path: `/my_project/${file.name}`,
+      fileId: `f_0000000000${(10 + i).toString(16).padStart(2, '0')}`,
       format: file.name.split('.').pop(),
       size: file.size,
     }))

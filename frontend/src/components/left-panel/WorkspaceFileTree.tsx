@@ -26,8 +26,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { DatasetImportDialog } from './DatasetImportDialog'
-import { OpenDirectoryDialog } from './OpenDirectoryDialog'
-import type { FileTreeNode, FileCategory } from '@/types/workspace'
+import { nodeFileUrl, type FileTreeNode, type FileCategory } from '@/types/workspace'
 
 const FILE_ICONS: Record<FileCategory, typeof File> = {
   eeg: Activity,
@@ -68,13 +67,12 @@ export function WorkspaceFileTree() {
 
   const handleDragStart = (e: React.DragEvent, node: FileTreeNode) => {
     e.dataTransfer.setData('application/json', JSON.stringify(node))
-    // 同时设置 text/plain 类型（完整路径），提升跨组件拖拽兼容性
-    e.dataTransfer.setData('text/plain', node.path || '')
+    // 同时设置 text/plain 类型（file_id），提升跨组件拖拽兼容性
+    e.dataTransfer.setData('text/plain', node.fileId || '')
     e.dataTransfer.effectAllowed = 'copy'
   }
 
   const [showImport, setShowImport] = useState(false)
-  const [showOpenDir, setShowOpenDir] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<FileTreeNode | null>(null)
   const [deleting, setDeleting] = useState(false)
 
@@ -88,16 +86,6 @@ export function WorkspaceFileTree() {
     setShowImport(false)
   }
 
-  const handleOpenDirectory = (dirNode: FileTreeNode) => {
-    const { root, persist } = useFileTreeStore.getState()
-    if (root) {
-      root.children = [...(root.children || []), dirNode]
-      useFileTreeStore.setState({ root: { ...root } })
-      persist()
-    }
-    setShowOpenDir(false)
-  }
-
   const handleClear = async () => {
     // 走 store 的统一入口：清空文件的同时会把对话里残留的附件引用清掉
     await useFileTreeStore.getState().clearWorkspace()
@@ -107,10 +95,11 @@ export function WorkspaceFileTree() {
     selectFile(node)
     if (node.type !== 'file') return
 
-    // PDF 文件：直接用浏览器打开
+    // PDF 文件：直接用浏览器打开（按 file_id 访问）
     const ext = (node.format || node.name.split('.').pop() || '').toLowerCase()
     if (ext === 'pdf') {
-      window.open(`/api/file/download?path=${encodeURIComponent(node.path)}`, '_blank')
+      const url = nodeFileUrl(node)
+      if (url) window.open(url, '_blank')
       return
     }
 
@@ -123,10 +112,8 @@ export function WorkspaceFileTree() {
     if (!deleteTarget) return
     setDeleting(true)
     try {
-      const res = await fetch('/api/file/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: deleteTarget.path }),
+      const res = await fetch(`/api/file/${encodeURIComponent(deleteTarget.fileId || '')}`, {
+        method: 'DELETE',
       })
       if (!res.ok) {
         const detail = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }))
@@ -177,15 +164,6 @@ export function WorkspaceFileTree() {
           >
             <FolderInput className="h-3.5 w-3.5" />
             导入
-          </Button>
-          <Button
-            variant="outline" size="sm"
-            className="flex-1 min-w-0 px-2 text-[13px] h-7 border-maia-border text-maia-text-secondary hover:bg-maia-sidebar-hover"
-            onClick={() => setShowOpenDir(true)}
-            title="打开本地目录"
-          >
-            <FolderOpen className="h-3 w-3" />
-            打开
           </Button>
         </div>
         {root?.children && root.children.length > 0 && (
@@ -244,13 +222,6 @@ export function WorkspaceFileTree() {
         />
       )}
 
-      {showOpenDir && (
-        <OpenDirectoryDialog
-          onOpen={handleOpenDirectory}
-          onClose={() => setShowOpenDir(false)}
-        />
-      )}
-
       {/* 删除文件确认弹窗 */}
       {deleteTarget && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40" onClick={() => !deleting && setDeleteTarget(null)}>
@@ -263,7 +234,6 @@ export function WorkspaceFileTree() {
               <p className="text-[13px] text-maia-text leading-relaxed">
                 确定要永久删除文件 <span className="font-semibold text-maia-danger">{deleteTarget.name}</span> 吗？
               </p>
-              <p className="text-[12px] text-maia-text-muted mt-1.5 break-all font-mono">{deleteTarget.path}</p>
               <p className="text-[12px] text-maia-text-muted mt-2 flex items-center gap-1">
                 <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
                 此操作将从文件系统中永久删除该文件，且无法恢复。

@@ -7,7 +7,7 @@ import type { FileTreeNode } from '@/types/workspace'
 
 const BASE_URL = ''
 
-interface DatasetItem { id: string; name: string; data_path: string; file_count: number; formats: string[]; total_size: number }
+interface DatasetItem { id: string; name: string; file_count: number; formats: string[]; total_size: number }
 
 interface Props {
   onImport: (dsNode: FileTreeNode) => void
@@ -41,25 +41,27 @@ export function DatasetImportDialog({ onImport, onClose }: Props) {
     setImporting(true)
     try {
       const ds = datasets.find(d => d.id === selected)
-      const dsPath = ds?.data_path || ''
       const filesRes = await fetch(`${BASE_URL}/api/data/${selected}/files`)
-      const fileData = filesRes.ok ? await filesRes.json() : {files:[]}
+      const fileData = filesRes.ok ? await filesRes.json() : { files: [] }
       const files = (fileData.files as Array<Record<string, unknown>>) || []
+      // 数据集节点只持有 dataset id：文件访问统一走 /api/data/{id}/raw?path=<相对路径>
+      const dsToken = `dataset:${selected}`
 
       const dsNode: FileTreeNode = {
         id: ds?.id || selected,
         name: ds?.name || selected,
         type: 'directory', category: 'folder',
-        path: dsPath,
+        fileId: dsToken,
         expanded: true,
         children: files.map((f: Record<string, unknown>) => {
-          // 使用后端返回的相对路径（包含子目录），而非仅文件名
+          // 后端返回的 path 是数据集内相对路径（包含子目录）
           const relPath = (f.path as string) || (f.name as string)
           return {
-            id: `ds-${selected}-${f.name}`,
+            id: `ds-${selected}-${relPath}`,
             name: f.name as string,
             type: 'file' as const, category: 'unknown' as const,
-            path: dsPath ? `${dsPath}/${relPath}` : (f.name as string),
+            fileId: dsToken,
+            datasetRelPath: relPath,
             format: (f.format as string) || '',
             size: (f.size as number) || 0,
           }

@@ -6,8 +6,7 @@ import {
 import { useFileTreeStore } from '@/stores/file-tree-store'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-
-const BASE_URL = ''
+import { nodeFileUrl } from '@/types/workspace'
 
 const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'ico'])
 const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'm4v'])
@@ -102,20 +101,22 @@ export function FilePreviewView() {
   const isVideo = VIDEO_EXTENSIONS.has(ext)
   const isMarkdown = MD_EXTENSIONS.has(ext)
   const isCsv = CSV_EXTENSIONS.has(ext)
+  // 内容一律按 file_id（或数据集相对路径）解析，前端不再拼路径
+  const contentUrl = previewFile ? nodeFileUrl(previewFile) : null
 
   useEffect(() => {
     setCsvPage(1)
-    if (previewFile && isMarkdown) {
+    if (previewFile && contentUrl && isMarkdown) {
       setLoading(true)
       setMdHtml(null)
-      fetch(`${BASE_URL}/api/file/download?path=${encodeURIComponent(previewFile.path)}`)
+      fetch(contentUrl)
         .then(r => r.text())
         .then(text => { setMdHtml(renderMarkdown(text)); setLoading(false) })
         .catch(() => setLoading(false))
-    } else if (previewFile && isCsv) {
+    } else if (previewFile && contentUrl && isCsv) {
       setLoading(true)
       setCsvData(null)
-      fetch(`${BASE_URL}/api/file/download?path=${encodeURIComponent(previewFile.path)}`)
+      fetch(contentUrl)
         .then(r => r.text())
         .then(text => {
           const lines = text.split('\n').filter(l => l.trim())
@@ -131,7 +132,7 @@ export function FilePreviewView() {
       setMdHtml(null)
       setCsvData(null)
     }
-  }, [previewFile?.path, isMarkdown, isCsv])
+  }, [contentUrl, isMarkdown, isCsv])
 
   if (!previewFile) {
     return (
@@ -142,8 +143,19 @@ export function FilePreviewView() {
     )
   }
 
-  const downloadUrl = `${BASE_URL}/api/file/download?path=${encodeURIComponent(previewFile.path)}`
-  const imageUrl = `${BASE_URL}/api/file/image?path=${encodeURIComponent(previewFile.path)}`
+  const downloadUrl = contentUrl || ''
+  const imageUrl = contentUrl || ''
+
+  // 旧数据节点缺少 file_id（迁移前的工作区树）时无法取回内容
+  if (!contentUrl) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-maia-text-muted gap-2">
+        <File className="h-10 w-10 opacity-20" />
+        <p className="text-sm">{previewFile.name}：文件凭证缺失，无法访问内容</p>
+        <p className="text-[12px]">该节点缺少 file_id，可能来自旧版工作区，请删除后重新上传</p>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col h-full bg-maia-surface overflow-auto">
@@ -275,7 +287,7 @@ export function FilePreviewView() {
           <div className="flex flex-col items-center justify-center h-full gap-3 text-maia-text-muted p-6">
             <File className="h-12 w-12 opacity-20" />
             <p className="text-sm">该文件类型暂不支持内嵌预览</p>
-            <p className="text-[12px] font-mono text-maia-text-muted break-all max-w-lg text-center">{previewFile.path}</p>
+            <p className="text-[12px] text-maia-text-muted">文件 ID：<span className="font-mono">{previewFile.fileId}</span></p>
             <div className="flex gap-2 mt-2">
               <Button variant="outline" size="sm" className="text-[12px]" onClick={() => window.open(downloadUrl, '_blank')}>
                 <ExternalLink className="h-3 w-3" />浏览器打开

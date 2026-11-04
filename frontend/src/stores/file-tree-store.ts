@@ -42,51 +42,24 @@ function emptyTree(): FileTreeNode {
     name: '工作区间',
     type: 'directory',
     category: 'folder',
-    path: '/workspace',
     expanded: true,
     children: [],
   }
 }
 
-/** 判断是否为「真实目录」节点（通过「打开目录」或「导入数据集」加载，需要刷新） */
-function isRealDir(n: FileTreeNode): boolean {
-  return n.type === 'directory' && !!n.path && n.path !== '/workspace' && !n.path.startsWith('/workspace')
+/** 按扩展名归类图标（与后端 _CATEGORY_BY_EXT 的粗分类对齐） */
+const CATEGORY_BY_EXT: Record<string, FileTreeNode['category']> = {
+  jpg: 'image', jpeg: 'image', png: 'image', gif: 'image', bmp: 'image', webp: 'image', svg: 'image', ico: 'image',
+  csv: 'table', tsv: 'table', xlsx: 'table', xls: 'table', json: 'table',
+  md: 'text', txt: 'text', log: 'text', markdown: 'text',
+  pt: 'model', pth: 'model', onnx: 'model', h5: 'model', safetensors: 'model',
+  zip: 'archive', tar: 'archive', gz: 'archive', rar: 'archive', '7z': 'archive',
+  set: 'eeg', edf: 'eeg', bdf: 'eeg',
 }
 
-/** 递归刷新所有真实目录节点，使其与实际文件系统保持一致 */
-async function refreshDirectories(
-  tree: FileTreeNode,
-  onDone: (newRoot: FileTreeNode) => void,
-): Promise<void> {
-  const BASE_URL = ''
-
-  const refreshIn = async (n: FileTreeNode): Promise<FileTreeNode> => {
-    if (!n.children) return n
-    // 先递归刷新子节点
-    const refreshedChildren: FileTreeNode[] = []
-    for (const child of n.children) {
-      refreshedChildren.push(await refreshIn(child))
-    }
-
-    // 当前节点是真实目录 → 重新扫描
-    if (isRealDir(n)) {
-      try {
-        const res = await fetch(`${BASE_URL}/api/file/scan-directory?path=${encodeURIComponent(n.path)}`)
-        if (res.ok) {
-          const data = await res.json()
-          const scannedRoot = data.root as FileTreeNode
-          // 用扫描结果替换 children，保留原节点的 name/id/expanded 等元信息
-          return { ...n, children: scannedRoot?.children ?? [], expanded: n.expanded ?? true }
-        }
-      } catch { /* 目录不存在或不可访问，保留原数据 */ }
-    }
-    return { ...n, children: refreshedChildren }
-  }
-
-  try {
-    const newRoot = await refreshIn(tree)
-    onDone(newRoot)
-  } catch { /* ignore */ }
+function categoryFor(name: string, format?: string): FileTreeNode['category'] {
+  const ext = (format || name.split('.').pop() || '').toLowerCase()
+  return CATEGORY_BY_EXT[ext] || 'unknown'
 }
 
 interface FileTreeState {
@@ -151,11 +124,6 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => ({
     }
 
     set({ root: persisted, isLoading: false })
-    // 3. 异步刷新目录节点，与实际文件系统保持一致（刷新结果双写回本地与后端）
-    refreshDirectories(persisted, (newRoot) => {
-      set({ root: newRoot })
-      persistEverywhere(newRoot)
-    })
   },
 
   selectFile: (node) => set({ selectedFile: node }),
@@ -187,9 +155,15 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => ({
         const res = await fetch(`${BASE_URL}/api/file/upload`, { method: 'POST', body: formData })
         if (!res.ok) continue
         const uploaded = await res.json()
+        // 后端登记后只回 fileId：路径留在服务端登记表，前端不再持有
         const newNode: FileTreeNode = {
-          id: uploaded.id, name: uploaded.fileName, type: 'file', category: 'unknown',
-          path: uploaded.filePath, format: uploaded.format, size: uploaded.fileSize,
+          id: uploaded.fileId,
+          name: uploaded.fileName,
+          type: 'file',
+          category: categoryFor(uploaded.fileName, uploaded.format),
+          fileId: uploaded.fileId,
+          format: uploaded.format,
+          size: uploaded.fileSize,
         }
         root = { ...root, children: [...(root.children || []), newNode] }
       } catch { /* ignore */ }
