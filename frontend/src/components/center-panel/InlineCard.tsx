@@ -588,9 +588,10 @@ function ToolConfirmCard({ title, summary, data }: { title: string; summary: str
 function ToolResultCard({ title, summary, data }: { title: string; summary: string; data: Record<string, unknown> }) {
   const status = String(data.status || 'unknown')
   const ok = status === 'success'
-  // 不展示原始 JSON：详细结果由 LLM 分析后以自然语言呈现
+  // 与平台工具结果卡一致：原始返回折叠展示，需要时可展开查看
+  const result = data.data ?? data.result
   return (
-    <Card className={ok ? 'border-maia-card-green bg-maia-card-green' : 'border-maia-danger/30 bg-maia-danger-bg'}>
+    <Card className={ok ? 'border-maia-card-green bg-maia-card-green' : 'border-maia-danger bg-maia-danger-bg'}>
       <CardHeader>
         <div className="flex items-center gap-2">
           {ok ? <CheckCircle2 className="h-4 w-4 text-emerald-500" /> : <XCircle className="h-4 w-4 text-maia-danger" />}
@@ -599,7 +600,15 @@ function ToolResultCard({ title, summary, data }: { title: string; summary: stri
         </div>
       </CardHeader>
       <CardBody>
-        {summary && <p className="text-[13px] text-maia-text-secondary">{summary}</p>}
+        {summary && <p className="text-[13px] text-maia-text-secondary mb-2">{summary}</p>}
+        {result != null && (
+          <details className="mb-2">
+            <summary className="text-[12px] text-maia-text-muted cursor-pointer hover:text-maia-text">原始返回</summary>
+            <pre className="mt-1 p-2 rounded bg-maia-surface border border-maia-border text-[12px] font-mono leading-[20px] max-h-[160px] overflow-auto whitespace-pre-wrap">
+              {JSON.stringify(result, null, 2)}
+            </pre>
+          </details>
+        )}
       </CardBody>
     </Card>
   )

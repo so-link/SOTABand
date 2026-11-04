@@ -453,12 +453,7 @@ class InteractiveAgent(BaseAgent):
                         "title": f"工具执行结果：{matched_tool.get('name', matched_tool.get('id', ''))}",
                         "summary": str(tool_result.get("message", "")
                                        or tool_result.get("summary", ""))[:200],
-                        # 结果卡只给状态+摘要；详细数据交给 LLM 分析后呈现，
-                        # 不把原始 JSON 丢给用户看
-                        "data": {
-                            "status": tool_result.get("status", ""),
-                            "message": tool_result.get("message", ""),
-                        },
+                        "data": tool_result,
                     },
                 }
                 # 检测工具执行过程中是否注册了新数据集
