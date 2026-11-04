@@ -54,9 +54,14 @@ export function TopBar() {
             </Button>
           </Tooltip>
         )}
-        <Tooltip content="设置">
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setActiveView('settings')}><Settings className="h-3.5 w-3.5" /></Button>
-        </Tooltip>
+        {/* 设置是系统级配置（LLM/服务），仅管理员可见 */}
+        {user?.role === 'admin' && (
+          <Tooltip content="设置（系统级配置，仅管理员）">
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setActiveView('settings')}>
+              <Settings className="h-3.5 w-3.5" />
+            </Button>
+          </Tooltip>
+        )}
       </div>
       <LoginDialog />
     </header>
