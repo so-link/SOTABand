@@ -218,6 +218,16 @@ def test_api_upload_serve_delete(client):
     assert not list((user_paths.user_home() / "uploads").rglob("note.md"))
 
 
+def test_api_upload_same_name_overwrites_keeps_file_id(client):
+    """同名文件直接覆盖，保留原 file_id（旧引用不失效）。"""
+    first = client.post("/api/file/upload", files={"file": ("report.md", b"v1")}).json()
+    second = client.post("/api/file/upload", files={"file": ("report.md", b"v2-content")}).json()
+    assert second["fileId"] == first["fileId"]
+    assert second["fileName"] == "report.md"          # 保留原名
+    assert second["fileSize"] == len(b"v2-content")   # 内容已覆盖
+    assert client.get(f"/api/file/{first['fileId']}").content == b"v2-content"
+
+
 def test_api_unknown_and_path_traversal_ids_404(client):
     assert client.get("/api/file/f_000000000000").status_code == 404
     assert client.get("/api/file/..%2F..%2Fetc").status_code == 404

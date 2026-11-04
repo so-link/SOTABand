@@ -121,13 +121,9 @@ async def upload_file(file: UploadFile = File(...), subdir: str = Form("")):
     dest_dir = _upload_root() / dir_name
     dest_dir.mkdir(parents=True, exist_ok=True)
 
-    # 处理重名
+    # 同名文件直接覆盖：保留原名，且 user_files.register 幂等——
+    # 同路径已登记则复用原 file_id（旧引用不会失效）
     dest_path = dest_dir / safe_name
-    if dest_path.exists():
-        stem, ext = os.path.splitext(safe_name)
-        dest_path = dest_dir / f"{stem}_{int(time.time())}{ext}"
-
-    # 保存文件
     with open(dest_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
