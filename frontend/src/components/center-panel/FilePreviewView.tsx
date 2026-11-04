@@ -158,8 +158,8 @@ export function FilePreviewView() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-maia-surface overflow-auto">
-      {/* Header */}
+    <div className="flex flex-col h-full bg-maia-surface overflow-hidden">
+      {/* Header（固定，不随内容滚动） */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-maia-border bg-maia-bg/50 shrink-0">
         <div className="flex items-center gap-2 min-w-0">
           {isImage ? <Image className="h-4 w-4 text-amber-400 shrink-0" />
@@ -187,17 +187,17 @@ export function FilePreviewView() {
         </div>
       </div>
 
-      {/* Body */}
-      <div className="flex-1 min-h-0">
+      {/* Body（只有内容区滚动，标题固定） */}
+      <div className="flex-1 min-h-0 overflow-auto">
         {isImage && (
-          <div className="h-full flex items-center justify-center p-6 bg-maia-bg/30">
-            <img src={imageUrl} alt={previewFile.name} className="max-w-full max-h-full object-contain rounded shadow-lg" />
+          <div className="flex items-center justify-center p-6 bg-maia-bg/30">
+            <img src={imageUrl} alt={previewFile.name} className="max-w-full max-h-[calc(100vh-200px)] object-contain rounded shadow-lg" />
           </div>
         )}
 
         {isVideo && (
-          <div className="h-full flex items-center justify-center p-6 bg-maia-bg/30">
-            <video src={downloadUrl} controls className="max-w-full max-h-full rounded shadow-lg" />
+          <div className="flex items-center justify-center p-6 bg-maia-bg/30">
+            <video src={downloadUrl} controls className="max-w-full max-h-[calc(100vh-200px)] rounded shadow-lg" />
           </div>
         )}
 
