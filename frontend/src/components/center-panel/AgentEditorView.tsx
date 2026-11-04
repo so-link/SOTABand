@@ -48,6 +48,8 @@ function AgentSaveIndicator() {
 export function AgentEditorView() {
   const store = useAgentEditorStore()
   const setActiveView = useUIStore((s) => s.setActiveView)
+  // 代码相对基线是否被手工改动：决定「同步代码改动到文档」是否可用
+  const codeDirty = store.generatedCode.trim() !== store.baselineCode.trim()
 
   // Ctrl/Cmd+S 保存（仅编辑已注册 Agent 时有效）
   useSaveShortcut(
@@ -102,7 +104,9 @@ export function AgentEditorView() {
       {/* Step indicators
           编辑已有 Agent 时步骤条可点击直达（与工具编辑器一致）：
           只想改一行代码不该被迫先「生成 Agent」整份覆写。
-          编辑态不显示第 4 步「注册」——那是新建流程的发布回执页。 */}
+          编辑态不显示第 4 步「注册」——那是新建流程的发布回执页。
+          右侧按当前步骤显示对应的保存/同步按钮：各步操作统一收口在工具条，
+          不再散落到每步内容区的底部或代码框上方。 */}
       <div className="flex items-center gap-0 px-4 py-2 border-b border-maia-border bg-maia-surface shrink-0">
         {(store.editingAgentId ? ([1, 2, 3] as const) : ([1, 2, 3, 4] as const)).map((s, i, arr) => {
           const clickable = Boolean(store.editingAgentId)
@@ -132,6 +136,26 @@ export function AgentEditorView() {
             </div>
           )
         })}
+        {store.editingAgentId && (
+          <div className="ml-auto flex items-center gap-2">
+            {store.step === 1 && <PartSaveButton part="step1" label="保存需求描述" />}
+            {store.step === 2 && <PartSaveButton part="spec" label="保存文档" />}
+            {store.step === 3 && (
+              <>
+                <button
+                  onClick={() => store.syncSpecFromCode()}
+                  disabled={!codeDirty || store.isGenerating || store.isSyncing || store.isSaving}
+                  title={codeDirty ? '让 AI 依据代码改动更新 MD 文档' : '代码未修改，无需同步'}
+                  className="inline-flex items-center gap-1 text-[12px] px-2.5 py-1 rounded border border-maia-border text-maia-accent hover:bg-maia-accent/10 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {store.isSyncing && <Loader2 className="h-3 w-3 animate-spin" />}
+                  同步代码改动到文档
+                </button>
+                <PartSaveButton part="code" label="保存代码" />
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Step content */}
@@ -490,8 +514,7 @@ function Step1Description() {
         </div>
       )}
 
-      <div className="flex justify-between items-center mt-3 shrink-0">
-        <PartSaveButton part="step1" label="保存需求描述" />
+      <div className="flex justify-end items-center mt-3 shrink-0">
         <Button
           onClick={generateSpec}
           disabled={!description.trim() || !agentRole || isGenerating}
@@ -566,9 +589,8 @@ function ReasoningPanel({ text, active }: { text: string; active: boolean }) {
 
 function Step2Review() {
   const { generatedMd, setGeneratedMd, generateCode, stopGeneration, setStep, isGenerating, error,
-          reasoningStream, editingAgentId, editingAgentName } =
+          reasoningStream } =
     useAgentEditorStore()
-  const isEditMode = Boolean(editingAgentId)
   // Markdown 用 2 空格缩进
   const onTabIndent = useTabIndent('  ')
   const notifyEdit = useAgentEditorStore((s) => s.notifyEdit)
@@ -590,10 +612,10 @@ function Step2Review() {
       <h3 className="text-lg font-semibold text-maia-text-heading mb-2">
         Step 2: 审阅 &amp; 编辑 MD 规范文档
       </h3>
+      {/* 编辑态的「正在编辑 xxx」提示与标题栏「编辑中：」重复，已去掉；
+          编辑/新建统一用这句中性文案。 */}
       <p className="text-sm text-maia-text-secondary mb-4">
-        {isEditMode
-          ? <>正在编辑已有 Agent <span className="text-amber-500">{editingAgentName || editingAgentId}</span>，以下是其现有规范文档，可直接修改后重新生成代码。</>
-          : '以下是 AI 生成的 Agent 规范文档，你可以直接编辑修改。'}
+        以下是 Agent 规范文档，你可以直接编辑修改。
       </p>
 
       <ReasoningPanel text={reasoningStream} active={isGenerating && !generatedMd.trim()} />
@@ -623,7 +645,6 @@ function Step2Review() {
           返回修改需求
         </Button>
         <div className="flex gap-2 items-center">
-          <PartSaveButton part="spec" label="保存文档" />
           {isGenerating && (
             <Button variant="danger" onClick={stopGeneration}>
               <XCircle className="h-3.5 w-3.5" />
@@ -653,9 +674,8 @@ function Step2Review() {
 
 function Step3Verify() {
   const { generatedMd, generatedCode, sandboxResults, registerAgent, stopGeneration, setStep, isGenerating, error,
-          reasoningStream, isRegistering, isSyncing, isSaving,
-          setGeneratedCode, editingAgentId, editingAgentName, baselineCode,
-          syncSpecFromCode,
+          reasoningStream, isRegistering,
+          setGeneratedCode, baselineCode,
           testInputs, setTestInput, debugRounds, debugStream,
           isAutoDebugging, autoDebug, stopAutoDebug } =
     useAgentEditorStore()
@@ -672,7 +692,6 @@ function Step3Verify() {
   // 使用者上滚翻看时不被拽回底部，回到底部自动恢复跟随）
   useStickToBottom(codeRef, code)
 
-  const isEditMode = Boolean(editingAgentId)
   const codeDirty = code.trim() !== baselineCode.trim()
   // Python 代码用 4 空格缩进
   const onCodeTabIndent = useTabIndent('    ')
@@ -698,11 +717,6 @@ function Step3Verify() {
         <h3 className="text-lg font-semibold text-maia-text-heading">
           Step 3: 代码预览 &amp; 沙箱核验
         </h3>
-        {isEditMode && (
-          <span className="text-[12px] text-amber-500">
-            正在编辑已有 Agent：{editingAgentName || editingAgentId}
-          </span>
-        )}
       </div>
 
       <ReasoningPanel text={reasoningStream} active={isGenerating && !generatedCode.trim()} />
@@ -719,20 +733,7 @@ function Step3Verify() {
               {codeDirty && <span className="text-[12px] text-amber-500">已手工修改</span>}
             </div>
             <div className="flex items-center gap-2">
-              {isEditMode && (
-                <>
-                  <button
-                    onClick={() => syncSpecFromCode()}
-                    disabled={!codeDirty || isGenerating || isSyncing || isSaving}
-                    title={codeDirty ? '让 AI 依据代码改动更新 MD 文档' : '代码未修改，无需同步'}
-                    className="flex items-center gap-1 text-[12px] px-1.5 py-0.5 rounded border border-maia-border text-maia-accent hover:bg-maia-accent/10 disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    {isSyncing ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : null}
-                    同步代码改动到文档
-                  </button>
-                  <PartSaveButton part="code" label="保存代码" />
-                </>
-              )}
+              {/* 保存代码 / 同步代码改动到文档 已上移到步骤工具条右侧 */}
               <button
                 onClick={() => setEditingCode(!editingCode)}
                 className="flex items-center gap-1 text-[12px] text-maia-text-muted hover:text-maia-accent px-1.5 py-0.5 rounded border border-maia-border"

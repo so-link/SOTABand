@@ -14,6 +14,8 @@ import {
 } from 'lucide-react'
 import { useResourceStore } from '@/stores/resource-store'
 import { useUIStore, parseAgentDetailView, parseToolDetailView, parseModelDetailView, parseDatasetPreviewView } from '@/stores/ui-store'
+import { useToolEditorStore } from '@/stores/tool-editor-store'
+import { useAgentEditorStore } from '@/stores/agent-editor-store'
 import { useWorkspaceToolStore } from '@/stores/workspace-tool-store'
 import { useUnsavedMarks } from '@/hooks/use-unsaved-marks'
 import { cn } from '@/lib/utils'
@@ -283,6 +285,13 @@ export function ResourceBrowser() {
                 <button
                   onClick={(e) => {
                     e.stopPropagation()
+                    // 「+」的语义是新建：必须先把编辑器 store 复位，
+                    // 否则残留的 editingAgentId 会让界面继续停留在旧 Agent 的编辑态。
+                    const st = useAgentEditorStore.getState()
+                    if (st.editingAgentId && st.hasUnsavedChanges()) {
+                      if (!window.confirm('当前 Agent 编辑器有未保存的改动，新建将丢弃这些改动。确定新建吗？')) return
+                    }
+                    st.reset()
                     useUIStore.getState().setActiveView('agent-editor')
                   }}
                   className="flex items-center justify-center h-4 w-4 rounded hover:bg-maia-accent/10 text-maia-text-muted hover:text-maia-accent transition-colors"
@@ -295,6 +304,13 @@ export function ResourceBrowser() {
                 <button
                   onClick={(e) => {
                     e.stopPropagation()
+                    // 「+」的语义是新建：必须先把编辑器 store 复位，
+                    // 否则残留的 editingToolId 会让界面继续停留在旧工具的编辑态。
+                    const st = useToolEditorStore.getState()
+                    if (st.editingToolId && st.hasUnsavedChanges()) {
+                      if (!window.confirm('当前工具编辑器有未保存的改动，新建将丢弃这些改动。确定新建吗？')) return
+                    }
+                    st.reset()
                     useUIStore.getState().setActiveView('tool-editor')
                   }}
                   className="flex items-center justify-center h-4 w-4 rounded hover:bg-maia-accent/10 text-maia-text-muted hover:text-maia-accent transition-colors"

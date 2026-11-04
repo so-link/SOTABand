@@ -125,6 +125,8 @@ export function ToolEditorView() {
   const store = useToolEditorStore()
   const setActiveView = useUIStore((s) => s.setActiveView)
   const selectedResource = useResourceStore((s) => s.selectedResource)
+  // 代码相对基线是否被手工改动：决定「同步代码改动到文档」是否可用
+  const codeDirty = store.generatedCode.trim() !== store.baselineCode.trim()
 
   // 关闭时应回到"来处"：编辑已有工具 → 回该工具详情页；新建 → 回对话。
   // 直接跳到对话会丢失上下文，尤其是从详情页点「编辑」进来时。
@@ -182,7 +184,9 @@ export function ToolEditorView() {
           编辑已有工具时步骤条可点击直达：此前只能顺着「描述→审阅→核验→注册」
           走，只想改一行代码也得先「生成代码和测试」，而生成会整份覆写现有代码。
           各步都有独立保存端点后，跳步已无数据风险。
-          编辑态不显示第 4 步「注册」——那是新建流程的发布回执页，编辑场景无意义。 */}
+          编辑态不显示第 4 步「注册」——那是新建流程的发布回执页，编辑场景无意义。
+          右侧按当前步骤显示对应的保存/同步按钮：各步操作统一收口在工具条，
+          不再散落到每步内容区的底部或代码框上方。 */}
       <div className="flex items-center gap-0 px-4 py-2 border-b border-maia-border bg-maia-surface shrink-0">
         {(store.editingToolId ? ([1, 2, 3] as const) : ([1, 2, 3, 4] as const)).map((s, i, arr) => {
           const clickable = Boolean(store.editingToolId)
@@ -204,6 +208,26 @@ export function ToolEditorView() {
             </div>
           )
         })}
+        {store.editingToolId && (
+          <div className="ml-auto flex items-center gap-2">
+            {store.step === 1 && <PartSaveButton part="step1" label="保存需求描述" />}
+            {store.step === 2 && <PartSaveButton part="spec" label="保存文档" />}
+            {store.step === 3 && (
+              <>
+                <button
+                  onClick={() => store.syncSpecFromCode()}
+                  disabled={!codeDirty || store.isGenerating}
+                  title={codeDirty ? '让 AI 依据代码改动更新 MD 文档' : '代码未修改，无需同步'}
+                  className="inline-flex items-center gap-1 text-[12px] px-2.5 py-1 rounded border border-maia-border text-maia-accent hover:bg-maia-accent/10 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {store.isGenerating && <Loader2 className="h-3 w-3 animate-spin" />}
+                  同步代码改动到文档
+                </button>
+                <PartSaveButton part="code" label="保存代码" />
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="flex-1 min-h-0 overflow-auto p-4">
@@ -376,8 +400,7 @@ function Step1() {
             ))}
         </div>, document.body)}
       {error && <div className="flex items-center gap-1.5 mt-2 text-[13px] text-maia-danger"><XCircle className="h-3 w-3" />{error}</div>}
-      <div className="flex justify-between items-center mt-4">
-        <PartSaveButton part="step1" label="保存需求描述" />
+      <div className="flex justify-end items-center mt-4">
         <Button onClick={generateSpec} disabled={!description.trim() || isGenerating}>
           {isGenerating ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />生成中...</> : <>生成 MD 文档<ArrowRight className="h-3.5 w-3.5" /></>}
         </Button>
@@ -638,10 +661,9 @@ function ReasoningPanel({ text, active }: { text: string; active: boolean }) {
 
 function Step2() {
   const { generatedMd, setGeneratedMd, tags, addTag, removeTag, generateCode, stopGeneration, setStep, isGenerating, error,
-          reasoningStream, genStatus, editingToolId, editingToolName } = useToolEditorStore()
+          reasoningStream, genStatus, editingToolId } = useToolEditorStore()
   const [editing, setEditing] = useState(false)
   const [newTag, setNewTag] = useState('')
-  const isEditMode = Boolean(editingToolId)
   // Markdown 用 2 空格缩进
   const onTabIndent = useTabIndent('  ')
   const notifyEdit = useToolEditorStore((s) => s.notifyEdit)
@@ -675,10 +697,10 @@ function Step2() {
   return (
     <div className="max-w-3xl mx-auto">
       <h3 className="text-lg font-semibold text-maia-text-heading mb-2">Step 2: 审阅 &amp; 编辑 MD 规范文档</h3>
+      {/* 编辑态的「正在编辑 xxx」提示与标题栏「编辑中：」重复，已去掉；
+          编辑/新建统一用这句中性文案。 */}
       <p className="text-sm text-maia-text-secondary mb-3">
-        {isEditMode
-          ? <>正在编辑已有工具 <span className="text-amber-500">{editingToolName || editingToolId}</span>，以下是其现有规范文档，可直接修改后重新生成代码。</>
-          : '以下是 AI 生成的工具规范文档，你可以直接编辑修改。'}
+        以下是工具规范文档，你可以直接编辑修改。
       </p>
 
       <ReasoningPanel text={reasoningStream} active={isGenerating && !genStatus} />
@@ -754,9 +776,6 @@ function Step2() {
       <div className="flex justify-between mt-4">
         <Button variant="outline" onClick={() => setStep(1)} disabled={isGenerating}><ArrowLeft className="h-3.5 w-3.5" />返回修改需求</Button>
         <div className="flex items-center gap-2">
-          {/* 只保存文档：后端会随文档确定性重算参数元数据（表格改动要生效），
-              但不会碰代码——改文档不该顺带把代码也提交 */}
-          <PartSaveButton part="spec" label="保存文档" />
           {isGenerating ? (
             <Button variant="outline" onClick={stopGeneration}>
               <XCircle className="h-3.5 w-3.5" />中止生成
@@ -775,7 +794,7 @@ function Step2() {
 function Step3() {
   const { generatedCode, params, modes, selectedMode, setSelectedMode, testInputs, testOutput, registerTool, runTest, stopTest, autoDebug, stopAutoDebug,
           setStep, isGenerating, isTesting, isAutoDebugging, error, debugRounds, debugStream, setTestInput,
-          setGeneratedCode, editingToolId, editingToolName, baselineCode, syncSpecFromCode, stopGeneration, reasoningStream } = useToolEditorStore()
+          setGeneratedCode, baselineCode, stopGeneration, reasoningStream } = useToolEditorStore()
   const logEndRef = useRef<HTMLDivElement>(null)
   const fileInputRefs = useRef<Map<string, HTMLInputElement>>(new Map())
   // 导师分支的行号/可编辑代码 ref 已随代码区统一为"手工微调切换 + Highlight 预览"而移除
@@ -792,7 +811,6 @@ function Step3() {
   const [isEditingCode, setIsEditingCode] = useState(
     () => Boolean(useToolEditorStore.getState().editingToolId))
 
-  const isEditMode = Boolean(editingToolId)
   const codeDirty = generatedCode.trim() !== baselineCode.trim()
   // Python 代码用 4 空格缩进
   const onCodeTabIndent = useTabIndent('    ')
@@ -838,11 +856,6 @@ function Step3() {
     <div className="max-w-5xl mx-auto h-full min-h-0 flex flex-col" ref={containerRef}>
       <div className="flex items-center justify-between mb-2 shrink-0">
         <h3 className="text-lg font-semibold text-maia-text-heading">Step 3: 代码预览 &amp; 沙箱测试</h3>
-        {isEditMode && (
-          <span className="text-[12px] text-amber-500">
-            正在编辑已有工具：{editingToolName || editingToolId}
-          </span>
-        )}
       </div>
 
       {/* 点击「生成代码」后即刻进入本步：先显示模型思考流，代码开始输出后
@@ -880,20 +893,7 @@ function Step3() {
                 >
                   {isEditingCode ? '预览' : '手工微调'}
                 </button>
-                {isEditMode && (
-                  <PartSaveButton part="code" label="保存代码" />
-                )}
-                {isEditMode && (
-                  <button
-                    onClick={() => syncSpecFromCode()}
-                    disabled={!codeDirty || isGenerating}
-                    title={codeDirty ? '让 AI 依据代码改动更新 MD 文档' : '代码未修改，无需同步'}
-                    className="flex items-center gap-1 text-[12px] px-1.5 py-0.5 rounded border border-maia-border text-maia-accent hover:bg-maia-accent/10 disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    {isGenerating ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : null}
-                    同步代码改动到文档
-                  </button>
-                )}
+                {/* 保存代码 / 同步代码改动到文档 已上移到步骤工具条右侧 */}
               </div>
             </div>
             {isEditingCode ? (
