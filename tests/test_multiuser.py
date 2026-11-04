@@ -122,6 +122,17 @@ def test_uid_starts_at_1000_and_increments(superuser_env):
     assert b["id"] == "1001"
 
 
+def test_uids_only_counts_numeric_user_dirs(superuser_env):
+    """_shared 等非用户目录不能当成 uid——否则会造出 _shared/platform.db。"""
+    from core.user_db import uids
+
+    (user_paths.USER_HOME_ROOT / "0").mkdir(parents=True, exist_ok=True)
+    create_user("alice", "alice-password")
+    (user_paths.USER_HOME_ROOT / "_shared").mkdir(parents=True, exist_ok=True)
+    (user_paths.USER_HOME_ROOT / "not-a-uid").mkdir(parents=True, exist_ok=True)
+    assert uids() == ["0", "1000"]
+
+
 def test_uid_never_reused_after_delete(superuser_env):
     a = create_user("alice", "alice-password")
     delete_user(a["id"])

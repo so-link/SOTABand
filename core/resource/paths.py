@@ -35,6 +35,20 @@ def private_root(uid: str | None = None) -> Path:
     return user_home(uid) / "resources-private"
 
 
+def shared_root() -> Path:
+    """共享资源根：超管发布、全员可用。
+
+    与 ``BUILTIN_ROOT`` 的区别：builtin 随仓库分发、运行期只读；共享根是
+    **运行期写入区**，落在用户目录根下（不污染 git 仓库）。
+
+    普通用户创建的 Agent 写自己的私有根（仅自己可用）；超管创建/发布的
+    Agent 写共享根（``visibility=public``），所有用户都能读到。
+    """
+    from core.user_paths import USER_HOME_ROOT
+
+    return USER_HOME_ROOT / "_shared" / "resources"
+
+
 # 兼容别名：**仅供模块导入期默认值使用**（如 registry 构造时）。
 # 运行期读写一律走 private_root()（按当前请求身份动态解析），
 # 不要用本常量——登录态下它会固定到导入时刻的用户。
@@ -53,20 +67,21 @@ def is_valid_resource_id(value: str) -> bool:
 
 
 def resource_roots() -> list[Path]:
-    """资源根搜索顺序（读）：**私有根优先**，内置根兜底。
+    """资源根搜索顺序（读）：**私有根优先**，共享根其次，内置根兜底。
 
     2026-11-04 定为覆盖层语义（方案 C：显式 fork + 覆盖层）：
     用户「复制为我的副本」后，编辑落私有根，同名资源必须私有优先才能
     生效——内置是随 git 分发的系统资产，用户副本在上层覆盖它。
     写路径仍一律落私有（见各 registry），只有 fork 与高级直改会动内置。
 
+    共享根（超管发布、全员可用）夹在中间：同名时私有副本仍可覆盖它，
+    而它又能覆盖内置——超管改过的公共 Agent 不会被内置旧版遮蔽。
+
     注意：此前这里是内置优先，各处用 reversed() 局部补偿成私有优先，
     两套顺序并存导致主进程与工具互调看到不同版本。现已统一为本顺序，
     补偿性 reversed() 全部移除。
     """
-    roots: list[Path] = []
-    pr = private_root()
-    roots.append(pr)
+    roots: list[Path] = [private_root(), shared_root()]
     if BUILTIN_ROOT not in roots:
         roots.append(BUILTIN_ROOT)
     return roots
@@ -85,6 +100,11 @@ def builtin_space_dir(space: str) -> Path:
 def private_space_dir(space: str) -> Path:
     """返回当前用户某资源空间的私有目录（新建资源写入此处）。"""
     return private_root() / space
+
+
+def shared_space_dir(space: str) -> Path:
+    """返回某资源空间的共享目录（超管发布、全员可用）。"""
+    return shared_root() / space
 
 
 def ensure_private_dirs(space: str) -> Path:

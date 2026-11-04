@@ -90,9 +90,13 @@ def fork_copy(space: str, resource_id: str) -> int:
     return n
 
 
-def drop_copy(space: str, resource_id: str) -> None:
-    """删除私有根下该资源的全部文件（定义 + 实现目录）。"""
-    proot = paths.private_root()
+def drop_copy(space: str, resource_id: str, root: str = "private") -> None:
+    """删除指定根下该资源的全部文件（定义 + 实现目录）。
+
+    ``root`` 可以是 "private"（默认，当前用户的私有根）或 "shared"
+    （超管发布的共享根，删除后对所有用户生效）。
+    """
+    proot = paths.shared_root() if root == "shared" else paths.private_root()
     ddir = _definitions_dir(proot, space)
     if ddir.is_dir():
         for p in ddir.glob(f"{resource_id}*"):

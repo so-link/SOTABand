@@ -33,14 +33,18 @@ def roots(tmp_path, monkeypatch):
 
     monkeypatch.setattr(paths, "BUILTIN_ROOT", builtin)
     monkeypatch.setattr(paths, "private_root", lambda uid=None: private)
+    # 共享根（超管发布、全员可用）同样指向临时目录，避免读到真实 USER_HOME
+    shared = tmp_path / "shared"
+    monkeypatch.setattr(paths, "shared_root", lambda: shared)
     # registry 构造期用 ensure_private_dirs → 内部调 private_root()，已动态
     return builtin, private
 
 
-def test_resource_roots_private_first(roots):
+def test_resource_roots_private_first(roots, tmp_path):
     builtin, private = roots
     r = paths.resource_roots()
-    assert r[0] == private and r[1] == builtin
+    # 顺序：私有（覆盖层）→ 共享（超管发布）→ 内置（兜底）
+    assert r[0] == private and r[1] == tmp_path / "shared" and r[2] == builtin
 
 
 def test_fork_copy_and_overlay_reads(roots):

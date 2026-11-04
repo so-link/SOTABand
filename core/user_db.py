@@ -99,10 +99,15 @@ class UserDbPool:
 
 
 def uids() -> list[str]:
-    """已存在用户目录的全部 uid（含超管 0）。用于跨用户的系统级遍历。"""
+    """已存在用户目录的全部 uid（含超管 0）。用于跨用户的系统级遍历。
+
+    只认数字目录名：``USER_HOME_ROOT`` 下还有非用户目录（如共享资源根
+    ``_shared``），把它们当 uid 会凭空造出 ``_shared/platform.db``。
+    """
     try:
         return sorted(
-            p.name for p in user_paths.USER_HOME_ROOT.iterdir() if p.is_dir() and p.name
+            p.name for p in user_paths.USER_HOME_ROOT.iterdir()
+            if p.is_dir() and p.name.isdigit()
         )
     except OSError:
         return []

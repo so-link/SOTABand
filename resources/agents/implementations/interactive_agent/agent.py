@@ -904,7 +904,11 @@ class InteractiveAgent(BaseAgent):
         """
         try:
             from core.resource.registry.agent_registry import AgentRegistry
-            entries = AgentRegistry()._read()
+            from core.user_context import get_current_user_id
+            reg = AgentRegistry()
+            me = get_current_user_id()
+            # 只匹配对用户可见的 Agent：普通用户创建的私有 Agent 不参与派发
+            entries = [e for e in reg._read() if reg.is_visible(e, me)]
         except Exception:
             return None
         q = query.strip()

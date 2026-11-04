@@ -25,6 +25,20 @@ from core.user_context import get_current_user_id
 router = APIRouter()
 builder = AgentCodeBuilder()
 registry = AgentRegistry()
+
+
+async def _visible_agent(agent_id: str) -> dict:
+    """按 id 取 Agent 并校验可见性。
+
+    普通用户创建的 Agent 是私有的（仅属主可用），只有超管创建的（public）
+    与内置 Agent 对所有人可见。跨用户访问一律 404，避免泄露条目是否存在。
+    """
+    entry = await registry.get(agent_id)
+    if not entry or not registry.is_visible(entry, get_current_user_id()):
+        raise HTTPException(404, f"Agent '{agent_id}' not found")
+    return entry
+
+
 # 规格/代码生成走「生成模型」（LLM_GEN_*，未配置时回退全局对话模型）
 llm = create_gen_llm_client()
 
@@ -579,6 +593,12 @@ async def register_agent(req: RegisterAgentRequest):
     except Exception:
         tool_ids = []
 
+    # 可见性按创建者角色决定：超管建的供全员使用，普通用户建的仅自己可用。
+    # 不接受客户端传值——否则任何人都能把自己的 Agent 开放给全部用户。
+    from app.api.deps import current_role
+    from core.user_context import VISIBILITY_PRIVATE, VISIBILITY_PUBLIC
+
+    visibility = VISIBILITY_PUBLIC if current_role() == "admin" else VISIBILITY_PRIVATE
     resource = {
         "id": agent_id,
         "name": req.agent_name,
@@ -587,14 +607,16 @@ async def register_agent(req: RegisterAgentRequest):
         "raw_md": req.spec_md,
         "tags": req.tags,
         "required_tools": tool_ids,
+        "visibility": visibility,
     }
 
     registered_id = await registry.register(resource)
     entry = await registry.get(registered_id)
 
-    # 保存生成的代码到 implementations 目录（已在注册前通过静态安全审查）
+    # 保存生成的代码到 implementations 目录（已在注册前通过静态安全审查）。
+    # 与 registry 条目同根：public 落共享根（全员可用），private 落私有根。
     if req.code.strip():
-        impl_dir = registry._get_impl_dir() / registered_id
+        impl_dir = registry._get_impl_dir(visibility) / registered_id
         impl_dir.mkdir(parents=True, exist_ok=True)
         (impl_dir / "agent.py").write_text(req.code, encoding="utf-8")
         (impl_dir / "spec.md").write_text(req.spec_md, encoding="utf-8")
@@ -607,7 +629,7 @@ async def register_agent(req: RegisterAgentRequest):
 
     # 保存用户需求描述（中文内容，Windows 默认 GBK，必须显式 utf-8）
     if req.demand_desc.strip():
-        demand_path = registry._get_spec_dir() / f"{registered_id}-demand.md"
+        demand_path = registry._get_spec_dir(visibility) / f"{registered_id}-demand.md"
         demand_path.write_text(req.demand_desc, encoding="utf-8")
 
     # Web 服务式 Agent：生成 API 说明文档（api.md），随 Agent 一并产出
@@ -661,9 +683,10 @@ def _maybe_generate_api_doc(agent_id: str) -> None:
         from core.agent.entrypoint import _parse_role_from_md
         from core.resource.builder.api_doc_builder import build_api_doc_markdown
 
-        base = registry._get_spec_dir()
-        spec_file = base / f"{agent_id}.md"
-        if not spec_file.exists():
+        # 规范/实现可能落在私有根或共享根（超管发布的公共 Agent），
+        # 固定查私有根会让共享 Agent 生成不出 api.md。
+        spec_file = _locate_agent_spec_path(agent_id)
+        if spec_file is None:
             return
         raw = spec_file.read_text(encoding="utf-8")
         spec = AgentSpec(id=agent_id, name=agent_id, role=_parse_role_from_md(raw), raw_md=raw)
@@ -671,7 +694,7 @@ def _maybe_generate_api_doc(agent_id: str) -> None:
         if not spec.apis:
             return
         md = build_api_doc_markdown(agent_id, spec.name or agent_id, spec)
-        impl_dir = registry._get_impl_dir() / agent_id
+        impl_dir = _locate_agent_impl_dir(agent_id) or (registry._get_impl_dir() / agent_id)
         impl_dir.mkdir(parents=True, exist_ok=True)
         (impl_dir / "api.md").write_text(md, encoding="utf-8")
     except Exception as e:
@@ -681,17 +704,15 @@ def _maybe_generate_api_doc(agent_id: str) -> None:
 
 @router.get("/list")
 async def list_agents():
-    """列出所有已注册的 Agent"""
-    agents = await registry.list_all()
+    """列出对当前用户可见的 Agent（内置 + 超管的 public + 自己的 private）"""
+    agents = await registry.list_all(get_current_user_id())
     return {"agents": agents}
 
 
 @router.get("/{agent_id}")
 async def get_agent(agent_id: str):
     """Agent 详情（含 MD spec + 源代码 + 需求描述）"""
-    entry = await registry.get(agent_id)
-    if not entry:
-        raise HTTPException(404, f"Agent '{agent_id}' not found")
+    entry = await _visible_agent(agent_id)
 
     # 在「内置 + 私有」资源根中检索规范 / 实现 / 需求文档
     from core.resource import paths as _paths
@@ -724,9 +745,7 @@ class SaveSpecRequest(BaseModel):
 @router.post("/{agent_id}/save-spec")
 async def save_agent_spec(agent_id: str, req: SaveSpecRequest):
     """保存手工编辑后的 MD 规范文档"""
-    entry = await registry.get(agent_id)
-    if not entry:
-        raise HTTPException(404, f"Agent '{agent_id}' not found")
+    entry = await _visible_agent(agent_id)
     # 就地写回命中的层：内置版本仅超级管理员可改，普通用户先 fork
     from app.api.deps import ensure_can_touch_builtin
     ensure_can_touch_builtin(entry.get("source"), action="修改")
@@ -755,9 +774,7 @@ class SaveCodeRequest(BaseModel):
 @router.post("/{agent_id}/save-code")
 async def save_agent_code(agent_id: str, req: SaveCodeRequest):
     """保存手工微调后的 Agent 代码"""
-    entry = await registry.get(agent_id)
-    if not entry:
-        raise HTTPException(404, f"Agent '{agent_id}' not found")
+    entry = await _visible_agent(agent_id)
     # 就地写回命中的层：内置版本仅超级管理员可改，普通用户先 fork
     from app.api.deps import ensure_can_touch_builtin
     ensure_can_touch_builtin(entry.get("source"), action="修改")
@@ -788,9 +805,7 @@ async def save_agent_step1(agent_id: str, req: SaveStep1Request):
     此前需求描述只在注册时落盘，编辑器里改了必须重新注册才留得下——
     而重新注册会连带覆盖文档与代码。这里提供独立落盘通道。
     """
-    entry = await registry.get(agent_id)
-    if not entry:
-        raise HTTPException(404, f"Agent '{agent_id}' not found")
+    entry = await _visible_agent(agent_id)
     # demand 文件按「已存在就地更新」写，可能落在内置根：内置层仅超级管理员可改
     from app.api.deps import ensure_can_touch_builtin
     ensure_can_touch_builtin(entry.get("source"), action="修改")
@@ -807,9 +822,7 @@ async def get_agent_fork_status(agent_id: str):
     """fork 状态：是否已复制为副本、内置是否存在、上游（内置）是否有更新。"""
     from core.resource import fork as _fork
 
-    entry = await registry.get(agent_id)
-    if not entry:
-        raise HTTPException(404, f"Agent '{agent_id}' not found")
+    entry = await _visible_agent(agent_id)
     in_builtin = _fork.exists_in_builtin("agents", agent_id)
     in_private = _fork.exists_in_private("agents", agent_id)
     forked_from = entry.get("forked_from") or {}
@@ -833,9 +846,7 @@ async def fork_agent(agent_id: str):
     """把内置 Agent 复制为当前用户的私有副本（已存在则重新复制）。"""
     from core.resource import fork as _fork
 
-    entry = await registry.get(agent_id)
-    if not entry:
-        raise HTTPException(404, f"Agent '{agent_id}' not found")
+    entry = await _visible_agent(agent_id)
     if not _fork.exists_in_builtin("agents", agent_id):
         raise HTTPException(400, "该 Agent 不是内置 Agent（本就是用户资源，直接编辑即可）")
 
@@ -855,9 +866,7 @@ async def discard_agent_fork(agent_id: str):
     """丢弃私有副本：删除私有文件与私有条目，恢复为直接使用内置版本。"""
     from core.resource import fork as _fork
 
-    entry = await registry.get(agent_id)
-    if not entry:
-        raise HTTPException(404, f"Agent '{agent_id}' not found")
+    entry = await _visible_agent(agent_id)
     if not _fork.exists_in_private("agents", agent_id):
         raise HTTPException(400, "该 Agent 没有私有副本")
     if not _fork.exists_in_builtin("agents", agent_id):
@@ -885,9 +894,7 @@ async def sync_spec_from_code(agent_id: str, req: SyncSpecRequest):
 
     打通「文档 → 代码 → 文档」的双向闭环，避免文档与代码脱节。
     """
-    entry = await registry.get(agent_id)
-    if not entry:
-        raise HTTPException(404, f"Agent '{agent_id}' not found")
+    entry = await _visible_agent(agent_id)
 
     # 与 save-spec / save-code / save-step1 / delete 一致：内置资源不可改
     # （此前漏了这道闸门，普通用户可就地改写系统 Agent 的规范文档）
@@ -981,9 +988,7 @@ async def sync_spec_from_code(agent_id: str, req: SyncSpecRequest):
 @router.get("/{agent_id}/status")
 async def agent_status(agent_id: str):
     """查询 Agent 状态"""
-    entry = await registry.get(agent_id)
-    if not entry:
-        raise HTTPException(404, f"Agent '{agent_id}' not found")
+    entry = await _visible_agent(agent_id)
     running = agent_factory.is_running(agent_id)
     return {**entry, "running": running}
 
@@ -995,9 +1000,7 @@ async def agent_status(agent_id: str):
 @router.post("/{agent_id}/start")
 async def start_agent(agent_id: str):
     """启动 Agent 子进程"""
-    entry = await registry.get(agent_id)
-    if not entry:
-        raise HTTPException(404, f"Agent '{agent_id}' not found")
+    entry = await _visible_agent(agent_id)
 
     # 实现路径交由 agent_factory 在「内置 + 私有」资源根中自动检索，
     # 不在此硬编码（否则私有目录中的 Agent 无法启动）。
@@ -1007,6 +1010,7 @@ async def start_agent(agent_id: str):
 @router.post("/{agent_id}/execute")
 async def execute_agent(agent_id: str, req: AgentExecuteRequest):
     """向 Agent 子进程发送输入，SSE 流式返回输出"""
+    _entry = await _visible_agent(agent_id)
     if not agent_factory.is_running(agent_id):
         raise HTTPException(400, f"Agent '{agent_id}' 未启动，请先启动")
 
@@ -1014,10 +1018,9 @@ async def execute_agent(agent_id: str, req: AgentExecuteRequest):
 
     from core.observability import task_history
     from core.observability import chat_store
-    _entry = await registry.get(agent_id)
     task_id = task_history.start(
         agent_id, req.content if isinstance(req.content, str) else str(req.content),
-        agent_name=(_entry or {}).get("name", ""))
+        agent_name=_entry.get("name", ""))
     task_finished = False
 
     # 对话落库：Agent 空间的对话此前只存浏览器 localStorage，换浏览器/清缓存即丢。
@@ -1103,6 +1106,7 @@ async def execute_agent(agent_id: str, req: AgentExecuteRequest):
 @router.get("/{agent_id}/chat-history")
 async def get_agent_chat_history(agent_id: str):
     """Agent 空间对话历史（SQLite chat_store，按时间正序）。"""
+    await _visible_agent(agent_id)
     from core.observability import chat_store
     sid = f"agent-chat-{agent_id}"
     return {"session_id": sid, "messages": chat_store.get_messages(sid)}
@@ -1111,6 +1115,7 @@ async def get_agent_chat_history(agent_id: str):
 @router.delete("/{agent_id}/chat-history")
 async def delete_agent_chat_history(agent_id: str):
     """清空 Agent 空间对话历史。"""
+    await _visible_agent(agent_id)
     from core.observability import chat_store
     sid = f"agent-chat-{agent_id}"
     return {"deleted": agent_id, "removed": chat_store.delete_session(sid)}
@@ -1123,6 +1128,7 @@ async def migrate_agent_chat_history(agent_id: str, req: dict):
     仅当该 Agent 的后端历史为空时执行（防止重复导入），导入成功后
     前端删除本地 key。
     """
+    await _visible_agent(agent_id)
     from core.observability import chat_store
     sid = f"agent-chat-{agent_id}"
     if chat_store.message_count(sid) > 0:
@@ -1145,12 +1151,14 @@ async def migrate_agent_chat_history(agent_id: str, req: dict):
 @router.post("/{agent_id}/stop")
 async def stop_agent(agent_id: str):
     """停止 Agent 子进程"""
+    await _visible_agent(agent_id)
     return await agent_factory.stop(agent_id)
 
 
 @router.post("/{agent_id}/restart")
 async def restart_agent(agent_id: str):
     """重启 Agent 子进程"""
+    await _visible_agent(agent_id)
     return await agent_factory.restart(agent_id)
 
 
@@ -1166,9 +1174,7 @@ async def delete_agent(agent_id: str):
       （或 git 恢复条目）即可挂回；普通用户要改内置请先复制为我的副本；
     - 文件删除失败时返回明确的 500 错误，前端可提示，而不是裸 traceback。
     """
-    entry = await registry.get(agent_id)
-    if not entry:
-        raise HTTPException(404, f"Agent '{agent_id}' not found")
+    entry = await _visible_agent(agent_id)
 
     from app.api.deps import ensure_can_touch_builtin
     ensure_can_touch_builtin(entry.get("source"), action="删除")
@@ -1178,10 +1184,24 @@ async def delete_agent(agent_id: str):
     # 停止进程（两层的删除都需要先停，stop 对未运行进程是幂等的）
     await agent_factory.stop(agent_id)
 
-    if entry.get("source") != "private":
+    if entry.get("source") == "builtin":
         # 内置层：只移内置 registry 条目，git 管理的内置文件保留原处
         await registry.unregister(agent_id, scope="builtin")
         return {"deleted": agent_id, "scope": "builtin"}
+
+    if entry.get("source") == "shared":
+        # 共享层（超管发布）：删共享文件与共享条目，对所有用户生效
+        shared_dir = resource_paths.shared_space_dir("agents")
+        try:
+            _remove_tree(shared_dir / "implementations" / agent_id)
+            for f in (shared_dir / "definitions" / f"{agent_id}.md",
+                      shared_dir / "definitions" / f"{agent_id}-demand.md"):
+                if f.exists():
+                    f.unlink()
+        except OSError as e:
+            raise HTTPException(500, f"删除 Agent '{agent_id}' 的文件失败：{type(e).__name__}: {e}")
+        await registry.unregister(agent_id, scope="shared")
+        return {"deleted": agent_id, "scope": "shared"}
 
     private_dir = resource_paths.private_space_dir("agents")
     private_spec = private_dir / "definitions" / f"{agent_id}.md"
@@ -1211,6 +1231,7 @@ async def get_agent_service(agent_id: str):
     以便前端渲染参数输入框——无论服务是否已启动。
     运行状态（running/host/port）来自工厂。
     """
+    await _visible_agent(agent_id)
     # 始终从 MD 规范解析完整 API 定义（含 params）
     spec = _load_agent_spec(agent_id)
     apis: list[dict] = []
@@ -1250,6 +1271,7 @@ async def test_agent_api(agent_id: str, req: TestApiRequest):
 
     走本机回环（127.0.0.1），避免前端跨域与外部网络问题。
     """
+    await _visible_agent(agent_id)
     try:
         import httpx
     except ModuleNotFoundError:  # 部分环境仅提供 httpx2（同 API 的延续包）
@@ -1347,6 +1369,7 @@ def _read_registry_entry(agent_id: str) -> dict | None:
 @router.get("/{agent_id}/api-doc")
 async def get_agent_api_doc(agent_id: str):
     """返回该 Web 服务式 Agent 的 API 说明文档（Markdown 文本）。"""
+    await _visible_agent(agent_id)
     spec = _load_agent_spec(agent_id)
     if spec is None:
         raise HTTPException(404, f"未找到 Agent '{agent_id}' 的规范文档")
@@ -1364,6 +1387,7 @@ async def download_agent_api_doc(agent_id: str):
     """下载该 Web 服务式 Agent 的 API 说明文档（.md 文件）。"""
     from fastapi.responses import PlainTextResponse
 
+    await _visible_agent(agent_id)
     spec = _load_agent_spec(agent_id)
     if spec is None:
         raise HTTPException(404, f"未找到 Agent '{agent_id}' 的规范文档")

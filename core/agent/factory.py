@@ -265,7 +265,7 @@ class AgentFactory:
 
     @staticmethod
     def _resolve_impl_path(agent_id: str) -> str | None:
-        """在「内置 + 私有」资源根中定位 Agent 实现目录（相对 PROJECT_ROOT 的路径）。
+        """在「私有 + 共享 + 内置」资源根中定位 Agent 实现目录（相对 PROJECT_ROOT 的路径）。
 
         返回第一个含 agent.py 的实现目录；均不存在时返回 None。
         """

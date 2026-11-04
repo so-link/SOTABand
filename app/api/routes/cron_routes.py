@@ -48,7 +48,8 @@ async def _validate(payload: JobPayload) -> tuple[str, str, float]:
         cron, tz, ts = runner.validate_job_payload(payload.model_dump())
     except CronError as exc:
         raise HTTPException(422, str(exc)) from exc
-    ok, msg = await runner.check_target(payload.kind, payload.target_id)
+    ok, msg = await runner.check_target(payload.kind, payload.target_id,
+                                        owner=get_current_user_id())
     if not ok:
         raise HTTPException(422, msg)
     return cron, tz, ts

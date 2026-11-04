@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardBody } from '@/components/ui/card'
 import { useResourceStore } from '@/stores/resource-store'
 import { useUIStore } from '@/stores/ui-store'
+import { useAuthStore } from '@/stores/auth-store'
 import { useAgentEditorStore } from '@/stores/agent-editor-store'
 import { agentApi } from '@/services/api/agent'
 import { cn } from '@/lib/utils'
@@ -131,6 +132,9 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   } | null>(null)
   const [detailSource, setDetailSource] = useState<string | null>(null)
   const [forkBusy, setForkBusy] = useState(false)
+  const isAdmin = useAuthStore((s) => s.user?.role === 'admin')
+  // 超管发布的公共 Agent：全体可用，但只有超管能改（后端 ensure_can_touch_builtin 兜底）
+  const isSharedAgent = detailSource === 'shared'
 
   const setActiveView = useUIStore((s) => s.setActiveView)
 
@@ -285,6 +289,10 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   /** 内置资源不可直接写：保存前先确保有我的副本（就地复制到私有），返回可否继续 */
   const ensurePrivateCopy = async (): Promise<boolean> => {
     if (!agent) return false
+    if (isSharedAgent && !isAdmin) {
+      window.alert(`「${agent.name}」是超级用户发布的公共 Agent，不可直接修改。`)
+      return false
+    }
     if (!(forkStatus?.is_builtin && !forkStatus.has_copy)) return true
     const ok = window.confirm(
       `「${agent.name}」是内置 Agent（随系统分发，不可直接修改）。\n\n` +
@@ -323,6 +331,10 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
 
   const handleEditInEditor = async () => {
     if (!agent) return
+    if (isSharedAgent && !isAdmin) {
+      window.alert(`「${agent.name}」是超级用户发布的公共 Agent，不可直接修改。`)
+      return
+    }
     // 内置 Agent 不可直接修改（改了就是改 git 里的系统文件）：
     // 先复制为我的副本，编辑落私有，内置不受影响（方案 C）
     if (forkStatus?.is_builtin && !forkStatus.has_copy) {
@@ -394,6 +406,9 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
       return forkStatus.has_copy
         ? { label: '我的副本', cls: 'bg-maia-warning-bg text-maia-warning border-maia-warning/20', title: '已复制为私有副本：编辑与运行都用副本，内置版本不受影响' }
         : { label: '内置', cls: 'bg-maia-sidebar-active text-maia-text-secondary border-maia-border', title: '内置 Agent（随系统分发）：要修改请先复制为我的副本' }
+    }
+    if (detailSource === 'shared') {
+      return { label: '公共', cls: 'bg-maia-accent/10 text-maia-accent border-maia-accent-border', title: '超级用户发布：全体用户可用（仅超级用户可修改）' }
     }
     if (detailSource === 'private' || forkStatus?.has_copy) {
       return { label: '我的 Agent', cls: 'bg-maia-success-bg text-maia-success border-maia-success/20', title: '我创建的 Agent（私有目录）' }

@@ -282,6 +282,93 @@ def test_chat_request_drops_client_user_id():
     assert not hasattr(req, "user_id")
 
 
+# ── Agent 可见性 ──
+
+def _register_agent(client, token, agent_id):
+    return client.post(
+        "/api/agent/register", headers=_bearer(token),
+        json={
+            "specMd": f"---\nid: {agent_id}\nname: {agent_id}\nrole: task\n---\n\n# {agent_id}\n",
+            "agentId": agent_id, "agentName": agent_id, "role": "task",
+        },
+    )
+
+
+def _make_bob():
+    from core.auth import authenticate, create_user, issue_token
+    create_user("bob", "bob-password")
+    return issue_token(authenticate("bob", "bob-password"))
+
+
+def test_normal_user_agent_is_private(client, tokens):
+    """普通用户创建的 Agent 仅自己可见/可用，别人一律 404。"""
+    bob = _make_bob()
+    r = _register_agent(client, tokens["alice"], "agent-alice")
+    assert r.status_code == 200, r.text
+    assert r.json()["entry"]["visibility"] == "private"
+
+    # alice 自己正常
+    assert client.get("/api/agent/agent-alice", headers=_bearer(tokens["alice"])).status_code == 200
+
+    # bob：列表里没有、直取 404、起停删一律 404
+    ids = [a["id"] for a in client.get("/api/agent/list", headers=_bearer(bob)).json()["agents"]]
+    assert "agent-alice" not in ids
+    assert client.get("/api/agent/agent-alice", headers=_bearer(bob)).status_code == 404
+    for path in ("/api/agent/agent-alice/start", "/api/agent/agent-alice/restart"):
+        assert client.post(path, headers=_bearer(bob)).status_code == 404, path
+    assert client.post("/api/agent/agent-alice/execute", headers=_bearer(bob),
+                       json={"content": "x"}).status_code == 404
+    assert client.delete("/api/agent/agent-alice", headers=_bearer(bob)).status_code == 404
+
+
+def test_superuser_agent_is_public(client, tokens):
+    """超管创建的 Agent 供全员使用。"""
+    bob = _make_bob()
+    r = _register_agent(client, tokens["root"], "agent-root")
+    assert r.status_code == 200, r.text
+    assert r.json()["entry"]["visibility"] == "public"
+
+    ids = [a["id"] for a in client.get("/api/agent/list", headers=_bearer(bob)).json()["agents"]]
+    assert "agent-root" in ids
+    assert client.get("/api/agent/agent-root", headers=_bearer(bob)).status_code == 200
+
+
+def test_builtin_agent_visible_to_normal_user(client, tokens):
+    """内置 Agent（随仓库分发）对所有人可见，不因新规则消失。"""
+    entry = client.get("/api/agent/orchestrator-agent", headers=_bearer(tokens["alice"]))
+    assert entry.status_code == 200, entry.text
+    assert entry.json()["id"] == "orchestrator-agent"
+
+
+def test_superuser_agent_written_to_shared_root(client, tokens):
+    """超管发布的 Agent 落共享根——私有根是每用户独立的，不共享就没人读得到。"""
+    import json as _json
+    from core.resource import paths
+
+    assert _register_agent(client, tokens["root"], "agent-shared-root").status_code == 200
+
+    shared_reg = paths.shared_root() / "agents" / "registry.json"
+    assert shared_reg.exists()
+    ids = [e["id"] for e in _json.loads(shared_reg.read_text(encoding="utf-8"))]
+    assert "agent-shared-root" in ids
+
+    # 不能落在超管自己的私有根里（那样其他用户看不到）
+    private_reg = paths.private_root("0") / "agents" / "registry.json"
+    if private_reg.exists():
+        assert "agent-shared-root" not in [
+            e["id"] for e in _json.loads(private_reg.read_text(encoding="utf-8"))
+        ]
+
+
+def test_normal_user_cannot_modify_shared_agent(client, tokens):
+    """共享 Agent 只有超管能改：普通用户保存规范 403。"""
+    bob = _make_bob()
+    assert _register_agent(client, tokens["root"], "agent-no-edit").status_code == 200
+    r = client.post("/api/agent/agent-no-edit/save-spec", headers=_bearer(bob),
+                    json={"spec_md": "# 改\n"})
+    assert r.status_code == 403, (r.status_code, r.text)
+
+
 # ── 数据集归属隔离 ──
 
 def test_dataset_endpoints_enforce_ownership(client, tokens):

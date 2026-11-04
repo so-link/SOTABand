@@ -148,8 +148,13 @@ async def _run_agent(job: dict[str, Any], timeout: float) -> tuple[str, str, Any
 
 # ── 目标资源校验（供 API 层复用） ──
 
-async def check_target(kind: str, target_id: str) -> tuple[bool, str]:
-    """校验任务目标存在且可用。返回 (ok, 错误信息)。"""
+async def check_target(kind: str, target_id: str,
+                       owner: str | None = None) -> tuple[bool, str]:
+    """校验任务目标存在且可用。返回 (ok, 错误信息)。
+
+    ``owner`` 传入时一并校验 Agent 可见性：普通用户创建的私有 Agent
+    不能挂到别人的定时任务上。
+    """
     if kind == "tool":
         from core.resource.registry.tool_registry import ToolRegistry
         entry = await ToolRegistry().get(target_id)
@@ -160,8 +165,9 @@ async def check_target(kind: str, target_id: str) -> tuple[bool, str]:
         return True, ""
     if kind == "agent":
         from core.resource.registry.agent_registry import AgentRegistry
-        entry = await AgentRegistry().get(target_id)
-        if not entry:
+        reg = AgentRegistry()
+        entry = await reg.get(target_id)
+        if not entry or (owner and not reg.is_visible(entry, owner)):
             return False, f"Agent 不存在: {target_id}"
         return True, ""
     return False, f"未知的任务类型: {kind}"

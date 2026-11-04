@@ -766,11 +766,19 @@ async def create_agent(args: CreateAgentArgs, ctx: CallContext) -> dict:
     except Exception:
         pass
     reg = agent_routes.registry
+    # 可见性按创建者角色：超管建的供全员使用，普通用户建的仅自己可用
+    # （与 REST 注册接口同一规则，避免对话入口绕过）
+    from core.chat_control.gateway import _role_of
+    from core.user_context import VISIBILITY_PRIVATE, VISIBILITY_PUBLIC
+
+    visibility = (VISIBILITY_PUBLIC if _role_of(ctx.owner) == "admin"
+                  else VISIBILITY_PRIVATE)
     registered_id = await reg.register({
         "id": agent_id, "name": name, "version": "0.1.0", "role": role,
         "raw_md": spec_md, "tags": [], "required_tools": tool_ids,
+        "visibility": visibility,
     })
-    impl_dir = reg._get_impl_dir() / registered_id
+    impl_dir = reg._get_impl_dir(visibility) / registered_id
     impl_dir.mkdir(parents=True, exist_ok=True)
     (impl_dir / "agent.py").write_text(code, encoding="utf-8")
     (impl_dir / "spec.md").write_text(spec_md, encoding="utf-8")
@@ -793,7 +801,7 @@ class AgentIdArgs(StrictArgs):
 async def start_agent(args: AgentIdArgs, ctx: CallContext) -> dict:
     from core.agent.factory import agent_factory
     entry = await _agents.get(args.agent_id)
-    if not entry:
+    if not entry or not _agents.is_visible(entry, ctx.owner):
         return {"error": f"Agent 不存在: {args.agent_id}"}
     r = await agent_factory.start(args.agent_id)
     if r.get("status") not in (None, "success", "started", "running", "already_running"):
@@ -808,6 +816,9 @@ async def start_agent(args: AgentIdArgs, ctx: CallContext) -> dict:
 )
 async def stop_agent(args: AgentIdArgs, ctx: CallContext) -> dict:
     from core.agent.factory import agent_factory
+    entry = await _agents.get(args.agent_id)
+    if not entry or not _agents.is_visible(entry, ctx.owner):
+        return {"error": f"Agent 不存在: {args.agent_id}"}
     return await agent_factory.stop(args.agent_id)
 
 
@@ -858,7 +869,7 @@ async def create_cron_job(args: CreateCronJobArgs, ctx: CallContext) -> dict:
         cron, tz, ts = runner.validate_job_payload(payload)
     except CronError as e:
         return {"error": f"cron 校验失败: {e}"}
-    ok, msg = await runner.check_target(args.kind, args.target_id)
+    ok, msg = await runner.check_target(args.kind, args.target_id, owner=ctx.owner)
     if not ok:
         return {"error": msg}
     job = cron_store.create({
@@ -914,7 +925,8 @@ async def update_cron_job(args: UpdateCronJobArgs, ctx: CallContext) -> dict:
         cron, tz, ts = runner.validate_job_payload(merged)
     except CronError as e:
         return {"error": f"cron 校验失败: {e}"}
-    ok, msg = await runner.check_target(merged["kind"], merged["target_id"])
+    ok, msg = await runner.check_target(merged["kind"], merged["target_id"],
+                                        owner=ctx.owner)
     if not ok:
         return {"error": msg}
     updates.update({"cron": cron, "timezone": tz, "next_run_at": ts})
@@ -1035,25 +1047,28 @@ async def delete_resource(args: DeleteResourceArgs, ctx: CallContext) -> dict:
         return {"deleted": rid, "type": "model"}
 
     if rtype == "agent":
-        from app.api.deps import current_role
+        from core.chat_control.gateway import _role_of
         from core.resource import fork as _fork
 
         entry = await _agents.get(rid)
-        if not entry:
+        if not entry or not _agents.is_visible(entry, ctx.owner):
             return {"error": f"Agent 不存在: {rid}"}
         from core.agent.factory import agent_factory
 
         source = entry.get("source")
         await agent_factory.stop(rid)
 
-        if source != "private":
-            # 内置层：仅超级管理员可删，只移除内置 registry 条目——内置文件
-            # 随 git 分发不落删除，重新注册即可挂回（与 REST 侧一致）
-            if current_role() != "admin":
-                return {"error": f"'{rid}' 是内置 Agent，仅超级用户可删除；"
+        if source in ("builtin", "shared"):
+            # 内置/共享层：仅超级管理员可删（角色取 ctx.owner 回表查——
+            # 网关可能没有请求级 contextvar）。内置文件随 git 分发不落删除；
+            # 共享文件是超管发布的运行期资产，删除后对所有用户生效。
+            if _role_of(ctx.owner) != "admin":
+                return {"error": f"'{rid}' 是系统级 Agent，仅超级用户可删除；"
                                  "你可以先「复制为我的副本」再管理自己的版本"}
-            await _agents.unregister(rid, scope="builtin")
-            return {"deleted": rid, "type": "agent", "scope": "builtin"}
+            if source == "shared":
+                _fork.drop_copy("agents", rid, root="shared")
+            await _agents.unregister(rid, scope=source)
+            return {"deleted": rid, "type": "agent", "scope": source}
 
         # 私有层：删文件（definitions/<id>* + implementations/<id>/，含
         # -demand.md；drop_copy 对缺失路径幂等）+ 删私有条目
