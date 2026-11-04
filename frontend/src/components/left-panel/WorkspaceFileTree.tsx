@@ -67,9 +67,10 @@ export function WorkspaceFileTree() {
 
   const handleDragStart = (e: React.DragEvent, node: FileTreeNode) => {
     // 数据集节点不能当文件附件（fileId 是 dataset:<id>，非平台文件）：
-    // effectAllowed='none' → 浏览器显示 X（不可放置）光标，且不写拖拽数据
+    // 显示 X 光标 + 写标记进拖拽数据，让对话侧提示「数据集暂不支持」
     if (node.fileId?.startsWith('dataset:')) {
       e.dataTransfer.effectAllowed = 'none'
+      e.dataTransfer.setData('application/x-sotaband-dataset', node.fileId)
       return
     }
     e.dataTransfer.setData('application/json', JSON.stringify(node))

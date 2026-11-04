@@ -1,10 +1,10 @@
-import { useState, type DragEvent } from 'react'
+import { useState, useEffect, type DragEvent } from 'react'
 import { useChatStore } from '@/stores/chat-store'
 import { MessageList } from './MessageList'
 import { ChatInput } from './ChatInput'
 import { ChatEmptyState } from './ChatEmptyState'
 import { MessageSquarePlus, Loader2 } from 'lucide-react'
-import { extractDraggedNode, attachDroppedOsFiles } from '@/lib/file-dnd'
+import { extractDraggedPayload, attachDroppedOsFiles } from '@/lib/file-dnd'
 
 export function ChatView() {
   const messages = useChatStore((s) => s.messages)
@@ -12,24 +12,39 @@ export function ChatView() {
   const clearMessages = useChatStore((s) => s.clearMessages)
   const addPathRef = useChatStore((s) => s.addPathRef)
   const [isDragOver, setIsDragOver] = useState(false)
+  const [isDatasetDrag, setIsDatasetDrag] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
 
-  // 整个对话界面都是 drop 目标：拖文件到消息列表/输入框任意位置都能附上
+  // dragenter 立即响应（dragover 在部分浏览器对自定义 MIME 有节流，
+  // 且子元素间移动会反复触发 dragleave 导致提示闪烁）
+  const handleDragEnter = (e: DragEvent) => {
+    if (
+      e.dataTransfer.types.includes('Files') ||
+      e.dataTransfer.types.includes('application/json') ||
+      e.dataTransfer.types.includes('application/x-sotaband-dataset')
+    ) {
+      e.preventDefault()
+      setIsDragOver(true)
+      setIsDatasetDrag(e.dataTransfer.types.includes('application/x-sotaband-dataset'))
+    }
+  }
   const handleDragOver = (e: DragEvent) => {
+    // dragover 必须 preventDefault，否则 drop 不触发；无条件允许放置
     e.preventDefault()
     e.dataTransfer.dropEffect = 'copy'
-    setIsDragOver(true)
   }
   const handleDragLeave = (e: DragEvent) => {
-    // 仅在真正离开对话区域时取消高亮（避免子元素间移动导致闪烁）
+    // 仅在真正离开对话区域时取消高亮
     if (e.relatedTarget && e.currentTarget.contains(e.relatedTarget as Node)) return
     setIsDragOver(false)
+    setIsDatasetDrag(false)
   }
   const handleDrop = (e: DragEvent) => {
     e.preventDefault()
     setIsDragOver(false)
+    setIsDatasetDrag(false)
     if (isSending) return
-    const node = extractDraggedNode(e)
+    const { node } = extractDraggedPayload(e)
     if (node?.fileId) {
       addPathRef({ name: node.name, fileId: node.fileId })
       return
@@ -42,9 +57,20 @@ export function ChatView() {
     }
   }
 
+  // 拖拽结束时兜底清除高亮（drop 之外，拖出窗口也会触发 dragend 之外的路径）
+  useEffect(() => {
+    const clear = () => {
+      setIsDragOver(false)
+      setIsDatasetDrag(false)
+    }
+    window.addEventListener('dragend', clear)
+    return () => window.removeEventListener('dragend', clear)
+  }, [])
+
   return (
     <div
-      className={`relative flex flex-col h-full ${isDragOver ? 'ring-2 ring-inset ring-maia-accent' : ''}`}
+      className="relative flex flex-col h-full"
+      onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -79,11 +105,12 @@ export function ChatView() {
 
       <ChatInput />
 
-      {/* 拖动文件进入对话时的半透明模态提示（不拦截 drop 事件） */}
+      {/* 拖拽提示浮层（最高 z，盖住输入框白底，避免高亮框被"切断"） */}
       {isDragOver && (
-        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-maia-accent/10">
-          <span className="rounded-lg border border-maia-accent bg-maia-surface px-4 py-2 text-[14px] text-maia-accent shadow-lg">
-            松开以附加文件
+        <div className="pointer-events-none absolute inset-0 z-[50] flex items-center justify-center">
+          <div className="absolute inset-0 border-2 border-dashed border-maia-accent/70 bg-maia-accent/5 rounded" />
+          <span className="relative rounded-lg border border-maia-accent bg-maia-surface px-4 py-2 text-[14px] text-maia-accent shadow-lg">
+            {isDatasetDrag ? '数据集暂不支持拖入对话（请到资源空间引用）' : '松开以附加文件'}
           </span>
         </div>
       )}
