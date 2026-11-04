@@ -278,3 +278,37 @@ def test_build_user_message_binary_only_metadata():
     assert "img.png" in msg
     assert "二进制" in msg or "无法直接展示" in msg
     assert rec["file_id"] in msg
+
+
+def test_build_user_message_large_file_head():
+    """大文件（>1MB）文本：只读头部，提示用工具处理完整内容。"""
+    agent_mod = pytest.importorskip(
+        "resources.agents.implementations.interactive_agent.agent")
+    InteractiveAgent = agent_mod.InteractiveAgent
+    content = b"col1,col2,col3\n" + b"1,2,3\n" * 300000  # ~1.2MB
+    p = _make_file("big.csv", content)
+    rec = user_files.register(p)
+
+    agent = object.__new__(InteractiveAgent)
+    msg = agent._build_user_message(
+        "分析这个大文件",
+        [{"fileName": "big.csv", "fileId": rec["file_id"],
+          "format": "csv", "fileSize": len(content)}],
+    )
+    assert "col1,col2,col3" in msg
+    assert "大文件" in msg and "工具处理" in msg
+
+
+def test_workspace_tool_schemas():
+    """工作空间工具应转成 function calling schema（name=工具 id，含参数）。"""
+    agent_mod = pytest.importorskip(
+        "resources.agents.implementations.interactive_agent.agent")
+    InteractiveAgent = agent_mod.InteractiveAgent
+    agent = object.__new__(InteractiveAgent)
+    schemas = agent._workspace_tool_schemas(None)
+    assert schemas, "工具注册表应能转出 function calling schema"
+    s = schemas[0]
+    assert s["type"] == "function"
+    assert s["function"]["name"]
+    assert "parameters" in s["function"]
+    assert s["function"]["parameters"]["type"] == "object"

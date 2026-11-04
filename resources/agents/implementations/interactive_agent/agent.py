@@ -536,8 +536,13 @@ class InteractiveAgent(BaseAgent):
         try:
             full_response = ""
             platform_tools = self._platform_tool_schemas()
+            # 工作空间工具并入 function calling：LLM 想调用时能真正发起
+            # tool_call（否则只能写成文本，被当普通回复透传）
+            workspace_tools = self._workspace_tool_schemas(workspace_tool_ids)
+            all_tools = platform_tools + workspace_tools
+            workspace_names = {t["function"]["name"] for t in workspace_tools}
 
-            if not platform_tools:
+            if not all_tools:
                 # 平台控制不可用（熔断/导入失败）→ 纯文本流式，行为与旧版完全一致
                 async for token in self.llm.chat_stream(
                     messages=history,
@@ -554,7 +559,7 @@ class InteractiveAgent(BaseAgent):
                     tool_calls = None
                     async for kind, payload in self.llm.chat_stream_with_tools(
                         messages=history,
-                        tools=platform_tools,
+                        tools=all_tools,
                         temperature=0.1,
                         max_tokens=self.config.get("max_tokens", 100000),
                     ):
@@ -585,7 +590,10 @@ class InteractiveAgent(BaseAgent):
                     })
                     for i, tc in enumerate(tool_calls):
                         call_id = tc.get("id") or f"call_{i}"
-                        result = await self._run_platform_tool(tc, ctx, session_key)
+                        if tc.get("name") in workspace_names:
+                            result = await self._run_workspace_tool(tc, ctx, session_key)
+                        else:
+                            result = await self._run_platform_tool(tc, ctx, session_key)
                         if result.get("status") == "pending" and result.get("confirm"):
                             # 写操作 → 下发确认卡片，本轮不执行
                             yield {
@@ -652,6 +660,79 @@ class InteractiveAgent(BaseAgent):
             return tool_schemas()
         except Exception:
             return []
+
+    def _workspace_tool_schemas(self, workspace_tool_ids: list[str] = None) -> list[dict]:
+        """工作空间工具的 function calling schema（与平台工具并存）。
+
+        工具注册只有 param_meta（无 JSON Schema），这里转成 OpenAI function
+        calling 格式；工具 id 作为 name（唯一、稳定，不会被 LLM 改写）。
+        之前工作空间工具只写在 system prompt 文本里，LLM 想调用只能输出文本
+        —— 被当普通回复透传。并入 schema 后才能真正发起 tool_call。
+        """
+        try:
+            from core.resource.registry.tool_registry import ToolRegistry
+            reg = ToolRegistry()
+            tools = reg._read()
+            active = [t for t in tools if t.get("status") == "active"]
+            if workspace_tool_ids:
+                ws_set = set(workspace_tool_ids)
+                active = [t for t in active if t.get("id") in ws_set]
+
+            type_map = {
+                "string": "string", "str": "string",
+                "int": "integer", "integer": "integer",
+                "float": "number", "number": "number",
+                "bool": "boolean", "boolean": "boolean",
+                "list": "array", "array": "array",
+                "dict": "object", "object": "object", "json": "object",
+            }
+            schemas = []
+            for t in active:
+                properties = {}
+                required = []
+                for p in t.get("param_meta") or []:
+                    jtype = type_map.get((p.get("type") or "string").lower(), "string")
+                    properties[p["name"]] = {"type": jtype, "description": p.get("desc", "")}
+                    if p.get("required"):
+                        required.append(p["name"])
+                desc = t.get("description") or t.get("name", "")
+                if t.get("tags"):
+                    desc = f"{desc}（标签: {', '.join(t['tags'][:3])}）"
+                schemas.append({
+                    "type": "function",
+                    "function": {
+                        "name": t["id"],
+                        "description": desc,
+                        "parameters": {
+                            "type": "object",
+                            "properties": properties,
+                            "required": required,
+                        },
+                    },
+                })
+            return schemas
+        except Exception:
+            return []
+
+    async def _run_workspace_tool(self, tc: dict, ctx: AgentContext, session_key: str) -> dict:
+        """执行 LLM function calling 指定的工作空间工具（ToolExecutor）。
+
+        LLM 已给出 arguments（含 file_id），ToolExecutor 会把 f_xxx 解析回路径。
+        """
+        tool_id = str(tc.get("name") or "")
+        args = tc.get("arguments")
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except Exception:
+                return {"status": "error", "error": "工具参数不是合法 JSON，请生成正确参数后重试"}
+        if not isinstance(args, dict):
+            args = {}
+        try:
+            from core.executor.tool_executor import ToolExecutor
+            return await ToolExecutor.execute(tool_id=tool_id, params=args, timeout=None)
+        except Exception as e:
+            return {"status": "failed", "message": f"工具执行异常: {str(e)[:300]}"}
 
     async def _run_platform_tool(self, tc: dict, ctx: AgentContext, session_key: str) -> dict:
         """执行单个平台工具调用，返回结构化结果（不抛异常）。
@@ -1687,13 +1768,15 @@ class InteractiveAgent(BaseAgent):
 
         return "\n".join(parts)
 
-    def _read_file_preview(self, file_id: str, limit: int = 100_000):
-        """读取文本文件内容预览（供 LLM 理解文件）；非文本/大文件返回 None。
+    def _read_file_preview(self, file_id: str, limit: int = 100_000, head: int = 10_000):
+        """读取文本文件内容预览（供 LLM 理解文件）；非文本返回 None。
 
+        - 小文件（≤1MB）：读全文，超 limit 截断；
+        - 大文件（>1MB）：只读头部 head 字节，让 LLM 看到表头/结构，
+          完整内容交给工具处理（避免撑爆上下文）。
         只读用户登记表里的文件（file_id → 当前用户目录），不碰任意路径。
         """
         try:
-            from pathlib import Path
             from core import user_files
             path = user_files.resolve(file_id)
             text_exts = {
@@ -1703,8 +1786,11 @@ class InteractiveAgent(BaseAgent):
             }
             if path.suffix.lower() not in text_exts:
                 return None
-            if path.stat().st_size > 1024 * 1024:  # >1MB 不读，避免撑爆上下文
-                return None
+            size = path.stat().st_size
+            if size > 1024 * 1024:
+                with open(path, "r", encoding="utf-8", errors="replace") as f:
+                    text = f.read(head)
+                return f"{text}\n…（大文件 {size // 1024}KB，仅显示前 {head // 1024}KB，完整内容请用工具处理）"
             text = path.read_text(encoding="utf-8", errors="replace")
             if len(text) > limit:
                 text = text[:limit] + "\n…（内容过长，已截断）"
