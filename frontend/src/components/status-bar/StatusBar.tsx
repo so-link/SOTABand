@@ -46,7 +46,9 @@ export function StatusBar() {
     <footer className="flex h-7 items-center justify-between gap-4 px-3 text-[12px] shrink-0 select-none glass border-t border-white/[0.03]">
       <div className="flex items-center gap-1.5 min-w-0">
         <span className="h-1.5 w-1.5 rounded-full bg-maia-success shrink-0" />
-        <span className="text-maia-text-muted truncate">就绪</span>
+        <span className="text-maia-text-muted truncate" title="系统运行状态：绿色表示服务在线可用">
+          就绪
+        </span>
       </div>
 
       {/* 中间：动态 tip 轮播条 */}
