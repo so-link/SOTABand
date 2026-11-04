@@ -738,13 +738,7 @@ async def stop_agent(agent_id: str):
 @router.post("/{agent_id}/restart")
 async def restart_agent(agent_id: str):
     """重启 Agent 子进程"""
-    result = await agent_factory.restart(agent_id)
-    if result.get("status") == "failed":
-        raise HTTPException(
-            status_code=500,
-            detail=result.get("error", "Agent 重启失败"),
-        )
-    return result
+    return await agent_factory.restart(agent_id)
 
 
 @router.delete("/{agent_id}")
