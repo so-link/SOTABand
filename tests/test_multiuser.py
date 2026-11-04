@@ -44,7 +44,6 @@ def isolate(tmp_path, monkeypatch):
     monkeypatch.setattr(auth_mod, "USERS_DIR", tmp_path / "auth")
     monkeypatch.setattr(auth_mod, "USERS_FILE", tmp_path / "auth" / "users.json")
     monkeypatch.setattr(auth_mod, "SECRET_FILE", tmp_path / "auth" / "secret.key")
-    monkeypatch.setattr(auth_mod, "PROFILE_FILE", tmp_path / "auth" / "superuser.json")
     monkeypatch.delenv("SOTABAND_AUTH_SECRET", raising=False)
     monkeypatch.delenv("SOTABAND_USER_ID", raising=False)
 
@@ -107,8 +106,11 @@ def test_superuser_password_never_in_users_file(superuser_env):
 
     create_user("alice", "alice-password")
     raw = json.loads(USERS_FILE.read_text(encoding="utf-8"))
-    # 超管不入库：文件里只有普通用户，且任何人都不该有明文/散列外泄
-    assert [u["username"] for u in raw] == ["alice"]
+    # 超管行在表里（与普通用户同表），但绝不携带密码散列——
+    # 密码只在 .env，验证走独立通道
+    su_row = next(u for u in raw if str(u.get("id")) == "0")
+    assert "password" not in su_row
+    assert all("password" not in u for u in raw if str(u.get("id")) != "1000")
 
 
 # ── 普通用户 uid 分配 ──
@@ -161,21 +163,22 @@ def test_rename_keeps_uid(superuser_env):
     assert authenticate("alice", "alice-password") is None
 
 
-def test_rename_superuser_via_override(superuser_env):
-    """超管可在界面改名：写覆盖层文件，不碰 .env、不入库，登录名随之生效。"""
+def test_rename_superuser_like_normal_user(superuser_env):
+    """超管改名与普通用户同路径：改用户表里 id=0 那一行，登录名随之生效。"""
     renamed = rename_user(SUPERUSER_UID, "admin2")
     assert renamed["id"] == SUPERUSER_UID
     assert renamed["username"] == "admin2"
-    assert renamed["display_name"] == "admin2"
+    # 显示名不跟随改名（与普通用户语义一致），仍是种入时的初值
+    assert renamed["display_name"] == "root"
     # 新名字可登录（密码仍是 .env 里那个），旧名字失效
     assert authenticate("admin2", "sup3r-secret-pw") is not None
     assert authenticate("root", "sup3r-secret-pw") is None
-    # 覆盖层不污染普通用户表
-    assert "admin2" not in json.dumps(
-        [u["username"] for u in list_users() if u["id"] != SUPERUSER_UID])
+    # 改名后新名字被占用，普通用户不能再创建同名账号
+    with pytest.raises(AuthError):
+        create_user("admin2", "some-password-1")
 
 
-def test_superuser_display_name_override(superuser_env):
+def test_superuser_display_name_update(superuser_env):
     from core.auth import set_display_name
 
     u = set_display_name(SUPERUSER_UID, "大管家")

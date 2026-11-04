@@ -17,8 +17,8 @@
 
 - **超级用户 uid = "0"**（目录 /root/SB-USER/0/）：类比 Linux root，
   沿用迁移脚本已经落地的 0 号目录，历史数据（对话/私有资源/上传/工作区
-  清单）天然归属超管，无需再搬一次。凭据来自 .env：
-  ``SOTABAND_ROOT_USERNAME``（默认 root）/ ``SOTABAND_ROOT_PASSWORD``。
+  清单）天然归属超管，无需再搬一次。密码来自 .env
+  ``SOTABAND_ROOT_PASSWORD``；用户名/显示名在用户表（见 core.auth）。
 - **普通用户 uid 从 1000 起**（类比 Linux 普通账号），由系统顺序分配、
   不可修改，目录如 /root/SB-USER/1000/。
 

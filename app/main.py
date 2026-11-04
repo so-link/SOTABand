@@ -3,7 +3,6 @@
 系统启动时自动加载交互 Agent，等待用户输入。
 """
 
-import os
 from contextlib import asynccontextmanager
 from urllib.parse import urlsplit
 
@@ -36,11 +35,11 @@ from app.api.deps import require_superuser
 # 单用户兼容模式下的匿名身份 = 超级用户（uid=0）。
 # 显式注入而不是"不设置身份"，是为了让 require_superuser、资源 owner、
 # 用户目录解析三条链路读到同一个值——否则各处会各自回退，行为难以推断。
-ANONYMOUS_SUPERUSER = AuthUser(
-    id=SUPERUSER_UID,
-    username=os.getenv("SOTABAND_ROOT_USERNAME", "").strip() or "root",
-    role="admin",
-)
+# 每次请求现取而不是启动时快照：超管的用户名存在用户表里、可在界面上修改，
+# 快照会让改名后中间件仍报旧名。
+def _anonymous_superuser() -> AuthUser:
+    su = superuser()
+    return AuthUser(id=SUPERUSER_UID, username=su.get("username") or "root", role="admin")
 
 
 @asynccontextmanager
@@ -238,7 +237,7 @@ async def auth_identity_middleware(request: Request, call_next):
                 return JSONResponse(status_code=401, content={"detail": "该操作需要登录"})
         else:
             # 单用户模式：匿名即以超管身份执行（require_superuser 也据此放行）
-            token = set_current_user(ANONYMOUS_SUPERUSER)
+            token = set_current_user(_anonymous_superuser())
             try:
                 return await call_next(request)
             finally:

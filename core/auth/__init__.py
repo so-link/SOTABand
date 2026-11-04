@@ -73,54 +73,44 @@ class AuthError(Exception):
         self.status = status
 
 
-# ── 超级用户（.env 驱动，不入库；用户名/显示名可在界面覆盖） ──
-
-# 超级用户默认凭据来自 .env，不入库；但允许在界面上改「用户名/显示名」——
-# 这类改名不能写回 .env（那是双头写、重启即丢），因此单独持久化一个「覆盖层」
-# 文件 superuser.json。uid 恒为 0（目录名不变），只有展示用的名字可被覆盖。
-PROFILE_FILE = USERS_DIR / "superuser.json"
-
-
-def _load_superuser_profile() -> dict:
-    if not PROFILE_FILE.exists():
-        return {}
-    try:
-        data = json.loads(PROFILE_FILE.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except (OSError, json.JSONDecodeError):
-        return {}
-
-
-def _save_superuser_profile(profile: dict) -> None:
-    USERS_DIR.mkdir(parents=True, exist_ok=True)
-    write_json_atomic(PROFILE_FILE, profile)
-
+# ── 超级用户（用户名/显示名在用户表，密码只在 .env） ──
 
 def superuser_password_configured() -> bool:
     return bool(os.getenv("SOTABAND_ROOT_PASSWORD", "").strip())
 
 
-def superuser() -> dict:
-    """超级用户身份（始终可得，用于展示与占用用户名）。
+def _seed_superuser_row(users: list[dict]) -> dict:
+    """首次使用时把超管行种进用户表（id=0, builtin=True）。
 
-    与"能否用密码登录"是两件事：单用户模式（未配置密码）下匿名请求本身就是
-    超级用户，用户管理页必须能看到这一行并把它标成内置只读——若此时返回
-    None，列表里就没有超管行，反而能看见 alice 这类普通用户，看起来像
-    "超级用户不存在"。是否可密码登录由 ``_verify_superuser`` 把门。
-
-    用户名/显示名优先取界面覆盖层（superuser.json），没有覆盖才回退 .env。
+    用户名初值取 ``SOTABAND_ROOT_USERNAME``（留空=root）；此后 .env 只决定
+    **密码**，用户名/显示名以表里这一行为准，界面上与普通用户一样可改。
+    行内**不存密码散列**：超管密码只在 .env，验证走 ``_verify_superuser``
+    独立通道，表里即使被手工塞入散列也永不被使用（见 authenticate）。
     """
-    prof = _load_superuser_profile()
-    username = (prof.get("username") or "").strip() \
-        or os.getenv("SOTABAND_ROOT_USERNAME", "").strip() or "root"
-    display_name = (prof.get("display_name") or "").strip() or username
-    return {
+    username = os.getenv("SOTABAND_ROOT_USERNAME", "").strip() or "root"
+    row = {
         "id": SUPERUSER_UID,
         "username": username,
-        "display_name": display_name,
+        "display_name": username,
         "role": "admin",
         "builtin": True,
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
+    users.insert(0, row)
+    _save_users(users)
+    return row
+
+
+def superuser() -> dict:
+    """超级用户行（普通用户形状的公开视图，缺行时先种入）。
+
+    与"能否用密码登录"是两件事：单用户模式（未配置密码）下匿名请求本身就是
+    超级用户，用户管理页必须能看到这一行并把它标成内置——若此时返回
+    None，列表里就没有超管行，看起来像"超级用户不存在"。
+    是否可密码登录由 ``_verify_superuser`` 把门。
+    """
+    row = next((u for u in _load_users() if str(u.get("id")) == SUPERUSER_UID), {})
+    return _public(row)
 
 
 def _verify_superuser(password: str) -> dict | None:
@@ -136,7 +126,7 @@ def _verify_superuser(password: str) -> dict | None:
 
 # ── 存储 ──
 
-def _load_users() -> list[dict]:
+def _raw_load_users() -> list[dict]:
     if not USERS_FILE.exists():
         return []
     try:
@@ -144,6 +134,18 @@ def _load_users() -> list[dict]:
         return data if isinstance(data, list) else []
     except (OSError, json.JSONDecodeError):
         return []
+
+
+def _load_users() -> list[dict]:
+    """读用户表，并保证超管行（id=0）存在（首次自动种入）。
+
+    超管行是表里的普通一行（无密码散列），因此所有读写路径天然覆盖它；
+    种入动作放在这里而不是各调用点，避免遗漏。
+    """
+    users = _raw_load_users()
+    if not any(str(u.get("id")) == SUPERUSER_UID for u in users if isinstance(u, dict)):
+        _seed_superuser_row(users)  # 原地 insert(0) 并落盘
+    return users
 
 
 def _save_users(users: list[dict]) -> None:
@@ -156,10 +158,10 @@ def _public(entry: dict) -> dict:
 
 
 def _raw_by_name(username: str) -> dict | None:
-    """含密码散列的原始条目——**仅供本模块校验密码使用**。"""
-    su = superuser()
-    if su and su["username"] == username:
-        return su
+    """含密码散列的原始条目——**仅供本模块校验密码使用**。
+
+    超管行已在表里（无密码散列），无需特判。
+    """
     for u in _load_users():
         if u.get("username") == username:
             return u
@@ -168,9 +170,6 @@ def _raw_by_name(username: str) -> dict | None:
 
 def _raw_by_id(user_id: str) -> dict | None:
     user_id = str(user_id)
-    su = superuser()
-    if su and su["id"] == user_id:
-        return su
     for u in _load_users():
         if str(u.get("id")) == user_id:
             return u
@@ -190,7 +189,10 @@ def get_user_by_id(user_id: str) -> dict | None:
 
 def list_users() -> list[dict]:
     """全部用户（超级用户在前），不含密码散列。"""
-    return [superuser()] + [_public(u) for u in _load_users()]
+    users = list(_load_users())
+    # 稳定排序：超管行置顶，其余保持表内顺序（种入在首、创建追加在尾）
+    users.sort(key=lambda u: str(u.get("id")) != SUPERUSER_UID)
+    return [_public(u) for u in users]
 
 
 def _next_uid(users: list[dict]) -> str:
@@ -250,9 +252,7 @@ def validate_password(password: str) -> str | None:
 
 
 def _assert_username_free(users: list[dict], username: str, exclude_uid: str = "") -> None:
-    su = superuser()
-    if su and su["username"] == username and su["id"] != exclude_uid:
-        raise AuthError(f"用户名 {username} 已被占用", 409)
+    # 超管行已在表里（users 来自 _load_users），循环覆盖全部账号
     for u in users:
         if u.get("username") == username and str(u.get("id")) != exclude_uid:
             raise AuthError(f"用户名 {username} 已存在", 409)
@@ -290,23 +290,16 @@ def create_user(username: str, password: str, display_name: str = "") -> dict:
 def rename_user(uid: str, new_username: str) -> dict:
     """改用户名。**只改名字不改 uid**——uid 是用户目录名，搬家不在本次范围。
 
-    超级用户走覆盖层文件（superuser.json），不写回 .env、不入库。
+    超管与普通用户同路径：都在用户表这一行上改名（超管行的密码不在表里，
+    登录名随本行 username 走）。
     """
     err = validate_username(new_username)
     if err:
         raise AuthError(err)
-    if str(uid) == SUPERUSER_UID:
-        su = superuser()
-        if su["username"] != new_username:
-            _assert_username_free(_load_users(), new_username, exclude_uid=str(uid))
-        prof = _load_superuser_profile()
-        prof["username"] = new_username
-        # 未显式设过显示名时，显示名跟随新用户名
-        if not prof.get("display_name"):
-            prof.pop("display_name", None)
-        _save_superuser_profile(prof)
-        return superuser()
     users = _load_users()
+    if next((u for u in users if str(u.get("id")) == str(uid)), None) is None:
+        # 超管行可能尚未种入（首次访问前就改名）：先种，保证 id=0 可改
+        _seed_superuser_row(users)
     target = next((u for u in users if str(u.get("id")) == str(uid)), None)
     if target is None:
         raise AuthError(f"用户不存在: {uid}", 404)
@@ -317,12 +310,9 @@ def rename_user(uid: str, new_username: str) -> dict:
 
 
 def set_display_name(uid: str, display_name: str) -> dict:
-    if str(uid) == SUPERUSER_UID:
-        prof = _load_superuser_profile()
-        prof["display_name"] = (display_name or superuser()["username"]).strip()[:64]
-        _save_superuser_profile(prof)
-        return superuser()
     users = _load_users()
+    if next((u for u in users if str(u.get("id")) == str(uid)), None) is None:
+        _seed_superuser_row(users)
     target = next((u for u in users if str(u.get("id")) == str(uid)), None)
     if target is None:
         raise AuthError(f"用户不存在: {uid}", 404)
@@ -388,7 +378,8 @@ def authenticate(username: str, password: str) -> dict | None:
         _hash_password(password)
         return None
     if entry.get("id") == SUPERUSER_UID:
-        # 超级用户只应通过 .env 命中；走到这里说明 .env 已改但库里留了旧号
+        # 超管只能经 .env 密码通道命中（上面 _verify_superuser）；
+        # 即使有人手工往超管行塞了散列，也不从普通散列通道通过（纵深防御）
         return None
     if not verify_password(password, entry):
         return None
