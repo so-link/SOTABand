@@ -51,8 +51,13 @@ def _assert_path_allowed(path: Path) -> None:
 # 上传文件存储根目录（用户目录：USER_HOME/uploads，每用户隔离）
 from core.user_paths import user_home as _user_home
 
-UPLOAD_ROOT = _user_home() / "uploads"
-UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+
+def _upload_root() -> Path:
+    """当前用户的上传根（每请求动态解析：导入期求值会把所有人固定到同一个用户）。"""
+    root = _user_home() / "uploads"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
 
 # ── 工作区间文件树 —— 后端持久化 ──
 # 「工作区间」里用户上传 / 导入 / 打开的文件与目录属于引擎状态，而非浏览器状态。
@@ -60,7 +65,10 @@ UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
 # 且后端完全无从知晓用户的工作现场。现在状态源是 USER_HOME/workspace_tree.json，
 # 前端 localStorage 仅作降级缓存（与工具空间 workspace_tools.json 同一范式）。
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-_WORKSPACE_TREE_FILE = _user_home() / "workspace_tree.json"
+
+
+def _workspace_tree_file() -> Path:
+    return _user_home() / "workspace_tree.json"
 
 
 class WorkspaceTreePayload(BaseModel):
@@ -68,9 +76,10 @@ class WorkspaceTreePayload(BaseModel):
 
 
 def _read_workspace_tree() -> dict | None:
+    tree_file = _workspace_tree_file()
     try:
-        if _WORKSPACE_TREE_FILE.exists():
-            data = _json.loads(_WORKSPACE_TREE_FILE.read_text(encoding="utf-8"))
+        if tree_file.exists():
+            data = _json.loads(tree_file.read_text(encoding="utf-8"))
             if isinstance(data, dict) and "root" in data:
                 return data["root"]
     except Exception:
@@ -79,8 +88,9 @@ def _read_workspace_tree() -> dict | None:
 
 
 def _write_workspace_tree(root: dict) -> None:
-    _WORKSPACE_TREE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    _WORKSPACE_TREE_FILE.write_text(
+    tree_file = _workspace_tree_file()
+    tree_file.parent.mkdir(parents=True, exist_ok=True)
+    tree_file.write_text(
         _json.dumps({"root": root}, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
@@ -122,9 +132,8 @@ def _build_node(path: Path) -> dict:
 
 def _scan_upload_root() -> dict | None:
     """工作区间树的兜底：存储文件丢失时，从磁盘上的 uploads 目录重建（真实数据，非 mock）。"""
-    if not UPLOAD_ROOT.exists():
-        return None
-    children = [_build_node(c) for c in sorted(UPLOAD_ROOT.iterdir(), key=lambda p: (p.is_file(), p.name))]
+    root_dir = _upload_root()
+    children = [_build_node(c) for c in sorted(root_dir.iterdir(), key=lambda p: (p.is_file(), p.name))]
     if not children:
         return None
     return {
@@ -170,7 +179,7 @@ async def upload_file(file: UploadFile = File(...), subdir: str = Form("")):
     dir_name = subdir.strip() if subdir else time.strftime("%Y-%m-%d")
     if not _UPLOAD_SUBDIR_RE.fullmatch(dir_name):
         raise HTTPException(400, "子目录名非法：只允许字母、数字、点、下划线、连字符")
-    dest_dir = UPLOAD_ROOT / dir_name
+    dest_dir = _upload_root() / dir_name
     dest_dir.mkdir(parents=True, exist_ok=True)
 
     # 处理重名
@@ -295,15 +304,15 @@ async def serve_audio(path: str):
 async def list_files():
     """列出所有已上传文件"""
     files = []
-    if UPLOAD_ROOT.exists():
-        for f in UPLOAD_ROOT.rglob("*"):
-            if f.is_file():
-                files.append({
-                    "name": f.name,
-                    "path": str(f),
-                    "format": f.suffix.lstrip("."),
-                    "size": f.stat().st_size,
-                })
+    upload_root = _upload_root()
+    for f in upload_root.rglob("*"):
+        if f.is_file():
+            files.append({
+                "name": f.name,
+                "path": str(f),
+                "format": f.suffix.lstrip("."),
+                "size": f.stat().st_size,
+            })
     return {"files": files, "count": len(files)}
 
 
