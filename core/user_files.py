@@ -40,11 +40,20 @@ CREATE TABLE IF NOT EXISTS user_files (
     size       INTEGER NOT NULL DEFAULT 0,
     mime       TEXT NOT NULL DEFAULT '',
     kind       TEXT NOT NULL DEFAULT 'upload',
-    created_at REAL NOT NULL
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL DEFAULT 0   -- 覆盖上传/重登记时刷新
 );
 """
 
-_pool = UserDbPool(_SCHEMA)
+
+def _migrate(conn) -> None:
+    """老库补列：CREATE TABLE IF NOT EXISTS 不会给已存在的表加列。"""
+    cols = [r["name"] for r in conn.execute("PRAGMA table_info(user_files)").fetchall()]
+    if "updated_at" not in cols:
+        conn.execute("ALTER TABLE user_files ADD COLUMN updated_at REAL NOT NULL DEFAULT 0")
+
+
+_pool = UserDbPool(_SCHEMA, migrate=_migrate)
 
 # 文件种类：upload=用户上传, plot=绘图产物, tool=工具输出, other=其它受控文件
 KINDS = {"upload", "plot", "tool", "other"}
@@ -91,6 +100,7 @@ def _row_to_dict(r: sqlite3.Row) -> dict:
         "mime": r["mime"],
         "kind": r["kind"],
         "created_at": r["created_at"],
+        "updated_at": r["updated_at"],
     }
 
 
@@ -116,10 +126,12 @@ def register(path: str | Path, kind: str = "upload") -> dict:
             "SELECT * FROM user_files WHERE rel_path=?", (rel,)
         ).fetchone()
         if row is not None:
-            # 复用 id，但刷新可能变化的元数据（同名覆盖上传）
+            # 复用 id，但刷新可能变化的元数据（同名覆盖上传）：
+            # 大小/格式变了就更新 updated_at，让"最后修改时间"可用
             db.execute(
-                "UPDATE user_files SET name=?, size=?, mime=?, kind=? WHERE file_id=?",
-                (name, size, mime, kind, row["file_id"]),
+                "UPDATE user_files SET name=?, size=?, mime=?, kind=?, updated_at=?"
+                " WHERE file_id=?",
+                (name, size, mime, kind, now, row["file_id"]),
             )
             db.commit()
             row = db.execute(
@@ -129,9 +141,10 @@ def register(path: str | Path, kind: str = "upload") -> dict:
         file_id = _new_file_id()
         try:
             db.execute(
-                "INSERT INTO user_files (file_id, rel_path, name, size, mime, kind, created_at)"
-                " VALUES (?,?,?,?,?,?,?)",
-                (file_id, rel, name, size, mime, kind, now),
+                "INSERT INTO user_files"
+                " (file_id, rel_path, name, size, mime, kind, created_at, updated_at)"
+                " VALUES (?,?,?,?,?,?,?,?)",
+                (file_id, rel, name, size, mime, kind, now, now),
             )
         except sqlite3.IntegrityError:
             # 并发登记同一路径：以先插入者为准
@@ -145,7 +158,7 @@ def register(path: str | Path, kind: str = "upload") -> dict:
         db.commit()
     return {
         "file_id": file_id, "rel_path": rel, "name": name, "size": size,
-        "mime": mime, "kind": kind, "created_at": now,
+        "mime": mime, "kind": kind, "created_at": now, "updated_at": now,
     }
 
 

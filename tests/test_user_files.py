@@ -59,6 +59,20 @@ def test_register_is_idempotent():
     assert r3["size"] == 99
 
 
+def test_register_updates_timestamp_on_overwrite():
+    """同名覆盖上传：复用 id，但刷新 updated_at（元数据同步更新）。"""
+    p = _make_file("a.txt", b"v1")
+    r1 = user_files.register(p)
+    assert r1["updated_at"] == r1["created_at"]
+    import time as _t
+    _t.sleep(0.01)
+    p.write_bytes(b"v2-longer")
+    r2 = user_files.register(p)
+    assert r2["file_id"] == r1["file_id"]      # 复用 id
+    assert r2["updated_at"] > r1["updated_at"] # 时间刷新
+    assert r2["size"] == len(b"v2-longer")     # 元数据更新
+
+
 def test_register_rejects_outside_user_home():
     with pytest.raises(ValueError):
         user_files.register("/etc/hostname")
