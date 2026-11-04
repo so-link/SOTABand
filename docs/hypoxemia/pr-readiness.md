@@ -92,27 +92,6 @@ $env:SOTABAND_RUNTIME_ROOT = Join-Path (Get-Location) ('.runtime/acceptance-' + 
 - 未在 Windows CPU 环境验证 Mamba/CUDA 扩展；不宣称原生 Windows GPU 可用。
 - 目录模型烟测不等于每个模型都完成完整数据处理、长轮次训练或医学性能验证。
 
-## 2026-11-04 upstream integration record
+## 2026-11-04 upstream integration
 
-Integration branch: `integration/hypoxemia-upstream-20261104`. Upstream baseline: `20bf8923159508bc807ba31be4776ec0d9268aba`; feature source: `fef9ad339ffd3b4d679fc70e1079686fa740bf56`. Upstream PR [#2](https://github.com/so-link/SOTABand/pull/2) was open and unmerged at the time of this work. The Windows installer branch was excluded.
-
-The merge preserves upstream's builtin/private resource roots, Agent role and streaming contracts, security review and dependency installation. Hypoxemia task, data and model registries now share the private root selected by `SOTABAND_RUNTIME_ROOT`, so the API, tool and a fresh session see the same model IDs. Both `interactive-agent` and the historical `interactive_agent` implementation directory names are supported. A completed training task now continues to the save-model choice before evaluation.
-
-Conflicts were resolved file by file in `.gitattributes`, Agent routes/entrypoint/factory, tool execution, data/model registries, frontend Agent/cards/resource browser, and the interactive Agent. The hypoxemia state machine, strict sampling-rate/channel-order/window-length/artifact checks, model save/reload, and Excel download were retained.
-
-Validation commands and results:
-
-```powershell
-.\.venv-platform\Scripts\python.exe -m pytest tests/unit -q
-npm --prefix frontend ci
-npm --prefix frontend run build
-.\.venv-hypoxemia\Scripts\python.exe scripts/check_hypoxemia_sources.py
-.\.venv-hypoxemia\Scripts\python.exe scripts/check_hypoxemia_model_catalog.py
-$env:SOTABAND_LOAD_DOTENV='0'
-$env:SOTABAND_RUNTIME_ROOT = Join-Path (Get-Location) ('.runtime/acceptance-' + [guid]::NewGuid().ToString('N'))
-.\.venv-hypoxemia\Scripts\python.exe scripts/verify_hypoxemia_pr.py --model SegRNN
-```
-
-Results: 217 unit tests passed; frontend production build passed with existing dynamic-import and bundle-size warnings; 48 source files passed; model catalog: 38 passed, 6 explicitly skipped, 0 failed (four models lack classification implementations and two Mamba models require CUDA extensions). Synthetic ZIP to 24 windows, validation, one-epoch SegRNN training, save, fresh-process model-ID reload, independent 60-window evaluation, Excel generation and real download all passed. Sampling-rate, channel-order, window-length, missing-weight, launch-failure and cancellation checks passed. Edge/Playwright verified the real dataset, architecture, training-parameter, task-completion, save-model and metric-selection cards without page errors.
-
-The clean-checkout installation was started with `scripts/install_hypoxemia.ps1 -WithVerification`; platform dependencies completed, while the CPU environment was still downloading the PyTorch wheel when this record was written. CUDA/Mamba, long training, patient data and clinical performance remain outside coverage.
+Current results, failures, clean-checkout evidence and merge decisions are recorded separately in [integration-upstream-20261104.md](integration-upstream-20261104.md). The earlier results above are historical and are not reused as evidence for this integration.

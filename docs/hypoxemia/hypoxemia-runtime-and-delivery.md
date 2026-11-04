@@ -1,5 +1,7 @@
 # 运行环境与安装
 
+2026-11-04 上游整合的实际安装、验证及限制见[本次整合记录](integration-upstream-20261104.md)。网络受限且已准备完整锁定 wheelhouse 与 Python 3.12.11 时，安装脚本支持 `-Wheelhouse <目录> -WheelhouseOnly -WithVerification`；正常联网安装仍使用下方命令。
+
 首次使用的完整安装、API 配置、前后端启动及三个界面示例见[从零操作指南](hypoxemia-operation-guide.md)。本页补充依赖和交付边界，实际验证记录统一见 [pr-readiness.md](pr-readiness.md)。
 
 低氧计算源码和模型实现随仓库提供。安装不需要外部研究项目、历史任务目录或预训练权重。需要低氧功能时，平台与计算进程使用两个受管理的虚拟环境；两个环境均固定 Python 3.12.11。

@@ -8,5 +8,6 @@
 | [架构与扩展说明](hypoxemia-admin-guide.md) | 管理员和开发者：模块边界、运行组件、来源与扩展方式 |
 | [运行依赖与交付说明](hypoxemia-runtime-and-delivery.md) | 只使用平台的用户与部署人员：平台独立安装、低氧双环境依赖、可选 GPU 和交付限制 |
 | [验收记录](pr-readiness.md) | 审查者：实际命令、结果、证据与未验证范围 |
+| [2026-11-04 上游整合与回归](integration-upstream-20261104.md) | 本次 PR 状态、基线优先适配、独立检出验证及剩余范围 |
 
 运行目录、前后端端口及环境隔离的配置见[运行依赖与交付说明](hypoxemia-runtime-and-delivery.md)。通用平台设计文档仍在 `docs/`。
