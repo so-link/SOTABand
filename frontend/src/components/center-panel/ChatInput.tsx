@@ -63,7 +63,7 @@ export function ChatInput() {
   }
 
   // ── 拖拽：文件引用方案（@文件名 → 提交时自动填入 file_id，平台执行前解析回路径）──
-  // OS 文件拖入上传为本分支增量：先入库工作区间，再记录 file_id 引用。
+  // OS 文件拖入上传为本分支增量：先入库「我的文件」，再记录 file_id 引用。
 
   // 从拖拽事件中解析文件节点（必须是平台登记的 file_id；数据集节点
   // 是 dataset:<id> 形态，无法作为工具文件参数，直接忽略）
@@ -74,9 +74,8 @@ export function ChatInput() {
         const node = JSON.parse(jsonData) as FileTreeNode
         if (node?.fileId && FILE_ID_RE.test(node.fileId)) return node
       } catch {
-        /* ignore */
+        /* JSON 损坏时继续走文本兜底，不要直接放弃 */
       }
-      return null
     }
     // 兜底：纯文本形式的 file_id（f_+12hex，WorkspaceFileTree 拖拽时同时写入）
     const textData = e.dataTransfer.getData('text/plain')?.trim()
@@ -99,7 +98,7 @@ export function ChatInput() {
       return
     }
 
-    // OS 文件拖入（本分支增量）：上传到工作区间后记录 file_id 引用
+    // OS 文件拖入（本分支增量）：上传到「我的文件」后记录 file_id 引用
     const files = e.dataTransfer.files
     if (files && files.length > 0) {
       void attachDroppedOsFiles(files)
@@ -123,7 +122,7 @@ export function ChatInput() {
     setIsDragOver(false)
   }
 
-  /** 从操作系统拖入的文件：先上传到工作区间，再记录 file_id 引用 */
+  /** 从操作系统拖入的文件：先上传到「我的文件」，再记录 file_id 引用 */
   const attachDroppedOsFiles = async (files: FileList) => {
     const beforeIds = new Set(collectFileNodes(useFileTreeStore.getState().root).map((n) => n.id))
     setIsUploading(true)
@@ -142,7 +141,14 @@ export function ChatInput() {
 
   return (
     <div className="border-t border-maia-border bg-maia-surface px-4 pt-3 pb-2.5">
-      <div className="w-full">
+      {/* drop 目标覆盖整个输入框容器（含附件栏与 padding）：只绑在
+          textarea 上时，拖到边缘/附件栏不触发 drop，表现为「没反应」 */}
+      <div
+        className="w-full"
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
         {/* Attachment bar */}
         {(attachedFiles.length > 0 || pathRefs.length > 0) && (
           <div className="flex flex-wrap gap-1.5 mb-2">
@@ -211,9 +217,6 @@ export function ChatInput() {
               handleInput()
             }}
             onKeyDown={handleKeyDown}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
             placeholder={isSending ? '工具执行中…' : '输入你的需求…（Enter 发送，Shift+Enter 换行，拖拽文件自动附上文件凭证）'}
             rows={1}
             className="flex-1 bg-transparent px-1 py-1.5 text-[14px] leading-[22px] text-maia-text outline-none focus-visible:outline-none resize-none min-h-[32px] max-h-[150px] placeholder:text-maia-text-muted"

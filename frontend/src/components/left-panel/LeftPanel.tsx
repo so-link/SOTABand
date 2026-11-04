@@ -7,7 +7,7 @@ export function LeftPanel() {
   const { leftPanelTab, setLeftPanelTab } = useUIStore()
 
   const tabs = [
-    { id: 'files' as const, label: '工作区间', icon: FolderOpen },
+    { id: 'files' as const, label: '我的文件', icon: FolderOpen },
     { id: 'resources' as const, label: '资源空间', icon: Package },
   ]
 

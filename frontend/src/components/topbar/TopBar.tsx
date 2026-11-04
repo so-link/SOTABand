@@ -31,7 +31,7 @@ export function TopBar() {
           </div>
           <span className="text-[13px] font-semibold text-maia-text-heading">SOTABand</span>
         </div>
-        {workspaceName && workspaceName !== '工作区间' && (
+        {workspaceName && workspaceName !== '我的文件' && (
           <>
             <span className="text-maia-text-muted mx-0.5 text-[13px] font-mono">/</span>
             <span className="text-[13px] text-maia-text-secondary font-mono">{workspaceName}</span>

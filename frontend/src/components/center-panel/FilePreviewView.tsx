@@ -138,7 +138,7 @@ export function FilePreviewView() {
     return (
       <div className="flex flex-col items-center justify-center h-full text-maia-text-muted gap-2">
         <FolderOpen className="h-10 w-10 opacity-20" />
-        <p className="text-sm">双击工作区中的文件进行预览</p>
+        <p className="text-sm">双击「我的文件」中的文件进行预览</p>
       </div>
     )
   }
@@ -152,7 +152,7 @@ export function FilePreviewView() {
       <div className="flex flex-col items-center justify-center h-full text-maia-text-muted gap-2">
         <File className="h-10 w-10 opacity-20" />
         <p className="text-sm">{previewFile.name}：文件凭证缺失，无法访问内容</p>
-        <p className="text-[12px]">该节点缺少 file_id，可能来自旧版工作区，请删除后重新上传</p>
+        <p className="text-[12px]">该节点缺少 file_id，可能来自旧版文件列表，请删除后重新上传</p>
       </div>
     )
   }

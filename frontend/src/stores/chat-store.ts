@@ -211,11 +211,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
       pathRefs: s.pathRefs.filter((r) => r.name !== name),
     })),
 
-  // 工作区间是文件的唯一来源：文件被删掉后，输入框里待发的附件和
+  // 「我的文件」是文件的唯一来源：文件被删掉后，输入框里待发的附件和
   // 历史消息上的附件标签都会变成指向不存在路径的悬空引用，
-  // 继续发给后端只会让工具执行时找不到文件。故由工作区间在变动后
+  // 继续发给后端只会让工具执行时找不到文件。故由「我的文件」在变动后
   // 传入"仍然有效的文件 id 集合"，一次性清掉失效引用。
-  // （清空工作区即传空集合；将来若支持删除单个文件，传剩余集合即可复用。）
+  // （清空「我的文件」即传空集合；将来若支持删除单个文件，传剩余集合即可复用。）
   pruneAttachmentsToValidIds: (validIds) =>
     set((s) => {
       const attachedFiles = s.attachedFiles.filter((f) => validIds.has(f.id))

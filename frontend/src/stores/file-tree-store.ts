@@ -39,7 +39,7 @@ function persistEverywhere(tree: FileTreeNode) {
 function emptyTree(): FileTreeNode {
   return {
     id: 'root',
-    name: '工作区间',
+    name: '我的文件',
     type: 'directory',
     category: 'folder',
     expanded: true,
