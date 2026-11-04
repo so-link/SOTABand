@@ -3,14 +3,12 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip } from '@/components/ui/tooltip'
 import { useUIStore } from '@/stores/ui-store'
-import { useFileTreeStore } from '@/stores/file-tree-store'
 import { useAuthStore } from '@/stores/auth-store'
 import { LoginDialog } from '@/components/topbar/LoginDialog'
 import { APP_VERSION } from '@/lib/utils'
 
 export function TopBar() {
   const { theme, toggleTheme, setActiveView } = useUIStore()
-  const workspaceName = useFileTreeStore((s) => s.root?.name)
   const user = useAuthStore((s) => s.user)
   const openLogin = useAuthStore((s) => s.openLogin)
   const logout = useAuthStore((s) => s.logout)
@@ -31,12 +29,6 @@ export function TopBar() {
           </div>
           <span className="text-[13px] font-semibold text-maia-text-heading">SOTABand</span>
         </div>
-        {workspaceName && workspaceName !== '我的文件' && (
-          <>
-            <span className="text-maia-text-muted mx-0.5 text-[13px] font-mono">/</span>
-            <span className="text-[13px] text-maia-text-secondary font-mono">{workspaceName}</span>
-          </>
-        )}
         <Badge variant="accent" className="text-[12px] ml-1 font-mono">v{APP_VERSION}</Badge>
       </div>
 
