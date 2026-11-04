@@ -188,6 +188,13 @@ class BaseAgent(ABC):
         常驻不可用时回退到 ToolExecutor 的一次性子进程执行，保证可用性。
         """
         params = dict(params or {})
+        # 参数中的 file_id → 真实路径（常驻 Worker 绕过 ToolExecutor，转换
+        # 要在这里也做一次；resolve_params 幂等，ToolExecutor 内再调无害）
+        try:
+            from core import user_files
+            user_files.resolve_params(params)
+        except Exception:
+            pass
 
         # 1) 尝试常驻路径
         runtime = self._tool_runtime

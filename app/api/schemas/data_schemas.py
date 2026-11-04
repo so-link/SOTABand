@@ -24,6 +24,8 @@ class RegisterDatasetRequest(BaseModel):
     dataset_name: str = Field(default="", alias="datasetName")
     data_path: str = Field(default="", alias="dataPath")
     source_files: list[str] = Field(default_factory=list, alias="sourceFiles")
+    # 前端界面只持有 file_id，注册数据集时以 id 列表指定源文件（后端解析为路径）
+    source_file_ids: list[str] = Field(default_factory=list, alias="sourceFileIds")
     file_count: int = 0
     total_size: int = 0
     formats: list[str] = Field(default_factory=list)

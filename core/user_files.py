@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import mimetypes
+import re
 import secrets
 import time
 from pathlib import Path
@@ -272,3 +273,32 @@ def _try_register(value: str, kind: str) -> dict | None:
         return register(p, kind=k)
     except (ValueError, OSError):
         return None
+
+
+# ── 工具参数中的 file_id 解析（与出口登记对称的入口转换） ──
+
+_FILE_ID_RE = re.compile(r"^f_[0-9a-f]{12}$")
+
+
+def looks_like_file_id(value: str) -> bool:
+    return bool(_FILE_ID_RE.fullmatch(value or ""))
+
+
+def resolve_params(params: dict) -> dict:
+    """把参数值里的 file_id 换成工具可用的绝对路径（就地修改并返回）。
+
+    前端界面只持有 file_id；但工具参数的语义就是路径（AI 生成的工具按
+    路径写死逻辑）。平台在调用前做这一层替换：整串恰好是 file_id 形态
+    （f_+12hex，高熵随机，业务字符串不可能撞上）且能在**当前用户**库中
+    解析成功的值 → 替换为真实路径。解析不到就原样传递：工具拿到无效 id
+    与拿到无效路径的失败面相同，不额外造错。
+    """
+    if not isinstance(params, dict):
+        return params
+    for key, val in list(params.items()):
+        if isinstance(val, str) and looks_like_file_id(val):
+            try:
+                params[key] = str(resolve(val))
+            except FileNotFoundError:
+                pass
+    return params

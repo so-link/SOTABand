@@ -59,6 +59,20 @@ class ToolExecutor:
             pass  # 计数失败不影响执行结果
 
     @classmethod
+    def _resolve_file_params(cls, params: dict) -> None:
+        """参数值中的 file_id → 当前用户目录内真实路径（平台入口层转换）。
+
+        界面只持有 file_id，而工具参数语义就是路径；转换收在这里，工具
+        （含 AI 生成的）不需要知道 id 体系。失败静默——无效 id 与无效
+        路径对工具而言失败面相同。
+        """
+        try:
+            from core import user_files
+            user_files.resolve_params(params)
+        except Exception:
+            pass
+
+    @classmethod
     def _register_artifacts(cls, result: dict) -> None:
         """把结果里指向用户目录的 ``*_path`` 登记为 file_id（就地注入）。
 
@@ -238,6 +252,7 @@ class ToolExecutor:
         Returns:
             {"status": "success"|"failed", "message": ..., "data": ...}
         """
+        cls._resolve_file_params(params)
         project_root = str(cls._project_root())
         impl_dir = cls._resolve_impl_dir(tool_id)
         python_exe = cls._get_python_exe(tool_id)

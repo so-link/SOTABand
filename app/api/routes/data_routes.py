@@ -214,16 +214,28 @@ async def register_dataset(req: RegisterDatasetRequest):
     total_size = req.total_size
     formats = set(req.formats)
 
-    if req.source_files:
+    # 前端只持有 file_id：先解析成当前用户目录内的真实路径，再走原逻辑
+    source_files = list(req.source_files)
+    if req.source_file_ids:
+        from core import user_files
+        for fid in req.source_file_ids:
+            try:
+                source_files.append(str(user_files.resolve(fid)))
+            except FileNotFoundError:
+                continue
+        if not source_files:
+            raise HTTPException(400, "sourceFileIds 均无法解析为有效文件")
+
+    if source_files:
         # 用第一个文件的父目录作为数据集根路径
-        first = Path(req.source_files[0])
+        first = Path(source_files[0])
         if first.exists():
             data_path = str(first.parent)
         # 统计实际文件信息
         file_count = 0
         total_size = 0
         formats = set()
-        for fp in req.source_files:
+        for fp in source_files:
             src = Path(fp)
             if src.exists() and src.is_file():
                 file_count += 1
