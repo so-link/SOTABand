@@ -69,6 +69,8 @@
 
 新检出目录：`D:\code\SOTABand-hypoxemia-clean-20261104`，从本次本地整合提交创建 detached worktree，代码版本包含 `af3821f`。两套环境均在该新目录创建，未复制旧虚拟环境；默认计算解释器指向该检出的 `.venv-hypoxemia`。Python 3.12.11 由 uv 管理，两套依赖由仓库 lock 文件安装。未使用外部低氧研究目录、个人 `.env`、旧模型、旧注册表或患者数据。
 
+工具登记顺序按基线收敛后，又从最终代码提交 **`b5b7b0f`** 在同一独立检出重跑全流程与单元测试：24 窗口原始处理、短训练、新进程重载、独立评测及下载全部通过，模型 ID 为 `model-imported-b9f077cf0eb8`，218 项单元测试再次通过（24.37 秒）。证据为 `.runtime/final-acceptance/acceptance.json`、`.runtime/final-unit.txt`。随后只更新本页验收记录，未再改动代码。专用浏览器验证服务 `18012/15184` 与其 Agent 已停止。
+
 正常联网环境按原安装文档执行：
 
 ```powershell
