@@ -44,6 +44,7 @@ def isolate(tmp_path, monkeypatch):
     monkeypatch.setattr(auth_mod, "USERS_DIR", tmp_path / "auth")
     monkeypatch.setattr(auth_mod, "USERS_FILE", tmp_path / "auth" / "users.json")
     monkeypatch.setattr(auth_mod, "SECRET_FILE", tmp_path / "auth" / "secret.key")
+    monkeypatch.setattr(auth_mod, "PROFILE_FILE", tmp_path / "auth" / "superuser.json")
     monkeypatch.delenv("SOTABAND_AUTH_SECRET", raising=False)
     monkeypatch.delenv("SOTABAND_USER_ID", raising=False)
 
@@ -160,9 +161,25 @@ def test_rename_keeps_uid(superuser_env):
     assert authenticate("alice", "alice-password") is None
 
 
-def test_rename_superuser_rejected(superuser_env):
-    with pytest.raises(AuthError):
-        rename_user(SUPERUSER_UID, "admin2")
+def test_rename_superuser_via_override(superuser_env):
+    """超管可在界面改名：写覆盖层文件，不碰 .env、不入库，登录名随之生效。"""
+    renamed = rename_user(SUPERUSER_UID, "admin2")
+    assert renamed["id"] == SUPERUSER_UID
+    assert renamed["username"] == "admin2"
+    assert renamed["display_name"] == "admin2"
+    # 新名字可登录（密码仍是 .env 里那个），旧名字失效
+    assert authenticate("admin2", "sup3r-secret-pw") is not None
+    assert authenticate("root", "sup3r-secret-pw") is None
+    # 覆盖层不污染普通用户表
+    assert "admin2" not in json.dumps(
+        [u["username"] for u in list_users() if u["id"] != SUPERUSER_UID])
+
+
+def test_superuser_display_name_override(superuser_env):
+    from core.auth import set_display_name
+
+    u = set_display_name(SUPERUSER_UID, "大管家")
+    assert u["username"] == "root" and u["display_name"] == "大管家"
 
 
 def test_superuser_password_change_rejected(superuser_env):

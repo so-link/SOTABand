@@ -46,7 +46,7 @@ export function TopBar() {
             <Tooltip content={user.role === 'admin' ? '管理员' : '已登录'}>
               <span className="flex items-center gap-1 px-1.5 h-7 text-[12px] text-maia-text-secondary">
                 <User className="h-3.5 w-3.5 text-maia-accent" />
-                {user.username}
+                {user.displayName || user.username}
               </span>
             </Tooltip>
             <Tooltip content="退出登录">

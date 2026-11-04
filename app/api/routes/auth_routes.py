@@ -10,9 +10,11 @@
 - ``GET  /prefs`` ``PUT /prefs`` —— 个人偏好，存自己的 platform.db
 - ``GET/POST/PUT/DELETE /users`` —— **仅超级用户**：增删改用户、重置密码
 
-超级用户的用户名/密码只在 .env 配置（``SOTABAND_ROOT_USERNAME`` /
-``SOTABAND_ROOT_PASSWORD``），界面上只读——若在界面上也能改，就会出现
-「界面改了、下次重启被 .env 覆盖回去」的双头写，比不能改更糟。
+超级用户的密码只在 .env 配置（``SOTABAND_ROOT_PASSWORD``），界面上只读——
+若在界面上也能改，就会出现「界面改了、下次重启被 .env 覆盖回去」的双头写，
+比不能改更糟。用户名与显示名则允许在界面修改：改动持久化在
+``storage/auth/superuser.json`` 覆盖层中（优先级高于 .env 默认值），
+不写回 .env。
 
 普通用户的 id 由系统分配（1000 起）且不可修改：它就是用户目录名
 （``SB-USER/<uid>/``），改 id 等于搬走整个数据目录。

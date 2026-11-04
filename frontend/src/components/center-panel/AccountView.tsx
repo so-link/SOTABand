@@ -99,14 +99,14 @@ export function AccountView() {
               <div className="flex items-start gap-2 px-3 py-2.5 mb-2 rounded border border-maia-warning/30 bg-maia-warning/10 text-maia-warning text-[12px] leading-relaxed">
                 <ShieldCheck className="h-4 w-4 shrink-0 mt-0.5" />
                 <span>
-                  这是内置的超级用户：用户名与密码在服务器 <span className="font-mono">.env</span> 中
-                  （<span className="font-mono">SOTABAND_ROOT_USERNAME</span> /{' '}
-                  <span className="font-mono">SOTABAND_ROOT_PASSWORD</span>）配置，界面上不可修改——
-                  否则界面改动会在下次重启时被 .env 覆盖回去。仅该账号可以管理用户。
+                  这是内置的超级用户：密码在服务器 <span className="font-mono">.env</span> 中
+                  （<span className="font-mono">SOTABAND_ROOT_PASSWORD</span>）配置，界面上不可修改——
+                  否则界面改动会在下次重启时被 .env 覆盖回去。用户名与显示名可以在界面上修改
+                  （保存在用户数据目录，优先级高于 .env 默认值）。仅该账号可以管理用户。
                 </span>
               </div>
             )}
-            <InfoRow label="用户名" value={user.username} hint={isBuiltin ? '在 .env 中配置，不可修改' : undefined} />
+            <InfoRow label="用户名" value={user.username} hint={isBuiltin ? '默认值来自 .env，可在「用户管理」中改名覆盖' : undefined} />
             <InfoRow label="用户 ID" value={<span className="font-mono">{user.id}</span>}
               hint="由系统分配，不可修改" />
             <InfoRow label="角色" value={user.role === 'admin' ? '超级用户' : '普通用户'} />
@@ -126,13 +126,12 @@ export function AccountView() {
             <div className="flex items-center gap-2">
               <Input
                 value={displayName}
-                disabled={isBuiltin}
                 maxLength={64}
                 onChange={(e) => setDisplayName(e.target.value)}
-                placeholder={isBuiltin ? '超级用户的显示名与用户名一致，由 .env 决定' : '例如：张三'}
+                placeholder="例如：张三"
                 className="max-w-xs"
               />
-              <Button variant="outline" onClick={saveName} disabled={isBuiltin || savingName} className="shrink-0">
+              <Button variant="outline" onClick={saveName} disabled={savingName} className="shrink-0">
                 {savingName ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />保存中…</> : '保存'}
               </Button>
             </div>

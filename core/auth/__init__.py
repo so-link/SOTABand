@@ -73,7 +73,28 @@ class AuthError(Exception):
         self.status = status
 
 
-# ── 超级用户（.env 驱动，不入库） ──
+# ── 超级用户（.env 驱动，不入库；用户名/显示名可在界面覆盖） ──
+
+# 超级用户默认凭据来自 .env，不入库；但允许在界面上改「用户名/显示名」——
+# 这类改名不能写回 .env（那是双头写、重启即丢），因此单独持久化一个「覆盖层」
+# 文件 superuser.json。uid 恒为 0（目录名不变），只有展示用的名字可被覆盖。
+PROFILE_FILE = USERS_DIR / "superuser.json"
+
+
+def _load_superuser_profile() -> dict:
+    if not PROFILE_FILE.exists():
+        return {}
+    try:
+        data = json.loads(PROFILE_FILE.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _save_superuser_profile(profile: dict) -> None:
+    USERS_DIR.mkdir(parents=True, exist_ok=True)
+    write_json_atomic(PROFILE_FILE, profile)
+
 
 def superuser_password_configured() -> bool:
     return bool(os.getenv("SOTABAND_ROOT_PASSWORD", "").strip())
@@ -86,12 +107,17 @@ def superuser() -> dict:
     超级用户，用户管理页必须能看到这一行并把它标成内置只读——若此时返回
     None，列表里就没有超管行，反而能看见 alice 这类普通用户，看起来像
     "超级用户不存在"。是否可密码登录由 ``_verify_superuser`` 把门。
+
+    用户名/显示名优先取界面覆盖层（superuser.json），没有覆盖才回退 .env。
     """
-    username = os.getenv("SOTABAND_ROOT_USERNAME", "").strip() or "root"
+    prof = _load_superuser_profile()
+    username = (prof.get("username") or "").strip() \
+        or os.getenv("SOTABAND_ROOT_USERNAME", "").strip() or "root"
+    display_name = (prof.get("display_name") or "").strip() or username
     return {
         "id": SUPERUSER_UID,
         "username": username,
-        "display_name": username,
+        "display_name": display_name,
         "role": "admin",
         "builtin": True,
     }
@@ -262,12 +288,24 @@ def create_user(username: str, password: str, display_name: str = "") -> dict:
 
 
 def rename_user(uid: str, new_username: str) -> dict:
-    """改用户名。**只改名字不改 uid**——uid 是用户目录名，搬家不在本次范围。"""
+    """改用户名。**只改名字不改 uid**——uid 是用户目录名，搬家不在本次范围。
+
+    超级用户走覆盖层文件（superuser.json），不写回 .env、不入库。
+    """
     err = validate_username(new_username)
     if err:
         raise AuthError(err)
     if str(uid) == SUPERUSER_UID:
-        raise AuthError("超级用户的用户名在 .env 中配置，不能在此修改", 400)
+        su = superuser()
+        if su["username"] != new_username:
+            _assert_username_free(_load_users(), new_username, exclude_uid=str(uid))
+        prof = _load_superuser_profile()
+        prof["username"] = new_username
+        # 未显式设过显示名时，显示名跟随新用户名
+        if not prof.get("display_name"):
+            prof.pop("display_name", None)
+        _save_superuser_profile(prof)
+        return superuser()
     users = _load_users()
     target = next((u for u in users if str(u.get("id")) == str(uid)), None)
     if target is None:
@@ -280,7 +318,10 @@ def rename_user(uid: str, new_username: str) -> dict:
 
 def set_display_name(uid: str, display_name: str) -> dict:
     if str(uid) == SUPERUSER_UID:
-        raise AuthError("超级用户的展示名跟随 .env 中的用户名", 400)
+        prof = _load_superuser_profile()
+        prof["display_name"] = (display_name or superuser()["username"]).strip()[:64]
+        _save_superuser_profile(prof)
+        return superuser()
     users = _load_users()
     target = next((u for u in users if str(u.get("id")) == str(uid)), None)
     if target is None:

@@ -144,12 +144,12 @@ export function UsersView() {
                         <td className="px-3 py-2 text-maia-text-muted font-mono text-[12px]">{fmtCreatedAt(u.created_at)}</td>
                         <td className="px-3 py-2">
                           <div className="flex items-center justify-end gap-0.5">
-                            <IconAction title={builtin ? '内置账号的用户名在 .env 中配置，不可修改' : '修改用户名'}
-                              disabled={builtin} onClick={() => setDialog({ kind: 'rename', user: u })}>
+                            <IconAction title="修改用户名"
+                              onClick={() => setDialog({ kind: 'rename', user: u })}>
                               <Pencil className="h-3.5 w-3.5" />
                             </IconAction>
-                            <IconAction title={builtin ? '内置账号的显示名跟随 .env 中的用户名' : '修改显示名'}
-                              disabled={builtin} onClick={() => setDialog({ kind: 'display', user: u })}>
+                            <IconAction title="修改显示名"
+                              onClick={() => setDialog({ kind: 'display', user: u })}>
                               <Tag className="h-3.5 w-3.5" />
                             </IconAction>
                             <IconAction title={builtin ? '内置账号的密码在 .env 中配置，不可重置' : '重置密码'}
@@ -329,6 +329,7 @@ function EditUserDialog({ kind, user, onClose, onSaved }: {
   const [err, setErr] = useState('')
 
   const title = kind === 'rename' ? '修改用户名' : kind === 'display' ? '修改显示名' : '重置密码'
+  const builtin = user.builtin === true || user.id === '0'
 
   const submit = async () => {
     setErr('')
@@ -359,7 +360,9 @@ function EditUserDialog({ kind, user, onClose, onSaved }: {
         <Field
           label={kind === 'rename' ? '新用户名' : kind === 'display' ? '新显示名' : '新密码'}
           hint={kind === 'rename'
-            ? '用户 ID 与数据目录不受影响'
+            ? (builtin
+                ? '内置超级用户：改的是登录名（覆盖 .env 默认值持久保存），密码仍由 .env 配置、不受影响'
+                : '用户 ID 与数据目录不受影响')
             : kind === 'display' ? '仅影响界面展示' : '至少 8 位；用户下次登录即用新密码'}
         >
           <Input
