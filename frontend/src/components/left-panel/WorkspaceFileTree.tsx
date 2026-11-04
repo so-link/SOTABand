@@ -66,6 +66,12 @@ export function WorkspaceFileTree() {
   }
 
   const handleDragStart = (e: React.DragEvent, node: FileTreeNode) => {
+    // 数据集节点不能当文件附件（fileId 是 dataset:<id>，非平台文件）：
+    // effectAllowed='none' → 浏览器显示 X（不可放置）光标，且不写拖拽数据
+    if (node.fileId?.startsWith('dataset:')) {
+      e.dataTransfer.effectAllowed = 'none'
+      return
+    }
     e.dataTransfer.setData('application/json', JSON.stringify(node))
     // 同时设置 text/plain 类型（file_id），提升跨组件拖拽兼容性
     e.dataTransfer.setData('text/plain', node.fileId || '')

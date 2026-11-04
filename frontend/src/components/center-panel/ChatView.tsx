@@ -44,7 +44,7 @@ export function ChatView() {
 
   return (
     <div
-      className={`flex flex-col h-full ${isDragOver ? 'ring-2 ring-inset ring-maia-accent' : ''}`}
+      className={`relative flex flex-col h-full ${isDragOver ? 'ring-2 ring-inset ring-maia-accent' : ''}`}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -78,6 +78,15 @@ export function ChatView() {
       )}
 
       <ChatInput />
+
+      {/* 拖动文件进入对话时的半透明模态提示（不拦截 drop 事件） */}
+      {isDragOver && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-maia-accent/10">
+          <span className="rounded-lg border border-maia-accent bg-maia-surface px-4 py-2 text-[14px] text-maia-accent shadow-lg">
+            松开以附加文件
+          </span>
+        </div>
+      )}
     </div>
   )
 }
