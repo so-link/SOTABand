@@ -12,24 +12,10 @@ args_json / result_json 有截断阈值，避免大输出把库撑大。
 from __future__ import annotations
 
 import json
-import threading
 import time
-from pathlib import Path
 from typing import Any
 
-try:  # 部分发行版的系统 sqlite3 缺符号，退回自带库
-    import sqlite3
-    sqlite3.sqlite_version  # noqa: B018  触发 _sqlite3 C 扩展加载
-except ImportError:
-    import pysqlite3 as sqlite3  # type: ignore[no-redef]
-
-from core.user_paths import platform_db
-
-# 用户目录下 platform.db（每用户一库；默认 /root/SB-USER/0/platform.db）
-_DB_PATH = platform_db()
-
-_lock = threading.Lock()
-_conn: sqlite3.Connection | None = None
+from core.user_db import UserDbPool, sqlite3
 
 ARGS_MAX_CHARS = 4000
 RESULT_MAX_CHARS = 4000
@@ -57,22 +43,21 @@ CREATE INDEX IF NOT EXISTS idx_chat_ops_owner ON chat_ops (owner, created_at DES
 CREATE INDEX IF NOT EXISTS idx_chat_ops_op ON chat_ops (op_id);
 """
 
+# 每用户一库：连接按 uid 缓存，见 core.user_db
+_pool = UserDbPool(_SCHEMA)
 
-def _db() -> sqlite3.Connection:
-    global _conn
-    if _conn is None:
-        _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _conn = sqlite3.connect(str(_DB_PATH), check_same_thread=False)
-        _conn.row_factory = sqlite3.Row
-        _conn.execute("PRAGMA journal_mode=WAL")
-        _conn.executescript(_SCHEMA)
-        _conn.commit()
-    return _conn
+
+def _db(uid: str | None = None) -> sqlite3.Connection:
+    return _pool.get(uid)
+
+
+def _lock(uid: str | None = None):
+    return _pool.uid_lock(uid)
 
 
 def init() -> None:
     """建库建表（启动时显式调用，让失败暴露在启动阶段）。"""
-    with _lock:
+    with _lock():
         _db()
 
 
@@ -91,7 +76,7 @@ def record(*, op_id: str, session_id: str, owner: str, tool: str,
     """写一条审计流水。审计失败不得影响业务，异常在此吞掉并打印。"""
     now = time.time()
     try:
-        with _lock:
+        with _lock():
             _db().execute(
                 "INSERT INTO chat_ops (op_id, session_id, owner, tool, args_json,"
                 " risk, status, result_json, error, duration_ms, created_at, finished_at)"
@@ -132,6 +117,6 @@ def recent(owner: str | None = None, session_id: str | None = None,
         params.append(session_id)
     sql += " ORDER BY created_at DESC LIMIT ?"
     params.append(min(int(limit or 50), 200))
-    with _lock:
+    with _lock():
         rows = _db().execute(sql, params).fetchall()
     return [_row(r) for r in rows]

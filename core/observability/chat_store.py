@@ -9,26 +9,10 @@ storage/platform.db：chat_sessions 一会话一行，chat_messages 一条消息
 from __future__ import annotations
 
 import json
-import threading
 import time
-from pathlib import Path
 from typing import Any
 
-try:  # 部分发行版（如 Debian 旧 libsqlite3）的系统 sqlite3 缺符号，退回自带库
-    import sqlite3
-    sqlite3.sqlite_version  # noqa: B018  触发 _sqlite3 C 扩展加载
-except ImportError:
-    import pysqlite3 as sqlite3  # type: ignore[no-redef]
-
-from core.user_paths import platform_db
-
-# 用户目录下 platform.db（多用户规划 2026-11：每用户一库；暂未启用多用户，
-# 默认 USER_HOME=/root/SB-USER/0/。登录态真正启用时，需把下方单连接改为
-# 按 uid 的连接池，见 core.user_paths 模块注释）。
-_DB_PATH = platform_db()
-
-_lock = threading.Lock()
-_conn: sqlite3.Connection | None = None
+from core.user_db import UserDbPool
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS chat_sessions (
@@ -50,17 +34,16 @@ CREATE INDEX IF NOT EXISTS idx_chat_messages_session
     ON chat_messages (session_id, id);
 """
 
+# 每用户一库（<USER_HOME>/platform.db）：连接按 uid 缓存，见 core.user_db
+_pool = UserDbPool(_SCHEMA)
 
-def _db() -> sqlite3.Connection:
-    global _conn
-    if _conn is None:
-        _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _conn = sqlite3.connect(str(_DB_PATH), check_same_thread=False)
-        _conn.row_factory = sqlite3.Row
-        _conn.execute("PRAGMA journal_mode=WAL")
-        _conn.executescript(_SCHEMA)
-        _conn.commit()
-    return _conn
+
+def _db(uid: str | None = None):
+    return _pool.get(uid)
+
+
+def _lock(uid: str | None = None):
+    return _pool.uid_lock(uid)
 
 
 def _rows(sql: str, args: tuple = ()) -> list[dict[str, Any]]:
@@ -71,7 +54,7 @@ def append_message(session_id: str, agent_id: str, role: str,
                    content: str, cards: list[dict] | None = None) -> None:
     """追加一条消息；首条用户消息的文本同时作为会话标题。"""
     content = (content or "")[:20000]
-    with _lock:
+    with _lock():
         conn = _db()
         now = time.time()
         conn.execute(
@@ -94,7 +77,7 @@ def append_message(session_id: str, agent_id: str, role: str,
 
 def set_title(session_id: str, title: str) -> None:
     """写入会话标题（LLM 总结后调用；失败时保留首条消息截断的兜底标题）。"""
-    with _lock:
+    with _lock():
         conn = _db()
         conn.execute("UPDATE chat_sessions SET title=? WHERE session_id=?",
                      ((title or "")[:80], session_id))
@@ -103,7 +86,7 @@ def set_title(session_id: str, title: str) -> None:
 
 def message_count(session_id: str) -> int:
     """会话已有消息条数（用于判断是否只在首轮结束后总结标题）。"""
-    with _lock:
+    with _lock():
         row = _db().execute(
             "SELECT COUNT(*) AS n FROM chat_messages WHERE session_id=?",
             (session_id,),
@@ -113,7 +96,7 @@ def message_count(session_id: str) -> int:
 
 def get_messages(session_id: str, limit: int = 200) -> list[dict[str, Any]]:
     """会话消息（时间正序）。cards 字段解析回数组。"""
-    with _lock:
+    with _lock():
         rows = _rows(
             "SELECT id, role, content, cards, created_at FROM chat_messages"
             " WHERE session_id=? ORDER BY id ASC LIMIT ?",
@@ -138,7 +121,7 @@ def list_sessions(limit: int = 50, include_agent_spaces: bool = False) -> list[d
         "WHERE s.agent_id = '' OR s.agent_id = ?"
     )
     args: tuple = (limit,) if include_agent_spaces else ("interactive-agent", limit)
-    with _lock:
+    with _lock():
         return _rows(
             "SELECT s.session_id, s.agent_id, s.title, s.created_at, s.updated_at,"
             " COUNT(m.id) AS message_count"
@@ -151,7 +134,7 @@ def list_sessions(limit: int = 50, include_agent_spaces: bool = False) -> list[d
 
 def delete_session(session_id: str) -> bool:
     """删除整个会话及其消息，返回是否删到了。"""
-    with _lock:
+    with _lock():
         conn = _db()
         conn.execute("DELETE FROM chat_messages WHERE session_id=?", (session_id,))
         cur = conn.execute("DELETE FROM chat_sessions WHERE session_id=?", (session_id,))

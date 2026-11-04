@@ -21,12 +21,13 @@ from pydantic import Field
 
 @pytest.fixture(autouse=True)
 def isolate_audit_db(tmp_path, monkeypatch):
-    monkeypatch.setattr(audit, "_DB_PATH", tmp_path / "audit.db")
-    monkeypatch.setattr(audit, "_conn", None)
+    from core import user_paths
+
+    monkeypatch.setattr(user_paths, "USER_HOME_ROOT", tmp_path / "users")
+    monkeypatch.setattr(user_paths, "DEFAULT_UID", "test")
+    audit._pool.reset()
     yield
-    if audit._conn is not None:
-        audit._conn.close()
-        monkeypatch.setattr(audit, "_conn", None)
+    audit._pool.reset()
 
 
 # ── 确认协议 ──

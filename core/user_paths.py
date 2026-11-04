@@ -7,18 +7,23 @@
 - **USER_HOME**（默认根 /root/SB-USER，可用环境变量 SOTABAND_HOME 覆盖）：
   用户数据一律落在 ``<USER_HOME_ROOT>/<uid>/`` 下：
 
-      platform.db          会话/消息/任务历史/cron/审计（SQLite）
+      platform.db          会话/消息/任务历史/cron/审计/个人偏好（SQLite）
       resources-private/   用户自建的工具/Agent/数据集/模型
       uploads/             对话附件与工作区上传
       plots/               工具绘图产物
       workspace_tools.json 工具空间清单
       workspace_tree.json  工作区文件树
       agent_logs/          Agent 执行步骤日志
-      users/               （系统级例外：登录凭据见下）
 
-- 当前暂未启用多用户：**默认 uid = "0"**（即 /root/SB-USER/0/）。
-  登录后（core/auth）取登录用户 id；无登录态读环境变量
-  SOTABAND_USER_ID；都没有就是 "0"。
+- **超级用户 uid = "0"**（目录 /root/SB-USER/0/）：类比 Linux root，
+  沿用迁移脚本已经落地的 0 号目录，历史数据（对话/私有资源/上传/工作区
+  清单）天然归属超管，无需再搬一次。凭据来自 .env：
+  ``SOTABAND_ROOT_USERNAME``（默认 root）/ ``SOTABAND_ROOT_PASSWORD``。
+- **普通用户 uid 从 1000 起**（类比 Linux 普通账号），由系统顺序分配、
+  不可修改，目录如 /root/SB-USER/1000/。
+
+登录后（core/auth）取登录用户 id；无登录态读环境变量 SOTABAND_USER_ID；
+都没有就是超管 "0"。
 
 **系统级例外（不放用户目录）**：
 - ``users.json`` / ``secret.key``（登录用户表与令牌密钥）：平台级实体，
@@ -40,7 +45,7 @@ PROJECT_ROOT = SYSTEM_ROOT
 # 用户目录根：默认 /root/SB-USER；可用 SOTABAND_HOME 覆盖
 USER_HOME_ROOT = Path(os.environ.get("SOTABAND_HOME", "/root/SB-USER"))
 
-# 暂未支持多用户：默认用户 ID
+# 超级用户 uid（无登录态时的回退值，见 current_uid）
 DEFAULT_UID = "0"
 
 # uid 消毒：只允许安全字符，防 token/env 注入路径穿越

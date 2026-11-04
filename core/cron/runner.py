@@ -10,6 +10,9 @@
 ToolRegistry / DataRegistry 的归属判断依赖 get_current_user_id()。必须按任务
 owner 显式设置身份，否则无人值守写入的资源会归属到错误用户（或落到匿名）。
 每次触发在独立 asyncio task 中运行，contextvar 互不污染。
+
+库归属：任务与执行历史存在**归属用户的 platform.db** 里，所以 fire() 必须带
+uid 读写（调度器跨用户遍历，不能靠 current_uid()）。
 """
 
 from __future__ import annotations
@@ -32,11 +35,16 @@ def _set_identity(owner: str):
     return set_current_user(AuthUser(id=owner, username="", role="user"))
 
 
-async def fire(job: dict[str, Any], trigger: str = "schedule") -> dict[str, Any]:
-    """执行一次任务并落库。返回 {status, message, error}。"""
+async def fire(job: dict[str, Any], trigger: str = "schedule",
+               uid: str | None = None) -> dict[str, Any]:
+    """执行一次任务并落库。返回 {status, message, error}。
+
+    uid 是任务归属用户（决定读写哪个库）；job["owner"] 决定执行时的资源身份。
+    正常情况下两者相同，分开传是因为 owner 可能为空（历史数据）。
+    """
     job_id = job["id"]
-    run_id = store.run_start(job_id, trigger)
-    token = _set_identity(job.get("owner") or "")
+    run_id = store.run_start(job_id, trigger, uid=uid)
+    token = _set_identity(job.get("owner") or uid or "")
     timeout = float(job.get("timeout") or 600)
     status, message, error, output = "success", "", "", None
     try:
@@ -57,14 +65,14 @@ async def fire(job: dict[str, Any], trigger: str = "schedule") -> dict[str, Any]
 
     if status != "success":
         error = error or message
-    store.run_finish(run_id, status, message=message, output=output, error=error)
+    store.run_finish(run_id, status, message=message, output=output, error=error, uid=uid)
 
     updates: dict[str, Any] = {"last_run_at": time.time(), "last_status": status}
     try:
         updates["next_run_at"] = next_run_at(job["cron"], job["timezone"]).timestamp()
     except CronError:
         updates["next_run_at"] = None
-    store.update(job_id, updates)
+    store.update(job_id, updates, uid=uid)
     return {"status": status, "message": message, "error": error, "run_id": run_id}
 
 
