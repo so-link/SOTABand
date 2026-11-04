@@ -131,6 +131,7 @@ async def chat_send(request: ChatRequest):
             "filePath": att.filePath,
             "fileSize": att.fileSize,
             "format": att.format,
+            "fileId": att.fileId,
         }
         for att in (request.attachments or [])
     ]

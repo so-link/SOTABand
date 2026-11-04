@@ -431,10 +431,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const { inputText, attachedFiles, pathRefs } = get()
     if (!inputText.trim() && attachedFiles.length === 0 && pathRefs.length === 0) return
 
-    // 把拖拽进来的文件 file_id 追加到文本末尾（工具参数位）；平台执行
-    // 工具前会把 f_xxx 形态的参数值解析回真实路径，LLM 原样拷贝即可。
-    const fileIdTokens = pathRefs.map((r) => r.fileId).filter(Boolean)
-    const finalText = [inputText.trim(), ...fileIdTokens].filter(Boolean).join(' ')
+    // 拖拽进来的文件作为附件传（file_id 由后端解析进 prompt）：LLM 既能看到
+    // 文件内容预览，也能拿到 file_id 填工具参数。不再把 id 拼进消息文本。
+    const finalText = inputText.trim()
+    const fileAttachments: FileAttachment[] = pathRefs.map((r) => ({
+      id: r.fileId, fileName: r.name, fileId: r.fileId, filePath: '', fileSize: 0, format: '',
+    }))
+    const allAttachments = [...attachedFiles, ...fileAttachments]
 
     set({ isSending: true, inputText: '', attachedFiles: [], pathRefs: [] })
 
@@ -444,7 +447,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       role: 'user',
       content: finalText,
       timestamp: new Date().toISOString(),
-      attachments: attachedFiles.length > 0 ? attachedFiles : undefined,
+      attachments: allAttachments.length > 0 ? allAttachments : undefined,
     }
     set((s) => ({ messages: [...s.messages, userMsg] }))
 
@@ -466,7 +469,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         workspaceToolIds = useWorkspaceToolStore.getState().tools.map(t => t.id)
       } catch { /* ignore */ }
       const stream = chatService.sendMessage(
-        { content: finalText, attachments: attachedFiles, workspaceToolIds, sessionId: get().sessionId },
+        { content: finalText, attachments: allAttachments, workspaceToolIds, sessionId: get().sessionId },
         {
           // 后端标题总结完成后立即推送：刷新「对话历史」即时显示新标题
           onTitle: () => set((s) => ({ sessionsVersion: s.sessionsVersion + 1 })),

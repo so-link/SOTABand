@@ -36,6 +36,8 @@ export interface FileAttachment {
   filePath: string
   fileSize: number
   format: string
+  /** 平台文件凭证（「我的文件」）；数据集文件留空，走 filePath */
+  fileId?: string
 }
 
 /** 单条消息 */

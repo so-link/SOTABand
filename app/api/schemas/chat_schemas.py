@@ -12,6 +12,8 @@ class FileAttachment(BaseModel):
     filePath: str = ""
     fileSize: int = 0
     format: str = "unknown"
+    # 平台文件凭证（「我的文件」）；数据集文件留空，走 filePath
+    fileId: str = ""
 
     model_config = {"populate_by_name": True}
 

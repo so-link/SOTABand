@@ -1641,7 +1641,12 @@ class InteractiveAgent(BaseAgent):
         return paths
 
     def _build_user_message(self, content: str, attachments: list, dataset_paths: list[str] = None) -> str:
-        """构建带附件上下文的用户消息"""
+        """构建带附件上下文的用户消息。
+
+        只给名字/大小对 LLM 没用——它看不到文件里写了什么。这里把文本类
+        附件的**内容预览**读出来拼进 prompt，并附上 file_id 供 LLM 填工具参数；
+        二进制/图片/大文件只给元数据 + 提示用工具分析。
+        """
         if not attachments:
             return content
 
@@ -1650,12 +1655,14 @@ class InteractiveAgent(BaseAgent):
             # 兼容 Pydantic 模型和 dict
             if hasattr(att, 'fileName'):
                 name = att.fileName
-                fmt = getattr(att, 'format', 'unknown')
+                fmt = getattr(att, 'format', '') or 'FILE'
                 size = getattr(att, 'fileSize', 0)
+                file_id = getattr(att, 'fileId', '')
             elif isinstance(att, dict):
                 name = att.get("fileName", att.get("file_name", "unknown"))
-                fmt = att.get("format", "unknown")
+                fmt = att.get("format", "") or 'FILE'
                 size = att.get("fileSize", att.get("file_size", 0))
+                file_id = att.get("fileId", "")
             else:
                 continue
 
@@ -1667,10 +1674,43 @@ class InteractiveAgent(BaseAgent):
                 size_str = f"{size}B"
             parts.append(f"- {name} ({fmt.upper()}, {size_str})")
 
+            if file_id:
+                preview = self._read_file_preview(file_id)
+                if preview:
+                    parts.append(f"  内容:\n{preview}")
+                else:
+                    parts.append(f"  （二进制/图片/大文件，内容无法直接展示，请用工具分析）")
+                parts.append(f"  file_id: {file_id}（工具参数请用这个 id）")
+
         if dataset_paths:
             parts.append(f"\n数据集文件路径: {', '.join(dataset_paths)}")
 
         return "\n".join(parts)
+
+    def _read_file_preview(self, file_id: str, limit: int = 100_000):
+        """读取文本文件内容预览（供 LLM 理解文件）；非文本/大文件返回 None。
+
+        只读用户登记表里的文件（file_id → 当前用户目录），不碰任意路径。
+        """
+        try:
+            from pathlib import Path
+            from core import user_files
+            path = user_files.resolve(file_id)
+            text_exts = {
+                ".md", ".txt", ".csv", ".json", ".jsonl", ".log", ".py",
+                ".js", ".ts", ".yaml", ".yml", ".html", ".xml", ".sql",
+                ".sh", ".rst", ".ini", ".toml",
+            }
+            if path.suffix.lower() not in text_exts:
+                return None
+            if path.stat().st_size > 1024 * 1024:  # >1MB 不读，避免撑爆上下文
+                return None
+            text = path.read_text(encoding="utf-8", errors="replace")
+            if len(text) > limit:
+                text = text[:limit] + "\n…（内容过长，已截断）"
+            return text
+        except Exception:
+            return None
 
 
 # 全局单例，开机时初始化

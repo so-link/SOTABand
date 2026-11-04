@@ -238,3 +238,43 @@ def test_api_workspace_tree_roundtrip(client):
             "category": "folder", "children": []}
     assert client.put("/api/file/workspace/tree", json={"root": tree}).status_code == 200
     assert client.get("/api/file/workspace/tree").json()["root"] == tree
+
+
+def test_build_user_message_includes_file_content():
+    """文本附件：LLM 消息里应包含内容预览 + file_id（供工具参数使用）。
+
+    绕过 InteractiveAgent 的 __init__（避免拉起 LLM/worker），只测消息构建。
+    """
+    agent_mod = pytest.importorskip(
+        "resources.agents.implementations.interactive_agent.agent")
+    InteractiveAgent = agent_mod.InteractiveAgent
+    p = _make_file("note.md", "# 标题\n正文内容".encode())
+    rec = user_files.register(p)
+
+    agent = object.__new__(InteractiveAgent)
+    msg = agent._build_user_message(
+        "分析这个文件",
+        [{"fileName": "note.md", "fileId": rec["file_id"],
+          "format": "md", "fileSize": p.stat().st_size}],
+    )
+    assert "# 标题" in msg and "正文内容" in msg
+    assert rec["file_id"] in msg
+
+
+def test_build_user_message_binary_only_metadata():
+    """二进制附件：只给元数据 + 提示用工具，不读内容。"""
+    agent_mod = pytest.importorskip(
+        "resources.agents.implementations.interactive_agent.agent")
+    InteractiveAgent = agent_mod.InteractiveAgent
+    p = _make_file("img.png", b"\x89PNG\r\n\x1a\n")
+    rec = user_files.register(p)
+
+    agent = object.__new__(InteractiveAgent)
+    msg = agent._build_user_message(
+        "看看这个图",
+        [{"fileName": "img.png", "fileId": rec["file_id"],
+          "format": "png", "fileSize": p.stat().st_size}],
+    )
+    assert "img.png" in msg
+    assert "二进制" in msg or "无法直接展示" in msg
+    assert rec["file_id"] in msg
