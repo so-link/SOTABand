@@ -79,7 +79,7 @@ interface FileTreeState {
   setSearchQuery: (query: string) => void
   getFilteredTree: () => FileTreeNode | null
   persist: () => void
-  clearWorkspace: () => Promise<void>
+  clearWorkspace: (deleteFiles?: boolean) => Promise<void>
 }
 
 export const useFileTreeStore = create<FileTreeState>((set, get) => ({
@@ -212,12 +212,34 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => ({
   // 清空工作区间的唯一入口。
   // 不要让调用方自己 setState + persist：那样每加一个删除入口，
   // 就要记得在别处同步清理附件，迟早会漏（本次 bug 正是这么产生的）。
-  clearWorkspace: async () => {
+  // deleteFiles=true 时**真删磁盘**（调 DELETE /api/file/{id}，purge 删文件）；
+  // 数据集节点只从树里移除（数据集数据属于资源空间，不动）。
+  clearWorkspace: async (deleteFiles = true) => {
+    const { root } = get()
+
+    // 1) 先真删磁盘上的平台文件（数据集节点跳过）
+    if (deleteFiles && root) {
+      const fileIds: string[] = []
+      const collect = (n: FileTreeNode) => {
+        if (n.type === 'file' && n.fileId && !n.fileId.startsWith('dataset:')) {
+          fileIds.push(n.fileId)
+        }
+        n.children?.forEach(collect)
+      }
+      root.children?.forEach(collect)
+      await Promise.allSettled(
+        fileIds.map((id) =>
+          fetch(`/api/file/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {})
+        ),
+      )
+    }
+
+    // 2) 树清空 + 持久化
     const fresh = emptyTree()
     set({ root: fresh, selectedFile: null })
     persistEverywhere(fresh)
 
-    // 文件已全部移除，对话里残留的附件引用一并清掉。
+    // 3) 文件已全部移除，对话里残留的附件引用一并清掉。
     // 动态 import 与 chat-store 解耦其它 store 的写法保持一致，
     // 同时避免任何模块初始化顺序上的耦合。
     try {

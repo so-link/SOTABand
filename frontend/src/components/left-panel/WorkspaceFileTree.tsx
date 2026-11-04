@@ -83,6 +83,7 @@ export function WorkspaceFileTree() {
   const [showImport, setShowImport] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<FileTreeNode | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [showClearConfirm, setShowClearConfirm] = useState(false)
 
   const handleImportDataset = (dsNode: FileTreeNode) => {
     const { root, persist } = useFileTreeStore.getState()
@@ -94,9 +95,12 @@ export function WorkspaceFileTree() {
     setShowImport(false)
   }
 
-  const handleClear = async () => {
-    // 走 store 的统一入口：清空文件的同时会把对话里残留的附件引用清掉
-    await useFileTreeStore.getState().clearWorkspace()
+  const handleClear = () => setShowClearConfirm(true)
+
+  const confirmClear = async () => {
+    setShowClearConfirm(false)
+    // 走 store 的统一入口：真删磁盘文件，同时清掉对话里残留的附件引用
+    await useFileTreeStore.getState().clearWorkspace(true)
   }
 
   const handleDoubleClick = (node: FileTreeNode) => {
@@ -249,8 +253,46 @@ export function WorkspaceFileTree() {
           </div>
         </div>
       )}
+
+      {/* 清空我的文件确认弹窗 */}
+      {showClearConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40" onClick={() => setShowClearConfirm(false)}>
+          <div className="bg-maia-surface rounded-xl shadow-xl w-[400px] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-maia-border">
+              <Trash2 className="h-4 w-4 text-maia-danger" />
+              <span className="text-sm font-semibold text-maia-text-heading">清空我的文件</span>
+            </div>
+            <div className="px-4 py-4">
+              <p className="text-[13px] text-maia-text leading-relaxed">
+                确定要清空「我的文件」吗？将删除 <span className="font-semibold text-maia-danger">{countFiles(root)}</span> 个已上传的文件。
+              </p>
+              <p className="text-[12px] text-maia-text-muted mt-2 flex items-center gap-1">
+                <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                此操作将从文件系统中永久删除这些文件，且无法恢复。导入的数据集只会从列表移除，数据本身保留。
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-2 px-4 py-2.5 border-t border-maia-border bg-maia-bg/50">
+              <Button variant="outline" size="sm" onClick={() => setShowClearConfirm(false)} className="text-[12px] h-7">取消</Button>
+              <Button variant="danger" size="sm" onClick={confirmClear} className="text-[12px] h-7">
+                确认清空
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
+}
+
+/** 统计树中的平台文件数（不含数据集节点） */
+function countFiles(root: FileTreeNode | null): number {
+  let n = 0
+  const walk = (node: FileTreeNode) => {
+    if (node.type === 'file' && node.fileId && !node.fileId.startsWith('dataset:')) n++
+    node.children?.forEach(walk)
+  }
+  root?.children?.forEach(walk)
+  return n
 }
 
 // --- Recursive Tree Item ---
