@@ -135,7 +135,6 @@ async def chat_send(request: ChatRequest):
         }
         for att in (request.attachments or [])
     ]
-
     _set_chat_running(session_id)
 
     from core.observability import task_history, chat_store

@@ -35,8 +35,19 @@ CREATE INDEX IF NOT EXISTS idx_chat_messages_session
     ON chat_messages (session_id, id);
 """
 
+def _migrate(conn) -> None:
+    """老库补列：CREATE TABLE IF NOT EXISTS 不会给已存在的表加新列。
+
+    attachments 是后加的（历史消息回放附件/引用），存量库没有这一列，
+    不补的话写入会被静默丢弃（append_message 走了退化的老列分支）。
+    """
+    cols = [r["name"] for r in conn.execute("PRAGMA table_info(chat_messages)").fetchall()]
+    if "attachments" not in cols:
+        conn.execute("ALTER TABLE chat_messages ADD COLUMN attachments TEXT DEFAULT '[]'")
+
+
 # 每用户一库（<USER_HOME>/platform.db）：连接按 uid 缓存，见 core.user_db
-_pool = UserDbPool(_SCHEMA)
+_pool = UserDbPool(_SCHEMA, migrate=_migrate)
 
 
 def _db(uid: str | None = None):
