@@ -42,8 +42,6 @@ export function InlineCard({ card, messageId }: InlineCardProps) {
       return <ToolMatchCard title={title} summary={summary} data={data} />
     case 'tool-confirm':
       return <ToolConfirmCard title={title} summary={summary} data={data} />
-    case 'tool-result':
-      return <ToolResultCard title={title} summary={summary} data={data} />
     case 'mode-selection':
       return <ModeSelectionCard title={title} summary={summary} data={data} />
     case 'code-review':
@@ -578,37 +576,6 @@ function ToolConfirmCard({ title, summary, data }: { title: string; summary: str
             </button>
           ))}
         </div>
-      </CardBody>
-    </Card>
-  )
-}
-
-// ── Tool Result Card（工作空间工具执行结果） ──
-
-function ToolResultCard({ title, summary, data }: { title: string; summary: string; data: Record<string, unknown> }) {
-  const status = String(data.status || 'unknown')
-  const ok = status === 'success'
-  // 与平台工具结果卡一致：原始返回折叠展示，需要时可展开查看
-  const result = data.data ?? data.result
-  return (
-    <Card className={ok ? 'border-maia-card-green bg-maia-card-green' : 'border-maia-danger bg-maia-danger-bg'}>
-      <CardHeader>
-        <div className="flex items-center gap-2">
-          {ok ? <CheckCircle2 className="h-4 w-4 text-emerald-500" /> : <XCircle className="h-4 w-4 text-maia-danger" />}
-          <span className="text-[13px] font-medium">{title}</span>
-          <Badge variant={ok ? 'success' : 'danger'}>{ok ? '成功' : '失败'}</Badge>
-        </div>
-      </CardHeader>
-      <CardBody>
-        {summary && <p className="text-[13px] text-maia-text-secondary mb-2">{summary}</p>}
-        {result != null && (
-          <details className="mb-2">
-            <summary className="text-[12px] text-maia-text-muted cursor-pointer hover:text-maia-text">原始返回</summary>
-            <pre className="mt-1 p-2 rounded bg-maia-surface border border-maia-border text-[12px] font-mono leading-[20px] max-h-[160px] overflow-auto whitespace-pre-wrap">
-              {JSON.stringify(result, null, 2)}
-            </pre>
-          </details>
-        )}
       </CardBody>
     </Card>
   )

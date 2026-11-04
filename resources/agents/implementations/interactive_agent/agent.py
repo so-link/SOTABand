@@ -446,14 +446,23 @@ class InteractiveAgent(BaseAgent):
             tool_result = await self._execute_tool(matched_tool, content, dataset_paths, params)
             if tool_result:
                 # 先出结果卡（用户要求：结果卡在 LLM 解析之前）
+                # 与平台工具结果卡保持一致（platform-result / PlatformResultCard），
+                # 不另搞一套；数据字段对齐：status/tool/result/error
+                _ok = tool_result.get("status") == "success"
+                _name = matched_tool.get("name", matched_tool.get("id", ""))
                 yield {
                     "event": "card",
                     "data": {
-                        "type": "tool-result",
-                        "title": f"工具执行结果：{matched_tool.get('name', matched_tool.get('id', ''))}",
+                        "type": "platform-result",
+                        "title": f"工具执行结果：{_name}",
                         "summary": str(tool_result.get("message", "")
                                        or tool_result.get("summary", ""))[:200],
-                        "data": tool_result,
+                        "data": {
+                            "status": "ok" if _ok else "error",
+                            "tool": _name,
+                            "result": tool_result.get("data"),
+                            "error": "" if _ok else str(tool_result.get("message", "")),
+                        },
                     },
                 }
                 # 检测工具执行过程中是否注册了新数据集
