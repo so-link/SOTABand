@@ -21,12 +21,12 @@ import {
 } from 'lucide-react'
 import { useFileTreeStore } from '@/stores/file-tree-store'
 import { useResourceStore } from '@/stores/resource-store'
-import { useUIStore } from '@/stores/ui-store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { DatasetImportDialog } from './DatasetImportDialog'
 import { nodeFileUrl, type FileTreeNode, type FileCategory } from '@/types/workspace'
+import { useUIStore } from '@/stores/ui-store'
 
 const FILE_ICONS: Record<FileCategory, typeof File> = {
   eeg: Activity,
@@ -71,12 +71,15 @@ export function WorkspaceFileTree() {
     if (node.fileId?.startsWith('dataset:')) {
       e.dataTransfer.effectAllowed = 'none'
       e.dataTransfer.setData('application/x-sotaband-dataset', node.fileId)
+      useUIStore.getState().setDragKind('dataset')
       return
     }
     e.dataTransfer.setData('application/json', JSON.stringify(node))
     // 同时设置 text/plain 类型（file_id），提升跨组件拖拽兼容性
     e.dataTransfer.setData('text/plain', node.fileId || '')
     e.dataTransfer.effectAllowed = 'copy'
+    // 一拖就提示（不等拖入对话区）
+    useUIStore.getState().setDragKind('file')
   }
 
   const [showImport, setShowImport] = useState(false)

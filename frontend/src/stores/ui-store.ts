@@ -66,6 +66,8 @@ interface UIState {
   openViews: ActiveView[]
   leftPanelTab: 'files' | 'resources'
   theme: Theme
+  /** 全局拖拽态：一拖就提示（不等拖入对话区）。null=未拖拽 */
+  dragKind: 'file' | 'dataset' | null
 
   toggleLeftPanel: () => void
   toggleRightPanel: () => void
@@ -77,6 +79,7 @@ interface UIState {
   closeAllViews: () => void
   setLeftPanelTab: (tab: 'files' | 'resources') => void
   toggleTheme: () => void
+  setDragKind: (kind: 'file' | 'dataset' | null) => void
 }
 
 export const useUIStore = create<UIState>()(
@@ -88,6 +91,7 @@ export const useUIStore = create<UIState>()(
       openViews: ['chat'],
       leftPanelTab: 'files',
       theme: getInitialTheme(),
+      dragKind: null,
 
       toggleLeftPanel: () => set((s) => ({ leftPanelOpen: !s.leftPanelOpen })),
       toggleRightPanel: () => set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
@@ -124,6 +128,7 @@ export const useUIStore = create<UIState>()(
       closeAllViews: () => set({ openViews: ['chat'], activeView: 'chat' }),
 
       setLeftPanelTab: (tab) => set({ leftPanelTab: tab }),
+      setDragKind: (kind) => set({ dragKind: kind }),
 
       toggleTheme: () =>
         set((s) => {

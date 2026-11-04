@@ -1,5 +1,6 @@
 import { useState, useEffect, type DragEvent } from 'react'
 import { useChatStore } from '@/stores/chat-store'
+import { useUIStore } from '@/stores/ui-store'
 import { MessageList } from './MessageList'
 import { ChatInput } from './ChatInput'
 import { ChatEmptyState } from './ChatEmptyState'
@@ -11,12 +12,11 @@ export function ChatView() {
   const isSending = useChatStore((s) => s.isSending)
   const clearMessages = useChatStore((s) => s.clearMessages)
   const addPathRef = useChatStore((s) => s.addPathRef)
-  const [isDragOver, setIsDragOver] = useState(false)
-  const [isDatasetDrag, setIsDatasetDrag] = useState(false)
+  const dragKind = useUIStore((s) => s.dragKind)
+  const setDragKind = useUIStore((s) => s.setDragKind)
   const [isUploading, setIsUploading] = useState(false)
+  const isDragOver = dragKind !== null
 
-  // dragenter 立即响应（dragover 在部分浏览器对自定义 MIME 有节流，
-  // 且子元素间移动会反复触发 dragleave 导致提示闪烁）
   const handleDragEnter = (e: DragEvent) => {
     if (
       e.dataTransfer.types.includes('Files') ||
@@ -24,8 +24,6 @@ export function ChatView() {
       e.dataTransfer.types.includes('application/x-sotaband-dataset')
     ) {
       e.preventDefault()
-      setIsDragOver(true)
-      setIsDatasetDrag(e.dataTransfer.types.includes('application/x-sotaband-dataset'))
     }
   }
   const handleDragOver = (e: DragEvent) => {
@@ -34,38 +32,39 @@ export function ChatView() {
     e.dataTransfer.dropEffect = 'copy'
   }
   const handleDragLeave = (e: DragEvent) => {
-    // 仅在真正离开对话区域时取消高亮
     if (e.relatedTarget && e.currentTarget.contains(e.relatedTarget as Node)) return
-    setIsDragOver(false)
-    setIsDatasetDrag(false)
   }
   const handleDrop = (e: DragEvent) => {
     e.preventDefault()
-    setIsDragOver(false)
-    setIsDatasetDrag(false)
-    if (isSending) return
+    if (isSending) {
+      setDragKind(null)
+      return
+    }
     const { node } = extractDraggedPayload(e)
     if (node?.fileId) {
       addPathRef({ name: node.name, fileId: node.fileId })
+      setDragKind(null)
       return
     }
     // OS 文件拖入：先上传到「我的文件」，再记录 file_id 引用
     const files = e.dataTransfer.files
     if (files && files.length > 0) {
       setIsUploading(true)
-      void attachDroppedOsFiles(files, addPathRef).finally(() => setIsUploading(false))
+      void attachDroppedOsFiles(files, addPathRef).finally(() => {
+        setIsUploading(false)
+        setDragKind(null)
+      })
+    } else {
+      setDragKind(null)
     }
   }
 
-  // 拖拽结束时兜底清除高亮（drop 之外，拖出窗口也会触发 dragend 之外的路径）
+  // 拖拽结束兜底清除全局拖拽态（拖出窗口/松手都会触发）
   useEffect(() => {
-    const clear = () => {
-      setIsDragOver(false)
-      setIsDatasetDrag(false)
-    }
+    const clear = () => setDragKind(null)
     window.addEventListener('dragend', clear)
     return () => window.removeEventListener('dragend', clear)
-  }, [])
+  }, [setDragKind])
 
   return (
     <div
@@ -105,12 +104,12 @@ export function ChatView() {
 
       <ChatInput />
 
-      {/* 拖拽提示浮层（最高 z，盖住输入框白底，避免高亮框被"切断"） */}
+      {/* 拖拽提示：由全局 dragKind 驱动，一拖就显示（无需拖入本区域） */}
       {isDragOver && (
         <div className="pointer-events-none absolute inset-0 z-[50] flex items-center justify-center">
           <div className="absolute inset-0 border-2 border-dashed border-maia-accent/70 bg-maia-accent/5 rounded" />
           <span className="relative rounded-lg border border-maia-accent bg-maia-surface px-4 py-2 text-[14px] text-maia-accent shadow-lg">
-            {isDatasetDrag ? '数据集暂不支持拖入对话（请到资源空间引用）' : '松开以附加文件'}
+            {dragKind === 'dataset' ? '数据集请在对话中用名称引用（助手会查到对应数据）' : '松开以附加文件'}
           </span>
         </div>
       )}
