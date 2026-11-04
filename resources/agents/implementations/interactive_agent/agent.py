@@ -1793,8 +1793,12 @@ class InteractiveAgent(BaseAgent):
                 preview = self._read_file_preview(file_id)
                 if preview:
                     parts.append(f"  内容:\n{preview}")
+                elif fmt.lower() in ("png", "jpg", "jpeg", "gif", "bmp", "webp", "tif", "tiff", "svg", "ico"):
+                    # 图片：绝不把字节/base64 塞进 prompt（700KB 图 base64 近 1MB，
+                    # 直接撑爆上下文）。只给元数据 + file_id，让 LLM 调视觉工具分析。
+                    parts.append(f"  （图片文件，内容不直接展示，请用视觉工具分析）")
                 else:
-                    parts.append(f"  （二进制/图片/大文件，内容无法直接展示，请用工具分析）")
+                    parts.append(f"  （二进制/大文件，内容无法直接展示，请用工具分析）")
                 parts.append(f"  file_id: {file_id}（工具参数请用这个 id）")
 
         if dataset_paths:

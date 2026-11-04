@@ -276,8 +276,10 @@ def test_build_user_message_binary_only_metadata():
           "format": "png", "fileSize": p.stat().st_size}],
     )
     assert "img.png" in msg
-    assert "二进制" in msg or "无法直接展示" in msg
+    # 图片：只给元数据 + file_id，绝不把字节塞进 prompt
+    assert "图片文件" in msg and "视觉工具" in msg
     assert rec["file_id"] in msg
+    assert "\x89PNG" not in msg  # 图片字节未进 prompt
 
 
 def test_build_user_message_large_file_head():
