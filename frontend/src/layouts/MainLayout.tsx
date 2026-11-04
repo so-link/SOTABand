@@ -21,9 +21,11 @@ const STORAGE_KEY = 'maia-layout'
 // 侧栏用固定像素宽度，把剩余空间全部留给中间工作区。
 // 之前用 38/40/22 百分比，窗口一宽侧栏就跟着膨胀（2048 宽时左栏约 778px），
 // 中间栏反而被挤到 819px，Agent 审阅/代码区两侧出现大片空白。
-const DEFAULT_LAYOUT = { left: 320, right: 360 }
+const DEFAULT_LAYOUT = { left: 240, right: 360 }
 // 与 Panel 的 minSize 保持一致：历史数据里若存过 0 或过小的宽度，
 // 恢复后会得到一个「已经是折叠态」的面板，与 leftPanelOpen 的 true 自相矛盾。
+// 左栏默认即最小宽度（DEFAULT_LAYOUT.left === MIN_LAYOUT.left）：
+// 左栏只放文件树/资源清单，窄一点能把空间让给中间工作区。
 const MIN_LAYOUT = { left: 240, right: 280 }
 
 function loadLayout(): { left: number; right: number } {
@@ -33,8 +35,11 @@ function loadLayout(): { left: number; right: number } {
       const parsed = JSON.parse(raw)
       // 兼容旧版百分比数组：不能直接当像素用，丢弃后走新默认值
       if (parsed && !Array.isArray(parsed) && typeof parsed.left === 'number' && typeof parsed.right === 'number') {
+        // 历史默认值是 320：没拖过栏的人存的就是这个旧默认，
+        // 一律迁移到新默认（最小宽度），否则"默认为最小宽度"在老浏览器上不生效
+        const left = parsed.left === 320 ? MIN_LAYOUT.left : parsed.left
         return {
-          left: parsed.left >= MIN_LAYOUT.left ? parsed.left : DEFAULT_LAYOUT.left,
+          left: left >= MIN_LAYOUT.left ? left : DEFAULT_LAYOUT.left,
           right: parsed.right >= MIN_LAYOUT.right ? parsed.right : DEFAULT_LAYOUT.right,
         }
       }

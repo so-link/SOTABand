@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { authApi, setStoredToken, setOnUnauthorized, type AuthUser } from '@/services/api/auth'
 import { startPrefsSync, stopPrefsSync } from '@/services/prefs-sync'
+import { useUIStore } from '@/stores/ui-store'
 
 interface AuthState {
   user: AuthUser | null
@@ -52,6 +53,11 @@ export const useAuthStore = create<AuthState>((set) => ({
     await authApi.logout()
     setStoredToken('')
     set({ user: null })
+    // 登出即换人：所有已打开的标签（对话上下文、编辑中的资源）都可能属于
+    // 上一个账号，必须全部关闭回到对话页；随后弹出模态登录窗。
+    // 注意顺序——先 stopPrefsSync 再关标签，关闭动作不会作为上一用户的偏好推给服务端。
+    useUIStore.getState().closeAllViews()
+    set({ loginOpen: true, error: '' })
   },
 
   async changePassword(oldPw, newPw) {
