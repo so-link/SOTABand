@@ -1,28 +1,13 @@
-import { useRef, useEffect, useState, type DragEvent, type KeyboardEvent } from 'react'
-import { Send, X, Paperclip, Square, Folder, Loader2, Wand2 } from 'lucide-react'
+import { useRef, useEffect, type KeyboardEvent } from 'react'
+import { Send, X, Paperclip, Square, Folder, Wand2 } from 'lucide-react'
 import { useChatStore } from '@/stores/chat-store'
-import { useFileTreeStore } from '@/stores/file-tree-store'
 import { Button } from '@/components/ui/button'
-import type { FileTreeNode } from '@/types/workspace'
-
-/** 递归收集所有文件节点（用于 OS 拖入上传后的差集对比） */
-function collectFileNodes(node: FileTreeNode | null, out: FileTreeNode[] = []): FileTreeNode[] {
-  if (!node) return out
-  if (node.type === 'file') out.push(node)
-  node.children?.forEach((child) => collectFileNodes(child, out))
-  return out
-}
-
-/** 平台文件凭证形态（f_+12hex）；数据集节点是 dataset:<id>，不能当文件参数用 */
-const FILE_ID_RE = /^f_[0-9a-f]{12}$/
 
 export function ChatInput() {
-  const { inputText, setInputText, attachedFiles, removeAttachment, pathRefs, addPathRef, removePathRef, sendMessage, stopMessage, isSending,
+  const { inputText, setInputText, attachedFiles, removeAttachment, pathRefs, removePathRef, sendMessage, stopMessage, isSending,
     confirmPolicy, setConfirmPolicy } =
     useChatStore()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const [isDragOver, setIsDragOver] = useState(false)
-  const [isUploading, setIsUploading] = useState(false)
 
   // 回复完成后自动聚焦输入框，方便多轮对话
   const prevSendingRef = useRef(isSending)
@@ -62,93 +47,9 @@ export function ChatInput() {
     el.style.height = `${Math.min(el.scrollHeight, 150)}px`
   }
 
-  // ── 拖拽：文件引用方案（@文件名 → 提交时自动填入 file_id，平台执行前解析回路径）──
-  // OS 文件拖入上传为本分支增量：先入库「我的文件」，再记录 file_id 引用。
-
-  // 从拖拽事件中解析文件节点（必须是平台登记的 file_id；数据集节点
-  // 是 dataset:<id> 形态，无法作为工具文件参数，直接忽略）
-  const extractDraggedNode = (e: DragEvent): FileTreeNode | null => {
-    const jsonData = e.dataTransfer.getData('application/json')
-    if (jsonData) {
-      try {
-        const node = JSON.parse(jsonData) as FileTreeNode
-        if (node?.fileId && FILE_ID_RE.test(node.fileId)) return node
-      } catch {
-        /* JSON 损坏时继续走文本兜底，不要直接放弃 */
-      }
-    }
-    // 兜底：纯文本形式的 file_id（f_+12hex，WorkspaceFileTree 拖拽时同时写入）
-    const textData = e.dataTransfer.getData('text/plain')?.trim()
-    if (textData && FILE_ID_RE.test(textData)) {
-      return { id: textData, name: textData, type: 'file', category: 'unknown', fileId: textData }
-    }
-    return null
-  }
-
-  const handleDrop = (e: DragEvent) => {
-    e.preventDefault()
-    setIsDragOver(false)
-    if (isSending) return
-
-    const node = extractDraggedNode(e)
-    if (node?.fileId) {
-      // 后台记录引用（@文件名 → file_id）
-      addPathRef({ name: node.name, fileId: node.fileId })
-      textareaRef.current?.focus()
-      return
-    }
-
-    // OS 文件拖入（本分支增量）：上传到「我的文件」后记录 file_id 引用
-    const files = e.dataTransfer.files
-    if (files && files.length > 0) {
-      void attachDroppedOsFiles(files)
-    }
-  }
-
-  const handleDragOver = (e: DragEvent) => {
-    // 关键：dragover 必须 preventDefault，否则 drop 事件不会触发。
-    // 注意：dragover 阶段浏览器禁止读取自定义 MIME 类型（如 application/json），
-    // 因此这里不能依赖 extractDraggedNode 来判断，而是无条件允许放置，
-    // 路径解析统一放到 drop 阶段完成。
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'copy'
-    setIsDragOver(true)
-  }
-
-  const handleDragLeave = (e: DragEvent) => {
-    // 仅在真正离开输入区域时取消高亮（避免子元素间移动导致闪烁）
-    const el = textareaRef.current
-    if (el && e.relatedTarget && el.contains(e.relatedTarget as Node)) return
-    setIsDragOver(false)
-  }
-
-  /** 从操作系统拖入的文件：先上传到「我的文件」，再记录 file_id 引用 */
-  const attachDroppedOsFiles = async (files: FileList) => {
-    const beforeIds = new Set(collectFileNodes(useFileTreeStore.getState().root).map((n) => n.id))
-    setIsUploading(true)
-    try {
-      await useFileTreeStore.getState().uploadFiles(files)
-    } finally {
-      setIsUploading(false)
-    }
-    // uploadFiles 只负责入库不返回新节点，故用「上传前后的差集」取回新增项
-    const added = collectFileNodes(useFileTreeStore.getState().root).filter(
-      (n) => !beforeIds.has(n.id) && n.fileId && FILE_ID_RE.test(n.fileId),
-    )
-    added.forEach((node) => addPathRef({ name: node.name, fileId: node.fileId as string }))
-    if (added.length > 0) textareaRef.current?.focus()
-  }
-
   return (
     <div className="border-t border-maia-border bg-maia-surface px-4 pt-3 pb-2.5">
-      {/* drop 目标覆盖整个输入框容器（含附件栏与 padding）：只绑在
-          textarea 上时，拖到边缘/附件栏不触发 drop，表现为「没反应」 */}
-      <div
-        className="w-full"
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-      >
+      <div className="w-full">
         {/* Attachment bar */}
         {(attachedFiles.length > 0 || pathRefs.length > 0) && (
           <div className="flex flex-wrap gap-1.5 mb-2">
@@ -187,11 +88,7 @@ export function ChatInput() {
         )}
 
         {/* Text input area */}
-        <div
-          className={`flex items-end gap-2 bg-maia-sidebar rounded-xl border p-2 transition-colors ${
-            isDragOver ? 'border-maia-accent border-2' : 'border-maia-border focus-within:border-maia-accent/50'
-          }`}
-        >
+        <div className="flex items-end gap-2 bg-maia-sidebar rounded-xl border border-maia-border focus-within:border-maia-accent/50 p-2 transition-colors">
           {/* 平台操作确认策略下拉：控制助手发送的操作卡是自动执行还是等用户点
               —— 放在输入框最左侧，让每次看到输入框都知道当前策略，不会盲等自动执行或误点手弹卡 */}
           <div className="relative shrink-0 mb-0.5">
@@ -242,12 +139,6 @@ export function ChatInput() {
           )}
         </div>
 
-        {isUploading && (
-          <div className="flex items-center gap-1 mt-2 text-[12px] text-maia-text-muted">
-            <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
-            正在上传…
-          </div>
-        )}
       </div>
     </div>
   )
