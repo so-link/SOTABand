@@ -12,6 +12,7 @@ API 就能绕过，看到他人环境注册的数据集。
 """
 from core.resource.registry.data_registry import DataRegistry
 from core.user_context import get_current_user_id
+from core.runtime.paths import data_registry_path
 
 
 def _load_visible_datasets() -> tuple[list, list, str]:
@@ -26,9 +27,8 @@ def _load_visible_datasets() -> tuple[list, list, str]:
         - all_entries: 全部条目（仅用于生成更友好的错误提示）
     """
     import json
-    from pathlib import Path as _Path
 
-    reg_path = _Path(__file__).resolve().parent.parent.parent.parent / "resources" / "data" / "registry.json"
+    reg_path = data_registry_path()
     if not reg_path.exists():
         return [], [], get_current_user_id()
 
@@ -57,6 +57,9 @@ class ApiDataRegister:
             "file_count": kwargs.get("file_count", 0),
             "total_size": kwargs.get("total_size", 0),
             "formats": kwargs.get("formats", []),
+            "tags": kwargs.get("tags", []),
+            "group_path": kwargs.get("group_path", ""),
+            "manifest_path": kwargs.get("manifest_path", ""),
         }
         # owner 由 DataRegistry.register 强制注入，不接受调用方传入，
         # 避免伪造归属把数据集挂到他人名下。

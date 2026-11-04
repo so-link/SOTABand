@@ -307,8 +307,8 @@ function Step1() {
               </div>
             ) : (
               <div className="px-3 py-2 text-[12px] text-maia-danger leading-relaxed">
-                无法连接后端服务（http://localhost:8001）<br />
-                <span className="text-[10px] text-maia-text-muted">请先启动后端：uvicorn app.main:app --port 8001</span>
+                无法连接后端服务（http://localhost:8002）<br />
+                <span className="text-[10px] text-maia-text-muted">请先启动后端：uvicorn app.main:app --port 8002</span>
               </div>
             )
           ) : acState === 'loading' ? (

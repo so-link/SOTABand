@@ -319,12 +319,19 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   const restart = async () => {
     setLoading(true)
     try {
-      await fetch(`${BASE_URL}/api/agent/${agent.id}/restart`, { method: 'POST' })
+      const res = await fetch(`${BASE_URL}/api/agent/${agent.id}/restart`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || data.status === 'failed') {
+        throw new Error(data.error || data.detail || `HTTP ${res.status}`)
+      }
       setRunning(true)
       setMessages([])
       setStreaming('')
       setStreamCards([])
-    } catch { /* ignore */ }
+    } catch (e) {
+      setRunning(false)
+      setMessages([{ role: 'system', content: `Restart failed: ${String(e)}` }])
+    }
     setLoading(false)
   }
 

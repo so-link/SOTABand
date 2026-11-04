@@ -37,13 +37,17 @@ class AgentFactory:
         from core.resource import paths as _paths
 
         for root in _paths.read_roots():
-            impl_dir = root / "agents" / "implementations" / agent_id
-            if (impl_dir / "agent.py").exists():
-                try:
-                    return str(impl_dir.relative_to(PROJECT_ROOT))
-                except ValueError:
-                    # 私有根在项目之外时，返回绝对路径
-                    return str(impl_dir)
+            names = [agent_id]
+            if agent_id == "interactive-agent":
+                names.append("interactive_agent")
+            for name in names:
+                impl_dir = root / "agents" / "implementations" / name
+                if (impl_dir / "agent.py").exists():
+                    try:
+                        return str(impl_dir.relative_to(PROJECT_ROOT))
+                    except ValueError:
+                        # 私有根在项目之外时，返回绝对路径
+                        return str(impl_dir)
         return None
 
     async def start(self, agent_id: str, impl_path: str = None) -> dict:

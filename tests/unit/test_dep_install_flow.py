@@ -297,7 +297,7 @@ def test_dist_name_for_strips_version_and_extras():
 
 def test_probe_dep_state_installed():
     """已装的发行版：dist_version 有值。"""
-    state = tb.ToolCodeBuilder._probe_dep_state(sys.executable, "pip", "pip")
+    state = tb.ToolCodeBuilder._probe_dep_state(sys.executable, "pytest", "pytest")
     assert state["dist_version"]
     assert state["import_ok"] is True
 

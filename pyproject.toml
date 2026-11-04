@@ -41,3 +41,7 @@ target-version = "py311"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.setuptools.package-data]
+"resources.workflows.hypoxemia.runtime" = ["vendor/Time-Series-Library/**/*.py", "vendor/Time-Series-Library/LICENSE", "vendor/Time-Series-Library/SOURCE.json", "vendor/Time-Series-Library/NOTICE.md"]

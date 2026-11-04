@@ -34,6 +34,9 @@ _PRIVATE_ENV = os.environ.get("SOTABAND_PRIVATE_RESOURCES", "").strip()
 def _default_private_root() -> Path:
     # 优先：<项目根>/resources-private（若存在或可创建）
     # 备选：<项目根父目录>/resources-private（按用户指定的“SOTABand 目录下”）
+    runtime = os.environ.get("SOTABAND_RUNTIME_ROOT", "").strip()
+    if runtime:
+        return Path(runtime).expanduser().resolve() / "resources-private"
     return PROJECT_ROOT.parent / "resources-private"
 
 

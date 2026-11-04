@@ -94,6 +94,12 @@ def _parse_role_from_md(raw_md: str) -> AgentRole:
 
 
 async def main():
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace", newline="\n")
+        except (AttributeError, ValueError):
+            pass
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--agent-id", required=True)
     parser.add_argument("--impl-path", required=True)

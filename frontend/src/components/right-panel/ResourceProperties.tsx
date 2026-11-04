@@ -1,7 +1,9 @@
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import type { Resource, DataResource, ToolResource, ModelResource, AgentResource, TaskResource } from '@/types/resources'
+import { useResourceStore } from '@/stores/resource-store'
 import { Star, Activity } from 'lucide-react'
+import { useEffect, useState } from 'react'
 
 interface ResourcePropertiesProps {
   resource: Resource
@@ -122,11 +124,50 @@ function ToolFields({ resource }: { resource: ToolResource }) {
 }
 
 function ModelFields({ resource }: { resource: ModelResource }) {
+  const [group, setGroup] = useState(resource.groupPath || '其它模型')
+  const groups = useResourceStore((state) => state.modelGroups)
+  const fetchModelGroups = useResourceStore((state) => state.fetchModelGroups)
+  const category = resource.modelCategory || 'architecture'
+  const categoryGroups = groups.filter((item) => item.category === category)
+  const options = categoryGroups.some((item) => item.name === group)
+    ? categoryGroups
+    : [{ id: `${category}:current`, name: group, category }, ...categoryGroups]
+
+  useEffect(() => {
+    setGroup(resource.groupPath || '其它模型')
+    void fetchModelGroups()
+  }, [resource.id, resource.groupPath, fetchModelGroups])
+
+  const updateGroup = async (value: string) => {
+    setGroup(value)
+    const response = await fetch(`/api/model/${encodeURIComponent(resource.id)}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ group_path: value }),
+    })
+    if (response.ok) await useResourceStore.getState().fetchModelsFromApi()
+    else {
+      setGroup(resource.groupPath || '其它模型')
+      window.alert('模型分组更新失败')
+    }
+  }
+
   return (
     <>
       <Separator />
       <Property label="框架" value={resource.framework} />
       <Property label="模型类型" value={resource.modelType} />
+      <div>
+        <span className="text-[10px] text-maia-text-muted uppercase">模型分组</span>
+        <select
+          value={group}
+          onChange={(event) => void updateGroup(event.target.value)}
+          className="mt-1 w-full rounded border border-maia-border bg-maia-surface px-2 py-1 text-xs text-maia-text"
+        >
+          {options.map((item) => (
+            <option key={item.id} value={item.name}>{item.name}</option>
+          ))}
+        </select>
+      </div>
       {resource.paramCount && (
         <Property label="参数量" value={resource.paramCount > 1e9 ? `${(resource.paramCount / 1e9).toFixed(1)}B` : `${(resource.paramCount / 1e6).toFixed(0)}M`} />
       )}
