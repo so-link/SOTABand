@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     role       TEXT NOT NULL,             -- user / agent
     content    TEXT DEFAULT '',
     cards      TEXT DEFAULT '[]',         -- JSON 数组（内联卡片）
+    attachments TEXT DEFAULT '[]',        -- JSON 数组（附件/引用，历史回放用）
     created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_chat_messages_session
@@ -51,7 +52,8 @@ def _rows(sql: str, args: tuple = ()) -> list[dict[str, Any]]:
 
 
 def append_message(session_id: str, agent_id: str, role: str,
-                   content: str, cards: list[dict] | None = None) -> None:
+                   content: str, cards: list[dict] | None = None,
+                   attachments: list[dict] | None = None) -> None:
     """追加一条消息；首条用户消息的文本同时作为会话标题。"""
     content = (content or "")[:20000]
     with _lock():
@@ -62,11 +64,21 @@ def append_message(session_id: str, agent_id: str, role: str,
             " VALUES (?,?,?,?,?) ON CONFLICT(session_id) DO UPDATE SET updated_at=?",
             (session_id, agent_id, "", now, now, now),
         )
-        conn.execute(
-            "INSERT INTO chat_messages (session_id, role, content, cards, created_at)"
-            " VALUES (?,?,?,?,?)",
-            (session_id, role, content, json.dumps(cards or [], ensure_ascii=False), now),
-        )
+        # attachments 列是后加的：老库无此列时退化为只写 cards
+        cols = [r["name"] for r in conn.execute("PRAGMA table_info(chat_messages)").fetchall()]
+        if "attachments" in cols:
+            conn.execute(
+                "INSERT INTO chat_messages (session_id, role, content, cards, attachments, created_at)"
+                " VALUES (?,?,?,?,?,?)",
+                (session_id, role, content, json.dumps(cards or [], ensure_ascii=False),
+                 json.dumps(attachments or [], ensure_ascii=False), now),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO chat_messages (session_id, role, content, cards, created_at)"
+                " VALUES (?,?,?,?,?)",
+                (session_id, role, content, json.dumps(cards or [], ensure_ascii=False), now),
+            )
         if role == "user":
             conn.execute(
                 "UPDATE chat_sessions SET title=? WHERE session_id=? AND title=''",
@@ -95,10 +107,13 @@ def message_count(session_id: str) -> int:
 
 
 def get_messages(session_id: str, limit: int = 200) -> list[dict[str, Any]]:
-    """会话消息（时间正序）。cards 字段解析回数组。"""
+    """会话消息（时间正序）。cards / attachments 字段解析回数组。"""
     with _lock():
+        # attachments 列是后加的：老库无此列时 SELECT 会报错，退化为不含该列
+        cols = [r["name"] for r in _db().execute("PRAGMA table_info(chat_messages)").fetchall()]
+        att_col = "attachments" if "attachments" in cols else "'' AS attachments"
         rows = _rows(
-            "SELECT id, role, content, cards, created_at FROM chat_messages"
+            f"SELECT id, role, content, cards, {att_col}, created_at FROM chat_messages"
             " WHERE session_id=? ORDER BY id ASC LIMIT ?",
             (session_id, limit),
         )
@@ -107,6 +122,14 @@ def get_messages(session_id: str, limit: int = 200) -> list[dict[str, Any]]:
             r["cards"] = json.loads(r.get("cards") or "[]")
         except Exception:
             r["cards"] = []
+        # attachments 列是后加的：老库无此列时留空
+        raw_att = r.get("attachments")
+        if raw_att is None:
+            continue
+        try:
+            r["attachments"] = json.loads(raw_att or "[]")
+        except Exception:
+            r["attachments"] = []
     return rows
 
 

@@ -1,7 +1,8 @@
 import { useRef, useEffect, type KeyboardEvent } from 'react'
-import { Send, X, Paperclip, Square, Folder, Database, Wand2 } from 'lucide-react'
+import { Send, X, Paperclip, Square, Database, Wand2 } from 'lucide-react'
 import { useChatStore } from '@/stores/chat-store'
 import { Button } from '@/components/ui/button'
+import { FileCategoryIcon } from '@/lib/file-icon'
 
 export function ChatInput() {
   const { inputText, setInputText, attachedFiles, removeAttachment, pathRefs, removePathRef, sendMessage, stopMessage, isSending,
@@ -59,7 +60,7 @@ export function ChatInput() {
                 className="flex items-center gap-1 rounded-full bg-blue-500/15 border border-blue-500/40 px-2.5 py-1 text-[12px] text-blue-600 dark:text-blue-400"
                 title={ref.kind === 'dataset' ? `数据集引用: ${ref.fileId}` : `${ref.fileId}`}
               >
-                {ref.kind === 'dataset' ? <Database className="h-3 w-3" /> : <Folder className="h-3 w-3" />}
+                {ref.kind === 'dataset' ? <Database className="h-3 w-3" /> : <FileCategoryIcon name={ref.name} className="h-3 w-3" />}
                 <span className="max-w-[160px] truncate">@{ref.name}</span>
                 <button
                   onClick={() => removePathRef(ref.name)}

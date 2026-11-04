@@ -156,8 +156,9 @@ async def chat_send(request: ChatRequest):
     # 不落 user 消息，只让助手把执行结果解读进对话。
     is_receipt = request.kind == "platform_receipt"
     if not is_receipt:
+        # 附件/引用一并落库：刷新或切回历史会话时，气泡上仍能看到
         chat_store.append_message(session_id, DEFAULT_INTERACTIVE_AGENT_ID,
-                                  "user", request.content)
+                                  "user", request.content, attachments=attachments)
     reply_parts: list[str] = []
     reply_cards: list[dict] = []
 
