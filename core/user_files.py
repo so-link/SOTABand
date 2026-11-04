@@ -285,20 +285,52 @@ def looks_like_file_id(value: str) -> bool:
 
 
 def resolve_params(params: dict) -> dict:
-    """把参数值里的 file_id 换成工具可用的绝对路径（就地修改并返回）。
+    """把参数值里的 file_id / 文件名换成工具可用的绝对路径（就地修改并返回）。
 
     前端界面只持有 file_id；但工具参数的语义就是路径（AI 生成的工具按
-    路径写死逻辑）。平台在调用前做这一层替换：整串恰好是 file_id 形态
-    （f_+12hex，高熵随机，业务字符串不可能撞上）且能在**当前用户**库中
-    解析成功的值 → 替换为真实路径。解析不到就原样传递：工具拿到无效 id
-    与拿到无效路径的失败面相同，不额外造错。
+    路径写死逻辑）。平台在调用前做这一层替换：
+
+    - 整串恰好是 file_id 形态（f_+12hex，高熵随机，业务字符串不可能撞上）
+      且能在**当前用户**库中解析成功的值 → 替换为真实路径；
+    - 对话里附加文件时只显示名字，参数里可能写的是**文件名**（含扩展名）——
+      唯一匹配时同样解析；解析不到就原样传递（工具拿到无效值与拿到无效
+      路径的失败面相同，不额外造错）。
     """
     if not isinstance(params, dict):
         return params
     for key, val in list(params.items()):
-        if isinstance(val, str) and looks_like_file_id(val):
+        if not isinstance(val, str) or not val:
+            continue
+        if looks_like_file_id(val):
             try:
                 params[key] = str(resolve(val))
+                continue
             except FileNotFoundError:
                 pass
+        resolved = _resolve_by_name(val)
+        if resolved is not None:
+            params[key] = str(resolved)
     return params
+
+
+_NAME_SUFFIX_RE = re.compile(r"\.[A-Za-z0-9]{1,8}$")
+
+
+def _resolve_by_name(name: str) -> Path | None:
+    """按文件名精确匹配当前用户登记文件；同名多个不解析（避免歧义）。
+
+    只处理含扩展名的名字：普通字符串（"hello"、"10"）不该被拖进文件解析，
+    否则用户输入恰好等于某个文件名时会被误伤。
+    """
+    if not _NAME_SUFFIX_RE.search(name):
+        return None
+    with _lock():
+        rows = _db().execute(
+            "SELECT file_id FROM user_files WHERE name=?", (name,)
+        ).fetchall()
+    if len(rows) != 1:
+        return None
+    try:
+        return resolve(rows[0]["file_id"])
+    except FileNotFoundError:
+        return None

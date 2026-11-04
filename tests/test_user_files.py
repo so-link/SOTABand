@@ -156,6 +156,31 @@ def test_resolve_params_replaces_file_ids():
     assert params["label"] == "f_notregistered0"
 
 
+def test_resolve_params_replaces_file_name():
+    """对话附加文件只显示名字时，参数里的文件名也要能解析成路径。"""
+    p = _make_file("report.png", b"\x89PNG")
+    user_files.register(p)
+    params = {"input": "report.png", "window": 10, "note": "hello"}
+    user_files.resolve_params(params)
+    assert params["input"] == str(p.resolve())
+    assert params["window"] == 10
+    # 无扩展名的普通字符串不拖进文件解析，避免误伤
+    assert params["note"] == "hello"
+
+
+def test_resolve_params_name_ambiguous_not_resolved():
+    """同名多个文件时不解析（避免猜错），原样传递。"""
+    p1 = _make_file("dup.txt", b"a")
+    d2 = user_paths.user_home() / "plots"
+    d2.mkdir(parents=True, exist_ok=True)
+    (d2 / "dup.txt").write_bytes(b"b")
+    user_files.register(p1)
+    user_files.register(d2 / "dup.txt")
+    params = {"input": "dup.txt"}
+    user_files.resolve_params(params)
+    assert params["input"] == "dup.txt"
+
+
 # ── /api/file 接口冒烟（只挂 file 路由，身份走 SOTABAND_USER_ID） ──
 
 @pytest.fixture
