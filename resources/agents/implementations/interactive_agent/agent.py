@@ -213,6 +213,8 @@ class InteractiveAgent(BaseAgent):
                 yield {"event": "content", "data": {"text": "请回复编号或工具名称来选择要使用的工具。"}}
                 return
             matched_tool = selected
+            # function calling 确认：LLM 已给出参数，直接用作 pre_params
+            skip_param_extract = pending_confirm.get("arguments") or {}
             # 本次回复用于「选择工具」，不可再用作模式提示依据，
             # 否则用户回复的编号（如 "1"）会被误判为模式编号，导致跳过模式选择。
             tool_from_confirm = True
@@ -591,7 +593,39 @@ class InteractiveAgent(BaseAgent):
                     for i, tc in enumerate(tool_calls):
                         call_id = tc.get("id") or f"call_{i}"
                         if tc.get("name") in workspace_names:
-                            result = await self._run_workspace_tool(tc, ctx, session_key)
+                            # 工作空间工具：先发确认卡，等用户确认后再执行
+                            # （manual 等用户点，auto 由前端自动确认）。LLM 已给出
+                            # 参数，确认后直接作为 pre_params 执行。
+                            tool_id = str(tc.get("name") or "")
+                            args = tc.get("arguments")
+                            if isinstance(args, str):
+                                try:
+                                    args = json.loads(args)
+                                except Exception:
+                                    args = {}
+                            if not isinstance(args, dict):
+                                args = {}
+                            entry = next((t for t in workspace_tools
+                                          if t["function"]["name"] == tool_id), None)
+                            tool_name = (entry or {}).get("function", {}).get("description", tool_id)
+                            self._pending_confirm[session_key] = {
+                                "candidates": [{"id": tool_id, "name": tool_name, "index": 1}],
+                                "arguments": args,
+                            }
+                            yield {
+                                "event": "card",
+                                "data": {
+                                    "type": "tool-confirm",
+                                    "title": "请确认执行工具",
+                                    "summary": f"LLM 想调用工具 {tool_name}，参数: "
+                                               f"{json.dumps(args, ensure_ascii=False)[:200]}",
+                                    "data": {
+                                        "candidates": [{"id": tool_id, "name": tool_name, "index": 1}],
+                                        "kind": "workspace-exec",
+                                    },
+                                },
+                            }
+                            return  # 结束本轮，等用户下一轮确认
                         else:
                             result = await self._run_platform_tool(tc, ctx, session_key)
                         if result.get("status") == "pending" and result.get("confirm"):

@@ -67,6 +67,19 @@ function genId(): string {
   return `msg-${Date.now()}-${nextId++}`
 }
 
+/** 从消息文本里恢复数据集引用（dataset:<id> 拼在文本里，历史回放时补成 chip） */
+function restoreDatasetRefs(content: string): Message['attachments'] {
+  const ids = (content || '').match(/dataset:[A-Za-z0-9_.-]+/g) || []
+  return ids.map((fid) => ({
+    id: fid,
+    fileName: fid.replace('dataset:', ''),
+    filePath: '',
+    fileSize: 0,
+    format: '',
+    fileId: fid,
+  }))
+}
+
 /**
  * 卡片 `_action` 钩子：平台操作成功后自动刷新对应空间。
  * （定时任务视图 CronJobsView 挂载时自动 reload，无需在此刷新。）
@@ -263,6 +276,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     } catch { /* 后端不可用时保持空对话 */ }
   },
 
+  // 从消息文本里恢复数据集引用（dataset:<id> 拼在文本里，历史回放时补成 chip）
   // 点击「对话历史」中的会话：加载消息并把当前会话切过去，后续消息接在该会话上
   switchSession: async (sessionId) => {
     if (!sessionId) return
@@ -271,12 +285,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (!res.ok) return
       const data = await res.json()
       const restored: Message[] = (data.messages || []).map(
-        (m: { id: number; role: string; content: string; cards?: unknown[]; created_at: number }) => ({
+        (m: { id: number; role: string; content: string; cards?: unknown[]; attachments?: unknown[]; created_at: number }) => ({
           id: `db-${m.id}`,
           role: m.role === 'agent' ? 'agent' : 'user',
           content: m.content,
           timestamp: new Date(m.created_at * 1000).toISOString(),
           cards: Array.isArray(m.cards) && m.cards.length > 0 ? m.cards as Message['cards'] : undefined,
+          // 历史回放：附件/引用一并恢复（刷新后仍能看到）
+          attachments: Array.isArray(m.attachments) && m.attachments.length > 0
+            ? m.attachments as Message['attachments']
+            : restoreDatasetRefs(m.content),
         }),
       )
       // 落库的卡片是下发时的 pending 快照：用审计流水把已确认/已执行/已取消的
@@ -494,6 +512,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
               continue
             }
             refreshSpacesForAction(cardData._action)
+            // 自动确认策略：工作空间工具执行确认卡（workspace-exec）自动确认。
+            // 与 platform-confirm 不同，这里走「选择工具」消息触发后端执行。
+            if (card.type === 'tool-confirm' &&
+                cardData.kind === 'workspace-exec' &&
+                get().confirmPolicy === 'auto') {
+              const candidate = (cardData.candidates as Array<{ name: string }>)[0]
+              if (candidate) {
+                void get().sendDirectMessage(`我选择第1个工具：${candidate.name}`)
+              }
+              continue
+            }
             // 自动确认策略：收到 platform-confirm 卡即直接执行，不再等用户点按钮
             if (card.type === 'platform-confirm' &&
                 get().confirmPolicy === 'auto' &&

@@ -1,7 +1,8 @@
 import { cn } from '@/lib/utils'
 import type { Message } from '@/types/chat'
 import { InlineCard } from './InlineCard'
-import { Bot, Info, Paperclip } from 'lucide-react'
+import { Bot, Info } from 'lucide-react'
+import { FileCategoryIcon } from '@/lib/file-icon'
 
 interface MessageBubbleProps {
   message: Message
@@ -37,7 +38,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
                   key={att.id}
                   className="inline-flex items-center gap-1 rounded border border-maia-accent-border bg-maia-accent-light px-2 py-0.5 text-[12px] text-maia-accent"
                 >
-                  <Paperclip className="h-3 w-3" />
+                  <FileCategoryIcon name={att.fileName} className="h-3 w-3" />
                   {att.fileName}
                 </span>
               ))}
