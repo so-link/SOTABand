@@ -78,3 +78,6 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 # 显式固定夹具事件循环作用域，避免 pytest-asyncio 的隐式默认值随版本变化
 asyncio_default_fixture_loop_scope = "function"
+
+[tool.setuptools.package-data]
+"resources.workflows.hypoxemia.runtime" = ["vendor/Time-Series-Library/**/*.py", "vendor/Time-Series-Library/LICENSE", "vendor/Time-Series-Library/SOURCE.json", "vendor/Time-Series-Library/NOTICE.md"]

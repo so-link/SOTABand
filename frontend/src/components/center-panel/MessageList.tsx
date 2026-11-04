@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Message } from '@/types/chat'
 import { MessageBubble } from './MessageBubble'
 import { Loader2 } from 'lucide-react'
@@ -13,6 +13,23 @@ export function MessageList({ messages, isSending }: MessageListProps) {
   const contentRef = useRef<HTMLDivElement>(null)
   const prevCountRef = useRef(messages.length)
   const shouldAutoScrollRef = useRef(true)
+  const [waitSeconds, setWaitSeconds] = useState(0)
+  const lastMessage = messages[messages.length - 1]
+  const waitingForFirstResponse = Boolean(
+    isSending && lastMessage?.role === 'agent' && !lastMessage.content && !lastMessage.cards?.length,
+  )
+
+  useEffect(() => {
+    if (!waitingForFirstResponse) {
+      setWaitSeconds(0)
+      return
+    }
+    const startedAt = Date.now()
+    const timer = window.setInterval(() => {
+      setWaitSeconds(Math.floor((Date.now() - startedAt) / 1000))
+    }, 250)
+    return () => window.clearInterval(timer)
+  }, [waitingForFirstResponse])
 
   // 检测用户是否手动往上滚了（如果滚了就不自动滚）
   useEffect(() => {
@@ -66,10 +83,10 @@ export function MessageList({ messages, isSending }: MessageListProps) {
           <MessageBubble key={msg.id} message={msg} />
         ))}
 
-        {isSending && (
-          <div className="flex items-center gap-2 text-gray-400 text-xs py-2">
+        {waitingForFirstResponse && (
+          <div className="flex items-center gap-2 text-maia-text-muted text-xs py-2" aria-live="polite">
             <Loader2 className="h-3 w-3 animate-spin" />
-            处理中...
+            正在理解请求 · {waitSeconds} 秒
           </div>
         )}
       </div>

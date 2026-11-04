@@ -14,6 +14,8 @@ from pathlib import Path
 
 # 自动加载项目根目录的 .env 文件
 def _load_dotenv():
+    if os.environ.get("SOTABAND_LOAD_DOTENV", "1") == "0":
+        return
     env_file = Path(__file__).resolve().parent.parent / ".env"
     if env_file.exists():
         with open(env_file, encoding='utf-8') as f:
@@ -433,7 +435,9 @@ class AppConfig:
     app_name: str = "SOTABand"
     debug: bool = False
     api_host: str = "0.0.0.0"
-    api_port: int = 8001
+    # 允许用环境变量覆盖端口（多 checkout 并行开发时用；默认沿用本项目的 8001，
+    # 与 Dockerfile / docker-compose / README 保持一致）
+    api_port: int = int(os.environ.get("SOTABAND_API_PORT", "8001"))
     #: CORS 允许来源。**必须是显式列表，不能用 `*`**。
     #:
     #: 浏览器规范下 `Access-Control-Allow-Origin: *` 与 `allow_credentials=True`

@@ -306,12 +306,22 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   const restart = async () => {
     setLoading(true)
     try {
-      await apiPost(`/api/agent/${agent.id}/restart`)
+      // 统一 client：非 2xx 会抛 ApiError；额外校验 200 + status=failed
+      // （上游 #11 的语义：重启失败要显式提示，不能静默当作成功）
+      const data = await apiPost<{ status?: string; error?: string; detail?: string }>(
+        `/api/agent/${agent.id}/restart`
+      )
+      if (data && data.status === 'failed') {
+        throw new Error(data.error || data.detail || 'restart failed')
+      }
       setRunning(true)
       setMessages([])
       setStreaming('')
       setStreamCards([])
-    } catch { /* ignore */ }
+    } catch (e) {
+      setRunning(false)
+      setMessages([{ role: 'system', content: `Restart failed: ${String(e)}` }])
+    }
     setLoading(false)
   }
 

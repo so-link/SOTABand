@@ -1,12 +1,29 @@
 import { create } from 'zustand'
-import type { Resource, ResourceType, AgentResource, ToolResource, DataResource } from '@/types/resources'
+import type { Resource, ResourceType, AgentResource, ToolResource, DataResource, ModelResource, ModelGroup, ModelCategory } from '@/types/resources'
 import { MockResourceService } from '@/services/mock/resources'
 import { agentApi } from '@/services/api/agent'
 import { toolApi } from '@/services/api/tool'
 import { dataApi } from '@/services/api/data'
-import { apiGet } from '@/services/api/client'
+import { apiGet, apiPost, apiDelete, describeError } from '@/services/api/client'
 
 const resourceService = new MockResourceService()
+
+function mapModelResource(m: Record<string, unknown>): ModelResource {
+  return {
+    id: m.id as string, name: (m.name as string) || (m.id as string), description: '',
+    type: 'model', version: (m.version as string) || '0.1.0', status: 'active',
+    createdAt: (m.created_at as string) || '', updatedAt: '',
+    tags: (m.tags as string[]) || [], framework: (m.framework as string) || '',
+    modelType: 'timeseries', weightPath: (m.model_path as string) || '',
+    inputFormat: m.input_format ? [String(m.input_format)] : [],
+    outputFormat: m.output_format ? [String(m.output_format)] : [],
+    deploymentStatus: 'registered', relatedToolId: (m.associated_tool_id as string) || '',
+    runtimeStatus: (m.runtime_status as string) || 'configured',
+    groupPath: (m.group_path as string) || '其它模型',
+    modelCategory: m.model_category === 'trained' ? 'trained' : 'architecture',
+    artifactAvailable: m.artifact_available === true,
+  }
+}
 
 interface ResourceState {
   selectedResource: Resource | null
@@ -15,6 +32,7 @@ interface ResourceState {
   dataResources: Resource[]
   toolResources: Resource[]
   modelResources: Resource[]
+  modelGroups: ModelGroup[]
   agentResources: Resource[]
   taskResources: Resource[]
   isLoading: boolean
@@ -27,6 +45,9 @@ interface ResourceState {
   fetchToolsFromApi: () => Promise<void>
   fetchDatasetsFromApi: () => Promise<void>
   fetchModelsFromApi: () => Promise<void>
+  fetchModelGroups: () => Promise<void>
+  createModelGroup: (name: string, category: ModelCategory) => Promise<boolean>
+  deleteModelGroup: (id: string) => Promise<string | null>
 }
 
 export const useResourceStore = create<ResourceState>((set, get) => ({
@@ -34,6 +55,7 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
   dataResources: [],
   toolResources: [],
   modelResources: [],
+  modelGroups: [],
   agentResources: [],
   taskResources: [],
   isLoading: false,
@@ -72,7 +94,7 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
       toolApi.list(),
       agentApi.list(),
       dataApi.list(true),   // 只加载本机有数据的数据集
-      apiGet<{ models: any[] }>('/api/model/list'),
+      apiGet<{ models: Record<string, unknown>[] }>('/api/model/list'),
     ])
     const [toolResult, agentResult, dataResult, modelResult] = apiResults
 
@@ -122,15 +144,7 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
     // 模型
     if (modelResult.status === 'fulfilled' && Array.isArray(modelResult.value?.models) && modelResult.value.models.length > 0) {
       set({
-        // `as Resource[]`：后端 model 字段与前端 ModelResource 并非逐字段对应
-        // （前端还要求 framework / modelType / weightPath 等，后端未必都给），
-        // 这里按"宽松填充"处理，缺的字段用默认值兜住。
-        modelResources: modelResult.value.models.map((m: any) => ({
-          id: m.id as string, name: (m.name as string) || (m.id as string), description: '', type: 'model' as const,
-          version: (m.version as string) || '0.1.0', status: 'active' as const, createdAt: (m.created_at as string) || '',
-          updatedAt: '', tags: (m.tags as string[]) || [], format: (m.framework as string) || '',
-          filePath: (m.model_path as string) || '', fileSize: 0, source: 'upload' as const, lineage: [],
-        })) as unknown as Resource[],
+        modelResources: modelResult.value.models.map(mapModelResource)
       })
     }
 
@@ -203,16 +217,37 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
 
   fetchModelsFromApi: async () => {
     try {
-      const data = await apiGet<{ models: any[] }>('/api/model/list')
-      if (Array.isArray(data.models) && data.models.length > 0) {
-        set({ modelResources: data.models.map((m: any) => ({
-          id: m.id as string, name: (m.name as string) || (m.id as string), description: '',
-          type: 'model' as const, version: (m.version as string) || '0.1.0', status: 'active' as const,
-          createdAt: (m.created_at as string) || '', updatedAt: '',
-          tags: (m.tags as string[]) || [], format: (m.framework as string) || '',
-          filePath: (m.model_path as string) || '', fileSize: 0, source: 'upload' as const, lineage: [],
-        })) as unknown as Resource[] })
+      const data = await apiGet<{ models: Record<string, unknown>[] }>('/api/model/list')
+      if (Array.isArray(data.models)) {
+        set({ modelResources: data.models.map(mapModelResource) })
       }
     } catch { /* ignore */ }
+  },
+
+  fetchModelGroups: async () => {
+    try {
+      const data = await apiGet<{ groups: ModelGroup[] }>('/api/model/groups')
+      if (Array.isArray(data.groups)) set({ modelGroups: data.groups })
+    } catch { /* ignore */ }
+  },
+
+  createModelGroup: async (name: string, category: ModelCategory) => {
+    try {
+      await apiPost('/api/model/groups', { name, category })
+      await get().fetchModelGroups()
+      return true
+    } catch {
+      return false
+    }
+  },
+
+  deleteModelGroup: async (id: string) => {
+    try {
+      await apiDelete(`/api/model/groups/${encodeURIComponent(id)}`)
+      await get().fetchModelGroups()
+      return null
+    } catch (e) {
+      return describeError(e) || '删除分组失败'
+    }
   },
 }))

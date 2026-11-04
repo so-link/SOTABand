@@ -60,8 +60,21 @@ export interface ToolResource extends BaseResource {
 
 // ---- 模型空间 ----
 
+export type ModelCategory = 'trained' | 'architecture'
+
+export interface ModelGroup {
+  id: string
+  name: string
+  category: ModelCategory
+  system?: boolean
+}
+
 export interface ModelResource extends BaseResource {
   type: 'model'
+  runtimeStatus?: string
+  groupPath?: string
+  modelCategory?: ModelCategory
+  artifactAvailable?: boolean
   framework: string        // PyTorch, ONNX, TensorFlow, etc.
   modelType: 'llm' | 'vision' | 'timeseries' | 'audio' | 'multimodal'
   paramCount?: number

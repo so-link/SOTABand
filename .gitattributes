@@ -1,3 +1,5 @@
+resources/workflows/hypoxemia/runtime/vendor/** text eol=lf
+requirements/*.lock text eol=lf
 * text=auto
 
 # Linux 部署脚本必须 LF，否则 sh 会报 "$'\r': command not found"

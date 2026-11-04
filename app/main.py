@@ -24,6 +24,7 @@ from app.api.routes.llm_routes import router as llm_router
 from app.api.routes.me_routes import router as me_router
 from app.api.routes.migrate_routes import router as migrate_router
 from app.api.routes.model_routes import router as model_router
+from app.api.routes.task_routes import router as task_router
 
 # 需求 8.2：虚拟协作网络
 from app.api.routes.network_routes import router as network_router
@@ -122,6 +123,7 @@ app.include_router(model_router, prefix="/api/model", tags=["model"])
 app.include_router(config_router, prefix="/api/config", tags=["config"])
 app.include_router(api_list_router, prefix="/api/apis", tags=["api"])
 app.include_router(llm_router, prefix="/api/llm", tags=["llm"])
+app.include_router(task_router, prefix="/api/task", tags=["task"])
 app.include_router(migrate_router, prefix="/api/migrate", tags=["migrate"])
 
 # 需求 8.1：认证与会话。

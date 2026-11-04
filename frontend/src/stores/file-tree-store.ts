@@ -99,7 +99,7 @@ interface FileTreeState {
   selectFile: (node: FileTreeNode | null) => void
   setPreviewFile: (node: FileTreeNode | null) => void
   toggleExpand: (nodeId: string) => void
-  uploadFiles: (files: FileList) => Promise<void>
+  uploadFiles: (files: FileList | File[]) => Promise<void>
   removeNode: (nodeId: string) => void
   setSearchQuery: (query: string) => void
   getFilteredTree: () => FileTreeNode | null
@@ -173,14 +173,17 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => ({
     persistEverywhere(newRoot)
   },
 
-  uploadFiles: async (files: FileList) => {
+  uploadFiles: async (files: FileList | File[]) => {
     let { root } = get()
     if (!root) root = emptyTree()
+    const uploadSubdir = `batch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
     for (const file of Array.from(files)) {
       try {
         const formData = new FormData()
         formData.append('file', file)
+        // 同一批文件放进同一个时间戳子目录：上游 #11 为避免同名文件互相覆盖
+        formData.append('subdir', uploadSubdir)
         const uploaded = await apiUpload<{
           id: string
           fileName: string
