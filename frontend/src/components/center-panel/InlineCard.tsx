@@ -42,6 +42,8 @@ export function InlineCard({ card, messageId }: InlineCardProps) {
       return <ToolMatchCard title={title} summary={summary} data={data} />
     case 'tool-confirm':
       return <ToolConfirmCard title={title} summary={summary} data={data} />
+    case 'tool-result':
+      return <ToolResultCard title={title} summary={summary} data={data} />
     case 'mode-selection':
       return <ModeSelectionCard title={title} summary={summary} data={data} />
     case 'code-review':
@@ -576,6 +578,33 @@ function ToolConfirmCard({ title, summary, data }: { title: string; summary: str
             </button>
           ))}
         </div>
+      </CardBody>
+    </Card>
+  )
+}
+
+// ── Tool Result Card（工作空间工具执行结果） ──
+
+function ToolResultCard({ title, summary, data }: { title: string; summary: string; data: Record<string, unknown> }) {
+  const status = String(data.status || 'unknown')
+  const ok = status === 'success'
+  const detail = data.data
+  return (
+    <Card className={ok ? 'border-maia-card-green bg-maia-card-green' : 'border-maia-danger/30 bg-maia-danger-bg'}>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          {ok ? <CheckCircle2 className="h-4 w-4 text-emerald-500" /> : <XCircle className="h-4 w-4 text-maia-danger" />}
+          <span className="text-[13px] font-medium">{title}</span>
+          <Badge variant={ok ? 'success' : 'danger'}>{ok ? '成功' : '失败'}</Badge>
+        </div>
+      </CardHeader>
+      <CardBody>
+        {summary && <p className="text-[13px] text-maia-text-secondary mb-2">{summary}</p>}
+        {detail !== undefined && detail !== null && (
+          <pre className="text-[12px] font-mono leading-[20px] bg-maia-bg rounded p-2 border border-maia-border overflow-auto max-h-[200px] text-maia-text">
+            {JSON.stringify(detail, null, 2).slice(0, 2000)}
+          </pre>
+        )}
       </CardBody>
     </Card>
   )

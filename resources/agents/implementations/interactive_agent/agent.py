@@ -445,6 +445,17 @@ class InteractiveAgent(BaseAgent):
                    "data": {"text": f"正在执行 **{matched_tool['name']}**，请稍候……（耗时任务可能需要较长时间，可在需要时手动停止）"}}
             tool_result = await self._execute_tool(matched_tool, content, dataset_paths, params)
             if tool_result:
+                # 先出结果卡（用户要求：结果卡在 LLM 解析之前）
+                yield {
+                    "event": "card",
+                    "data": {
+                        "type": "tool-result",
+                        "title": f"工具执行结果：{matched_tool.get('name', matched_tool.get('id', ''))}",
+                        "summary": str(tool_result.get("message", "")
+                                       or tool_result.get("summary", ""))[:200],
+                        "data": tool_result,
+                    },
+                }
                 # 检测工具执行过程中是否注册了新数据集
                 registered_dataset_id = None
                 try:
@@ -639,7 +650,8 @@ class InteractiveAgent(BaseAgent):
                         else:
                             result = await self._run_platform_tool(tc, ctx, session_key)
                         if result.get("status") == "pending" and result.get("confirm"):
-                            # 写操作 → 下发确认卡片，本轮不执行
+                            # 写操作 → 下发确认卡片，本轮结束（不再继续 LLM，
+                            # 避免生成多余的"请确认"回复；结果卡在用户确认后出现）
                             yield {
                                 "event": "card",
                                 "data": {
@@ -649,6 +661,7 @@ class InteractiveAgent(BaseAgent):
                                     "data": result["confirm"],
                                 },
                             }
+                            return
                         history.append({
                             "role": "tool",
                             "tool_call_id": call_id,
