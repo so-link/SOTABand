@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import {
-  Bot, Send, Play, Square, RefreshCw, Loader2, FileText, FileCode, X, Pencil, Save, FolderOpen, Eraser,
+  Bot, Send, Play, Square, RefreshCw, Loader2, FileText, FileCode, X, Pencil, Save, Eraser,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -14,7 +14,7 @@ import { useTabIndent } from '@/hooks/use-tab-indent'
 import type { AgentResource } from '@/types/resources'
 import type { InlineCard as InlineCardType } from '@/types/chat'
 import { InlineCard } from './InlineCard'
-import { WorkspaceFilePicker } from './WorkspaceFilePicker'
+import { FileSelect } from '@/components/ui/file-select'
 
 const BASE_URL = ''
 
@@ -107,8 +107,6 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   const [testParams, setTestParams] = useState<Record<string, string>>({})
   const [testResult, setTestResult] = useState('')
   const [testing, setTesting] = useState(false)
-  // 文件路径型参数：打开工作区文件选择器时记录目标参数名
-  const [pickForParam, setPickForParam] = useState<string | null>(null)
 
   // Detail panels state
   const [specMd, setSpecMd] = useState('')
@@ -921,7 +919,7 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                         ))}
                       </select>
                     </div>
-                    {/* 动态参数表单：文件路径型参数提供「选择工作区文件」按钮 */}
+                    {/* 动态参数表单：文件型参数用「我的文件」下拉选择（file_id） */}
                     {(serviceInfo.apis!.find((a) => a.name === testApi)?.params || []).map((p) => {
                       const isPathParam = /file|path|image|dir|img|图片|路径|文件/i.test(
                         `${p.name} ${p.desc || ''}`
@@ -931,23 +929,20 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                           <label className="text-[13px] text-maia-text-muted w-24 shrink-0">
                             {p.name}{p.required ? ' *' : ''}
                           </label>
-                          <input
-                            value={testParams[p.name] || ''}
-                            onChange={(e) => setTestParams((prev) => ({ ...prev, [p.name]: e.target.value }))}
-                            className="flex-1 text-[13px] bg-maia-bg rounded border border-maia-border px-2 py-1 outline-none focus:border-maia-accent/40"
-                            placeholder={p.desc || `请输入 ${p.name}`}
-                          />
-                          {isPathParam && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => setPickForParam(p.name)}
-                              className="shrink-0 h-7 px-2 text-[12px]"
-                              title="从工作区选择文件"
-                            >
-                              <FolderOpen className="h-3 w-3" />
-                              选择文件
-                            </Button>
+                          {isPathParam ? (
+                            <FileSelect
+                              value={testParams[p.name] || ''}
+                              onChange={(v) => setTestParams((prev) => ({ ...prev, [p.name]: v }))}
+                              placeholder={p.desc || '选择文件'}
+                              className="flex-1 text-[13px] bg-maia-bg rounded border border-maia-border px-2 py-1 outline-none focus:border-maia-accent/40"
+                            />
+                          ) : (
+                            <input
+                              value={testParams[p.name] || ''}
+                              onChange={(e) => setTestParams((prev) => ({ ...prev, [p.name]: e.target.value }))}
+                              className="flex-1 text-[13px] bg-maia-bg rounded border border-maia-border px-2 py-1 outline-none focus:border-maia-accent/40"
+                              placeholder={p.desc || `请输入 ${p.name}`}
+                            />
                           )}
                         </div>
                       )
@@ -1092,13 +1087,6 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
         </div>
       )}
 
-      {/* 工作区文件选择器（用于文件路径型参数） */}
-      {pickForParam && (
-        <WorkspaceFilePicker
-          onSelect={(path) => setTestParams((prev) => ({ ...prev, [pickForParam]: path }))}
-          onClose={() => setPickForParam(null)}
-        />
-      )}
     </div>
   )
 }
