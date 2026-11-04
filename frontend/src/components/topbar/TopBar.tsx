@@ -1,4 +1,4 @@
-import { Settings, Sun, Moon, LogIn, LogOut, User } from 'lucide-react'
+import { Settings, Sun, Moon, LogIn, LogOut, User, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip } from '@/components/ui/tooltip'
@@ -67,6 +67,20 @@ export function TopBar() {
             {theme === 'dark' ? <Sun className="h-3.5 w-3.5 text-amber-400" /> : <Moon className="h-3.5 w-3.5 text-maia-accent" />}
           </Button>
         </Tooltip>
+        {user && (
+          <Tooltip content="个人设置（账号信息、显示名与密码）">
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setActiveView('account')}>
+              <User className="h-3.5 w-3.5" />
+            </Button>
+          </Tooltip>
+        )}
+        {user?.role === 'admin' && (
+          <Tooltip content="用户管理（仅超级用户）">
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setActiveView('users')}>
+              <Users className="h-3.5 w-3.5" />
+            </Button>
+          </Tooltip>
+        )}
         <Tooltip content="设置">
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setActiveView('settings')}><Settings className="h-3.5 w-3.5" /></Button>
         </Tooltip>

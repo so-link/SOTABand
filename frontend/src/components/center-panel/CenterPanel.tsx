@@ -16,8 +16,10 @@ import { DatasetEditorView } from './DatasetEditorView'
 import { RepositoryView } from './RepositoryView'
 import { DatasetRepositoryView } from './DatasetRepositoryView'
 import { SettingsView } from './SettingsView'
+import { AccountView } from './AccountView'
+import { UsersView } from './UsersView'
 import { CronJobsView } from './CronJobsView'
-import { MessageSquare, BarChart3, Search, GitBranch, Radio, Bot, X, Package, Settings, PanelLeft, PanelRight, ChevronLeft, ChevronRight, BrainCircuit, CalendarClock, MoreHorizontal } from 'lucide-react'
+import { MessageSquare, BarChart3, Search, GitBranch, Radio, Bot, X, Package, Settings, PanelLeft, PanelRight, ChevronLeft, ChevronRight, BrainCircuit, CalendarClock, MoreHorizontal, User, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const TAB_CONFIG: Record<ActiveView, { label: string; icon: typeof MessageSquare }> = {
@@ -36,6 +38,8 @@ const TAB_CONFIG: Record<ActiveView, { label: string; icon: typeof MessageSquare
   'repository':    { label: '工具仓库',    icon: Package },
   'cron-jobs':     { label: '定时任务',  icon: CalendarClock },
   settings:        { label: '设置',    icon: Settings },
+  account:         { label: '账号',    icon: User },
+  users:           { label: '用户管理', icon: Users },
 }
 
 export function CenterPanel() {
@@ -279,5 +283,7 @@ function ViewRouter({ view }: { view: ActiveView }) {
     case 'repository': return <RepositoryView />
     case 'cron-jobs': return <CronJobsView />
     case 'settings': return <SettingsView />
+    case 'account': return <AccountView />
+    case 'users': return <UsersView />
   }
 }
