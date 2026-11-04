@@ -54,6 +54,21 @@ tool_registry = ToolRegistry()
 tool_discoverer = ToolDiscoverer()
 llm = create_llm_client()
 
+
+async def _owned_dataset(dataset_id: str) -> dict:
+    """按 id 取数据集，并校验归属/可见性。
+
+    ``registry.get()`` 读的是随项目目录走的共享 registry（内置 + 私有合并），
+    **不做归属过滤**；而数据集是私有资源，跨用户读写必须在 API 层拦住
+    （见 core/user_context.py 的设计约束：共享资源访问私有数据时必须过滤）。
+    跨用户访问一律 404（与"不存在"同响应），避免泄露条目是否存在。
+    """
+    entry = await registry.get(dataset_id)
+    if not entry or not registry.is_visible(entry, get_current_user_id()):
+        raise HTTPException(404, f"Dataset '{dataset_id}' not found")
+    return entry
+
+
 SPEC_PROMPT = """你是一个数据集规格文档生成器。你必须严格根据用户提供的数据文件信息来生成文档，
 **严禁编造不存在的信息**。如果某个信息没有提供，填写"待补充"。
 
@@ -408,6 +423,13 @@ async def list_datasets(
     - include_others=true ：返回全部（含他人条目），仅供排查/迁移使用
     - available_only=true ：只返回本机确实有数据的
     """
+    # include_others 会连他人的 data_path 一起下发（check_availability 返回条目
+    # 全文），属于跨用户信息泄露，只开放给超管排查/迁移用。
+    if include_others:
+        from app.api.deps import current_role
+        if current_role() != "admin":
+            raise HTTPException(403, "仅超级用户可以查看他人的数据集")
+
     current_user = get_current_user_id()
     entries = await registry.list_all(owner=None if include_others else current_user)
 
@@ -447,9 +469,7 @@ async def claim_local_datasets():
 @router.get("/{dataset_id}")
 async def get_dataset(dataset_id: str):
     """数据集详情（含 MD）"""
-    entry = await registry.get(dataset_id)
-    if not entry:
-        raise HTTPException(404, f"Dataset '{dataset_id}' not found")
+    entry = await _owned_dataset(dataset_id)
 
     spec_path = registry._get_def_dir() / f"{dataset_id}.md"
     spec_md = spec_path.read_text(encoding="utf-8") if spec_path.exists() else ""
@@ -463,9 +483,7 @@ async def download_archive(dataset_id: str):
     import zipfile
     from fastapi.responses import Response
 
-    entry = await registry.get(dataset_id)
-    if not entry:
-        raise HTTPException(404, f"Dataset '{dataset_id}' not found")
+    entry = await _owned_dataset(dataset_id)
 
     data_path = registry.resolve_data_path(entry.get("data_path", ""))
     if not data_path.is_dir():
@@ -490,9 +508,7 @@ async def download_archive(dataset_id: str):
 @router.get("/{dataset_id}/files")
 async def list_files(dataset_id: str):
     """数据集文件列表"""
-    entry = await registry.get(dataset_id)
-    if not entry:
-        raise HTTPException(404, f"Dataset '{dataset_id}' not found")
+    entry = await _owned_dataset(dataset_id)
 
     data_path = registry.resolve_data_path(entry.get("data_path", ""))
     if not data_path.exists():
@@ -518,7 +534,7 @@ async def list_files(dataset_id: str):
 @router.post("/match-tools")
 async def match_tools(req: MatchToolsRequest):
     """根据数据集和用户需求，匹配可用工具"""
-    entry = await registry.get(req.dataset_id) if req.dataset_id else None
+    entry = await _owned_dataset(req.dataset_id) if req.dataset_id else None
 
     # 收集数据集信息
     ds_info = ""
@@ -569,9 +585,7 @@ async def match_tools(req: MatchToolsRequest):
 @router.get("/{dataset_id}/table")
 async def preview_table(dataset_id: str, path: str = Query(..., description="数据集内相对路径"), limit: int = Query(200)):
     """读取数据集内的表格文件（csv/xlsx/xls/parquet/tsv），返回统一表格结构供中栏预览。"""
-    entry = await registry.get(dataset_id)
-    if not entry:
-        raise HTTPException(404, f"Dataset '{dataset_id}' not found")
+    entry = await _owned_dataset(dataset_id)
 
     data_path = registry.resolve_data_path(entry.get("data_path", ""))
     target = (data_path / path).resolve()
@@ -622,9 +636,7 @@ async def get_raw_file(dataset_id: str, path: str = Query(..., description="数�
     from fastapi.responses import FileResponse
     import mimetypes
 
-    entry = await registry.get(dataset_id)
-    if not entry:
-        raise HTTPException(404, f"Dataset '{dataset_id}' not found")
+    entry = await _owned_dataset(dataset_id)
 
     data_path = registry.resolve_data_path(entry.get("data_path", ""))
     # 兼容历史数据：旧版 MD 规格里存过绝对路径，等价处理（仍限数据集内）
@@ -649,9 +661,7 @@ async def get_raw_file(dataset_id: str, path: str = Query(..., description="数�
 @router.get("/{dataset_id}/preview")
 async def preview_dataset(dataset_id: str):
     """预览数据集 — 从 MD 文档解析文件列表 + 匹配预览工具"""
-    entry = await registry.get(dataset_id)
-    if not entry:
-        raise HTTPException(404, f"Dataset '{dataset_id}' not found")
+    entry = await _owned_dataset(dataset_id)
 
     spec_path = registry._get_def_dir() / f"{dataset_id}.md"
     spec_md = spec_path.read_text(encoding="utf-8") if spec_path.exists() else ""
@@ -683,16 +693,15 @@ async def preview_dataset(dataset_id: str):
 async def search_datasets(q: str = "", tags: str = ""):
     """搜索数据集"""
     tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
-    results = await discoverer.search(query=q, tags=tag_list)
+    results = await discoverer.search(query=q, tags=tag_list,
+                                      owner=get_current_user_id())
     return {"datasets": results}
 
 
 @router.delete("/{dataset_id}")
 async def delete_dataset(dataset_id: str):
     """删除数据集（registry + data files）"""
-    entry = await registry.get(dataset_id)
-    if not entry:
-        raise HTTPException(404, f"Dataset '{dataset_id}' not found")
+    entry = await _owned_dataset(dataset_id)
 
     import shutil
     # 删除数据文件：仅限「托管目录内」的数据集副本。

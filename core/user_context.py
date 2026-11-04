@@ -64,8 +64,10 @@ DEFAULT_VISIBILITY = {
     "agent": VISIBILITY_PUBLIC,
 }
 
-# 进程内缓存：避免每次请求都读写文件
-_cached_user_id: str | None = None
+# 这里**不能**缓存身份：交互 Agent 是所有用户共用一个子进程，
+# SOTABAND_USER_ID 每轮 execute 都会按发起者改写（见 core/agent/entrypoint.py）。
+# 一旦缓存，第二个用户会读到第一个用户的 uid —— 跨用户数据串号。
+# 本函数只读 contextvar + 环境变量，无 IO，重复调用没有开销。
 
 
 def get_visibility(entry: dict, resource_type: str) -> str:
@@ -117,22 +119,10 @@ def get_current_user_id() -> str:
     if rid:
         return rid
 
-    global _cached_user_id
-    if _cached_user_id:
-        return _cached_user_id
-
-    # 1) 环境变量优先，便于显式指定
+    # 1) 环境变量优先，便于显式指定（Agent 子进程靠它逐轮切换身份）
     env_uid = os.getenv("SOTABAND_USER_ID", "").strip()
     if env_uid:
-        _cached_user_id = env_uid
-        return _cached_user_id
+        return env_uid
 
     # 2) 默认用户
-    _cached_user_id = _DEFAULT_USER_ID
-    return _cached_user_id
-
-
-def reset_cache() -> None:
-    """清空缓存（供测试或切换用户时使用）"""
-    global _cached_user_id
-    _cached_user_id = None
+    return _DEFAULT_USER_ID

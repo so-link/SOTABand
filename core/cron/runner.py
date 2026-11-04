@@ -105,8 +105,12 @@ async def _run_agent(job: dict[str, Any], timeout: float) -> tuple[str, str, Any
     texts: list[str] = []
     err = ""
     try:
+        # 子进程身份必须显式下发：execute_stream 默认 user_id="default"，
+        # 而 SOTABAND_USER_ID 决定工具产物与文件读写落在哪个用户目录。
+        # 不传的话所有用户的定时任务都写进 /root/SB-USER/default/（互相可见）。
         agen = agent_factory.execute_stream(
-            agent_id, params=job.get("params") or {}, timeout=timeout
+            agent_id, params=job.get("params") or {}, timeout=timeout,
+            context={"user_id": str(job.get("owner") or "")},
         )
         deadline = time.monotonic() + timeout + 15
         try:

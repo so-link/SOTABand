@@ -10,8 +10,13 @@ class DataDiscoverer(BaseDiscoverer):
     def __init__(self):
         self.registry = DataRegistry()
 
-    async def search(self, query: str = None, **filters) -> list[dict]:
-        datasets = await self.registry.list_all()
+    async def search(self, query: str = None, owner: str | None = None, **filters) -> list[dict]:
+        """搜索数据集。
+
+        ``owner`` 传入时按归属/可见性过滤（数据集是私有资源，必须传当前用户）；
+        为 None 时返回全部，仅适合系统级遍历。
+        """
+        datasets = await self.registry.list_all(owner=owner)
         results = []
         for ds in datasets:
             if ds.get("status") != "active":

@@ -161,7 +161,8 @@ class InteractiveAgent(BaseAgent):
                     yield {"event": "content", "data": {"text": "请回复编号或 Agent 名称来选择要使用的 Agent。"}}
                     return
                 # 用户回复仅用于选 Agent，原请求文本才是给目标 Agent 的输入
-                async for ev in self._dispatch_to_agent(selected, pending_agent["request"], session_key):
+                async for ev in self._dispatch_to_agent(selected, pending_agent["request"], session_key,
+                                                        ctx.user_id or ""):
                     yield ev
                 return
             if len(content) <= 60:
@@ -169,7 +170,8 @@ class InteractiveAgent(BaseAgent):
                     content if self._resolve_agent_selection(content, [pending_agent["agent"]])
                     else f"{pending_agent['request']}，{content}"
                 )
-                async for ev in self._dispatch_to_agent(pending_agent["agent"], merged, session_key):
+                async for ev in self._dispatch_to_agent(pending_agent["agent"], merged, session_key,
+                                                        ctx.user_id or ""):
                     yield ev
                 return
 
@@ -277,7 +279,8 @@ class InteractiveAgent(BaseAgent):
                     }
                     self._pending_agents[session_key] = {"candidates": candidates, "request": content}
                     return
-                async for ev in self._dispatch_to_agent(candidates[0], content, session_key):
+                async for ev in self._dispatch_to_agent(candidates[0], content, session_key,
+                                                        ctx.user_id or ""):
                     yield ev
                 return
             matched_tools, need_create_tool_desc, repo_tools = await self._pre_match_tool(content, workspace_tool_ids or [])
@@ -365,6 +368,8 @@ class InteractiveAgent(BaseAgent):
             return
 
         if matched_tool:
+            _tool_name = matched_tool.get("name", matched_tool.get("id", ""))
+            yield {"event": "step", "data": {"id": "match_tool", "text": f"匹配到工具「{_tool_name}」", "status": "done"}}
             # 多模式工具且尚未选定模式 → 先引导用户选择模式
             if selected_mode_id is None:
                 modes = self._get_tool_modes(matched_tool["id"])
@@ -408,6 +413,7 @@ class InteractiveAgent(BaseAgent):
                     selected_mode_id = hint_mode["id"]
 
             # 参数（pending 已收集或重新提取）
+            yield {"event": "step", "data": {"id": "extract_params", "text": "正在分析参数", "status": "running"}}
             if skip_param_extract:
                 params = skip_param_extract
             else:
@@ -415,6 +421,8 @@ class InteractiveAgent(BaseAgent):
                     content, matched_tool["id"], selected_mode_id, dataset_paths
                 )
             missing = await self._check_missing_params(matched_tool["id"], params, selected_mode_id)
+            if not missing:
+                yield {"event": "step", "data": {"id": "extract_params", "text": "参数分析完成", "status": "done"}}
             if missing:
                 # 参数不足 → 逐一引导，存储 pending 状态
                 self._pending_calls[session_key] = {
@@ -439,17 +447,19 @@ class InteractiveAgent(BaseAgent):
             # 多模式：把选定的 mode 合并进参数
             if selected_mode_id:
                 params = {**params, "mode": selected_mode_id}
-            # 执行提示：工具可能耗时较长（如模型训练），先告知用户正在执行，
-            # 避免界面长时间无反馈被误认为卡死。
-            yield {"event": "content",
-                   "data": {"text": f"正在执行 **{matched_tool['name']}**，请稍候……（耗时任务可能需要较长时间，可在需要时手动停止）"}}
+            # 执行步骤提示：工具可能耗时较长，用 step 事件告知用户正在执行
+            yield {"event": "step", "data": {"id": "call_tool", "text": f"正在执行工具「{_tool_name}」", "status": "running"}}
             tool_result = await self._execute_tool(matched_tool, content, dataset_paths, params)
-            if tool_result:
+            # 注意：不能用 `if tool_result:` 判断——工具可能返回空 dict {}（未遵循
+            # 返回规范或无数据），空 dict 在 Python 中是 falsy，会被误判为"执行失败"
+            # 而丢弃真实返回。只要 _execute_tool 没返回 None，就当作有结果返回。
+            if tool_result is not None:
                 # 先出结果卡（用户要求：结果卡在 LLM 解析之前）
                 # 与平台工具结果卡保持一致（platform-result / PlatformResultCard），
                 # 不另搞一套；数据字段对齐：status/tool/result/error
                 _ok = tool_result.get("status") == "success"
                 _name = matched_tool.get("name", matched_tool.get("id", ""))
+                yield {"event": "step", "data": {"id": "call_tool", "text": f"工具「{_name}」执行{'完成' if _ok else '失败'}", "status": "done" if _ok else "error"}}
                 yield {
                     "event": "card",
                     "data": {
@@ -484,12 +494,18 @@ class InteractiveAgent(BaseAgent):
                 if not registered_dataset_id:
                     registered_dataset_id = tool_result.get("dataset_id") or tool_result.get("registered_dataset_id")
 
+                # title 与 summary 按成功/失败区分，避免失败时仍显示"工具执行"
+                _result_title = f"工具执行: {matched_tool['name']}" if _ok else f"工具执行失败: {matched_tool['name']}"
+                _result_summary = tool_result.get("message") or (
+                    "工具未返回有效结果" if not tool_result
+                    else json.dumps(tool_result, ensure_ascii=False, default=str)[:200]
+                )
                 yield {
                     "event": "card",
                     "data": {
                         "type": "result-summary",
-                        "title": f"工具执行: {matched_tool['name']}",
-                        "summary": tool_result.get("message", json.dumps(tool_result, ensure_ascii=False, default=str)[:200]),
+                        "title": _result_title,
+                        "summary": _result_summary,
                         "data": {
                             "tool_id": matched_tool["id"],
                             "result": tool_result,
@@ -502,6 +518,7 @@ class InteractiveAgent(BaseAgent):
                     return
             else:
                 tool_failed = True
+                yield {"event": "step", "data": {"id": "call_tool", "text": f"工具「{_tool_name}」执行失败", "status": "error"}}
                 yield {
                     "event": "card",
                     "data": {
@@ -567,6 +584,7 @@ class InteractiveAgent(BaseAgent):
             history = [history[0]] + history[-(max_history * 2):]
 
         try:
+            yield {"event": "step", "data": {"id": "reply", "text": "正在整理回复", "status": "running"}}
             full_response = ""
             platform_tools = self._platform_tool_schemas()
             # 工作空间工具并入 function calling：LLM 想调用时能真正发起
@@ -686,6 +704,9 @@ class InteractiveAgent(BaseAgent):
                     ):
                         full_response += token
                         yield {"event": "content", "data": {"text": token}}
+
+            # LLM 流式输出已全部完成
+            yield {"event": "step", "data": {"id": "reply", "text": "回复整理完成", "status": "done"}}
 
             # 检查是否需要创建工具（宽松匹配，兼容前缀/中英文冒号）
             m_tool_needed = re.search(r"TOOL_NEEDED[:：]\s*(.+)", full_response, re.DOTALL)
@@ -933,7 +954,8 @@ class InteractiveAgent(BaseAgent):
                 return t
         return None
 
-    async def _dispatch_to_agent(self, agent_entry: dict, request: str, session_key: str):
+    async def _dispatch_to_agent(self, agent_entry: dict, request: str, session_key: str,
+                                 user_id: str = ""):
         """把用户请求转发给指定 Agent（经主进程 RPC），聚合结果后返回。
 
         RPC 语义（见 core/agent/entrypoint.py）：参数平铺为 execute kwargs，
@@ -962,7 +984,7 @@ class InteractiveAgent(BaseAgent):
             if self._bus is not None:
                 r = await self._bus.platform_call(
                     "start_agent", {"agent_id": aid},
-                    session_id=session_key, user_id="default")
+                    session_id=session_key, user_id=user_id or "default")
                 if isinstance(r, dict) and r.get("status") == "pending" and r.get("confirm"):
                     yield {
                         "event": "card",

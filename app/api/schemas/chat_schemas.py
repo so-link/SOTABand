@@ -25,7 +25,9 @@ class ChatRequest(BaseModel):
     attachments: list[FileAttachment] = Field(default_factory=list)
     workspace_tool_ids: list[str] = Field(default_factory=list, alias="workspaceToolIds")
     session_id: str = Field(default="default", alias="sessionId")
-    user_id: str = Field(default="default", alias="userId")
+    # 身份不接收客户端传值：子进程的 SOTABAND_USER_ID 决定工具产物落在哪个
+    # 用户目录，收客户端 userId 等于把该目录选择权交出去（可传 0 越权）。
+    # 服务端一律用 get_current_user_id()。
     # 隐藏轮次标记："platform_receipt" = 前端在用户确认平台操作后回传执行回执，
     # 让助手用自然语言解读结果（该轮不落 user 消息，UI 不可见）
     kind: str = ""

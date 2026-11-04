@@ -20,6 +20,7 @@ from core.llm.client import create_gen_llm_client
 from core.resource.builder.agent_builder import AgentCodeBuilder
 from core.resource.registry.agent_registry import AgentRegistry
 from core.agent.factory import agent_factory
+from core.user_context import get_current_user_id
 
 router = APIRouter()
 builder = AgentCodeBuilder()
@@ -1049,7 +1050,12 @@ async def execute_agent(agent_id: str, req: AgentExecuteRequest):
                 pass  # 落库失败不影响流式返回
 
         try:
-            async for event in agent_factory.execute(agent_id, req.content):
+            # 执行身份取当前登录用户：子进程据此设 SOTABAND_USER_ID，
+            # 决定工具产物与文件读写落在哪个用户目录（见 entrypoint）。
+            async for event in agent_factory.execute(
+                agent_id, req.content,
+                context={"user_id": get_current_user_id()},
+            ):
                 ev_type = event.get("event", "content")
                 data = event.get("data", {})
                 if ev_type == "done":

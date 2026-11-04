@@ -629,14 +629,16 @@ class AgentFactory:
         return await self.start(agent_id, impl_path)
 
     async def execute(
-        self, agent_id: str, content: str
+        self, agent_id: str, content: str, context: dict | None = None
     ) -> AsyncGenerator[dict, None]:
         """向 Agent 子进程发送任务，流式读取响应（总超时 120s）。
 
-        兼容旧调用：仅传 content。
+        兼容旧调用：仅传 content。``context`` 用于指定执行身份
+        （``user_id``），不传则落到 ``"default"``——调用方应显式传入
+        当前登录用户，否则工具产物会写进默认目录而非用户自己的目录。
         """
         async for event in self.execute_stream(
-            agent_id, params={"content": content}
+            agent_id, params={"content": content}, context=context
         ):
             yield event
 

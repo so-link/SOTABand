@@ -22,6 +22,7 @@ from app.api.schemas.chat_schemas import (
     PlatformConfirmRequest,
 )
 from core.agent.factory import agent_factory
+from core.user_context import get_current_user_id
 
 # ── 系统默认交互 Agent 的标识 ──
 # 它是系统默认入口：引擎启动时自动拉起；用户自定义交互 Agent 则需手动启动。
@@ -179,7 +180,11 @@ async def chat_send(request: ChatRequest):
                     "kind": request.kind,
                     "receipt": request.receipt,
                 },
-                context={"session_id": session_id, "user_id": request.user_id or "default"},
+                # 身份一律取服务端登录态，绝不采用请求体里的 userId：
+                # 子进程据此设 SOTABAND_USER_ID，决定工具产物与文件读写落在
+                # 哪个用户目录。若放行客户端传值，任何普通用户传 userId=0
+                # 就能以超管身份写 /root/SB-USER/0/（越权）。
+                context={"session_id": session_id, "user_id": get_current_user_id()},
                 # 不设总超时：工具可能长时间执行（如模型训练），由用户通过
                 # 停止按钮主动中断，而非被固定超时提前截断。
                 timeout=None,

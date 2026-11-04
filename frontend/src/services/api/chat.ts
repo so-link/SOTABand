@@ -31,7 +31,7 @@ export class ApiChatService implements IChatService {
         attachments: input.attachments || [],
         workspaceToolIds: input.workspaceToolIds || [],
         sessionId: this.currentSessionId,
-        userId: 'default',
+        // 不传 userId：身份由服务端按登录态判定（子进程据此决定文件落盘目录）
         ...(input.kind ? { kind: input.kind, receipt: input.receipt || {} } : {}),
       }),
       signal: this.currentAbortController.signal,
