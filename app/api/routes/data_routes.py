@@ -586,6 +586,40 @@ async def preview_table(dataset_id: str, path: str = Query(..., description="数
     }
 
 
+@router.get("/{dataset_id}/raw")
+async def get_raw_file(dataset_id: str, path: str = Query(..., description="数据集内相对路径")):
+    """按数据集内**相对路径**提供原文件（图片/Markdown/文本预览用）。
+
+    数据集预览此前回落到 ``/api/file/download?path=``（绝对路径），随该
+    接口删除。这里以「数据集 id + 相对路径」定位：id 经注册表白名单解析，
+    相对路径拼接后强制仍在数据集目录内——浏览器永远不需要知道数据落在
+    磁盘哪里。
+    """
+    from fastapi.responses import FileResponse
+    import mimetypes
+
+    entry = await registry.get(dataset_id)
+    if not entry:
+        raise HTTPException(404, f"Dataset '{dataset_id}' not found")
+
+    data_path = registry.resolve_data_path(entry.get("data_path", ""))
+    target = (data_path / path).resolve()
+    try:
+        target.relative_to(data_path.resolve())
+    except ValueError:
+        raise HTTPException(403, "不允许访问数据集目录之外的路径")
+    if not target.is_file():
+        raise HTTPException(404, f"文件不存在: {path}")
+
+    mime_type, _ = mimetypes.guess_type(str(target))
+    return FileResponse(
+        target,
+        media_type=mime_type or "application/octet-stream",
+        filename=target.name,
+        content_disposition_type="inline",
+    )
+
+
 @router.get("/{dataset_id}/preview")
 async def preview_dataset(dataset_id: str):
     """预览数据集 — 从 MD 文档解析文件列表 + 匹配预览工具"""
