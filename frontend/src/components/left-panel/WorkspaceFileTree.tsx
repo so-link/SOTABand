@@ -212,13 +212,6 @@ export function WorkspaceFileTree() {
               <FolderOpen className="h-4.5 w-4.5" />
             </span>
             <p className="text-[13px] font-medium text-maia-text mt-2.5">我的文件为空</p>
-            <p className="text-[12px] leading-[18px] text-maia-text-muted mt-1 max-w-[220px]">
-              上传本地文件，或从数据空间导入数据集
-            </p>
-            <Button variant="outline" size="sm" className="mt-3 text-[12px]" onClick={() => fileInputRef.current?.click()}>
-              <Upload className="h-3.5 w-3.5" />
-              上传文件
-            </Button>
           </div>
         )}
       </div>
