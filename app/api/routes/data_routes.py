@@ -615,7 +615,9 @@ async def get_raw_file(dataset_id: str, path: str = Query(..., description="数�
         raise HTTPException(404, f"Dataset '{dataset_id}' not found")
 
     data_path = registry.resolve_data_path(entry.get("data_path", ""))
-    target = (data_path / path).resolve()
+    # 兼容历史数据：旧版 MD 规格里存过绝对路径，等价处理（仍限数据集内）
+    candidate = Path(path)
+    target = candidate.resolve() if candidate.is_absolute() else (data_path / path).resolve()
     try:
         target.relative_to(data_path.resolve())
     except ValueError:
