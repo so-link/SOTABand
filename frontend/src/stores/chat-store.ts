@@ -7,11 +7,14 @@ import { ApiChatService, confirmPlatformCall, cancelPlatformCall } from '@/servi
 const useMock = import.meta.env.VITE_USE_MOCK === 'true'
 const chatService = useMock ? new MockChatService() : new ApiChatService()
 
-/** 文件引用：@文件名 占位符与 file_id 的映射。
- *  发送时把 file_id 拼进消息文本，工具执行前由平台解析回真实路径。 */
+/** 引用：文件（file_id）或数据集（dataset_id）。
+ *  文件引用发送时带内容预览；数据集引用只带 id，由 LLM 用
+ *  list_datasets/get_dataset_info 查到并传给工具。 */
 export interface PathRef {
   name: string
   fileId: string
+  /** dataset:<id> 时为数据集引用；否则为文件引用 */
+  kind: 'file' | 'dataset'
 }
 
 interface ChatState {
@@ -431,10 +434,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const { inputText, attachedFiles, pathRefs } = get()
     if (!inputText.trim() && attachedFiles.length === 0 && pathRefs.length === 0) return
 
-    // 拖拽进来的文件作为附件传（file_id 由后端解析进 prompt）：LLM 既能看到
-    // 文件内容预览，也能拿到 file_id 填工具参数。不再把 id 拼进消息文本。
+    // 引用分两类：文件作为附件传（后端读内容进 prompt）；数据集引用只把
+    // id 拼进消息文本，由 LLM 用平台工具查到（不传内容）。
     const finalText = inputText.trim()
-    const fileAttachments: FileAttachment[] = pathRefs.map((r) => ({
+    const fileRefs = pathRefs.filter((r) => r.kind !== 'dataset')
+    const datasetRefs = pathRefs.filter((r) => r.kind === 'dataset')
+    const datasetTokens = datasetRefs.map((r) => r.fileId).filter(Boolean)
+    const textWithDatasets = [finalText, ...datasetTokens].filter(Boolean).join(' ')
+    const fileAttachments: FileAttachment[] = fileRefs.map((r) => ({
       id: r.fileId, fileName: r.name, fileId: r.fileId, filePath: '', fileSize: 0, format: '',
     }))
     const allAttachments = [...attachedFiles, ...fileAttachments]
@@ -445,7 +452,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const userMsg: Message = {
       id: genId(),
       role: 'user',
-      content: finalText,
+      content: textWithDatasets,
       timestamp: new Date().toISOString(),
       attachments: allAttachments.length > 0 ? allAttachments : undefined,
     }
@@ -469,7 +476,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         workspaceToolIds = useWorkspaceToolStore.getState().tools.map(t => t.id)
       } catch { /* ignore */ }
       const stream = chatService.sendMessage(
-        { content: finalText, attachments: allAttachments, workspaceToolIds, sessionId: get().sessionId },
+        { content: textWithDatasets, attachments: allAttachments, workspaceToolIds, sessionId: get().sessionId },
         {
           // 后端标题总结完成后立即推送：刷新「对话历史」即时显示新标题
           onTitle: () => set((s) => ({ sessionsVersion: s.sessionsVersion + 1 })),

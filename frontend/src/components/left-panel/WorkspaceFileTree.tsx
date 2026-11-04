@@ -66,20 +66,18 @@ export function WorkspaceFileTree() {
   }
 
   const handleDragStart = (e: React.DragEvent, node: FileTreeNode) => {
-    // 数据集节点不能当文件附件（fileId 是 dataset:<id>，非平台文件）：
-    // 显示 X 光标 + 写标记进拖拽数据，让对话侧提示「数据集暂不支持」
-    if (node.fileId?.startsWith('dataset:')) {
-      e.dataTransfer.effectAllowed = 'none'
+    // 数据集节点可以拖，但语义是「数据集引用」而非文件（见 ChatView）：
+    // fileId 为 dataset:<id>，发送时只带 id，不带内容。
+    const isDataset = node.fileId?.startsWith('dataset:')
+    if (isDataset && node.fileId) {
       e.dataTransfer.setData('application/x-sotaband-dataset', node.fileId)
-      useUIStore.getState().setDragKind('dataset')
-      return
     }
     e.dataTransfer.setData('application/json', JSON.stringify(node))
-    // 同时设置 text/plain 类型（file_id），提升跨组件拖拽兼容性
+    // 同时设置 text/plain 类型（file_id / dataset:<id>），提升跨组件拖拽兼容性
     e.dataTransfer.setData('text/plain', node.fileId || '')
     e.dataTransfer.effectAllowed = 'copy'
     // 一拖就提示（不等拖入对话区）
-    useUIStore.getState().setDragKind('file')
+    useUIStore.getState().setDragKind(isDataset ? 'dataset' : 'file')
   }
 
   const [showImport, setShowImport] = useState(false)

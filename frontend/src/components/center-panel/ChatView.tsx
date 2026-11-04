@@ -40,9 +40,14 @@ export function ChatView() {
       setDragKind(null)
       return
     }
-    const { node } = extractDraggedPayload(e)
+    const { node, datasetOnly } = extractDraggedPayload(e)
     if (node?.fileId) {
-      addPathRef({ name: node.name, fileId: node.fileId })
+      // 数据集节点 → 引用（只带 id）；文件节点 → 附件（带内容）
+      addPathRef({
+        name: node.name,
+        fileId: node.fileId,
+        kind: datasetOnly ? 'dataset' : 'file',
+      })
       setDragKind(null)
       return
     }
@@ -109,7 +114,7 @@ export function ChatView() {
         <div className="pointer-events-none absolute inset-0 z-[50] flex items-center justify-center">
           <div className="absolute inset-0 border-2 border-dashed border-maia-accent/70 bg-maia-accent/5 rounded" />
           <span className="relative rounded-lg border border-maia-accent bg-maia-surface px-4 py-2 text-[14px] text-maia-accent shadow-lg">
-            {dragKind === 'dataset' ? '数据集请在对话中用名称引用（助手会查到对应数据）' : '松开以附加文件'}
+            {dragKind === 'dataset' ? '松开以引用数据集（不带内容，助手会查到数据）' : '松开以附加文件'}
           </span>
         </div>
       )}
