@@ -110,22 +110,34 @@ public
 
 @router.post("/scan-directory")
 async def scan_directory(req: ScanDirectoryRequest):
-    """扫描目录，返回文件列表和格式分析"""
-    path = Path(req.path)
-    if not path.exists():
+    """扫描目录，返回文件列表和格式分析。
+
+    只能扫**当前用户目录**内的路径：任意路径枚举等于把本机文件系统
+    开放成接口（此前可扫 /etc 等任意位置）。
+    """
+    from core.user_paths import user_home
+
+    try:
+        base = user_home().resolve()
+        target = (base / req.path).resolve() if not Path(req.path).is_absolute() else Path(req.path).resolve()
+        target.relative_to(base)  # 越界即 ValueError
+    except ValueError:
+        raise HTTPException(403, "不允许访问用户目录之外的路径")
+
+    if not target.exists():
         raise HTTPException(404, f"目录不存在: {req.path}")
 
     files = []
     total_size = 0
     formats = set()
 
-    for entry in path.rglob("*"):
+    for entry in target.rglob("*"):
         if entry.is_file():
             size = entry.stat().st_size
             fmt = entry.suffix.lstrip(".").lower()
             files.append({
                 "name": entry.name,
-                "path": str(entry.relative_to(path)),
+                "path": str(entry.relative_to(target)),
                 "format": fmt,
                 "size": size,
             })

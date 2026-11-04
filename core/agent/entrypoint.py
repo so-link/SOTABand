@@ -7,6 +7,7 @@ import argparse
 import asyncio
 import importlib.util
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -236,10 +237,16 @@ async def main():
         ctx_data = task.get("context", {})
         from core.agent.base import AgentContext
 
+        uid = ctx_data.get("user_id") or "0"
+        # 关键：工具执行/产物落盘都按"发起本轮的用户"走。进程启动时固化的是
+        # 超管 uid（启动进程无请求身份），若不在此覆盖，任何用户的工具都会
+        # 写到 /root/SB-USER/0/（超管目录）——跨用户数据串位。
+        os.environ["SOTABAND_USER_ID"] = str(uid)
+
         ctx = AgentContext(
             agent_id=args.agent_id,
             session_id=ctx_data.get("session_id", "default"),
-            user_id=ctx_data.get("user_id", "default"),
+            user_id=uid,
             metadata=ctx_data.get("metadata", {}) or {},
         )
         params = task.get("params", {})

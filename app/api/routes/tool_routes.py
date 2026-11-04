@@ -829,11 +829,14 @@ async def update_tool_tags(tool_id: str, req: dict):
     entry = await registry.get(tool_id)
     if not entry:
         raise HTTPException(404, f"Tool '{tool_id}' not found")
+    # 内置工具不可改（此前既漏闸门、又调了不存在的 _save，运行即 500）
+    from app.api.deps import ensure_can_touch_builtin
+    ensure_can_touch_builtin(entry.get("source"), action="修改")
     tags = req.get("tags", [])
     if not isinstance(tags, list):
         raise HTTPException(400, "tags 必须是数组")
     entry["tags"] = [str(t).strip() for t in tags if str(t).strip()]
-    await registry._save()
+    await registry.update(tool_id, {"tags": entry["tags"]})
     return {"status": "ok", "tags": entry["tags"]}
 
 

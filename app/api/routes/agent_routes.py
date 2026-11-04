@@ -888,6 +888,11 @@ async def sync_spec_from_code(agent_id: str, req: SyncSpecRequest):
     if not entry:
         raise HTTPException(404, f"Agent '{agent_id}' not found")
 
+    # 与 save-spec / save-code / save-step1 / delete 一致：内置资源不可改
+    # （此前漏了这道闸门，普通用户可就地改写系统 Agent 的规范文档）
+    from app.api.deps import ensure_can_touch_builtin
+    ensure_can_touch_builtin(entry.get("source"), action="修改")
+
     code = req.code or ""
     if not code.strip():
         raise HTTPException(400, "代码不能为空")

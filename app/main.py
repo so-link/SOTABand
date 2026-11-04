@@ -259,6 +259,9 @@ async def auth_identity_middleware(request: Request, call_next):
 # 系统级配置路由整体限超管：config 直接读写 .env（LLM Key、超时等），
 # llm 回显 Key 脱敏值与服务商清单——这些是平台资产，普通用户看不到也不该猜。
 _system_only = [Depends(require_superuser)]
+# 注意：同一 router 只能注册一次。此前 config/llm 被注册了两遍（一遍带
+# _system_only、一遍不带），虽因 Starlette 首配命中而侥幸没被绕过，但
+# 属于脆弱写法——一旦顺序调整就是权限后门。
 app.include_router(config_router, prefix="/api/config", tags=["config"], dependencies=_system_only)
 app.include_router(llm_router, prefix="/api/llm", tags=["llm"], dependencies=_system_only)
 
@@ -268,9 +271,7 @@ app.include_router(tool_router, prefix="/api/tool", tags=["tool"])
 app.include_router(data_router, prefix="/api/data", tags=["data"])
 app.include_router(file_router, prefix="/api/file", tags=["file"])
 app.include_router(model_router, prefix="/api/model", tags=["model"])
-app.include_router(config_router, prefix="/api/config", tags=["config"])
 app.include_router(api_list_router, prefix="/api/apis", tags=["api"])
-app.include_router(llm_router, prefix="/api/llm", tags=["llm"])
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(task_router, prefix="/api/task", tags=["task"])
 app.include_router(cron_router, prefix="/api/cron", tags=["cron"])
