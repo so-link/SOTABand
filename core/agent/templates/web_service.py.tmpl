@@ -1,0 +1,67 @@
+"""Auto-generated Web Service Agent: {agent_name}
+
+Web 服务式 Agent — 以 HTTP API 形式对外提供服务，每个 API 对应一组工具调用组合。
+
+API 定义在 spec.apis 中（由 MD 规范文档解析而来），形如：
+    [
+      {
+        "name": "detect", "method": "POST", "path": "/detect",
+        "params": [{"name": "image", "type": "string", "required": true}],
+        "flow": [{"tool": "<tool-id>", "params": {"file": "{{param.image}}"}}],
+        "response": [{"name": "objects", "from": "{{step1.data.detections}}"}],
+      },
+    ]
+
+服务启动后监听 spec.server.port（为空则由引擎分配），接收外部请求并按 flow 组合调用工具。
+"""
+
+import json
+from typing import AsyncGenerator
+
+from core.agent.base import BaseAgent, AgentContext
+
+
+class {AgentClassName}(BaseAgent):
+    """{agent_description}"""
+
+    async def execute(self, ctx: AgentContext, **kwargs) -> AsyncGenerator[dict, None]:
+        """处理单个 API 请求（由 HTTP 宿主按路由调用）。
+
+        Args:
+            ctx: 执行上下文
+            **kwargs: 需包含 api_name 与 params
+        """
+        api_name = kwargs.get("api_name", "")
+        req_params = kwargs.get("params", {}) or {}
+
+        api = self._find_api(api_name)
+        if api is None:
+            yield {"event": "error", "data": {"message": f"未定义的 API: {api_name}"}}
+            return
+
+        # 执行作用域：请求参数（{{param.xxx}}）+ 各步骤输出
+        scope: dict = {"param": dict(req_params), "request": dict(req_params)}
+
+        for idx, step in enumerate(api.get("flow", []) or [], start=1):
+            tool_id = step.get("tool", "")
+            params = self.resolve_refs(step.get("params", {}) or {}, scope)
+            try:
+                result = await self.call_tool(tool_id, params)
+            except Exception as e:
+                yield {"event": "error", "data": {"message": f"步骤 {idx} 失败: {e}"}}
+                return
+            scope[f"step{idx}"] = result if isinstance(result, dict) else {"data": result}
+
+        # 构造响应
+        response = {}
+        for item in api.get("response", []) or []:
+            response[item.get("name", "")] = self.resolve_refs(item.get("from", ""), scope)
+
+        yield {"event": "result", "data": {"response": response}}
+        yield {"event": "done", "data": {"messageId": ctx.session_id}}
+
+    def _find_api(self, api_name: str) -> dict | None:
+        for api in self.spec.apis or []:
+            if api.get("name") == api_name:
+                return api
+        return None

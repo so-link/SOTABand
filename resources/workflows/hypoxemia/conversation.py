@@ -150,9 +150,18 @@ class HypoxemiaConversation:
                 training_task = TaskManager().get(workflow["task_id"])
             except Exception:
                 training_task = None
-            if training_task and training_task.get("status") == "completed":
-                for event in self._queue_training_artifact_choice(session_key, training_task):
-                    yield event
+            if training_task:
+                status = training_task.get("status")
+                if status == "completed":
+                    for event in self._queue_training_artifact_choice(session_key, training_task):
+                        yield event
+                else:
+                    message = (
+                        "训练任务尚未完成，请等待任务完成后再选择评测指标。"
+                        if status in {"queued", "running"}
+                        else f"训练任务状态为 {status}，暂时无法进入评测。"
+                    )
+                    yield {"event": "content", "data": {"text": message}}
                 return
         if (
             not force_llm_intervention

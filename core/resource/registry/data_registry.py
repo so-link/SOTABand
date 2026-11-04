@@ -7,6 +7,7 @@ from pathlib import Path
 from core.resource.registry.json_store import update_json_list
 from core.resource.registry.registry_base import BaseRegistry
 from core.runtime.paths import DATA_DIR, DATA_REGISTRY_FILE, DATASETS_DIR, data_registry_path
+from core.resource import paths
 from core.user_context import (
     VISIBILITY_PRIVATE,
     detect_storage,
@@ -17,15 +18,25 @@ from core.user_context import (
 REGISTRY_FILE = DATA_REGISTRY_FILE
 
 
+def _write_json(path: Path, data) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 class DataRegistry(BaseRegistry):
-    """数据注册中心"""
+    """数据注册中心。
+
+    读：合并「内置」与「私有」两个目录的 registry.json（私有同 id 覆盖内置）。
+    写：新建 / 更新的数据集一律写入私有目录。
+    """
 
     def __init__(self):
+        paths.ensure_private_dirs("data")
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         DATASETS_DIR.mkdir(parents=True, exist_ok=True)
         data_registry_path()
         if not REGISTRY_FILE.exists():
-            self._write([])
+            _write_json(REGISTRY_FILE, [])
         # 一次性迁移：把早期没有 owner 字段、但本机确实有数据的条目
         # 认领给当前用户。之后列表走精确的归属匹配，不再依赖
         # "本机是否有数据"的启发式判断。
@@ -35,19 +46,48 @@ class DataRegistry(BaseRegistry):
         except (OSError, ValueError):
             pass  # 迁移失败不影响正常使用，退化为运行时启发式判断
 
+    def _private_registry_file(self) -> Path:
+        f = REGISTRY_FILE
+        f.parent.mkdir(parents=True, exist_ok=True)
+        if not f.exists():
+            _write_json(f, [])
+        return f
+
     def _read(self) -> list[dict]:
-        with open(REGISTRY_FILE, encoding='utf-8') as f:
-            return json.load(f)
+        """合并内置与私有 registry（私有同 id 覆盖内置）。"""
+        merged: dict[str, dict] = {}
+        registry_files = [root / "data" / "registry.json" for root in paths.resource_roots()]
+        if REGISTRY_FILE not in registry_files:
+            registry_files.append(REGISTRY_FILE)
+        for rf in registry_files:
+            if not rf.exists():
+                continue
+            try:
+                for e in json.loads(rf.read_text(encoding="utf-8")):
+                    if isinstance(e, dict) and e.get("id"):
+                        merged[e["id"]] = e
+            except Exception:
+                continue
+        return list(merged.values())
+
+    def read_from(self, root: Path) -> list[dict]:
+        rf = root / "data" / "registry.json"
+        if not rf.exists():
+            return []
+        try:
+            return json.loads(rf.read_text(encoding="utf-8"))
+        except Exception:
+            return []
 
     def _write(self, data: list[dict]):
-        with open(REGISTRY_FILE, "w", encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        """写入私有 registry。"""
+        _write_json(self._private_registry_file(), data)
 
     def _get_def_dir(self) -> Path:
-        return DATA_DIR / "definitions"
+        return paths.ensure_private_dirs("data") / "definitions"
 
     def _get_data_dir(self) -> Path:
-        return DATA_DIR / "datasets"
+        return paths.ensure_private_dirs("data") / "datasets"
 
     def resolve_data_path(self, data_path: str) -> Path:
         """把注册表中的 data_path 解析为绝对路径。
@@ -60,11 +100,11 @@ class DataRegistry(BaseRegistry):
         p = Path(data_path)
         if p.is_absolute():
             return p
-        runtime_path = DATA_DIR / p
-        if runtime_path.exists():
-            return runtime_path
-        static_path = Path(__file__).resolve().parents[3] / "resources" / "data" / p
-        return static_path if static_path.exists() else runtime_path
+        for root in reversed(paths.resource_roots()):
+            candidate = root / "data" / p
+            if candidate.exists():
+                return candidate
+        return DATA_DIR / p
 
     def check_availability(self, entry: dict) -> dict:
         """检查数据集在本机是否真的可用。

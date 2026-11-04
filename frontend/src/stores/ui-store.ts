@@ -15,6 +15,21 @@ export type ActiveView =
   | 'repository'
   | 'dataset-repository'
   | 'settings'
+  // 每个 Agent 独立的详情视图：形如 "agent-detail:{agentId}"
+  // 使不同 Agent 各自拥有独立的标签页与界面，互不共享/覆盖。
+  | `agent-detail:${string}`
+  // 每个工具独立的详情视图：形如 "tool-detail:{toolId}"
+  | `tool-detail:${string}`
+
+/** 判断视图是否为「单 Agent 详情」并取出其 agentId。 */
+export function parseAgentDetailView(view: string): string | null {
+  return view.startsWith('agent-detail:') ? view.slice('agent-detail:'.length) : null
+}
+
+/** 判断视图是否为「单工具详情」并取出其 toolId。 */
+export function parseToolDetailView(view: string): string | null {
+  return view.startsWith('tool-detail:') ? view.slice('tool-detail:'.length) : null
+}
 
 export type Theme = 'dark' | 'light'
 

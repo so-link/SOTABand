@@ -5,6 +5,10 @@ import re
 import time
 from pathlib import Path
 from typing import AsyncGenerator
+import os
+import subprocess
+import sys
+import tempfile
 
 from core.agent.base import BaseAgent, AgentContext, AgentSpec, AgentRole
 from core.llm.client import create_llm_client, LLMClient
@@ -139,6 +143,9 @@ class InteractiveAgent(BaseAgent):
         selected_mode_id = None
         matched_tool = None
         skip_param_extract = {}
+        # 工具是否来自「多候选确认」流程：此时用户回复是选工具而非选模式，
+        # 不能拿它去推断模式（见 ② 分支与模式提示处的处理）
+        tool_from_confirm = False
 
         # ① 正在等待用户选择模式
         pending_mode = self._pending_modes.get(session_key)
@@ -181,13 +188,23 @@ class InteractiveAgent(BaseAgent):
                 return
             matched_tool = selected
             content = pending_confirm.get("query", content)
+            # 本次回复用于「选择工具」，不可再用作模式提示依据，
+            # 否则用户回复的编号（如 "1"）会被误判为模式编号，导致跳过模式选择。
+            tool_from_confirm = True
 
         # ③ 正在收集参数
         elif self._pending_calls.get(session_key):
             pending = self._pending_calls[session_key]
-            answer_params = await self._extract_answer_params(
-                content, pending["tool_id"], pending["missing"][0]
-            )
+            target_param = pending["missing"][0]
+            try:
+                answer_params = await self._extract_answer_params(
+                    content, pending["tool_id"], target_param
+                )
+            except ValueError as e:
+                # 类型校验失败（如 int 参数收到无法解析的文本）：
+                # 不写入参数、保持 pending 状态，提示用户重新输入该参数。
+                yield {"event": "content", "data": {"text": str(e)}}
+                return
             pending["params"].update(answer_params)
             pending["missing"] = await self._check_missing_params(
                 pending["tool_id"], pending["params"], pending.get("mode")
@@ -277,18 +294,40 @@ class InteractiveAgent(BaseAgent):
                 modes = self._get_tool_modes(matched_tool["id"])
                 if modes:
                     # 检查用户当前消息是否已包含模式意图（如「训练」「测试模式」）
-                    hint_mode = self._resolve_mode_selection(content, modes)
+                    # 若工具来自多候选确认流程，则本次回复是选工具用的，
+                    # 不能用来推断模式（否则编号会被误判为模式），一律走模式提示。
+                    hint_mode = None if tool_from_confirm else self._resolve_mode_selection(content, modes)
                     if hint_mode is None:
                         self._pending_modes[session_key] = {
                             "tool_id": matched_tool["id"],
                             "tool_name": matched_tool["name"],
                             "modes": modes,
                         }
+                        # 与工具选择一致：发可点击的模式选择卡片 + 文本引导，
+                        # 用户既可在输入框回复编号/名称，也可直接点击卡片选择。
+                        modes_info = [
+                            {
+                                "id": m.get("id", ""),
+                                "name": m.get("name", ""),
+                                "desc": m.get("desc", "") or "",
+                                "index": i,
+                            }
+                            for i, m in enumerate(modes, 1)
+                        ]
+                        yield {
+                            "event": "card",
+                            "data": {
+                                "type": "mode-selection",
+                                "title": f"「{matched_tool['name']}」支持以下模式",
+                                "summary": "请选择要使用的模式，可点击选择或回复编号",
+                                "data": {"modes": modes_info, "tool_name": matched_tool["name"]},
+                            },
+                        }
                         options = "、".join(
                             f"{i}.{m['name']}" + (f"（{m['desc']}）" if m.get('desc') else "")
                             for i, m in enumerate(modes, 1)
                         )
-                        yield {"event": "content", "data": {"text": f"「{matched_tool['name']}」支持以下模式：\n{options}\n请回复编号或模式名称选择。"}}
+                        yield {"event": "content", "data": {"text": f"请回复编号或模式名称选择，也可直接点击上方卡片：{options}"}}
                         return
                     selected_mode_id = hint_mode["id"]
 
@@ -324,6 +363,10 @@ class InteractiveAgent(BaseAgent):
             # 多模式：把选定的 mode 合并进参数
             if selected_mode_id:
                 params = {**params, "mode": selected_mode_id}
+            # 执行提示：工具可能耗时较长（如模型训练），先告知用户正在执行，
+            # 避免界面长时间无反馈被误认为卡死。
+            yield {"event": "content",
+                   "data": {"text": f"正在执行 **{matched_tool['name']}**，请稍候……（耗时任务可能需要较长时间，可在需要时手动停止）"}}
             tool_result = await self._execute_tool(matched_tool, content, dataset_paths, params)
             if tool_result:
                 tool_result = self.submit_task_result(tool_result, matched_tool)
@@ -812,21 +855,57 @@ class InteractiveAgent(BaseAgent):
 
 
     async def _extract_answer_params(self, answer: str, tool_id: str, param: dict) -> dict:
-        """从用户回答中提取单个参数的值 — 直接使用用户输入作为参数值"""
+        """从用户回答中提取单个参数的值（带类型纠正与校验）。
+
+        规则：
+        - Agent 当前在问哪个参数，用户输入就作为该参数的值（以提问为准，不做意图猜测）。
+        - 数字类参数（int/float）先从输入中「纠正提取」数值：
+          如 "10" / "10个" / "返回10条" 均提取为 10；
+        - 若无法提取到合法数值，抛 ValueError（由调用方捕获后重新引导用户），
+          绝不能把非法值（如 int 参数塞入 "北京"）静默写入参数，
+          否则会出现参数错位与后续工具报错。
+        """
         val = answer.strip()
-        # 类型转换：如果参数类型是 int/float，尝试转换
-        ptype = param.get("type", "string")
-        if "int" in ptype:
-            try:
-                val = int(val)
-            except (ValueError, TypeError):
-                pass
-        elif "float" in ptype:
-            try:
-                val = float(val)
-            except (ValueError, TypeError):
-                pass
-        return {param["name"]: val}
+        ptype = (param.get("type", "string") or "").lower()
+        name = param.get("name", "")
+
+        if "int" in ptype or "float" in ptype:
+            num = self._coerce_number(val, want_float="float" in ptype)
+            if num is None:
+                want = "整数" if "int" in ptype else "数字"
+                raise ValueError(
+                    f"参数 **{name}** 需要{ want }，但收到「{val}」。请重新输入 {name} 的值。"
+                )
+            return {name: num}
+
+        # 其他类型（string 等）：直接使用输入
+        return {name: val}
+
+    @staticmethod
+    def _coerce_number(text: str, want_float: bool = False):
+        """从文本中尽力提取一个数值（类型纠正）。
+
+        支持 "10" / "10个" / "返回10条" / "10.5" / "1,000" 等；
+        无法提取时返回 None。
+        """
+        import re as _re
+
+        if text is None:
+            return None
+        s = str(text).strip().replace(",", "")
+        # 直接可转换
+        try:
+            return float(s) if want_float else int(s)
+        except (ValueError, TypeError):
+            pass
+        # 从文本中提取第一个数字
+        m = _re.search(r"-?\d+(?:\.\d+)?", s)
+        if not m:
+            return None
+        try:
+            return float(m.group()) if want_float else int(float(m.group()))
+        except (ValueError, TypeError):
+            return None
 
 
     async def _check_missing_params(self, tool_id: str, current_params: dict, mode: str = None) -> list[str]:

@@ -7,7 +7,7 @@ name = "sotaband-engine"
 version = "0.1.0"
 description = "多智能体驱动的多模态智能处理引擎 — Multi-Agent Intelligent Architecture"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "jmlv" }]
 dependencies = [

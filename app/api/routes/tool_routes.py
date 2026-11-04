@@ -23,7 +23,13 @@ from core.resource.spec_outline import (
     parse_markdown_outline, replace_node_content, outline_context_for_prompt,
     parse_table, update_table_cell, replace_table_in_node,
 )
-from core.resource.registry.tool_registry import ToolRegistry
+from core.resource.registry.tool_registry import ToolRegistry, bump_patch_version
+from core.resource.spec_param_meta import (
+    preserve_manual_required,
+    set_param_required as set_md_param_required,
+    sync_param_meta,
+)
+from core.resource.tool_usage import scan_references
 from core.resource.discoverer.tool_discoverer import ToolDiscoverer
 
 router = APIRouter()
@@ -76,6 +82,10 @@ created: {日期}
 | `file` | `{"file_path":"/path/to/result.csv"}` | 下载链接 |
 
 ## 4. 依赖环境
+
+<!-- 「依赖」列必须写 pip 安装名（不是 import 名）：例如 python-barcode（import barcode）、
+     opencv-python（import cv2）、pillow（import PIL）。import 名与包名不同时在「用途」里注明。
+     只用标准库/系统内置则把表格留空。平台按这一列安装依赖，写错会装错包。 -->
 
 | 依赖 | 版本 | 用途 |
 |------|------|------|
@@ -246,6 +256,27 @@ async def test_tool(
         spec = {"raw_md": spec_md, "id": tool_id, "name": tool_name}
         code = await builder.build(spec)
 
+    # ── 静态安全审查门禁 ──
+    from core.security.review import review_code as _review, block_violations as _blocks
+    from config.settings import settings as _settings
+
+    _violations = _review(code) if _settings.security.review_mode != "off" else []
+    _blocks_found = _blocks(_violations)
+    if _blocks_found and _settings.security.review_mode == "enforce":
+        async def _denied_stream():
+            yield {
+                "event": "security_violation",
+                "data": _json.dumps({
+                    "violations": [v.to_dict() for v in _blocks_found],
+                    "message": f"安全审查未通过（{len(_blocks_found)} 项 block 级违规），已阻止执行",
+                }, ensure_ascii=False),
+            }
+            yield {"event": "error", "data": _json.dumps({
+                "message": "安全审查未通过，代码未执行",
+                "violations": [v.to_dict() for v in _blocks_found],
+            }, ensure_ascii=False)}
+        return EventSourceResponse(_denied_stream())
+
     from core.executor.tool_executor import ToolExecutor
 
     queue: _asyncio.Queue = _asyncio.Queue()
@@ -303,9 +334,36 @@ async def upload_test_file(file: UploadFile = File(...)):
 
 # ── 依赖安装 ──
 
+@router.get("/{tool_id}/check-deps")
+async def check_deps(tool_id: str):
+    """检查工具代码的第三方依赖在当前执行环境中是否齐备。
+
+    从工具代码中静态提取 import（第三方包名），再用工具实际使用的
+    Python 解释器逐个尝试 `import <mod>`，返回缺失清单。
+
+    「添加工具到工作空间」时前端据此弹窗提示安装缺失依赖——
+    否则工具加进来后第一次调用才报 ModuleNotFoundError，用户看到的是
+    「Missing module: xxx」，无从下手。
+    """
+    entry = await registry.get(tool_id)
+    if not entry:
+        raise HTTPException(404, f"Tool '{tool_id}' not found")
+
+    code = registry.read_code_text(tool_id)
+    if not code.strip():
+        return {"tool_id": tool_id, "deps": [], "missing": [], "install": [],
+                "pairs": [], "python": "", "env": ""}
+
+    # 统一走 core.deps：import 名 ↔ pip 包名的映射只有一份，
+    # 避免检测用一套、安装用另一套导致 "装了还缺 / 每次都重装"。
+    from core.deps import check_tool_dependencies
+
+    return check_tool_dependencies(tool_id, code)
+
+
 @router.post("/{tool_id}/install-deps")
 async def install_deps(tool_id: str, req: dict):
-    """安装依赖到工具本地 .venv"""
+    """安装依赖到工具本地 .venv（无则装到项目 venv）"""
     deps = req.get("dependencies", [])
     if not deps:
         raise HTTPException(400, "dependencies 不能为空")
@@ -398,9 +456,52 @@ async def stop_auto_debug(req: dict):
 
 @router.post("/register")
 async def register_tool(req: RegisterToolRequest):
-    """注册工具"""
-    spec = {"raw_md": req.spec_md, "id": req.tool_id, "name": req.tool_name}
+    """注册工具；已存在时原地更新（编辑已发布工具后重新生成走这里）。
+
+    身份取自 ``baseToolId``（前端编辑态的原工具 id），而不是 MD 正文。
+    历史上 id 只由 MD 里的 ``id:`` 行推导，一旦重新生成文档让它变了，
+    就会 append 出一个重复工具 —— 因此这里以 baseToolId 为权威。
+    """
+    target_id = (req.base_tool_id or req.tool_id or "").strip()
+    if not target_id or re.search(r"[\\/\s]|\.\.", target_id):
+        raise HTTPException(400, f"工具 ID 非法: {target_id!r}")
+
+    existing = await registry.get(target_id)
+    updated = existing is not None
+
+    # 版本：显式指定 > 更新时 patch+1 > 新建 0.1.0
+    previous_version = str((existing or {}).get("version") or "")
+    if req.version.strip():
+        version = req.version.strip()
+    elif updated:
+        version = bump_patch_version(previous_version) or previous_version or "0.1.0"
+    else:
+        version = "0.1.0"
+
+    # 名称：编辑时若前端没有解析到有效名称，别把已有名称覆盖成占位值
+    name = (req.tool_name or "").strip()
+    if updated and (not name or name == "Custom Tool"):
+        name = str((existing or {}).get("name") or target_id)
+    name = name or target_id
+
+    # 标签：编辑时未显式传就沿用旧标签，避免被清空
+    tags = req.tags or list((existing or {}).get("tags") or [])
+
+    spec = {"raw_md": req.spec_md, "id": target_id, "name": name}
     code = req.code or (await builder.build(spec))
+
+    # ── 静态安全审查门禁 ──
+    from core.security.review import review_code as _review, block_violations as _blocks
+    from config.settings import settings as _settings
+
+    _violations = _review(code) if _settings.security.review_mode != "off" else []
+    _blocks_found = _blocks(_violations)
+    if _blocks_found and _settings.security.review_mode == "enforce":
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=400, content={
+            "detail": f"安全审查未通过：{len(_blocks_found)} 项 block 级违规，注册被拒绝",
+            "violations": [v.to_dict() for v in _blocks_found],
+        })
 
     param_meta = []
     try:
@@ -410,32 +511,47 @@ async def register_tool(req: RegisterToolRequest):
     if not param_meta:
         param_meta = builder._parse_spec_inputs(req.spec_md)
 
+    # 参数名集合没变时，沿用使用者在界面上手动设置的「必填/可选」，
+    # 否则人工微调会在每次重新注册后被 LLM 抽取结果改回去。
+    param_meta = preserve_manual_required(param_meta, (existing or {}).get("param_meta"))
+
     # 解析多模式（单模式工具返回空列表）
     modes = builder.parse_modes(req.spec_md)
 
     resource = {
-        "id": req.tool_id, "name": req.tool_name, "version": req.version,
-        "raw_md": req.spec_md, "code": code, "tags": req.tags,
+        "id": target_id, "name": name, "version": version,
+        "raw_md": req.spec_md, "code": code, "tags": tags,
         "param_meta": param_meta,
         "modes": modes,
     }
     tool_id = await registry.register(resource)
 
-    if hasattr(req, 'demand_desc') and req.demand_desc:
+    if req.demand_desc:
         (registry._get_def_dir() / f"{tool_id}-demand.md").write_text(req.demand_desc, encoding="utf-8")
 
     # 保存参考代码为独立文件
-    if hasattr(req, 'reference_code') and req.reference_code:
+    if req.reference_code:
         (registry._get_def_dir() / f"{tool_id}-reference.md").write_text(req.reference_code, encoding="utf-8")
 
     entry = await registry.get(tool_id)
 
-    # 异步 LLM 自动生成标签（不阻塞注册响应）
-    if not req.tags:
+    # 异步 LLM 自动生成标签（仅新建且无标签时；编辑时不能覆盖用户标签）
+    if not tags and not updated:
         import asyncio
-        asyncio.create_task(_auto_generate_tags(tool_id, req.tool_name, req.spec_md))
+        asyncio.create_task(_auto_generate_tags(tool_id, name, req.spec_md))
 
-    return {"tool_id": tool_id, "entry": entry}
+    response = {
+        "tool_id": tool_id,
+        "entry": entry,
+        "updated": updated,
+        "version": version,
+        "previous_version": previous_version,
+    }
+    # warn 级违规随注册结果返回（block 级已在上方拦截）
+    _warns = [v for v in _violations if v.severity == "warn"]
+    if _warns:
+        response["security_warnings"] = [v.to_dict() for v in _warns]
+    return response
 
 
 async def _auto_generate_tags(tool_id: str, name: str, spec_md: str):
@@ -623,16 +739,12 @@ async def update_tool_tags(tool_id: str, req: dict):
 async def get_tool(tool_id: str):
     entry = await registry.get(tool_id)
     if not entry: raise HTTPException(404, f"Tool '{tool_id}' not found")
-    spec_path = registry._get_def_dir() / f"{tool_id}.md"
-    spec_md = spec_path.read_text(encoding="utf-8") if spec_path.exists() else ""
-    code_path = registry._get_impl_dir() / tool_id / "tool.py"
-    code = code_path.read_text(encoding="utf-8") if code_path.exists() else ""
-    demand_path = registry._get_def_dir() / f"{tool_id}-demand.md"
-    has_demand = demand_path.exists()
-    demand_md = demand_path.read_text(encoding="utf-8") if has_demand else ""
-    reference_path = registry._get_def_dir() / f"{tool_id}-reference.md"
-    has_reference = reference_path.exists()
-    reference_code = reference_path.read_text(encoding="utf-8") if has_reference else ""
+    # 内置工具（resources/）与私有工具（resources-private/）的内容都要能读到，
+    # 否则打开内置示例工具会因只查私有目录而界面空白。
+    spec_md, _ = registry.read_def_text(tool_id, ".md")
+    code = registry.read_code_text(tool_id)
+    demand_md, has_demand = registry.read_def_text(tool_id, "-demand.md")
+    reference_code, has_reference = registry.read_def_text(tool_id, "-reference.md")
     return {**entry, "spec_md": spec_md, "code": code, "has_demand": has_demand, "demand_md": demand_md, "has_reference": has_reference, "reference_code": reference_code}
 
 
@@ -660,10 +772,9 @@ async def get_spec_outline(tool_id: str, req: SpecOutlineRequest):
     spec_md = req.spec_md
     is_draft = tool_id in ("", "_draft_", "draft", "@new")
     if not spec_md.strip() and not is_draft:
-        spec_path = registry._get_def_dir() / f"{tool_id}.md"
-        if not spec_path.exists():
+        spec_md, found = registry.read_def_text(tool_id, ".md")
+        if not found:
             raise HTTPException(404, "该工具尚无规范文档")
-        spec_md = spec_path.read_text(encoding="utf-8")
 
     if not spec_md.strip():
         raise HTTPException(400, "缺少 spec_md：新建文档请直接传入文档内容")
@@ -933,10 +1044,9 @@ async def update_table_cell_api(tool_id: str, req: UpdateTableCellRequest):
     spec_md = req.spec_md
     is_draft = tool_id in ("", "_draft_", "draft", "@new")
     if not spec_md.strip() and not is_draft:
-        spec_path = registry._get_def_dir() / f"{tool_id}.md"
-        if not spec_path.exists():
+        spec_md, found = registry.read_def_text(tool_id, ".md")
+        if not found:
             raise HTTPException(404, "该工具尚无规范文档")
-        spec_md = spec_path.read_text(encoding="utf-8")
 
     if not spec_md.strip():
         raise HTTPException(400, "缺少 spec_md")
@@ -966,6 +1076,12 @@ async def update_table_cell_api(tool_id: str, req: UpdateTableCellRequest):
             spec_path.write_text(updated_md, encoding="utf-8")
         except Exception:
             pass
+        # 改的若是「必填」列，registry 的 param_meta 必须跟着走 —— 否则
+        # 对话 Agent 仍按旧必填列表追问（它只读 param_meta，不读 MD）。
+        if "必填" in (req.column or ""):
+            entry = await registry.get(tool_id) or {}
+            params = sync_param_meta(updated_md, entry.get("param_meta"))
+            await registry.update(tool_id, {"param_meta": params})
 
     return {
         "node_id": req.node_id,
@@ -974,6 +1090,100 @@ async def update_table_cell_api(tool_id: str, req: UpdateTableCellRequest):
         "outline": new_outline.to_dict(),
         "saved": bool(req.save and not is_draft),
     }
+
+
+class ParamRequiredRequest(BaseModel):
+    """切换参数的「必填/可选」（确定性：只改 MD 表格一格 + 同步 param_meta）"""
+    name: str
+    required: bool
+    spec_md: str = ""
+    save: bool = True
+
+
+class EnforceRequiredRequest(BaseModel):
+    """开关：执行前是否由平台按 param_meta.required 拦截"""
+    enabled: bool = True
+
+
+def _write_spec_md(tool_id: str, md: str) -> None:
+    """把 MD 落到私有 definitions（与 save-spec / update-table-cell 一致）。"""
+    spec_path = registry._get_def_dir() / f"{tool_id}.md"
+    spec_path.parent.mkdir(parents=True, exist_ok=True)
+    spec_path.write_text(md, encoding="utf-8")
+
+
+@router.post("/{tool_id}/param-required")
+async def set_tool_param_required(tool_id: str, req: ParamRequiredRequest):
+    """切换某个参数的「必填 / 可选」。
+
+    全程确定性、不调 LLM：定位该参数所在的表格行 → 只改「必填」单元格 →
+    同步 registry 的 ``param_meta``。对话 Agent 每次请求都读 ``param_meta``，
+    因此切换后**下一轮对话立即生效**，既不用重启 Agent 进程，也不用重新生成
+    工具代码。
+    """
+    entry = await registry.get(tool_id)
+    if not entry:
+        raise HTTPException(404, f"Tool '{tool_id}' not found")
+
+    name = (req.name or "").strip()
+    if not name:
+        raise HTTPException(400, "参数名不能为空")
+
+    spec_md = req.spec_md
+    if not spec_md.strip():
+        spec_md, found = registry.read_def_text(tool_id, ".md")
+        if not found:
+            raise HTTPException(404, "该工具尚无规范文档")
+
+    new_md, changed = set_md_param_required(spec_md, name, req.required, tool_id)
+    if changed == 0:
+        raise HTTPException(404, f"未在「输入规范」表格中找到参数 {name!r} 的「必填」列")
+
+    params = sync_param_meta(new_md, entry.get("param_meta"))
+
+    if req.save:
+        await registry.update(tool_id, {"raw_md": new_md, "param_meta": params})
+        try:
+            _write_spec_md(tool_id, new_md)
+        except Exception:
+            pass
+
+    return {
+        "tool_id": tool_id,
+        "name": name,
+        "required": bool(req.required),
+        "spec_md": new_md,
+        "params": params,
+        "changed": changed,
+        "saved": bool(req.save),
+        "references": scan_references(tool_id, entry.get("name") or "", name),
+    }
+
+
+@router.get("/{tool_id}/references")
+async def tool_references(tool_id: str, param: str = ""):
+    """引用体检：谁在用这个工具（Agent 的 flow/apis、其它工具的调用），纯只读。
+
+    改「必填」前先看这里：调用方不会因为必填化而中断，但可能拿不到值。
+    """
+    entry = await registry.get(tool_id)
+    if not entry:
+        raise HTTPException(404, f"Tool '{tool_id}' not found")
+    return scan_references(tool_id, entry.get("name") or "", param)
+
+
+@router.post("/{tool_id}/enforce-required")
+async def set_enforce_required(tool_id: str, req: EnforceRequiredRequest):
+    """开关：执行前是否按 ``param_meta.required`` 做必填拦截（默认开启）。
+
+    存量工具里"param_meta 标必填、但代码本身能容忍空值"的调用方，可能因为
+    开启拦截而变严；遇到兼容问题时用这个接口单独关掉。
+    """
+    entry = await registry.get(tool_id)
+    if not entry:
+        raise HTTPException(404, f"Tool '{tool_id}' not found")
+    await registry.update(tool_id, {"enforce_required": bool(req.enabled)})
+    return {"tool_id": tool_id, "enforce_required": bool(req.enabled)}
 
 
 @router.post("/{tool_id}/spec-table")
@@ -985,10 +1195,9 @@ async def get_spec_table(tool_id: str, req: SpecOutlineRequest):
     spec_md = req.spec_md
     is_draft = tool_id in ("", "_draft_", "draft", "@new")
     if not spec_md.strip() and not is_draft:
-        spec_path = registry._get_def_dir() / f"{tool_id}.md"
-        if not spec_path.exists():
+        spec_md, found = registry.read_def_text(tool_id, ".md")
+        if not found:
             raise HTTPException(404, "该工具尚无规范文档")
-        spec_md = spec_path.read_text(encoding="utf-8")
 
     if not spec_md.strip():
         raise HTTPException(400, "缺少 spec_md")
@@ -1045,10 +1254,9 @@ async def refine_spec_node(tool_id: str, req: RefineSpecNodeRequest):
     spec_md = req.spec_md
     is_draft = tool_id in ("", "_draft_", "draft", "@new")
     if not spec_md.strip() and not is_draft:
-        spec_path = registry._get_def_dir() / f"{tool_id}.md"
-        if not spec_path.exists():
+        spec_md, found = registry.read_def_text(tool_id, ".md")
+        if not found:
             raise HTTPException(404, "该工具尚无规范文档")
-        spec_md = spec_path.read_text(encoding="utf-8")
 
     if not spec_md.strip():
         raise HTTPException(400, "缺少 spec_md：新建文档请直接传入文档内容")
@@ -1255,8 +1463,7 @@ async def modify_code(tool_id: str, req: "ModifyCodeRequest"):
     if not entry: raise HTTPException(404, f"Tool '{tool_id}' not found")
     current_code = req.current_code or ""
     if not current_code.strip():
-        code_path = registry._get_impl_dir() / tool_id / "tool.py"
-        current_code = code_path.read_text(encoding="utf-8") if code_path.exists() else ""
+        current_code = registry.read_code_text(tool_id)
     if not req.request.strip():
         raise HTTPException(400, "修改描述不能为空")
 
@@ -1295,8 +1502,7 @@ async def modify_and_debug(tool_id: str, req: "ModifyAndDebugRequest"):
         raise HTTPException(404, f"Tool '{tool_id}' not found")
     current_code = req.current_code or ""
     if not current_code.strip():
-        code_path = registry._get_impl_dir() / tool_id / "tool.py"
-        current_code = code_path.read_text(encoding="utf-8") if code_path.exists() else ""
+        current_code = registry.read_code_text(tool_id)
     if not req.request.strip():
         raise HTTPException(400, "修改描述不能为空")
 
@@ -1617,10 +1823,9 @@ async def refine_spec_node_stream(tool_id: str, req: RefineSpecNodeRequest):
     spec_md = req.spec_md
     is_draft = tool_id in ("", "_draft_", "draft", "@new")
     if not spec_md.strip() and not is_draft:
-        spec_path = registry._get_def_dir() / f"{tool_id}.md"
-        if not spec_path.exists():
+        spec_md, found = registry.read_def_text(tool_id, ".md")
+        if not found:
             raise HTTPException(404, "该工具尚无规范文档")
-        spec_md = spec_path.read_text(encoding="utf-8")
 
     if not spec_md.strip():
         raise HTTPException(400, "缺少 spec_md：新建文档请直接传入文档内容")

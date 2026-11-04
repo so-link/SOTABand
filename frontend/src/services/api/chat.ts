@@ -97,6 +97,9 @@ export class ApiChatService implements IChatService {
                   break
 
                 case 'done':
+                  if (!fullContent.trim() && pendingCards.length === 0) {
+                    throw new Error('Agent 未返回内容')
+                  }
                   yield {
                     id: payload.messageId || `msg-${Date.now()}`,
                     role: 'agent',
@@ -127,6 +130,9 @@ export class ApiChatService implements IChatService {
             }
           }
         }
+      }
+      if (!fullContent.trim() && pendingCards.length === 0) {
+        throw new Error('连接已结束，但 Agent 未返回内容')
       }
     } finally {
       this.currentAbortController = null

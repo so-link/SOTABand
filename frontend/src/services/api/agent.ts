@@ -2,10 +2,10 @@
 const BASE_URL = ''
 
 export const agentApi = {
-  async generateSpec(description: string): Promise<{ spec_md: string }> {
+  async generateSpec(description: string, role?: string): Promise<{ spec_md: string }> {
     const res = await fetch(`${BASE_URL}/api/agent/generate-spec`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ description }),
+      body: JSON.stringify({ description, role }),
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }))
@@ -33,7 +33,14 @@ export const agentApi = {
     return res.json()
   },
 
-  async register(specMd: string, code: string, demandDesc: string = ''): Promise<{ agent_id: string; entry: Record<string, unknown> }> {
+  /**
+   * 注册 Agent。
+   *
+   * baseAgentId：编辑已发布 Agent 时传入原 Agent id，作为注册的权威身份。
+   * 不传时退回 MD 里的 id（新建 Agent 的旧行为）——否则重新生成文档
+   * 改掉了 frontmatter 的 id，就会多出一个重复 Agent。
+   */
+  async register(specMd: string, code: string, demandDesc: string = '', baseAgentId?: string): Promise<{ agent_id: string; entry: Record<string, unknown>; updated?: boolean; version?: string; previous_version?: string }> {
     const idMatch = specMd.match(/^id:\s*(.+)$/m)
     const nameMatch = specMd.match(/^name:\s*(.+)$/m)
     const roleMatch = specMd.match(/^role:\s*(.+)$/m)
@@ -43,6 +50,7 @@ export const agentApi = {
         specMd, code, agentId: idMatch?.[1]?.trim() || 'custom-agent',
         agentName: nameMatch?.[1]?.trim() || 'Custom Agent',
         role: roleMatch?.[1]?.trim() || 'task', demandDesc,
+        ...(baseAgentId ? { baseAgentId } : {}),
       }),
     })
     if (!res.ok) {

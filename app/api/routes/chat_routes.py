@@ -1,23 +1,27 @@
-"""对话路由 — SSE 流式响应"""
+"""对话路由 — SSE 流式响应
+
+交互 Agent 以**独立进程**运行（经 AgentFactory 管理），本路由作为
+引擎侧代理：接收前端 SSE 请求 → 转发给交互 Agent 子进程 → 流式回传事件。
+
+设计要点（见 docs/agent-types-design.md）：
+- 所有 Agent 运行时均为独立进程，交互 Agent 不再与引擎同进程。
+- 对前端接口保持完全兼容（/api/chat/send、/api/chat/stop 契约不变）。
+- 引擎启动时自动拉起「系统默认交互 Agent」，但它同样可被手动关闭 / 重启。
+"""
 
 import json
 import asyncio
 import threading
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, HTTPException
 from sse_starlette.sse import EventSourceResponse
 
 from app.api.schemas.chat_schemas import ChatRequest
-from core.agent.base import AgentContext
-import importlib.util, sys
-from pathlib import Path
-# 交互Agent 已移到 resources/agents/implementations/
-_spec = importlib.util.spec_from_file_location(
-    "interactive_agent",
-    Path(__file__).resolve().parent.parent.parent.parent / "resources" / "agents" / "implementations" / "interactive_agent" / "agent.py"
-)
-_ia_mod = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_ia_mod)
-interactive_agent = _ia_mod.interactive_agent
+from core.agent.factory import agent_factory
+
+# ── 系统默认交互 Agent 的标识 ──
+# 它是系统默认入口：引擎启动时自动拉起；用户自定义交互 Agent 则需手动启动。
+DEFAULT_INTERACTIVE_AGENT_ID = "interactive-agent"
+DEFAULT_INTERACTIVE_IMPL_PATH = "resources/agents/implementations/interactive_agent"
 
 router = APIRouter()
 
@@ -25,13 +29,16 @@ router = APIRouter()
 _chat_stop_flags: dict[str, bool] = {}
 _chat_stop_lock = threading.Lock()
 
+
 def _set_chat_running(session_id: str):
     with _chat_stop_lock:
         _chat_stop_flags[session_id] = True
 
+
 def _set_chat_stopped(session_id: str):
     with _chat_stop_lock:
         _chat_stop_flags.pop(session_id, None)
+
 
 def stop_chat(session_id: str):
     """外部调用：请求停止指定 session 的对话"""
@@ -39,9 +46,19 @@ def stop_chat(session_id: str):
         if session_id in _chat_stop_flags:
             _chat_stop_flags[session_id] = False
 
+
 def is_chat_running(session_id: str) -> bool:
     with _chat_stop_lock:
         return _chat_stop_flags.get(session_id, False)
+
+
+async def ensure_default_interactive_agent():
+    """确保系统默认交互 Agent 进程已启动（引擎启动时调用，幂等）。"""
+    if agent_factory.is_running(DEFAULT_INTERACTIVE_AGENT_ID):
+        return {"status": "already_running"}
+    return await agent_factory.start(
+        DEFAULT_INTERACTIVE_AGENT_ID, DEFAULT_INTERACTIVE_IMPL_PATH
+    )
 
 
 @router.post("/send")
@@ -57,11 +74,10 @@ async def chat_send(request: ChatRequest):
     """
 
     session_id = request.session_id or "default"
-    ctx = AgentContext(
-        agent_id="interactive-agent",
-        session_id=session_id,
-        user_id=request.user_id or "default",
-    )
+
+    # 交互 Agent 未运行时，自动拉起（保证开箱可用；亦可被用户手动关闭）
+    if not agent_factory.is_running(DEFAULT_INTERACTIVE_AGENT_ID):
+        await ensure_default_interactive_agent()
 
     # 构建附件列表（兼容 camelCase 和 snake_case）
     attachments = [
@@ -78,11 +94,17 @@ async def chat_send(request: ChatRequest):
 
     async def event_generator():
         try:
-            async for event in interactive_agent.execute(
-                ctx,
-                content=request.content,
-                attachments=attachments,
-                workspace_tool_ids=request.workspace_tool_ids,
+            async for event in agent_factory.execute_stream(
+                DEFAULT_INTERACTIVE_AGENT_ID,
+                params={
+                    "content": request.content,
+                    "attachments": attachments,
+                    "workspace_tool_ids": request.workspace_tool_ids,
+                },
+                context={"session_id": session_id, "user_id": request.user_id or "default"},
+                # 不设总超时：工具可能长时间执行（如模型训练），由用户通过
+                # 停止按钮主动中断，而非被固定超时提前截断。
+                timeout=None,
             ):
                 # 每 yield 一次检查是否被停止
                 if not is_chat_running(session_id):
@@ -92,8 +114,8 @@ async def chat_send(request: ChatRequest):
                     }
                     return
                 yield {
-                    "event": event["event"],
-                    "data": json.dumps(event["data"], ensure_ascii=False),
+                    "event": event.get("event", "content"),
+                    "data": json.dumps(event.get("data", {}), ensure_ascii=False),
                 }
         finally:
             _set_chat_stopped(session_id)

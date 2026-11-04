@@ -114,8 +114,10 @@ def main() -> None:
     registered = tool["execute"](mode="register-dataset", source_path=str(dataset),
         dataset_id="synthetic-pr-acceptance", dataset_name="Synthetic acceptance windows")
     assert registered["status"] == "success", registered
+    training_dataset_id = raw_result.get("dataset_id", "synthetic-pr-acceptance")
+    training_dataset = Path(raw_result.get("path", str(dataset)))
     requested = tool["execute"](
-        mode="train", dataset="synthetic-pr-acceptance", model_id=args.model,
+        mode="train", dataset=training_dataset_id, model_id=args.model,
         training_config={"epochs": 1, "batch_size": 8, "use_ema": False,
                          "early_stop_patience": 0},
         model_config={"d_model": 32},
@@ -124,10 +126,9 @@ def main() -> None:
     task = await_task(requested["data"]["task_request"])
     artifact = Path(task["metadata"]["artifact_path"])
     saved = tool["execute"](mode="inspect-model", artifact_path=str(artifact),
-                            dataset_id="synthetic-pr-acceptance", register_model=True)
+                            dataset_id=training_dataset_id, register_model=True)
     assert saved["status"] == "success", saved
     model_id = saved["data"]["model_id"]
-    training_dataset = dataset
     dataset = RUNTIME_ROOT / "synthetic-evaluation-windows"
     dataset.mkdir()
     evaluation_features, evaluation_info = [], []
@@ -145,8 +146,26 @@ def main() -> None:
     registered = tool["execute"](mode="register-dataset", source_path=str(dataset),
         dataset_id="synthetic-evaluation", dataset_name="Separate synthetic evaluation windows")
     assert registered["status"] == "success", registered
-    evaluated = tool["execute"](mode="evaluate", dataset="synthetic-evaluation",
-                                model_id=model_id, export_excel=True)
+    # A fresh interpreter has no in-memory workflow/model selection state.
+    reload_code = (
+        "import json,runpy,sys; "
+        "tool=runpy.run_path(sys.argv[1]); "
+        "result=tool['execute'](mode='evaluate',dataset='synthetic-evaluation',"
+        "model_id=sys.argv[2],export_excel=True); print(json.dumps(result,default=str))"
+    )
+    reloaded = subprocess.run(
+        [sys.executable, "-c", reload_code,
+         str(project / "resources/tools/implementations/timeseries-classification-runner/tool.py"), model_id],
+        env={**compute_env(), "SOTABAND_RUNTIME_ROOT": str(RUNTIME_ROOT),
+             "SOTABAND_LOAD_DOTENV": "0",
+             "SOTABAND_HYPOXEMIA_PYTHON": sys.executable,
+             **({"SOTABAND_PRIVATE_RESOURCES": os.environ["SOTABAND_PRIVATE_RESOURCES"]}
+                if os.environ.get("SOTABAND_PRIVATE_RESOURCES") else {})},
+        capture_output=True, text=True, encoding="utf-8",
+    )
+    assert reloaded.returncode == 0, reloaded.stdout + reloaded.stderr
+    evaluated = json.loads(reloaded.stdout)
+
     assert evaluated["status"] == "success", evaluated
     result = evaluated["data"]
     assert result["model_resource_id"] == model_id, result
@@ -242,7 +261,7 @@ def main() -> None:
         "platform_python": sys.version, "compute_interpreter": compute_python(),
         "task_id": task["id"], "model_id": model_id,
         "artifact_path": str(artifact), "dataset_path": str(dataset),
-        "training_dataset_path": str(training_dataset), "evaluation_dataset_id": result["dataset_id"],
+        "training_dataset_path": str(training_dataset), "model_reloaded_in_fresh_process": True, "evaluation_dataset_id": result["dataset_id"],
         "source_dataset_window_count": result["source_dataset_window_count"],
         "evaluation_scope": result["evaluation_scope"],
         "evaluation_window_count": result["dataset_window_count"],

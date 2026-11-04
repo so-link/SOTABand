@@ -3,6 +3,10 @@ import type { FileTreeNode } from '@/types/workspace'
 
 const STORAGE_KEY = 'maia-workspace-tree'
 
+// localStorage 仅作降级缓存。真实状态源是后端 storage/workspace_tree.json：
+// 以前整棵工作区文件树只存 localStorage，换浏览器 / 无痕窗口 / 清缓存后工作区间
+// 就全空了，后端也无从知晓用户的工作现场。现在与工具空间同一范式——
+// 启动时以后端为准，写入时同步后端，后端不可达才回落到 localStorage。
 function loadPersisted(): FileTreeNode | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
@@ -15,6 +19,21 @@ function persistTree(tree: FileTreeNode) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(tree))
   } catch { /* ignore */ }
+}
+
+/** 同步写入后端；失败不阻塞本地（下次 loadTree 会重新对齐）。 */
+function persistTreeToBackend(tree: FileTreeNode) {
+  fetch('/api/file/workspace/tree', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ root: tree }),
+  }).catch(() => { /* 后端不可达时保留 localStorage 数据 */ })
+}
+
+/** 本地 + 后端双写，作为「工作区已变更」的统一出口。 */
+function persistEverywhere(tree: FileTreeNode) {
+  persistTree(tree)
+  persistTreeToBackend(tree)
 }
 
 function emptyTree(): FileTreeNode {
@@ -99,18 +118,43 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => ({
 
   loadTree: async () => {
     set({ isLoading: true })
-    // 1. 尝试从 localStorage 恢复
-    const persisted = loadPersisted()
+
+    // 1. 先以后端为准：后端保存了工作现场（服务重启 / 换浏览器都能恢复）
+    let persisted: FileTreeNode | null = null
+    try {
+      const res = await fetch('/api/file/workspace/tree')
+      if (res.ok) {
+        const data = await res.json()
+        if (data && data.root) {
+          persisted = data.root as FileTreeNode
+        } else {
+          // 后端为空，而本地 localStorage 有数据（升级前只存 localStorage）：
+          // 一次性迁移——把本地工作区上传到后端，避免用户已有的工作现场丢失。
+          const local = loadPersisted()
+          if (local) {
+            persistTreeToBackend(local)
+            persisted = local
+          }
+        }
+      }
+    } catch { /* 后端不可达：回落到 localStorage */ }
+
+    // 2. 后端不可达或为空时，回落到 localStorage
+    if (!persisted) {
+      persisted = loadPersisted()
+    }
+
     if (!persisted) {
       // 首次启动：空工作区间
       set({ root: emptyTree(), isLoading: false })
       return
     }
+
     set({ root: persisted, isLoading: false })
-    // 2. 异步刷新目录节点，与实际文件系统保持一致
+    // 3. 异步刷新目录节点，与实际文件系统保持一致（刷新结果双写回本地与后端）
     refreshDirectories(persisted, (newRoot) => {
       set({ root: newRoot })
-      persistTree(newRoot)
+      persistEverywhere(newRoot)
     })
   },
 
@@ -128,7 +172,7 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => ({
     }
     const newRoot = toggleIn(root)
     set({ root: newRoot })
-    persistTree(newRoot)
+    persistEverywhere(newRoot)
   },
 
   uploadFiles: async (files: FileList | File[]) => {
@@ -153,7 +197,7 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => ({
       } catch { /* ignore */ }
     }
     set({ root })
-    persistTree(root)
+    persistEverywhere(root)
   },
 
   removeNode: (nodeId) => {
@@ -170,7 +214,7 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => ({
     const newRoot = removeIn(root)
     if (newRoot) {
       set({ root: newRoot })
-      persistTree(newRoot)
+      persistEverywhere(newRoot)
     }
   },
 
@@ -190,7 +234,7 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => ({
 
   persist: () => {
     const { root } = get()
-    if (root) persistTree(root)
+    if (root) persistEverywhere(root)
   },
 
   // 清空工作区间的唯一入口。
@@ -199,7 +243,7 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => ({
   clearWorkspace: async () => {
     const fresh = emptyTree()
     set({ root: fresh, selectedFile: null })
-    persistTree(fresh)
+    persistEverywhere(fresh)
 
     // 文件已全部移除，对话里残留的附件引用一并清掉。
     // 动态 import 与 chat-store 解耦其它 store 的写法保持一致，

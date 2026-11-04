@@ -1,9 +1,8 @@
-"""Filesystem locations that must be isolated per checkout.
+"""Runtime artifacts and resource registries.
 
-The baseline checkout keeps its historical locations.  This refactor checkout
-defaults to ``.runtime/refactor`` so a second backend cannot update the
-baseline task registry or consume its training outputs.  Every location can
-be overridden for CI or a separately managed runtime.
+Tasks/outputs live under SOTABAND_RUNTIME_ROOT. Data/model registries share
+upstream's private resource root so API, tools and new Agent sessions agree.
+An explicit runtime root also isolates the default private resource root.
 """
 
 from __future__ import annotations
@@ -12,6 +11,8 @@ import json
 import os
 from pathlib import Path, PureWindowsPath, PurePosixPath
 
+
+from core.resource.paths import PRIVATE_ROOT
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RUNTIME_ROOT = Path(
@@ -22,10 +23,10 @@ TASKS_DIR = RUNTIME_ROOT / "tasks"
 TASK_REGISTRY_FILE = TASKS_DIR / "registry.json"
 TASK_RUNS_DIR = TASKS_DIR / "runs"
 
-MODEL_DIR = RUNTIME_ROOT / "models"
+MODEL_DIR = PRIVATE_ROOT / "models"
 MODEL_REGISTRY_FILE = MODEL_DIR / "registry.json"
 MODEL_GROUPS_FILE = MODEL_DIR / "groups.json"
-DATA_DIR = RUNTIME_ROOT / "data"
+DATA_DIR = PRIVATE_ROOT / "data"
 DATASETS_DIR = DATA_DIR / "datasets"
 DATA_REGISTRY_FILE = DATA_DIR / "registry.json"
 

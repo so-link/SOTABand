@@ -17,6 +17,11 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from core.proc_utils import no_window_kwargs
+from config.settings import settings as _settings
+
+from core.resource import param_guard
+
 
 class ToolExecutor:
     """工具执行器单例。
@@ -31,34 +36,187 @@ class ToolExecutor:
         return Path(__file__).resolve().parent.parent.parent
 
     @classmethod
+    def _resolve_impl_dir(cls, tool_id: str) -> Path:
+        """在「内置 + 私有」资源根中定位工具实现目录。
+
+        返回第一个含 tool.py 的实现目录；均不存在时返回内置默认路径
+        （便于上层给出明确的“工具不存在”错误）。
+        """
+        for space in cls._tool_space_dirs():
+            d = space / "implementations" / tool_id
+            if (d / "tool.py").exists():
+                return d
+        # 兜底：返回内置默认路径
+        return cls._project_root() / "resources" / "tools" / "implementations" / tool_id
+
+    @staticmethod
+    def _tool_space_dirs() -> list[Path]:
+        """返回工具空间目录列表（私有在前、内置在后）。
+
+        顺序决定「同 id 同时存在于两个根」时跑哪一份代码：写入一律落私有根，
+        注册表也是私有覆盖内置，故执行必须同样私有优先 —— 否则用户改完代码
+        会看到详情页/测试是新的，实际执行却仍是内置旧代码。
+        """
+        try:
+            from core.resource import paths as _paths
+
+            return [r / "tools" for r in _paths.read_roots()]
+        except Exception:
+            return [Path(__file__).resolve().parent.parent.parent / "resources" / "tools"]
+
+    @classmethod
     def _get_python_exe(cls, tool_id: str) -> str:
-        """获取工具执行所用的 Python 解释器。
+        """获取工具执行所用的 Python 解释器（同时也是 pip 的安装目标）。
 
         优先级：
-        1. 工具独立 .venv/bin/python（如果存在）
-        2. 项目 venv/bin/python（避免污染系统全局 Python）
-        3. 当前进程的 sys.executable
-        """
-        venv_py = (
-            cls._project_root()
-            / "resources" / "tools" / "implementations" / tool_id
-            / ".venv" / "bin" / "python"
-        )
-        if venv_py.exists():
-            return str(venv_py)
+        1. 工具独立 ``.venv`` 的解释器（在内置/私有目录中查找）
+        2. 项目 ``venv`` 的解释器（避免污染系统全局 Python）
+        3. 当前进程的 ``sys.executable``
 
-        project_venv_py = cls._project_root() / "venv" / "bin" / "python"
-        if project_venv_py.exists():
-            return str(project_venv_py)
+        注意：venv 的目录布局跨平台不同 —— Windows 是 ``Scripts/python.exe``，
+        Linux/macOS 是 ``bin/python``。历史实现只查 ``bin/python``，在 Windows
+        上**永远探测不到**，于是一律回退到 ``sys.executable``：若后端由全局
+        Python 启动，pip 就装进全局环境（服务器上常因无写权限直接失败），
+        表现为「依赖装了还缺 / 每轮都报缺依赖」。
+        """
+        candidates_rel = (
+            ("Scripts", "python.exe"),   # Windows
+            ("bin", "python"),           # Linux / macOS
+        )
+        for space in cls._tool_space_dirs():
+            impl_dir = space / "implementations" / tool_id
+            for rel in candidates_rel:
+                venv_py = impl_dir.joinpath(".venv", *rel)
+                if venv_py.exists():
+                    return str(venv_py)
+
+        for rel in candidates_rel:
+            project_venv_py = cls._project_root().joinpath("venv", *rel)
+            if project_venv_py.exists():
+                return str(project_venv_py)
 
         return sys.executable
+
+    @classmethod
+    def _security_preamble(cls, tool_dir: str, project_root: str) -> str:
+        """构造运行时安全审查前导代码（审计钩子 + 资源限制）。
+
+        在 exec 工具代码之前注入子进程：
+        - sys.addaudithook 拦截文件写入 / 系统调用 / 网络连接
+          （audit hook 一旦注册无法被 Python 层移除，恶意代码也拆不掉）
+        - resource.setrlimit 限制 CPU / 内存 / 文件大小 / 进程数
+        策略来自 config.settings.SecurityConfig。
+        """
+        sec = _settings.security
+
+        # 文件写入白名单 → 绝对路径
+        # 注意：构建侧（本进程）与 hook 运行侧（子进程）同机同平台，
+        # 统一 normpath+normcase 规范化，避免 Windows 反斜杠/正斜杠混用
+        # 导致 startswith 失配（合法写入被误杀）
+        roots: list[str] = []
+        for p in sec.allowed_write_paths:
+            p = str(p)
+            if not os.path.isabs(p):
+                p = os.path.join(project_root, p)
+            roots.append(os.path.normcase(os.path.normpath(p)))
+        roots.append(os.path.normcase(os.path.normpath(tool_dir)))  # 工具自身目录
+        roots.append(os.path.normcase(os.path.normpath(tempfile.gettempdir())))  # 系统临时目录
+
+        mode = sec.review_mode if sec.review_mode in ("enforce", "audit") else "off"
+
+        return (
+            "import sys as _sec_sys, os as _sec_os\n"
+            "_sec_mode = " + json.dumps(mode) + "\n"
+            "_sec_violations = []\n"
+            "_sec_write_roots = " + json.dumps(roots) + "\n"
+            "_sec_net_hosts = " + json.dumps(list(sec.allowed_network_hosts)) + "\n"
+            "_sec_net_enforce = " + ("True" if sec.runtime_enforce_network else "False") + "\n"
+            "\n"
+            "# ── 资源限制 ──\n"
+            "try:\n"
+            "    import resource as _sec_resource\n"
+            f"    _sec_resource.setrlimit(_sec_resource.RLIMIT_CPU, ({sec.max_cpu_seconds}, {sec.max_cpu_seconds}))\n"
+            f"    _sec_resource.setrlimit(_sec_resource.RLIMIT_AS, ({sec.max_memory_mb} << 20, {sec.max_memory_mb} << 20))\n"
+            f"    _sec_resource.setrlimit(_sec_resource.RLIMIT_FSIZE, ({sec.max_file_size_mb} << 20, {sec.max_file_size_mb} << 20))\n"
+            f"    _sec_resource.setrlimit(_sec_resource.RLIMIT_NPROC, ({sec.max_processes}, {sec.max_processes}))\n"
+            "except Exception:\n"
+            "    pass\n"
+            "\n"
+            "# ── 审计钩子 ──\n"
+            "def _sec_audit(event, args):\n"
+            "    if _sec_mode == 'off':\n"
+            "        return\n"
+            "    msg = None\n"
+            "    enforceable = False\n"
+            "    if event == 'open':\n"
+            "        try:\n"
+            "            path = _sec_os.fspath(args[0])\n"
+            "            mode = args[1] if len(args) > 1 else 'r'\n"
+            "            if isinstance(mode, int):\n"
+            "                mode = ''\n"
+            "            mode = str(mode)\n"
+            "        except Exception:\n"
+            "            return\n"
+            "        if any(c in mode for c in 'wa+'):\n"
+            "            rp = _sec_os.path.normcase(_sec_os.path.realpath(path))\n"
+            "            if not any(rp == r or rp.startswith(r + _sec_os.sep) for r in _sec_write_roots):\n"
+            "                msg = 'FILE_WRITE_DENY: ' + rp\n"
+            "                enforceable = True\n"
+            "    elif event in ('os.system', 'os.posix_spawn', 'pty.spawn'):\n"
+            "        msg = 'BANNED_SYSCALL: ' + event\n"
+            "        enforceable = True\n"
+            "    elif event == 'subprocess.Popen':\n"
+            "        # 放行系统模板 _call_tool 发起的工具间调用\n"
+            "        # （特征：python -c 'import json, sys; ...execute(...)'）\n"
+            "        # CPython 3.12 事件签名: sys.audit('subprocess.Popen', executable, args, cwd, env)\n"
+            "        #   args[0] = 可执行文件路径, args[1] = 命令列表 —— 特征匹配必须用 args[1]\n"
+            "        try:\n"
+            "            cmd = args[1] if len(args) > 1 else args[0]\n"
+            "            joined = ' '.join(str(c) for c in cmd) if isinstance(cmd, (list, tuple)) else str(cmd)\n"
+            "        except Exception:\n"
+            "            joined = ''\n"
+            "        if 'import json, sys' in joined and 'execute(' in joined:\n"
+            "            return\n"
+            "        msg = 'BANNED_SYSCALL: subprocess.Popen ' + joined[:120]\n"
+            "        enforceable = True\n"
+            "    elif event == 'socket.connect':\n"
+            "        try:\n"
+            "            host = args[0][0]\n"
+            "        except Exception:\n"
+            "            host = '?'\n"
+            "        if _sec_net_hosts and host not in _sec_net_hosts:\n"
+            "            msg = 'NETWORK_DENY: ' + str(host)\n"
+            "            enforceable = _sec_net_enforce\n"
+            "        elif not _sec_net_hosts:\n"
+            "            msg = 'NETWORK: ' + str(host)  # 无白名单时仅记录\n"
+            "            enforceable = False\n"
+            "    elif event == 'os.putenv':\n"
+            "        msg = 'ENV_MODIFY: ' + str(args[0])[:60]\n"
+            "        enforceable = False\n"
+            "    if msg:\n"
+            "        _sec_violations.append(msg)\n"
+            "        if _sec_mode == 'enforce' and enforceable:\n"
+            "            raise PermissionError('[安全策略] ' + msg)\n"
+            "\n"
+            "try:\n"
+            "    _sec_sys.addaudithook(_sec_audit)\n"
+            "except Exception:\n"
+            "    pass\n"
+            "\n"
+            "def _sec_merge(result):\n"
+            "    \"\"\"把运行时违规合并进结果 dict\"\"\"\n"
+            "    if _sec_violations:\n"
+            "        result['_security_violations'] = list(_sec_violations)\n"
+            "    return result\n"
+            "\n"
+        )
 
     @classmethod
     def _build_script(cls, code: str, params: dict, tool_dir: str, project_root: str) -> str:
         """构造统一的临时执行脚本。
 
         与自动调试 sandbox_execute 使用完全相同的模板结构，
-        但增加了 TOOL_DIR 环境变量设置。
+        但增加了 TOOL_DIR 环境变量设置与安全审查前导。
         """
         # 清理 surrogate 字符（如 LLM 生成的数学符号），避免 json.dumps 报错
         def _safe_dumps(obj):
@@ -74,17 +232,21 @@ class ToolExecutor:
             f"sys.path.insert(0, {_safe_dumps(project_root)})\n"
             f"# 屏蔽 sys.argv 防止代码中误用 argparse 等 CLI 参数\n"
             f"sys.argv = [sys.argv[0]]\n"
+            + cls._security_preamble(tool_dir, project_root) +
             f"code = {_safe_dumps(code)}\n"
             f"try:\n"
             f"    exec(code)\n"
             f"    params = json.loads({_safe_dumps(json.dumps(params, ensure_ascii=False))})\n"
             f"    result = execute(**params)\n"
+            f"    _sec_merge(result)\n"
             f"    print(json.dumps(result, default=str, ensure_ascii=False))\n"
             f"except ModuleNotFoundError as e:\n"
-            f"    print(json.dumps({{'status':'failed','message':f'Missing module: {{e.name}}','error':'ModuleNotFoundError','missing_module':e.name}}))\n"
+            f"    print(json.dumps(_sec_merge({{'status':'failed','message':f'Missing module: {{e.name}}','error':'ModuleNotFoundError','missing_module':e.name}})))\n"
+            f"except PermissionError as e:\n"
+            f"    print(json.dumps(_sec_merge({{'status':'failed','message':str(e),'error':'SecurityViolation'}})))\n"
             f"except Exception as e:\n"
             f"    import traceback\n"
-            f"    print(json.dumps({{'status':'failed','message':str(e),'error':type(e).__name__,'traceback':traceback.format_exc()[-2000:]}}))\n"
+            f"    print(json.dumps(_sec_merge({{'status':'failed','message':str(e),'error':type(e).__name__,'traceback':traceback.format_exc()[-2000:]}})))\n"
         )
 
     @classmethod
@@ -128,15 +290,21 @@ class ToolExecutor:
         Returns:
             {"status": "success"|"failed", "message": ..., "data": ...}
         """
+        # 必填参数兜底：按 registry 的 param_meta 统一拦截，直接返回失败，
+        # 不启动子进程（工具代码里已不再自带缺参校验）。
+        guard = param_guard.check_params(tool_id, params)
+        if guard is not None:
+            return guard
+
         project_root = str(cls._project_root())
-        impl_dir = cls._project_root() / "resources" / "tools" / "implementations" / tool_id
+        impl_dir = cls._resolve_impl_dir(tool_id)
         python_exe = cls._get_python_exe(tool_id)
 
         if code is None:
             impl_file = impl_dir / "tool.py"
             if not impl_file.exists():
                 return {"status": "failed", "message": f"工具代码不存在: {impl_file}"}
-            code = impl_file.read_text(encoding='utf-8')
+            code = impl_file.read_text(encoding='utf-8-sig')
 
         tool_dir = str(impl_dir)
         script = cls._build_script(code, params, tool_dir, project_root)
@@ -150,6 +318,7 @@ class ToolExecutor:
                 python_exe, tmp_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                **no_window_kwargs(),
             )
             try:
                 if timeout is None:
@@ -203,15 +372,19 @@ class ToolExecutor:
         Returns:
             {"status": "success"|"failed", "message": ..., "data": ...}
         """
+        guard = param_guard.check_params(tool_id, params)
+        if guard is not None:
+            return guard
+
         project_root = str(cls._project_root())
-        impl_dir = cls._project_root() / "resources" / "tools" / "implementations" / tool_id
+        impl_dir = cls._resolve_impl_dir(tool_id)
         python_exe = cls._get_python_exe(tool_id)
 
         if code is None:
             impl_file = impl_dir / "tool.py"
             if not impl_file.exists():
                 return {"status": "failed", "message": f"工具代码不存在: {impl_file}"}
-            code = impl_file.read_text(encoding='utf-8')
+            code = impl_file.read_text(encoding='utf-8-sig')
 
         tool_dir = str(impl_dir)
         script = cls._build_script(code, params, tool_dir, project_root)
@@ -225,6 +398,7 @@ class ToolExecutor:
                 [python_exe, tmp_path],
                 capture_output=True, text=True, timeout=timeout,
                 encoding='utf-8', errors='replace',
+                **no_window_kwargs(),
             )
             result = cls._parse_output(proc.stdout.strip())
             if proc.returncode != 0 and result.get("status") != "success":

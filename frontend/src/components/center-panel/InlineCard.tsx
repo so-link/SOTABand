@@ -19,6 +19,7 @@ import {
   Clock3,
   CircleStop,
   AlertCircle,
+  Layers,
 } from 'lucide-react'
 
 interface InlineCardProps {
@@ -46,6 +47,8 @@ export function InlineCard({ card }: InlineCardProps) {
       return <RawProcessingParametersCard title={title} summary={summary} data={data} />
     case 'workflow-action':
       return <WorkflowActionCard title={title} summary={summary} data={data} />
+    case 'mode-selection':
+      return <ModeSelectionCard title={title} summary={summary} data={data} />
     case 'code-review':
       return <CodeReviewCard title={title} summary={summary} data={data} setActiveView={setActiveView} />
     case 'execution-progress':
@@ -948,4 +951,49 @@ function WorkflowActionCard({ title, summary, data }: { title: string; summary: 
       </Button>
     </CardBody>
   </Card>
+}
+
+function ModeSelectionCard({ title, summary, data }: { title: string; summary: string; data: Record<string, unknown> }) {
+  const sendDirectMessage = useChatStore((s) => s.sendDirectMessage)
+  const modes = (data.modes as Array<{ id: string; name: string; desc?: string; index: number }>) || []
+
+  const handleSelect = (mode: { name: string; index: number }) => {
+    // 发送选择消息（回复模式名称），由后端解析并继续
+    sendDirectMessage(mode.name)
+  }
+
+  return (
+    <Card className="border-maia-card-blue bg-maia-card-blue">
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Layers className="h-4 w-4 text-blue-500" />
+          <span className="text-xs font-medium">{title}</span>
+          <Badge variant="default">{modes.length} 个模式</Badge>
+        </div>
+      </CardHeader>
+      <CardBody>
+        <p className="text-xs text-maia-text-secondary mb-2">{summary}</p>
+        <div className="space-y-1.5">
+          {modes.map((m) => (
+            <button
+              key={m.id || m.name}
+              onClick={() => handleSelect(m)}
+              className="w-full flex items-start gap-2 px-3 py-2 rounded border border-maia-border bg-maia-surface hover:bg-maia-accent/10 hover:border-maia-accent/40 transition-colors text-left group"
+            >
+              <span className="flex items-center justify-center h-5 w-5 rounded-full bg-maia-bg text-[11px] font-medium text-maia-text-secondary shrink-0 group-hover:bg-maia-accent group-hover:text-white">
+                {m.index}
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-xs text-maia-text font-medium">{m.name}</span>
+                {m.desc && (
+                  <span className="block text-[11px] text-maia-text-muted mt-0.5 leading-snug">{m.desc}</span>
+                )}
+              </span>
+              <ArrowRight className="h-3 w-3 text-maia-text-muted shrink-0 mt-0.5 group-hover:text-maia-accent" />
+            </button>
+          ))}
+        </div>
+      </CardBody>
+    </Card>
+  )
 }

@@ -15,6 +15,7 @@ export type CardType =
   | 'training-parameters'
   | 'raw-processing-parameters'
   | 'workflow-action'
+  | 'mode-selection'
   | 'code-review'
   | 'execution-progress'
   | 'result-summary'

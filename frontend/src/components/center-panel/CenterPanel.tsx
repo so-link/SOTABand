@@ -1,4 +1,5 @@
-import { useUIStore, type ActiveView } from '@/stores/ui-store'
+import { useUIStore, type ActiveView, parseAgentDetailView, parseToolDetailView } from '@/stores/ui-store'
+import { useResourceStore } from '@/stores/resource-store'
 import { ChatView } from './ChatView'
 import { DataPreviewView } from './DataPreviewView'
 import { FilePreviewView } from './FilePreviewView'
@@ -44,11 +45,27 @@ export function CenterPanel() {
 
 function ViewTabBar() {
   const { activeView, openViews, setActiveView, closeView } = useUIStore()
+  const agents = useResourceStore((s) => s.agentResources)
+  const tools = useResourceStore((s) => s.toolResources)
 
   return (
     <div className="flex border-b border-maia-border/30 bg-maia-bg/60 backdrop-blur-sm px-2 gap-1 shrink-0 select-none overflow-x-auto">
       {openViews.map((viewId) => {
-        const cfg = TAB_CONFIG[viewId]
+        // 参数化视图（单个 Agent/工具）动态解析标题与图标
+        const agentId = parseAgentDetailView(viewId)
+        const toolId = parseToolDetailView(viewId)
+        let cfg = TAB_CONFIG[viewId as keyof typeof TAB_CONFIG] as
+          | { label: string; icon: typeof MessageSquare }
+          | undefined
+        if (!cfg) {
+          if (agentId) {
+            const a = agents.find((x: { id: string }) => x.id === agentId)
+            cfg = { label: a?.name || agentId, icon: Bot }
+          } else if (toolId) {
+            const t = tools.find((x: { id: string }) => x.id === toolId)
+            cfg = { label: t?.name || toolId, icon: Bot }
+          }
+        }
         if (!cfg) return null
         const Icon = cfg.icon
         const isActive = activeView === viewId
@@ -64,7 +81,7 @@ function ViewTabBar() {
             }`}
           >
             <Icon className="h-3.5 w-3.5" />
-            {cfg.label}
+            <span className="max-w-[140px] truncate">{cfg.label}</span>
             {!isChat && (
               <span
                 onClick={(e) => { e.stopPropagation(); closeView(viewId) }}
@@ -80,6 +97,12 @@ function ViewTabBar() {
 }
 
 function ViewRouter({ view }: { view: ActiveView }) {
+  // 单个 Agent / 工具的独立视图
+  const agentId = parseAgentDetailView(view)
+  if (agentId) return <AgentDetailView agentId={agentId} />
+  const toolId = parseToolDetailView(view)
+  if (toolId) return <ToolDetailView toolId={toolId} />
+
   switch (view) {
     case 'chat': return <ChatView />
     case 'data-preview': return <DataPreviewView />

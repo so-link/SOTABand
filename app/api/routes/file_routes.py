@@ -1,19 +1,65 @@
 """文件管理路由 — 上传、存储"""
 
+import json as _json
 import os
 import shutil
 import time
 import uuid
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from core.runtime.paths import RUNTIME_ROOT
+from pydantic import BaseModel
 
 router = APIRouter()
 
 # 上传文件存储根目录
 UPLOAD_ROOT = RUNTIME_ROOT / "uploads"
 UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+
+# ── 工作区间文件树 —— 后端持久化 ──
+# 「工作区间」里用户上传 / 导入 / 打开的文件与目录属于引擎状态，而非浏览器状态。
+# 以前整棵树只存在前端 localStorage，换浏览器 / 无痕窗口 / 清缓存后工作区间就全空了，
+# 且后端完全无从知晓用户的工作现场。现在状态源是 storage/workspace_tree.json，
+# 前端 localStorage 仅作降级缓存（与工具空间 storage/workspace_tools.json 同一范式）。
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+_WORKSPACE_TREE_FILE = _PROJECT_ROOT / "storage" / "workspace_tree.json"
+
+
+class WorkspaceTreePayload(BaseModel):
+    root: dict[str, Any]
+
+
+def _read_workspace_tree() -> dict | None:
+    try:
+        if _WORKSPACE_TREE_FILE.exists():
+            data = _json.loads(_WORKSPACE_TREE_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and "root" in data:
+                return data["root"]
+    except Exception:
+        pass
+    return None
+
+
+def _write_workspace_tree(root: dict) -> None:
+    _WORKSPACE_TREE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _WORKSPACE_TREE_FILE.write_text(
+        _json.dumps({"root": root}, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+@router.get("/workspace/tree")
+async def get_workspace_tree():
+    """返回后端保存的工作区间文件树（无则返回 null，前端自行决定空工作区）。"""
+    return {"root": _read_workspace_tree()}
+
+
+@router.put("/workspace/tree")
+async def save_workspace_tree(payload: WorkspaceTreePayload):
+    """整体覆盖保存工作区间文件树（上传 / 导入 / 打开目录 / 删除 / 展开收起后调用）。"""
+    _write_workspace_tree(payload.root)
+    return {"ok": True}
 
 
 @router.post("/upload")
