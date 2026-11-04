@@ -3,10 +3,11 @@
 系统启动时自动加载交互 Agent，等待用户输入。
 """
 
+import os
 from contextlib import asynccontextmanager
 from urllib.parse import urlsplit
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -23,8 +24,23 @@ from app.api.routes.llm_routes import router as llm_router
 from app.api.routes.auth_routes import router as auth_router
 from app.api.routes.task_routes import router as task_router
 from app.api.routes.cron_routes import router as cron_router
-from core.auth import list_users, verify_token
+from core.auth import (
+    SUPERUSER_UID,
+    superuser,
+    superuser_password_configured,
+    verify_token,
+)
 from core.auth.session import AuthUser, reset_current_user, set_current_user
+from app.api.deps import require_superuser
+
+# 单用户兼容模式下的匿名身份 = 超级用户（uid=0）。
+# 显式注入而不是"不设置身份"，是为了让 require_superuser、资源 owner、
+# 用户目录解析三条链路读到同一个值——否则各处会各自回退，行为难以推断。
+ANONYMOUS_SUPERUSER = AuthUser(
+    id=SUPERUSER_UID,
+    username=os.getenv("SOTABAND_ROOT_USERNAME", "").strip() or "root",
+    role="admin",
+)
 
 
 @asynccontextmanager
@@ -43,6 +59,19 @@ async def lifespan(app: FastAPI):
     print(f"[SOTABand] 交互Agent 已就绪 (id={DEFAULT_INTERACTIVE_AGENT_ID}, {status})")
     print(f"[SOTABand] LLM: {settings.llm.provider}/{settings.llm.model}")
     print(f"[SOTABand] API: http://{settings.app.api_host}:{settings.app.api_port}")
+
+    # 身份层模式：影响是否需要登录才能用，必须在启动日志里说清楚。
+    # 判据是"是否配置了超管密码"而不是 superuser()——后者在单用户模式下
+    # 同样返回身份（用户管理页需要展示超管那一行），用它判断模式会永远为真。
+    if superuser_password_configured():
+        su = superuser()
+        print(f"[SOTABand] 多用户模式：已启用（超级用户 {su['username']} uid={su['id']}，凭据在 .env）")
+    else:
+        print(
+            f"[SOTABand] 单用户模式：未配置 SOTABAND_ROOT_PASSWORD，"
+            f"匿名访问即以超级用户（uid={SUPERUSER_UID}）身份使用。"
+            f"配置该密码并重启即可启用多用户（强制登录 + 用户管理）"
+        )
 
     # 定时任务模块：建表 + 载入启用任务开始调度（失败不阻塞主服务启动）
     try:
@@ -95,8 +124,6 @@ app.add_middleware(
 
 
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
-# 读类接口里涉及密钥/配置/文件读写的路径；其余 GET 仍按只读放行
-_READ_SENSITIVE_PREFIXES = ("/api/file", "/api/config", "/api/llm", "/api/apis")
 
 
 def _is_loopback_host(host: str | None) -> bool:
@@ -108,13 +135,6 @@ def _origin_hostname(origin: str) -> str:
         return (urlsplit(origin).hostname or "").lower()
     except ValueError:
         return ""
-
-
-def _has_users() -> bool:
-    try:
-        return bool(list_users())
-    except Exception:
-        return False
 
 
 def _forwarded_hostname(request: Request) -> str:
@@ -131,15 +151,25 @@ def _forwarded_hostname(request: Request) -> str:
     return _origin_hostname(f"http://{xfh}")
 
 
-def _is_sensitive_endpoint(path: str, method: str) -> bool:
-    """写/执行类接口一律敏感；读类仅文件/配置/密钥相关。"""
-    if not path.startswith("/api/"):
-        return False
-    if path.startswith("/api/auth/") or path == "/api/health":
-        return False
-    if method in ("GET", "HEAD", "OPTIONS"):
-        return path.startswith(_READ_SENSITIVE_PREFIXES)
-    return True
+# 匿名可访问的端点：登录入口与探活。
+_ANONYMOUS_PATHS = ("/api/health",)
+_ANONYMOUS_PREFIXES = ("/api/auth/login", "/api/auth/me", "/api/auth/logout")
+
+
+def _is_anonymous_allowed(path: str) -> bool:
+    if path in _ANONYMOUS_PATHS or path == "/":
+        return True
+    return any(path.startswith(p) for p in _ANONYMOUS_PREFIXES)
+
+
+def _multiuser_enabled() -> bool:
+    """多用户是否启用 = 是否在 .env 配置了超级用户密码。
+
+    未配置 = **单用户兼容模式**：匿名请求直接以超级用户（uid=0）身份执行，
+    行为与多用户上线前完全一致（本机打开就能用，不必先登录）。
+    配置了密码 = 强制登录：除登录/探活外一律要求携带有效令牌。
+    """
+    return superuser_password_configured()
 
 
 def _browser_guard(request: Request, method: str):
@@ -174,10 +204,15 @@ def _browser_guard(request: Request, method: str):
 async def auth_identity_middleware(request: Request, call_next):
     """解析 Bearer 令牌写入请求级身份，并做请求防护。
 
-    - 携带了**无效/过期**令牌则直接 401——静默降级成匿名会让过期会话
-      以实例身份写数据，归属反而更难追踪。
-    - 已注册用户的实例：写/执行类接口必须登录。
-    - 无用户的实例：写/执行类接口只允许本机回环客户端（远端一律拒绝）。
+    两种模式（由 .env 是否配置 SOTABAND_ROOT_PASSWORD 决定，见 _multiuser_enabled）：
+
+    - **单用户兼容模式**（未配置密码）：匿名请求直接注入超级用户身份放行，
+      与多用户上线前的行为一致——本机打开就用，不必先登录。
+    - **多用户模式**（已配置密码）：除登录/探活外一律要求携带有效令牌。
+      否则等于把 uid=0（超级用户）的全部数据开放给任何未登录访客。
+
+    携带了**无效/过期**令牌一律直接 401：静默降级成匿名会让过期会话继续写数据，
+    在单用户模式下还会把一个失效的普通用户会话悄悄提权成超管。
     """
     path = request.url.path
     method = request.method.upper()
@@ -196,27 +231,38 @@ async def auth_identity_middleware(request: Request, call_next):
     if guard is not None:
         return guard
 
-    if payload is None and _is_sensitive_endpoint(path, method):
-        if _has_users():
-            return JSONResponse(status_code=401, content={"detail": "该操作需要登录"})
-        client_host = request.client.host if request.client else ""
-        if not _is_loopback_host(client_host):
-            return JSONResponse(status_code=403, content={"detail": "未登录时仅允许本机访问"})
-
     if payload is None:
-        return await call_next(request)
+        if _multiuser_enabled():
+            # 非 /api 路径（静态资源、根路径）不受影响；/api 下只放行登录相关
+            if path.startswith("/api/") and not _is_anonymous_allowed(path):
+                return JSONResponse(status_code=401, content={"detail": "该操作需要登录"})
+        else:
+            # 单用户模式：匿名即以超管身份执行（require_superuser 也据此放行）
+            token = set_current_user(ANONYMOUS_SUPERUSER)
+            try:
+                return await call_next(request)
+            finally:
+                reset_current_user(token)
+    else:
+        token = set_current_user(AuthUser(
+            id=payload["uid"], username=payload.get("username", ""),
+            role=payload.get("role", "user"),
+        ))
+        try:
+            return await call_next(request)
+        finally:
+            reset_current_user(token)
 
-    token = set_current_user(AuthUser(
-        id=payload["uid"], username=payload.get("username", ""),
-        role=payload.get("role", "user"),
-    ))
-    try:
-        return await call_next(request)
-    finally:
-        reset_current_user(token)
+    return await call_next(request)
 
 
 # 注册路由
+# 系统级配置路由整体限超管：config 直接读写 .env（LLM Key、超时等），
+# llm 回显 Key 脱敏值与服务商清单——这些是平台资产，普通用户看不到也不该猜。
+_system_only = [Depends(require_superuser)]
+app.include_router(config_router, prefix="/api/config", tags=["config"], dependencies=_system_only)
+app.include_router(llm_router, prefix="/api/llm", tags=["llm"], dependencies=_system_only)
+
 app.include_router(chat_router, prefix="/api/chat", tags=["chat"])
 app.include_router(agent_router, prefix="/api/agent", tags=["agent"])
 app.include_router(tool_router, prefix="/api/tool", tags=["tool"])
