@@ -47,6 +47,13 @@ export function TopBar() {
             {theme === 'dark' ? <Sun className="h-3.5 w-3.5 text-amber-400" /> : <Moon className="h-3.5 w-3.5 text-maia-accent" />}
           </Button>
         </Tooltip>
+        {user?.role === 'admin' && (
+          <Tooltip content="用户管理（仅超级用户）">
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setActiveView('users')}>
+              <Users className="h-3.5 w-3.5" />
+            </Button>
+          </Tooltip>
+        )}
         <Tooltip content="设置">
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setActiveView('settings')}><Settings className="h-3.5 w-3.5" /></Button>
         </Tooltip>
@@ -114,7 +121,6 @@ function UserMenu() {
             <div className="text-[11px] text-maia-text-muted">{user?.role === 'admin' ? '超级用户' : '普通用户'}</div>
           </div>
           {item(<User className="h-3.5 w-3.5" />, '个人设置', () => setActiveView('account'))}
-          {user?.role === 'admin' && item(<Users className="h-3.5 w-3.5" />, '用户管理', () => setActiveView('users'))}
           <div className="my-1 border-t border-maia-border" />
           {item(<LogOut className="h-3.5 w-3.5" />, '退出登录', () => void logout(), true)}
         </div>
