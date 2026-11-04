@@ -1,15 +1,7 @@
 import { Download, File } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { useResourceStore } from '@/stores/resource-store'
-
-const BASE_URL = ''
-const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'tiff', 'tif', 'ico'])
-
-function isImageFile(f: Record<string, unknown>): boolean {
-  const fmt = ((f.format as string) || '').toLowerCase()
-  const name = ((f.name as string) || '').toLowerCase()
-  return IMAGE_EXTENSIONS.has(fmt) || IMAGE_EXTENSIONS.has(name.split('.').pop() || '')
-}
+import { datasetFileUrl } from '@/types/workspace'
 
 /**
  * 数据集预览的文件列表（右栏）。
@@ -21,7 +13,6 @@ export function DatasetFilesPanel({ hideHeader = false }: { hideHeader?: boolean
   const dataResources = useResourceStore((s) => s.dataResources)
   const cachedDataset = useResourceStore((s) => s.cachedDatasetForDetail)
   const previewFiles = useResourceStore((s) => s.previewFiles)
-  const previewDatasetPath = useResourceStore((s) => s.previewDatasetPath)
   const activeCsvIndex = useResourceStore((s) => s.activeCsvIndex)
   const activeMdIndex = useResourceStore((s) => s.activeMdIndex)
   const activeTextIndex = useResourceStore((s) => s.activeTextIndex)
@@ -37,12 +28,10 @@ export function DatasetFilesPanel({ hideHeader = false }: { hideHeader?: boolean
   const dataset = (previewDatasetId && dataResources.find((r) => r.id === previewDatasetId))
     ?? (cachedDataset?.id === previewDatasetId ? cachedDataset : null)
 
-  const fileUrl = (f: Record<string, unknown>, image = false) => {
-    if (!previewDatasetPath) return ''
-    const p = `${previewDatasetPath}/${f.name as string}`
-    return image
-      ? `${BASE_URL}/api/file/image?path=${encodeURIComponent(p)}`
-      : `${BASE_URL}/api/file/download?path=${encodeURIComponent(p)}`
+  const fileUrl = (f: Record<string, unknown>) => {
+    if (!previewDatasetId) return ''
+    const relPath = (f.path as string) || (f.name as string)
+    return relPath ? datasetFileUrl(previewDatasetId, relPath) : ''
   }
 
   return (
@@ -77,9 +66,8 @@ export function DatasetFilesPanel({ hideHeader = false }: { hideHeader?: boolean
             const csvIdx = tableFiles.indexOf(f)
             const mdIdx = mdFiles.indexOf(f)
             const textIdx = textFiles.indexOf(f)
-            const image = isImageFile(f)
             const isActive = (csvIdx >= 0 && csvIdx === activeCsvIndex) || (mdIdx >= 0 && mdIdx === activeMdIndex) || (textIdx >= 0 && textIdx === activeTextIndex)
-            const url = fileUrl(f, image)
+            const url = fileUrl(f)
 
             const onClick = () => {
               if (csvIdx >= 0) setActiveCsvIndex(csvIdx)

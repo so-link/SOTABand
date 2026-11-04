@@ -7,9 +7,8 @@ const BASE_URL = ''
 export type EditorStep = 1 | 2 | 3
 
 interface UploadedFile {
-  id: string
+  id: string          // 后端登记的 fileId（唯一访问凭证）
   fileName: string
-  filePath: string
   fileSize: number
   format: string
   description: string  // 用户为该文件写的描述
@@ -73,7 +72,7 @@ export const useDatasetEditorStore = create<DatasetEditorState>((set, get) => ({
       const uploaded = await res.json()
       set((state) => ({
         files: [...state.files, {
-          id: uploaded.id, fileName: uploaded.fileName, filePath: uploaded.filePath,
+          id: uploaded.fileId, fileName: uploaded.fileName,
           fileSize: uploaded.fileSize, format: uploaded.format, description: '',
         }],
       }))
@@ -81,13 +80,9 @@ export const useDatasetEditorStore = create<DatasetEditorState>((set, get) => ({
   },
 
   removeFile: (fileId) => {
-    const file = get().files.find(f => f.id === fileId)
-    if (file?.filePath) {
-      fetch(`${BASE_URL}/api/file/delete`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: file.filePath }),
-      }).catch(() => {})
-    }
+    fetch(`${BASE_URL}/api/file/${encodeURIComponent(fileId)}`, {
+      method: 'DELETE',
+    }).catch(() => {})
     set((state) => ({
       files: state.files.filter(f => f.id !== fileId),
     }))
@@ -109,7 +104,6 @@ export const useDatasetEditorStore = create<DatasetEditorState>((set, get) => ({
       const fileDescs = files.map(f => ({
         name: f.fileName, format: f.format, size: f.fileSize,
         description: f.description || '',
-        path: f.filePath,
       }))
       const result = await dataApi.generateSpec(
         description, fileDescs as unknown as Record<string, unknown>[],
@@ -140,10 +134,10 @@ export const useDatasetEditorStore = create<DatasetEditorState>((set, get) => ({
       const nameMatch = generatedMd.match(/^name:\s*(.+)$/m)
       const formats = [...new Set(files.map(f => f.format))]
       const totalSize = files.reduce((sum, f) => sum + f.fileSize, 0)
-      const sourceFiles = files.map(f => f.filePath)
+      const sourceFileIds = files.map(f => f.id)
       const result = await dataApi.register(
         generatedMd, nameMatch?.[1]?.trim() || 'Dataset',
-        '', files.length, totalSize, formats, sourceFiles,
+        '', files.length, totalSize, formats, sourceFileIds,
       )
       set({ registeredId: result.dataset_id, step: 3, isGenerating: false })
       // 刷新数据空间列表

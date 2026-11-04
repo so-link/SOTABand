@@ -8,6 +8,7 @@ import { useUIStore, type ActiveView } from '@/stores/ui-store'
 import { useToolEditorStore } from '@/stores/tool-editor-store'
 import { useChatStore } from '@/stores/chat-store'
 import { useWorkspaceToolStore } from '@/stores/workspace-tool-store'
+import { fileUrl } from '@/types/workspace'
 import {
   Database,
   Wrench,
@@ -297,18 +298,35 @@ function FullResult({ result }: { result: Record<string, unknown> }) {
 
 // ── Visual Output Components ──
 
+/** 从卡片 data 中取后端注入的 file_id（后端 register_result_paths 注入
+ *  `<key>_id` 与驼峰 `<camel>Id` 两种别名），全都没有则返回 null。 */
+function pickFileId(data: Record<string, unknown>, pathKeys: string[]): string | null {
+  for (const key of pathKeys) {
+    const snake = data[`${key}_id`]
+    if (typeof snake === 'string' && snake) return snake
+    const head = key.replace(/_path$/, '')
+    const camel = head.split('_')[0] + head.split('_').slice(1).map(w => w[0].toUpperCase() + w.slice(1)).join('') + 'Id'
+    const camelVal = data[camel]
+    if (typeof camelVal === 'string' && camelVal) return camelVal
+  }
+  return null
+}
+
+const PATH_KEYS = ['image_path', 'file_path', 'output_path', 'audio_path', 'plot_path']
+
 function ImageOutput({ data }: { data: Record<string, unknown> }) {
   const imagePath = (data.image_path || data.path) as string | undefined
+  const fileId = pickFileId(data, PATH_KEYS)
   const [error, setError] = useState(false)
-  if (!imagePath) return <p className="text-[13px] text-maia-text-muted">图片路径不可用</p>
+  if (!fileId) return <p className="text-[13px] text-maia-text-muted">图片已不可用（旧卡片，无文件凭证）</p>
 
-  const src = `${''}/api/file/image?path=${encodeURIComponent(imagePath)}`
+  const src = fileUrl(fileId)
 
   return (
     <div className="mt-2 rounded-lg overflow-hidden border border-maia-border">
       {error ? (
         <div className="p-3 text-[13px] text-maia-danger bg-maia-danger-bg">
-          图片加载失败: {imagePath}
+          图片加载失败: {imagePath || fileId}
         </div>
       ) : (
         <img
@@ -362,23 +380,25 @@ const AUDIO_EXTENSIONS = ['.wav', '.mp3', '.ogg', '.flac', '.aac', '.m4a', '.wma
 
 function FileOutput({ data }: { data: Record<string, unknown> }) {
   const filePath = (data.file_path || data.path || data.output_path) as string | undefined
+  const fileId = pickFileId(data, PATH_KEYS)
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
+  // 文件名仍从路径字段取 basename（仅展示用，无访问能力）
   const fileName = filePath ? (filePath.split('/').pop() || filePath) : ''
   const ext = fileName.slice(fileName.lastIndexOf('.')).toLowerCase()
   const isAudio = AUDIO_EXTENSIONS.includes(ext)
 
-  if (!filePath) return <p className="text-[13px] text-maia-text-muted">文件路径不可用</p>
+  if (!fileId) return <p className="text-[13px] text-maia-text-muted">文件已不可用（旧卡片，无文件凭证）</p>
 
-  const downloadUrl = `/api/file/download?path=${encodeURIComponent(filePath)}`
+  const downloadUrl = fileUrl(fileId)
 
   // 音频文件通过 fetch → Blob → ObjectURL 加载，避免跨域和 Range 请求问题
   useEffect(() => {
     if (!isAudio) return
     let cancelled = false
     setLoading(true)
-    fetch(`/api/file/download?path=${encodeURIComponent(filePath)}`)
+    fetch(downloadUrl)
       .then(res => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         return res.blob()
@@ -393,7 +413,7 @@ function FileOutput({ data }: { data: Record<string, unknown> }) {
         if (!cancelled) setLoading(false)
       })
     return () => { cancelled = true }
-  }, [filePath])
+  }, [downloadUrl, isAudio])
 
   return (
     <div className="mt-2 rounded-lg border border-maia-border overflow-hidden">

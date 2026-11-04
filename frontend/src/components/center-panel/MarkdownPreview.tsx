@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Loader2, FileText, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Card, CardBody } from '@/components/ui/card'
-
-const BASE_URL = ''
+import { datasetFileUrl } from '@/types/workspace'
 
 /** 轻量 Markdown → HTML 渲染器（零依赖） */
 function renderMarkdown(md: string): string {
@@ -91,13 +90,13 @@ function renderMarkdown(md: string): string {
 }
 
 interface MarkdownPreviewProps {
-  datasetPath: string
+  datasetId: string
   mdFiles: Array<Record<string, unknown>>
   /** 初始展示的文件下标（配合 key 重挂载切换文件） */
   initialIndex?: number
 }
 
-export function MarkdownPreview({ datasetPath, mdFiles, initialIndex = 0 }: MarkdownPreviewProps) {
+export function MarkdownPreview({ datasetId, mdFiles, initialIndex = 0 }: MarkdownPreviewProps) {
   const [html, setHtml] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -112,9 +111,9 @@ export function MarkdownPreview({ datasetPath, mdFiles, initialIndex = 0 }: Mark
     setHtml(null)
     const file = mdFiles[index]
     if (!file) return
-    const filePath = datasetPath ? `${datasetPath}/${file.name}` : ''
-    if (!filePath) { setLoading(false); return }
-    fetch(`${BASE_URL}/api/file/download?path=${encodeURIComponent(filePath)}`)
+    const relPath = (file.path as string) || (file.name as string)
+    if (!relPath) { setLoading(false); return }
+    fetch(datasetFileUrl(datasetId, relPath))
       .then(r => r.text())
       .then(text => { setHtml(renderMarkdown(text)); setLoading(false) })
       .catch(() => setLoading(false))

@@ -95,7 +95,7 @@ export const dataApi = {
     return res.json()
   },
 
-  async register(specMd: string, datasetName: string, dataPath: string, fileCount: number, totalSize: number, formats: string[], sourceFiles: string[]) {
+  async register(specMd: string, datasetName: string, dataPath: string, fileCount: number, totalSize: number, formats: string[], sourceFileIds: string[]) {
     const res = await fetch(`${BASE_URL}/api/data/register`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -105,7 +105,7 @@ export const dataApi = {
         fileCount,
         totalSize,
         formats,
-        sourceFiles,
+        sourceFileIds,
       }),
     })
     if (!res.ok) {

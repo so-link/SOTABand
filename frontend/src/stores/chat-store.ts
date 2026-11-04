@@ -7,10 +7,11 @@ import { ApiChatService, confirmPlatformCall, cancelPlatformCall } from '@/servi
 const useMock = import.meta.env.VITE_USE_MOCK === 'true'
 const chatService = useMock ? new MockChatService() : new ApiChatService()
 
-/** 路径引用：@文件名 占位符与完整路径的映射 */
+/** 文件引用：@文件名 占位符与 file_id 的映射。
+ *  发送时把 file_id 拼进消息文本，工具执行前由平台解析回真实路径。 */
 export interface PathRef {
   name: string
-  path: string
+  fileId: string
 }
 
 interface ChatState {
@@ -430,9 +431,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const { inputText, attachedFiles, pathRefs } = get()
     if (!inputText.trim() && attachedFiles.length === 0 && pathRefs.length === 0) return
 
-    // 把拖拽的文件/目录完整路径追加到文本末尾（作为路径参数提交）
-    const paths = pathRefs.map((r) => r.path).filter(Boolean)
-    const finalText = [inputText.trim(), ...paths].filter(Boolean).join(' ')
+    // 把拖拽进来的文件 file_id 追加到文本末尾（工具参数位）；平台执行
+    // 工具前会把 f_xxx 形态的参数值解析回真实路径，LLM 原样拷贝即可。
+    const fileIdTokens = pathRefs.map((r) => r.fileId).filter(Boolean)
+    const finalText = [inputText.trim(), ...fileIdTokens].filter(Boolean).join(' ')
 
     set({ isSending: true, inputText: '', attachedFiles: [], pathRefs: [] })
 

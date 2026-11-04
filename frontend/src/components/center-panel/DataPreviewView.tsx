@@ -9,6 +9,7 @@ import { useUIStore } from '@/stores/ui-store'
 import { DataTablePreview } from './DataTablePreview'
 import { MarkdownPreview } from './MarkdownPreview'
 import { TextPreview } from './TextPreview'
+import { datasetFileUrl } from '@/types/workspace'
 import type { DataResource } from '@/types/resources'
 
 const BASE_URL = ''
@@ -53,18 +54,14 @@ export function DataPreviewView({ datasetId }: { datasetId?: string }) {
     if (!dataset) return
     setPage(1)
     // 先清空上一数据集的文件清单，避免右栏短暂显示旧数据集的文件
-    setPreviewFiles(dataset.id, '', [])
+    setPreviewFiles(dataset.id, [])
     setLoading(true)
     fetch(`${BASE_URL}/api/data/${dataset.id}/preview`)
       .then(r => r.json())
       .then(d => {
         setDetail(d)
         // 文件清单发布到 store，右栏据此渲染文件列表
-        setPreviewFiles(
-          dataset.id,
-          (d?.dataset as Record<string, unknown>)?.data_path as string || '',
-          (d?.files as Array<Record<string, unknown>>) || [],
-        )
+        setPreviewFiles(dataset.id, (d?.files as Array<Record<string, unknown>>) || [])
         setLoading(false)
       })
       .catch(() => setLoading(false))
@@ -136,7 +133,6 @@ export function DataPreviewView({ datasetId }: { datasetId?: string }) {
 
   const files = (detail?.files as Array<Record<string, unknown>>) || []
   const specMd = (detail?.spec_md as string) || ''
-  const datasetPath = ((detail?.dataset as Record<string, unknown>)?.data_path as string) || ''
 
   const imageFiles = files.filter(isImageFile)
   // 可表格化的格式统一走后端 /table 接口，中栏表格布局对各类格式保持一致
@@ -248,8 +244,8 @@ export function DataPreviewView({ datasetId }: { datasetId?: string }) {
 
               <div className="grid grid-cols-4 gap-2">
                 {pageImages.map((img, i) => {
-                  const imgPath = datasetPath ? `${datasetPath}/${img.name}` : ''
-                  const imgUrl = imgPath ? `${BASE_URL}/api/file/image?path=${encodeURIComponent(imgPath)}` : ''
+                  const imgRel = (img.path as string) || (img.name as string)
+                  const imgUrl = imgRel ? datasetFileUrl(dataset.id, imgRel) : ''
                   return (
                     <div
                       key={i}
@@ -294,7 +290,7 @@ export function DataPreviewView({ datasetId }: { datasetId?: string }) {
 
         {/* Markdown 文档：展开时位于预览表格上方，与工具详情（文档在上、代码在下）对齐 */}
         {showDoc && mdFiles.length > 0 && (
-          <MarkdownPreview key={activeMd} datasetPath={datasetPath} mdFiles={mdFiles} initialIndex={activeMd} />
+          <MarkdownPreview key={activeMd} datasetId={dataset.id} mdFiles={mdFiles} initialIndex={activeMd} />
         )}
 
         {showDoc && specMd && (
@@ -314,7 +310,7 @@ export function DataPreviewView({ datasetId }: { datasetId?: string }) {
 
         {/* JSON / TXT 纯文本预览 */}
         {textFiles.length > 0 && (
-          <TextPreview key={`text:${activeText}`} datasetPath={datasetPath} textFiles={textFiles} initialIndex={activeText} />
+          <TextPreview key={`text:${activeText}`} datasetId={dataset.id} textFiles={textFiles} initialIndex={activeText} />
         )}
       </div>
       </div>

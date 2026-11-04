@@ -39,8 +39,8 @@ interface ResourceState {
 
   // 数据集预览的文件清单：由中栏预览拉取后共享给右栏文件列表，
   // 右栏点选文件即可切换中栏预览的 CSV / Markdown。
+  // 文件内容一律按「数据集 id + 相对路径」访问，不再共享磁盘路径。
   previewDatasetId: string | null
-  previewDatasetPath: string
   previewFiles: Array<Record<string, unknown>>
   activeCsvIndex: number
   activeMdIndex: number
@@ -48,7 +48,7 @@ interface ResourceState {
 
   selectResource: (resource: Resource | null) => void
   setCachedToolForDetail: (tool: ToolResource | null) => void
-  setPreviewFiles: (datasetId: string, datasetPath: string, files: Array<Record<string, unknown>>) => void
+  setPreviewFiles: (datasetId: string, files: Array<Record<string, unknown>>) => void
   setActiveCsvIndex: (idx: number) => void
   setActiveMdIndex: (idx: number) => void
   setActiveTextIndex: (idx: number) => void
@@ -73,15 +73,13 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
   cachedToolForDetail: null,
   cachedDatasetForDetail: null,
   previewDatasetId: null,
-  previewDatasetPath: '',
   previewFiles: [],
   activeCsvIndex: 0,
   activeMdIndex: 0,
   activeTextIndex: 0,
 
-  setPreviewFiles: (datasetId, datasetPath, files) => set({
+  setPreviewFiles: (datasetId, files) => set({
     previewDatasetId: datasetId,
-    previewDatasetPath: datasetPath,
     previewFiles: files,
     activeCsvIndex: 0,
     activeMdIndex: 0,

@@ -1,19 +1,19 @@
 import { useState, useEffect } from 'react'
 import { Loader2, FileText, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Card, CardBody } from '@/components/ui/card'
+import { datasetFileUrl } from '@/types/workspace'
 
-const BASE_URL = ''
 /** JSON / TXT 等纯文本预览（竖线样式与 MD 文档卡片一致） */
 const TEXT_LIMIT = 200_000
 
 interface TextPreviewProps {
-  datasetPath: string
+  datasetId: string
   textFiles: Array<Record<string, unknown>>
   /** 初始展示的文件下标（配合 key 重挂载切换文件） */
   initialIndex?: number
 }
 
-export function TextPreview({ datasetPath, textFiles, initialIndex = 0 }: TextPreviewProps) {
+export function TextPreview({ datasetId, textFiles, initialIndex = 0 }: TextPreviewProps) {
   const [text, setText] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -28,9 +28,9 @@ export function TextPreview({ datasetPath, textFiles, initialIndex = 0 }: TextPr
     setText(null)
     const file = textFiles[index]
     if (!file) return
-    const filePath = datasetPath ? `${datasetPath}/${file.name}` : ''
-    if (!filePath) { setLoading(false); return }
-    fetch(`${BASE_URL}/api/file/download?path=${encodeURIComponent(filePath)}`)
+    const relPath = (file.path as string) || (file.name as string)
+    if (!relPath) { setLoading(false); return }
+    fetch(datasetFileUrl(datasetId, relPath))
       .then(r => r.text())
       .then(t => {
         // JSON 尝试美化缩进，失败按原样展示

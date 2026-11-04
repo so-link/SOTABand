@@ -13,6 +13,9 @@ function collectFileNodes(node: FileTreeNode | null, out: FileTreeNode[] = []): 
   return out
 }
 
+/** 平台文件凭证形态（f_+12hex）；数据集节点是 dataset:<id>，不能当文件参数用 */
+const FILE_ID_RE = /^f_[0-9a-f]{12}$/
+
 export function ChatInput() {
   const { inputText, setInputText, attachedFiles, removeAttachment, pathRefs, addPathRef, removePathRef, sendMessage, stopMessage, isSending,
     confirmPolicy, setConfirmPolicy } =
@@ -59,26 +62,26 @@ export function ChatInput() {
     el.style.height = `${Math.min(el.scrollHeight, 150)}px`
   }
 
-  // ── 拖拽：采用导师版的路径映射方案（@文件名 → 提交时自动填入完整路径）──
-  // OS 文件拖入上传为本分支增量：先入库工作区间，再记录路径映射。
+  // ── 拖拽：文件引用方案（@文件名 → 提交时自动填入 file_id，平台执行前解析回路径）──
+  // OS 文件拖入上传为本分支增量：先入库工作区间，再记录 file_id 引用。
 
-  // 从拖拽事件中解析文件/目录节点
+  // 从拖拽事件中解析文件节点（必须是平台登记的 file_id；数据集节点
+  // 是 dataset:<id> 形态，无法作为工具文件参数，直接忽略）
   const extractDraggedNode = (e: DragEvent): FileTreeNode | null => {
     const jsonData = e.dataTransfer.getData('application/json')
     if (jsonData) {
       try {
         const node = JSON.parse(jsonData) as FileTreeNode
-        if (node?.path) return node
+        if (node?.fileId && FILE_ID_RE.test(node.fileId)) return node
       } catch {
         /* ignore */
       }
+      return null
     }
-    // 兜底：尝试读取纯文本路径
-    const textData = e.dataTransfer.getData('text/plain')
-    if (textData && /[\\/\\\\]/.test(textData)) {
-      const p = textData.trim()
-      const name = p.split(/[\\/\\\\]/).filter(Boolean).pop() || p
-      return { id: p, name, type: 'file', category: 'unknown', path: p }
+    // 兜底：纯文本形式的 file_id（f_+12hex，WorkspaceFileTree 拖拽时同时写入）
+    const textData = e.dataTransfer.getData('text/plain')?.trim()
+    if (textData && FILE_ID_RE.test(textData)) {
+      return { id: textData, name: textData, type: 'file', category: 'unknown', fileId: textData }
     }
     return null
   }
@@ -89,14 +92,14 @@ export function ChatInput() {
     if (isSending) return
 
     const node = extractDraggedNode(e)
-    if (node?.path) {
-      // 后台记录映射（@文件名 → 完整路径）
-      addPathRef({ name: node.name, path: node.path })
+    if (node?.fileId) {
+      // 后台记录引用（@文件名 → file_id）
+      addPathRef({ name: node.name, fileId: node.fileId })
       textareaRef.current?.focus()
       return
     }
 
-    // OS 文件拖入（本分支增量）：上传到工作区间后记录路径映射
+    // OS 文件拖入（本分支增量）：上传到工作区间后记录 file_id 引用
     const files = e.dataTransfer.files
     if (files && files.length > 0) {
       void attachDroppedOsFiles(files)
@@ -120,7 +123,7 @@ export function ChatInput() {
     setIsDragOver(false)
   }
 
-  /** 从操作系统拖入的文件：先上传到工作区间，再记录路径映射 */
+  /** 从操作系统拖入的文件：先上传到工作区间，再记录 file_id 引用 */
   const attachDroppedOsFiles = async (files: FileList) => {
     const beforeIds = new Set(collectFileNodes(useFileTreeStore.getState().root).map((n) => n.id))
     setIsUploading(true)
@@ -131,9 +134,9 @@ export function ChatInput() {
     }
     // uploadFiles 只负责入库不返回新节点，故用「上传前后的差集」取回新增项
     const added = collectFileNodes(useFileTreeStore.getState().root).filter(
-      (n) => !beforeIds.has(n.id),
+      (n) => !beforeIds.has(n.id) && n.fileId && FILE_ID_RE.test(n.fileId),
     )
-    added.forEach((node) => addPathRef({ name: node.name, path: node.path }))
+    added.forEach((node) => addPathRef({ name: node.name, fileId: node.fileId as string }))
     if (added.length > 0) textareaRef.current?.focus()
   }
 
@@ -147,7 +150,7 @@ export function ChatInput() {
               <div
                 key={`${ref.name}-${i}`}
                 className="flex items-center gap-1 rounded-full bg-blue-500/15 border border-blue-500/40 px-2.5 py-1 text-[12px] text-blue-600 dark:text-blue-400"
-                title={`${ref.path}`}
+                title={`${ref.fileId}`}
               >
                 <Folder className="h-3 w-3" />
                 <span className="max-w-[160px] truncate">@{ref.name}</span>
@@ -211,7 +214,7 @@ export function ChatInput() {
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
-            placeholder={isSending ? '工具执行中…' : '输入你的需求…（Enter 发送，Shift+Enter 换行，拖拽文件自动填入路径）'}
+            placeholder={isSending ? '工具执行中…' : '输入你的需求…（Enter 发送，Shift+Enter 换行，拖拽文件自动附上文件凭证）'}
             rows={1}
             className="flex-1 bg-transparent px-1 py-1.5 text-[14px] leading-[22px] text-maia-text outline-none focus-visible:outline-none resize-none min-h-[32px] max-h-[150px] placeholder:text-maia-text-muted"
             disabled={isSending}

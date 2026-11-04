@@ -6,19 +6,23 @@ import type { FileTreeNode } from '@/types/workspace'
 interface Props {
   /** 是否只选择文件（默认 true） */
   fileOnly?: boolean
-  onSelect: (path: string) => void
+  onSelect: (fileId: string) => void
   onClose: () => void
 }
 
-/** 收集工作区文件树中的所有文件节点（含绝对路径）。 */
+/** 平台文件凭证形态（数据集节点 dataset:<id> 不能作为文件参数） */
+const FILE_ID_RE = /^f_[0-9a-f]{12}$/
+
+/** 收集工作区文件树中的所有平台文件节点。 */
 function collectFiles(node: FileTreeNode | null, out: FileTreeNode[] = []): FileTreeNode[] {
   if (!node) return out
-  if (node.type === 'file') out.push(node)
+  if (node.type === 'file' && node.fileId && FILE_ID_RE.test(node.fileId)) out.push(node)
   for (const c of node.children || []) collectFiles(c, out)
   return out
 }
 
-/** 工作区文件选择器：从工作区间文件树中选择一个文件，返回其绝对路径。 */
+/** 工作区文件选择器：从工作区间文件树中选择一个文件，返回其 file_id
+ *  （平台在工具执行前解析回真实路径）。 */
 export function WorkspaceFilePicker({ onSelect, onClose }: Props) {
   const root = useFileTreeStore((s) => s.root)
   const files = useMemo(() => collectFiles(root), [root])
@@ -27,7 +31,7 @@ export function WorkspaceFilePicker({ onSelect, onClose }: Props) {
   const filtered = useMemo(() => {
     if (!keyword.trim()) return files
     const k = keyword.toLowerCase()
-    return files.filter((f) => f.name.toLowerCase().includes(k) || f.path.toLowerCase().includes(k))
+    return files.filter((f) => f.name.toLowerCase().includes(k))
   }, [files, keyword])
 
   return (
@@ -67,14 +71,14 @@ export function WorkspaceFilePicker({ onSelect, onClose }: Props) {
             filtered.map((f) => (
               <button
                 key={f.id}
-                onClick={() => { onSelect(f.path); onClose() }}
+                onClick={() => { onSelect(f.fileId as string); onClose() }}
                 className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-left hover:bg-maia-sidebar-hover group"
-                title={f.path}
+                title={f.fileId}
               >
                 <FileIcon className="h-3.5 w-3.5 text-maia-text-muted shrink-0" />
                 <span className="text-[13px] text-maia-text truncate">{f.name}</span>
-                <span className="ml-auto text-[12px] text-maia-text-muted truncate max-w-[220px] opacity-0 group-hover:opacity-100">
-                  {f.path}
+                <span className="ml-auto text-[12px] text-maia-text-muted truncate max-w-[220px] font-mono opacity-0 group-hover:opacity-100">
+                  {f.fileId}
                 </span>
               </button>
             ))
