@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import {
-  Bot, Send, Play, Square, RefreshCw, Loader2, FileText, FileCode, X, Pencil, Save, Eraser,
+  Bot, Send, Play, Square, RefreshCw, Loader2, FileText, FileCode, X, Pencil, Save, Eraser, Database,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -15,6 +15,7 @@ import type { AgentResource } from '@/types/resources'
 import type { InlineCard as InlineCardType } from '@/types/chat'
 import { InlineCard } from './InlineCard'
 import { FileSelect } from '@/components/ui/file-select'
+import { DataFilePicker } from '@/components/ui/data-file-picker'
 
 const BASE_URL = ''
 
@@ -105,6 +106,7 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   const [serviceInfo, setServiceInfo] = useState<{ running: boolean; host?: string; port?: number; apis?: Array<{ name: string; method?: string; path?: string; params?: Array<{ name: string; type?: string; required?: boolean; desc?: string }> }> }>({ running: false })
   const [testApi, setTestApi] = useState('')
   const [testParams, setTestParams] = useState<Record<string, string>>({})
+  const [dataPickerFor, setDataPickerFor] = useState<string | null>(null)
   const [testResult, setTestResult] = useState('')
   const [testing, setTesting] = useState(false)
 
@@ -930,12 +932,23 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                             {p.name}{p.required ? ' *' : ''}
                           </label>
                           {isPathParam ? (
-                            <FileSelect
-                              value={testParams[p.name] || ''}
-                              onChange={(v) => setTestParams((prev) => ({ ...prev, [p.name]: v }))}
-                              placeholder={p.desc || '选择文件'}
-                              className="flex-1 text-[13px] bg-maia-bg rounded border border-maia-border px-2 py-1 outline-none focus:border-maia-accent/40"
-                            />
+                            <div className="flex items-center gap-1.5">
+                              <FileSelect
+                                value={testParams[p.name] || ''}
+                                onChange={(v) => setTestParams((prev) => ({ ...prev, [p.name]: v }))}
+                                placeholder={p.desc || '选择文件'}
+                                className="flex-1 text-[13px] bg-maia-bg rounded border border-maia-border px-2 py-1 outline-none focus:border-maia-accent/40"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setDataPickerFor(p.name)}
+                                title="从数据空间选择数据集文件（data_path）"
+                                className="shrink-0 h-7 px-2 rounded border border-maia-border hover:bg-maia-sidebar-hover text-maia-text-secondary text-[12px]"
+                              >
+                                <Database className="h-3 w-3" />
+                                数据空间
+                              </button>
+                            </div>
                           ) : (
                             <input
                               value={testParams[p.name] || ''}
@@ -1087,6 +1100,16 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
         </div>
       )}
 
+      {dataPickerFor && (
+        <DataFilePicker
+          paramName={dataPickerFor}
+          onSelect={(path) => {
+            setTestParams((prev) => ({ ...prev, [dataPickerFor]: path }))
+            setDataPickerFor(null)
+          }}
+          onClose={() => setDataPickerFor(null)}
+        />
+      )}
     </div>
   )
 }

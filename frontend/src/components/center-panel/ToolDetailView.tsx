@@ -2,9 +2,10 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Wrench, FileCode, FileText, X, Play, Loader2,
   CheckCheck, Save, Bot, Code, Pencil, Plus, Square,
-  Download,
+  Download, Database,
 } from 'lucide-react'
 import { FileSelect } from '@/components/ui/file-select'
+import { DataFilePicker } from '@/components/ui/data-file-picker'
 import { Highlight, themes } from 'prism-react-renderer'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -73,6 +74,7 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
   const [referenceCode, setReferenceCode] = useState('')
   const [hasReference, setHasReference] = useState(false)
   const [formValues, setFormValues] = useState<Record<string, string>>({})
+  const [dataPickerFor, setDataPickerFor] = useState<string | null>(null)
   // output 只被渲染消费（沙箱执行走的是 modify-and-debug 流），不再有独立 setter
   const [output] = useState<Record<string, unknown> | null>(null)
   const [isTesting, setIsTesting] = useState(false)
@@ -658,11 +660,23 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
                         {f.name}{f.required && <span className="text-maia-danger ml-0.5">*</span>}<span className="text-maia-text-muted font-normal ml-1">({f.type})</span></label>
                       {f.desc && <p className="text-[12px] text-maia-text-muted mb-1">{f.desc}</p>}
                       {isFilePathParam(f) ? (
-                        <FileSelect
-                          value={formValues[f.name] || ''}
-                          onChange={(v) => setFormValues(p => ({ ...p, [f.name]: v }))}
-                          placeholder={f.required ? '必选文件' : '可选文件'}
-                        />
+                        <div className="flex items-center gap-1.5">
+                          <FileSelect
+                            value={formValues[f.name] || ''}
+                            onChange={(v) => setFormValues(p => ({ ...p, [f.name]: v }))}
+                            placeholder={f.required ? '必选文件' : '可选文件'}
+                            className="flex-1 min-w-0"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setDataPickerFor(f.name)}
+                            title="从数据空间选择数据集文件（data_path）"
+                            className="shrink-0 h-8 px-2 rounded border border-maia-border bg-maia-surface hover:border-maia-accent/50 hover:text-maia-accent text-maia-text-muted text-[12px]"
+                          >
+                            <Database className="h-3.5 w-3.5" />
+                            数据空间
+                          </button>
+                        </div>
                       ) : (
                         <input type="text" value={formValues[f.name] || ''} onChange={(e) => setFormValues(p => ({ ...p, [f.name]: e.target.value }))}
                           placeholder={f.required ? '必填' : f.default || '可选'}
@@ -790,11 +804,23 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
                   <label className="text-[12px] font-medium text-maia-text-secondary">{f.name}{f.required && <span className="text-maia-danger ml-0.5">*</span>}<span className="text-maia-text-muted font-normal ml-1">({f.type})</span></label>
                   {f.desc && <p className="text-[12px] text-maia-text-muted mb-1">{f.desc}</p>}
                   {isFilePathParam(f) ? (
-                    <FileSelect
-                      value={formValues[f.name] || ''}
-                      onChange={(v) => setFormValues(p => ({ ...p, [f.name]: v }))}
-                      placeholder={f.required ? '必选文件' : '可选文件'}
-                    />
+                    <div className="flex items-center gap-1.5">
+                      <FileSelect
+                        value={formValues[f.name] || ''}
+                        onChange={(v) => setFormValues(p => ({ ...p, [f.name]: v }))}
+                        placeholder={f.required ? '必选文件' : '可选文件'}
+                        className="flex-1 min-w-0"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setDataPickerFor(f.name)}
+                        title="从数据空间选择数据集文件（data_path）"
+                        className="shrink-0 h-8 px-2 rounded border border-maia-border bg-maia-surface hover:border-maia-accent/50 hover:text-maia-accent text-maia-text-muted text-[12px]"
+                      >
+                        <Database className="h-3.5 w-3.5" />
+                        数据空间
+                      </button>
+                    </div>
                   ) : (
                     <input type="text" value={formValues[f.name] || ''} onChange={(e) => setFormValues(p => ({ ...p, [f.name]: e.target.value }))}
                       placeholder={f.required ? '必填' : f.default || '可选'} className="h-8 w-full rounded border border-maia-border bg-maia-surface px-3 text-[13px] text-maia-text outline-none focus:border-maia-accent/40" />
@@ -813,6 +839,17 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
           </div>
         )}
       </div>
+      {/* 数据集文件选择弹窗（值为 data_path） */}
+      {dataPickerFor && (
+        <DataFilePicker
+          paramName={dataPickerFor}
+          onSelect={(path) => {
+            setFormValues(p => ({ ...p, [dataPickerFor]: path }))
+            setDataPickerFor(null)
+          }}
+          onClose={() => setDataPickerFor(null)}
+        />
+      )}
     </div>
   )
 }
