@@ -361,7 +361,7 @@ function EditUserDialog({ kind, user, onClose, onSaved }: {
           label={kind === 'rename' ? '新用户名' : kind === 'display' ? '新显示名' : '新密码'}
           hint={kind === 'rename'
             ? (builtin
-                ? '内置超级用户：改的是登录名（覆盖 .env 默认值持久保存），密码仍由 .env 配置、不受影响'
+                ? '内置超级用户：改的是登录名（存于用户表，密码仍由 .env 配置、不受影响）'
                 : '用户 ID 与数据目录不受影响')
             : kind === 'display' ? '仅影响界面展示' : '至少 8 位；用户下次登录即用新密码'}
         >

@@ -101,12 +101,12 @@ export function AccountView() {
                 <span>
                   这是内置的超级用户：密码在服务器 <span className="font-mono">.env</span> 中
                   （<span className="font-mono">SOTABAND_ROOT_PASSWORD</span>）配置，界面上不可修改——
-                  否则界面改动会在下次重启时被 .env 覆盖回去。用户名与显示名可以在界面上修改
-                  （保存在用户数据目录，优先级高于 .env 默认值）。仅该账号可以管理用户。
+                  否则界面改动会在下次重启时被 .env 覆盖回去。用户名与显示名存放在用户表中，
+                  与普通用户一样可以在界面上修改。仅该账号可以管理用户。
                 </span>
               </div>
             )}
-            <InfoRow label="用户名" value={user.username} hint={isBuiltin ? '默认值来自 .env，可在「用户管理」中改名覆盖' : undefined} />
+            <InfoRow label="用户名" value={user.username} hint={isBuiltin ? '可在「用户管理」中修改' : undefined} />
             <InfoRow label="用户 ID" value={<span className="font-mono">{user.id}</span>}
               hint="由系统分配，不可修改" />
             <InfoRow label="角色" value={user.role === 'admin' ? '超级用户' : '普通用户'} />
