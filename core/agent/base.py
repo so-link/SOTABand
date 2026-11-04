@@ -191,16 +191,29 @@ class BaseAgent(ABC):
 
         # 1) 尝试常驻路径
         runtime = self._tool_runtime
+        result = None
         if runtime is not None:
             result = await runtime.call(tool_id, params)
-            if result is not None and not result.get("_runtime_error"):
-                return result
-            # 常驻失败 → 回退（并清除 runtime 错误标记）
+            if result is not None and result.get("_runtime_error"):
+                result = None  # 常驻失败 → 回退
 
         # 2) 回退：一次性子进程执行
-        from core.executor.tool_executor import ToolExecutor
+        if result is None:
+            from core.executor.tool_executor import ToolExecutor
 
-        return await ToolExecutor.execute(tool_id, params)
+            result = await ToolExecutor.execute(tool_id, params)
+
+        # 产物登记：常驻 Worker 绕过了 ToolExecutor 出口的登记，在这里补齐
+        # （register_result_paths 幂等：回退路径登记过的 id 复用不变）
+        if isinstance(result, dict) and result.get("status") == "success":
+            try:
+                from core import user_files
+                recs = user_files.register_result_paths(result.get("data"), kind="tool")
+                if recs:
+                    result["fileIds"] = [r["file_id"] for r in recs]
+            except Exception:
+                pass
+        return result
 
     @staticmethod
     def resolve_refs(value, scope: dict):

@@ -59,6 +59,22 @@ class ToolExecutor:
             pass  # 计数失败不影响执行结果
 
     @classmethod
+    def _register_artifacts(cls, result: dict) -> None:
+        """把结果里指向用户目录的 ``*_path`` 登记为 file_id（就地注入）。
+
+        收在执行器出口而不是每个工具里：工具（含 AI 生成的）只需按约定把
+        产物写到 SOTABAND_USER_HOME 并返回路径，平台负责签发前端可用的 id。
+        登记失败绝不影响工具结果本身——最坏情况是前端显示产物不可用。
+        """
+        try:
+            from core import user_files
+            recs = user_files.register_result_paths(result.get("data"), kind="tool")
+            if recs:
+                result["fileIds"] = [r["file_id"] for r in recs]
+        except Exception:
+            pass  # 登记失败不影响执行结果
+
+    @classmethod
     def _resolve_impl_dir(cls, tool_id: str) -> Path:
         """在「内置 + 私有」资源根中定位工具实现目录。
 
@@ -278,6 +294,9 @@ class ToolExecutor:
             # code 直接执行不走计数，避免把调试点击数算进真实使用）
             if from_registry and result.get("status") == "success":
                 cls._bump_usage(tool_id)
+            # 产物文件登记：工具返回的 *_path 换成前端可用的 file_id
+            if result.get("status") == "success":
+                cls._register_artifacts(result)
             return result
 
         except asyncio.CancelledError:

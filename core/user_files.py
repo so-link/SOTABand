@@ -212,3 +212,63 @@ def delete(file_id: str, purge: bool = True) -> bool:
         _db().execute("DELETE FROM user_files WHERE file_id=?", (rec["file_id"],))
         _db().commit()
     return purged
+
+
+# ── 工具产物自动登记 ──
+
+# 递归扫描结果对象的最大深度（工具返回是浅结构，超深即异常数据）
+_SCAN_MAX_DEPTH = 4
+
+
+def register_result_paths(obj, kind: str = "tool") -> list[dict]:
+    """递归登记结果对象中引用的用户目录文件，就地注入 ``<字段名>_id``。
+
+    工具（含 AI 生成的工具）的产物路径约定为 ``*_path`` 字段（image_path /
+    file_path / output_path…），且必须写在 SOTABAND_USER_HOME 下（执行器注入
+    的环境变量）。登记收在**平台出口**而不是逐个工具里改：
+
+    - 存量与 AI 新生成的工具零改动——它们继续返回 ``*_path``，平台负责换成
+      浏览器可用的 file_id；
+    - 指向用户目录外（或不存在）的路径不登记也不报错：工具输出不可信，
+      但前端只认注入的 ``<字段名>_id`` / ``<字段名>Id``，路径字段本身
+      已无访问能力。
+
+    返回登记成功的记录列表（供调用方放进 ``fileIds`` 聚合字段）。
+    """
+
+    def scan(node, depth: int) -> list[dict]:
+        found: list[dict] = []
+        if depth > _SCAN_MAX_DEPTH:
+            return found
+        if isinstance(node, dict):
+            for key, val in list(node.items()):
+                if isinstance(val, str) and key.endswith("_path"):
+                    rec = _try_register(val, kind)
+                    if rec is not None:
+                        node[f"{key}_id"] = rec["file_id"]
+                        # 驼峰别名：前端统一按 xxxId 读（image_path → imageId）
+                        head = key[: -len("_path")]
+                        camel = head.split("_")[0] + "".join(w.title() for w in head.split("_")[1:])
+                        node[f"{camel}Id"] = rec["file_id"]
+                        found.append(rec)
+                elif isinstance(val, (dict, list)):
+                    found.extend(scan(val, depth + 1))
+        elif isinstance(node, list):
+            for item in node:
+                if isinstance(item, (dict, list)):
+                    found.extend(scan(item, depth + 1))
+        return found
+
+    return scan(obj, 0)
+
+
+def _try_register(value: str, kind: str) -> dict | None:
+    try:
+        p = Path(value).expanduser()
+        if not p.is_absolute() or not p.is_file():
+            return None
+        rel = to_rel(p)
+        k = "plot" if rel.startswith("plots/") else kind
+        return register(p, kind=k)
+    except (ValueError, OSError):
+        return None

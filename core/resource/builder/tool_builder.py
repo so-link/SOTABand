@@ -642,6 +642,7 @@ CRITICAL RULES:
    - Writing: use _out_dir("xxx") / _DATA_DIR / ... . NEVER write under _PROJECT_ROOT (it is the git-distributed system area) and never mutate resources/ or resources-private/.
    - Reading a file the user provided: pass the path through _resolve_path(path) (handles relative/absolute/~ cross-platform). Reading a registered dataset/model: use _dataset_dir(id) / _model_data(id) — NEVER reconstruct those paths yourself.
    - Default parameter values must be portable too: default to "" or a relative name and resolve at runtime, not a machine-specific absolute path.
+6b. File artifacts & IDs: put every produced file path in a ``*_path`` field of ``data`` (e.g. image_path, file_path, output_path). The platform auto-registers any ``*_path`` pointing inside the user home and injects a ``file_id`` for the UI — NEVER call file APIs or construct download URLs yourself, just return the path fields.
 7. API calls: use the EXACT api_id and param names from the SYSTEM API CALLS section above
 8. Map tool input parameters (from kwargs) to API parameters with the CORRECT names
 9. Tool calls: _call_tool("工具名称", param=value) — 系统自动通过 registry.json 查找工具ID和实现目录
