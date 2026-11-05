@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
+import { clearToolDraft } from '@/lib/tool-detail-draft'
+
 export type ActiveView =
   | 'chat'
   | 'data-preview'
@@ -107,6 +109,11 @@ export const useUIStore = create<UIState>()(
       closeView: (view) =>
         set((s) => {
           if (view === 'chat') return s
+          // 关闭工具详情页签 = 丢弃该工具的输入草稿（参数值 + 未保存代码）。
+          // 非激活页签不会被挂载，组件侧没有卸载钩子，所以必须在这里清。
+          // 草稿只用于跨"页签切换 / 页面刷新"保活，不是长期存储。
+          const closedToolId = parseToolDetailView(String(view))
+          if (closedToolId) clearToolDraft(closedToolId)
           const next = s.openViews.filter((v) => v !== view)
           let nextActive = s.activeView
           if (s.activeView === view) {
@@ -121,11 +128,23 @@ export const useUIStore = create<UIState>()(
         set((s) => {
           const keep = s.activeView
           const next = s.openViews.filter((v) => v === keep || v === 'chat')
+          for (const closed of s.openViews) {
+            if (next.includes(closed)) continue
+            const tid = parseToolDetailView(String(closed))
+            if (tid) clearToolDraft(tid)
+          }
           return { openViews: next.length > 0 ? next : ['chat'], activeView: keep }
         }),
 
       // 关闭所有可关闭标签，回到对话视图
-      closeAllViews: () => set({ openViews: ['chat'], activeView: 'chat' }),
+      closeAllViews: () =>
+        set((s) => {
+          for (const closed of s.openViews) {
+            const tid = parseToolDetailView(String(closed))
+            if (tid) clearToolDraft(tid)
+          }
+          return { openViews: ['chat'], activeView: 'chat' }
+        }),
 
       setLeftPanelTab: (tab) => set({ leftPanelTab: tab }),
       setDragKind: (kind) => set({ dragKind: kind }),
@@ -137,7 +156,6 @@ export const useUIStore = create<UIState>()(
           try { localStorage.setItem('sotaband-theme', next) } catch {}
           return { theme: next }
         }),
-    }),
     {
       name: 'sotaband-ui',
       // 只持久化与「刷新后恢复界面」相关的字段：左侧标签、中栏打开的标签与激活标签。

@@ -17,6 +17,7 @@ import { toolApi } from '@/services/api/tool'
 import { useTabIndent } from '@/hooks/use-tab-indent'
 import { cn } from '@/lib/utils'
 import type { ToolResource } from '@/types/resources'
+import { clearToolDraft, loadToolDraft, saveToolDraft, type ToolDetailDraft } from '@/lib/tool-detail-draft'
 
 const BASE_URL = ''
 
@@ -102,25 +103,25 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
   const [modifyHistory, setModifyHistory] = useState<string[]>([])
   const abortRef = useRef<AbortController | null>(null)
   const logEndRef = useRef<HTMLDivElement>(null)
+  /** 已按哪个 toolId 初始化过表单（用于区分"换工具"与"同一工具重新拉取"） */
+  const loadedToolIdRef = useRef('')
 
   useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: 'auto' }) }, [debugRounds, debugStream])
 
   useEffect(() => {
-    if (!tool) return
+    const id = tool?.id
+    if (!id) return
+    const sameTool = loadedToolIdRef.current === id
     setForkStatus(null)
     setDetailSource(null)
-    fetch(`${BASE_URL}/api/tool/${tool.id}`)
+    fetch(`${BASE_URL}/api/tool/${id}`)
       .then(r => r.json())
       .then(data => {
-        setSpecMd(data.spec_md || '')
-        setDetailSource(data.source || null)
+        const md = data.spec_md || ''
         const c = data.code || ''
+        setSpecMd(md)
         setCode(c)
-        setEditedCode(c)
-        const fields = parseInputs(data.spec_md || '')
-        const init: Record<string, string> = {}
-        fields.forEach(f => { init[f.name] = f.default || '' })
-        setFormValues(init)
+        setDetailSource(data.source || null)
         // 切换工具时必须无条件重置：若只在"有值"时 set，上一个工具的
         // 需求描述/参考代码会残留到没有这些内容的工具上（内容错位）
         setDemandText(data.has_demand && data.demand_md ? data.demand_md : '')
@@ -132,12 +133,68 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
           setHasReference(false)
         }
         // fork 状态决定徽章与编辑入口行为：非内置直接返回 null 不打扰
-        toolApi.getForkStatus(tool.id)
+        toolApi.getForkStatus(id)
           .then((fs) => setForkStatus(fs.is_builtin ? fs : null))
           .catch(() => setForkStatus(null))
+
+        // 同一工具被重新拉取（列表刷新/注册后 tools 换新数组）：保留用户
+        // 已输入的参数与未保存的代码，否则会出现"边填边被清空"。
+        if (sameTool) return
+
+        loadedToolIdRef.current = id
+        const draft = loadToolDraft(id)
+        const fields = parseInputs(md)
+        const defaultForm: Record<string, string> = {}
+        fields.forEach(f => { defaultForm[f.name] = f.default || '' })
+        setFormValues(draft?.formValues ? { ...defaultForm, ...draft.formValues } : defaultForm)
+
+        const draftCode = typeof draft?.editedCode === 'string' ? draft.editedCode : ''
+        const nextCode = draftCode && draftCode !== c ? draftCode : c
+        setEditedCode(nextCode)
+        setCodeModified(nextCode !== c)
       })
       .catch(() => {})
-  }, [tool])
+    // 依赖 tool.id 而不是 tool 对象：后者在每次 toolResources 刷新后都是新引用，
+    // 会让 effect 重跑并重置表单（历史 bug：参数输入后偶发被清空）。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tool?.id])
+
+  // 草稿持久化：参数与未保存代码按 toolId 落到 localStorage（防抖 300ms）。
+  // 切页签会导致组件卸载，重新挂载时由上面的 effect 从草稿恢复。
+  useEffect(() => {
+    const id = tool?.id
+    if (!id || loadedToolIdRef.current !== id) return
+    const timer = window.setTimeout(() => {
+      // 只在"有未保存修改"时记代码，保存成功后自动不写（草稿不会越积越大）
+      saveToolDraft(id, codeModified
+        ? { formValues, editedCode, codeModified: true }
+        : { formValues })
+    }, 300)
+    return () => window.clearTimeout(timer)
+  }, [tool?.id, formValues, editedCode, codeModified])
+
+  // 卸载时决定「落盘」还是「清空」：
+  // - 切到别的页签（本视图仍在 openViews 里）→ 落盘，切回来能恢复
+  // - 关闭本页签（已不在 openViews 里）→ 清空草稿（关闭即丢弃）
+  // 同时补上 300ms 防抖未触发的最后一次输入。
+  const latestDraftRef = useRef<ToolDetailDraft>({})
+  latestDraftRef.current = { formValues, editedCode, codeModified }
+  useEffect(() => {
+    const id = tool?.id
+    return () => {
+      if (!id || loadedToolIdRef.current !== id) return
+      const stillOpen = useUIStore.getState().openViews.includes(`tool-detail:${id}`)
+      if (!stillOpen) {
+        clearToolDraft(id)
+        return
+      }
+      const d = latestDraftRef.current
+      if (!d.formValues) return
+      saveToolDraft(id, d.codeModified
+        ? { formValues: d.formValues, editedCode: d.editedCode, codeModified: true }
+        : { formValues: d.formValues })
+    }
+  }, [tool?.id])
 
   const inputs = parseInputs(specMd)
 
