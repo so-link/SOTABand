@@ -46,7 +46,15 @@ w1.<installation_id>.<exp 的 unix 秒>.<jti>.<HMAC-SHA256 十六进制>
 ## 有效期
 
 默认 **600 秒**（10 分钟）。PRD 要求"短期"，且即使不主动吊销，泄露的窗口也很小。
-可用 ``SOTABAND_WORKLOAD_TTL`` 调整。
+可用 ``SOTABAND_WORKLOAD_TTL`` 调整；签发时**强制夹取到 [60, 3600] 秒** ——
+调用方显式传 ``ttl_seconds=10**9``（或配置写成超大值）不能把短期凭证变成
+事实上的永久凭证。
+
+## 生产配置要求
+
+``SOTABAND_WORKLOAD_SECRET`` 生产环境**必须显式配置且足够长（建议 ≥ 32 字节）**。
+未配置时进程内随机生成（重启即失效）；配置了但短于 32 时只告警、不阻断启动
+（单机开发常有短密钥；生产由部署清单保证）。
 """
 
 from __future__ import annotations
@@ -71,6 +79,12 @@ _SIG_HEX_LEN = 64
 
 _runtime_secret: bytes | None = None
 
+#: 生产建议的最小密钥长度（只告警，不阻断启动）
+MIN_SECRET_LENGTH = 32
+
+#: 已就"密钥过短"告警过一次（避免每次签名都刷日志）
+_short_secret_warned = False
+
 
 class WorkloadTokenError(ValueError):
     """工作负载令牌无效（格式错 / 签名错 / 过期）。对外一律映射为 401。"""
@@ -87,10 +101,19 @@ def _secret() -> bytes:
 
     生产环境必须显式配置，否则多 worker / 重启会互相不认。
     """
-    global _runtime_secret
+    global _runtime_secret, _short_secret_warned
 
     configured = (settings.workload.secret or "").strip()
     if configured:
+        if len(configured) < MIN_SECRET_LENGTH and not _short_secret_warned:
+            _short_secret_warned = True
+            logger.warning(
+                "SOTABAND_WORKLOAD_SECRET 长度 %d < %d，签名强度不足；"
+                "生产环境请配置至少 %d 字节的随机密钥。",
+                len(configured),
+                MIN_SECRET_LENGTH,
+                MIN_SECRET_LENGTH,
+            )
         return configured.encode("utf-8")
 
     if _runtime_secret is None:
@@ -135,11 +158,15 @@ def issue_workload_token(
     调用方必须**先**确认调用者确实拥有这个 installation（见
     ``core/sharing/service.py::issue_credential``）—— 本函数不做授权。
     """
-    ttl = ttl_seconds if ttl_seconds is not None else settings.workload.ttl_seconds
-    if ttl <= 0:
-        raise ValueError("ttl_seconds 必须为正数")
+    raw_ttl = ttl_seconds if ttl_seconds is not None else settings.workload.ttl_seconds
+    try:
+        ttl = int(raw_ttl)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("ttl_seconds 必须为整数") from exc
+    # 短期凭证的硬边界：调用方/配置不能把有效期放大成永久凭证。
+    ttl = min(max(ttl, 60), 3600)
 
-    expires_at = int(utcnow().timestamp()) + int(ttl)
+    expires_at = int(utcnow().timestamp()) + ttl
     jti = secrets.token_urlsafe(9)
     payload = f"{installation_id}.{expires_at}.{jti}"
     token = f"{WORKLOAD_TOKEN_PREFIX}.{payload}.{_sign(payload)}"

@@ -34,6 +34,7 @@ from core.auth.audit import (
 from core.auth.context import AuthContext
 from core.auth.cookies import clear_session_cookie
 from core.auth.passwords import PasswordValidationError
+from core.auth.platform_admin import is_platform_admin
 from core.auth.ratelimit import password_change_limiter
 from core.auth.service import (
     CurrentPasswordMismatch,
@@ -180,6 +181,9 @@ async def get_me(
         display_name=ctx.display_name,
         active_tenant_id=ctx.tenant_id,
         tenant_role=ctx.tenant_role,
+        # 平台管理员是**部署级**角色（SOTABAND_PLATFORM_ADMINS），与 tenant_role
+        # 无关；前端用它门控系统配置/全局 LLM/查看他人数据集等入口。
+        is_platform_admin=is_platform_admin(ctx),
         tenants=[
             TenantSummary(id=str(t.id), name=t.name, slug=t.slug, role=role)
             for t, role in tenants

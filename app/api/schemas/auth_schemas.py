@@ -125,6 +125,11 @@ class CurrentUserResponse(BaseModel):
     active_tenant_id: str
     tenant_role: str
     tenants: list[TenantSummary] = Field(default_factory=list)
+    #: 是否为**平台管理员**（部署级；来自 ``SOTABAND_PLATFORM_ADMINS``）。
+    #: 前端据此门控系统配置页 / 全局 LLM 配置 / "查看他人数据集"等入口。
+    #: 注意它**不是** ``tenant_role == owner`` —— 两者语义不同，见
+    #: ``core/auth/platform_admin.py``。
+    is_platform_admin: bool = False
 
 
 class SessionSummary(BaseModel):
