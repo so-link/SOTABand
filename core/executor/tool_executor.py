@@ -18,12 +18,34 @@ from pathlib import Path
 from typing import Any
 
 
+def _exec_timeout_cap() -> int:
+    """timeout=None 时的全局兜底上限（秒）。0 = 不限制。
+
+    每轮现读环境变量，系统设置改完即时生效、无需重启。防止工具内部
+    无超时的网络/系统调用把整轮对话永久挂住（Agent 侧表现为「正忙」）。
+    """
+    try:
+        return max(0, int(os.getenv("TOOL_EXEC_TIMEOUT", "0") or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
 class ToolExecutor:
     """工具执行器单例。
 
     所有场景（自动调试、对话界面、独立 API 调用）都通过此类执行工具，
     保证自动调试能过的工具在对话界面中一定能过。
     """
+
+    @classmethod
+    async def _reap(cls, proc) -> None:
+        """终止工具子进程并**等待其真正退出**，避免留下僵尸进程。"""
+        try:
+            if proc.returncode is None:
+                proc.kill()
+            await proc.wait()
+        except Exception:
+            pass
 
     @staticmethod
     def _security_gate(code: str) -> dict | None:
@@ -287,19 +309,21 @@ class ToolExecutor:
                 env=_env,
             )
             try:
-                if timeout is None:
+                # timeout=None 时可由 TOOL_EXEC_TIMEOUT 设全局兜底上限
+                # （0/未配置 = 不限制，保持长耗时训练工具的原有语义）
+                cap = _exec_timeout_cap()
+                effective = timeout if timeout is not None else (cap or None)
+                if effective is None:
                     stdout, stderr = await proc.communicate()
                 else:
                     stdout, stderr = await asyncio.wait_for(
-                        proc.communicate(), timeout=timeout
+                        proc.communicate(), timeout=effective
                     )
             except asyncio.TimeoutError:
-                proc.kill()
-                await proc.wait()
-                return {"status": "failed", "message": f"工具执行超时 ({timeout}秒)"}
+                await cls._reap(proc)
+                return {"status": "failed", "message": f"工具执行超时 ({effective}秒)"}
             except asyncio.CancelledError:
-                proc.kill()
-                await proc.wait()
+                await cls._reap(proc)
                 raise
 
             result = cls._parse_output(stdout.decode('utf-8', errors='replace'))
@@ -315,11 +339,7 @@ class ToolExecutor:
             return result
 
         except asyncio.CancelledError:
-            try:
-                proc.kill()
-                await proc.wait()
-            except Exception:
-                pass
+            await cls._reap(proc)
             raise
         finally:
             os.unlink(tmp_path)

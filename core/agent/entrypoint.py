@@ -322,6 +322,26 @@ async def main():
                         cur.cancel()
                     break
 
+                if action == "cancel":
+                    # 主进程要求中断当前轮次（用户停止 / 超时 / 前端断开）。
+                    # 回执必须反映**任务是否真的结束了**：卡在不可取消位置
+                    # （同步 OS 调用、线程、无超时 SDK）时 cancel 无效，
+                    # cleared=False 让主进程据此强制重启，否则槽位永不释放。
+                    cur = exec_state.get("task")
+                    if cur is not None and not cur.done():
+                        cur.cancel()
+                        # 不用 wait_for：任务被取消时它会抛 CancelledError，
+                        # 打断本读循环；wait 只返回 done/pending。
+                        await asyncio.wait([cur], timeout=3.0)
+                        cleared = cur.done()
+                    else:
+                        cleared = True
+                    await send_event({
+                        "event": "round_cancelled",
+                        "data": {"cleared": cleared},
+                    })
+                    continue
+
                 if action == "execute":
                     cur = exec_state.get("task")
                     if cur is not None and not cur.done():

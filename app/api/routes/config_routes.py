@@ -56,6 +56,10 @@ class LLMConfigUpdate(BaseModel):
     max_concurrency: int | None = None    # LLM 并发上限
     debug_exec_timeout: float | None = None  # 调试单轮执行超时（秒）
     debug_max_rounds: int | None = None      # 调试最大轮数
+    # Agent 轮次防卡死（None = 本次不改动）
+    agent_round_timeout: int | None = None   # 对话单轮硬超时（秒），0=不限制
+    agent_idle_timeout: int | None = None    # 空闲心跳探活间隔（秒），0=不检查
+    agent_cancel_grace: int | None = None    # 温和取消等待窗口（秒）
     # 对话内平台控制（None = 本次不改动）
     rate_limit_per_minute: int | None = None    # 每用户每分钟 platform 调用上限
     gen_limit_per_10min: int | None = None      # 生成类调用每 10 分钟上限
@@ -275,6 +279,9 @@ async def get_llm_config():
         "max_concurrency": get_llm_concurrency(),
         "debug_exec_timeout": get_debug_exec_timeout(),
         "debug_max_rounds": get_debug_max_rounds(),
+        "agent_round_timeout": int(os.getenv("AGENT_ROUND_TIMEOUT", "7200") or 7200),
+        "agent_idle_timeout": int(os.getenv("AGENT_IDLE_TIMEOUT", "300") or 300),
+        "agent_cancel_grace": int(os.getenv("AGENT_CANCEL_GRACE", "10") or 10),
         # 生成/推理增强模型（可选，未配置时跟随上面的对话模型）
         "gen": _gen_snapshot(),
         # 对话内平台控制（限流与熔断）
@@ -322,6 +329,13 @@ async def update_llm_config(payload: LLMConfigUpdate):
         env["DEBUG_EXEC_TIMEOUT"] = str(max(5, min(1800, int(payload.debug_exec_timeout))))
     if payload.debug_max_rounds is not None:
         env["DEBUG_MAX_ROUNDS"] = str(max(1, min(100, int(payload.debug_max_rounds))))
+    # Agent 轮次防卡死：0 表示不限制（保持原「不设总超时」语义）
+    if payload.agent_round_timeout is not None:
+        env["AGENT_ROUND_TIMEOUT"] = str(max(0, min(86400, int(payload.agent_round_timeout))))
+    if payload.agent_idle_timeout is not None:
+        env["AGENT_IDLE_TIMEOUT"] = str(max(0, min(86400, int(payload.agent_idle_timeout))))
+    if payload.agent_cancel_grace is not None:
+        env["AGENT_CANCEL_GRACE"] = str(max(1, min(300, int(payload.agent_cancel_grace))))
     # 对话内平台控制：限流阈值 + 熔断开关
     if payload.rate_limit_per_minute is not None:
         env["SOTABAND_CHAT_RATE_LIMIT_PER_MIN"] = str(
@@ -350,6 +364,10 @@ async def update_llm_config(payload: LLMConfigUpdate):
         os.environ["DEBUG_EXEC_TIMEOUT"] = env["DEBUG_EXEC_TIMEOUT"]
     if "DEBUG_MAX_ROUNDS" in env:
         os.environ["DEBUG_MAX_ROUNDS"] = env["DEBUG_MAX_ROUNDS"]
+    # Agent 防卡死参数：工厂每轮现读环境变量，同步即即时生效
+    for k in ("AGENT_ROUND_TIMEOUT", "AGENT_IDLE_TIMEOUT", "AGENT_CANCEL_GRACE"):
+        if k in env:
+            os.environ[k] = env[k]
     # 对话内平台控制：网关每次调用现读 settings.chat，同步内存 + 环境变量即即时生效
     if "SOTABAND_CHAT_RATE_LIMIT_PER_MIN" in env:
         settings.chat.rate_limit_per_minute = int(env["SOTABAND_CHAT_RATE_LIMIT_PER_MIN"])
@@ -379,6 +397,9 @@ async def update_llm_config(payload: LLMConfigUpdate):
         "max_concurrency": get_llm_concurrency(),
         "debug_exec_timeout": get_debug_exec_timeout(),
         "debug_max_rounds": get_debug_max_rounds(),
+        "agent_round_timeout": int(os.getenv("AGENT_ROUND_TIMEOUT", "7200") or 7200),
+        "agent_idle_timeout": int(os.getenv("AGENT_IDLE_TIMEOUT", "300") or 300),
+        "agent_cancel_grace": int(os.getenv("AGENT_CANCEL_GRACE", "10") or 10),
         "gen": _gen_snapshot(),
         "chat": _chat_snapshot(),
     }

@@ -312,7 +312,26 @@ async def chat_stop(req: dict):
     if not session_id:
         raise HTTPException(status_code=400, detail="缺少 session_id")
     stop_chat(session_id)
-    return {"status": "ok", "message": f"已请求停止对话 {session_id}"}
+    # 停止标志只在生成器下一次 yield 时才会被检查到；若该轮正卡在
+    # LLM/工具调用上不出事件，标志永远轮不到。这里直接中断子进程轮次，
+    # 保证「停止」按钮对挂死的对话也立即生效，并释放 Agent 槽位。
+    # 中断在后台任务里跑（强制重启可能要十几秒），接口最多等 5 秒即返回，
+    # 避免前端点「停止」后按钮长时间无响应。
+    task = agent_factory.start_interrupt(
+        DEFAULT_INTERACTIVE_AGENT_ID, "用户点击停止")
+    mode = "interrupting"
+    if task is not None:
+        try:
+            mode = (await asyncio.wait_for(asyncio.shield(task), timeout=5)
+                    ).get("mode", "done")
+        except asyncio.TimeoutError:
+            pass
+        except Exception as e:
+            mode = f"error: {e}"
+    else:
+        mode = "not_running"
+    return {"status": "ok", "message": f"已请求停止对话 {session_id}",
+            "interrupt": mode}
 
 
 # ────────────────── 平台控制网关端点（docs/chat-platform-control-design.md） ──────────────────

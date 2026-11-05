@@ -7,6 +7,14 @@ import { Card, CardHeader, CardBody } from '@/components/ui/card'
 import { configApi, type LLMConfig, type SupportedModel } from '@/services/api/config'
 import { useAuthStore } from '@/stores/auth-store'
 
+/** 数字输入 → 提交值：空/非法返回 undefined（本次不改动），其余原样返回（含 0） */
+function numOr(v: string): number | undefined {
+  const t = (v || '').trim()
+  if (!t) return undefined
+  const n = Number(t)
+  return Number.isFinite(n) ? Math.max(0, Math.round(n)) : undefined
+}
+
 export function SettingsView() {
   // 角色守卫：activeView 会经 localStorage/偏好恢复，普通用户刷新页面可能
   // 直接落在设置页（系统级配置，仅超管可见，同 UsersView 的自守卫口径）。
@@ -27,6 +35,10 @@ export function SettingsView() {
   const [maxConcurrency, setMaxConcurrency] = useState('1')
   const [debugExecTimeout, setDebugExecTimeout] = useState('60')
   const [debugMaxRounds, setDebugMaxRounds] = useState('10')
+  // Agent 轮次防卡死（0 = 不限制）
+  const [agentRoundTimeout, setAgentRoundTimeout] = useState('7200')
+  const [agentIdleTimeout, setAgentIdleTimeout] = useState('300')
+  const [agentCancelGrace, setAgentCancelGrace] = useState('10')
   // 对话内平台控制：限流阈值 + 熔断开关
   const [rateLimit, setRateLimit] = useState('30')
   const [genLimit, setGenLimit] = useState('5')
@@ -52,6 +64,9 @@ export function SettingsView() {
         setMaxConcurrency(String(cfg.max_concurrency ?? 1))
         setDebugExecTimeout(String(cfg.debug_exec_timeout ?? 60))
         setDebugMaxRounds(String(cfg.debug_max_rounds ?? 10))
+        setAgentRoundTimeout(String(cfg.agent_round_timeout ?? 7200))
+        setAgentIdleTimeout(String(cfg.agent_idle_timeout ?? 300))
+        setAgentCancelGrace(String(cfg.agent_cancel_grace ?? 10))
         setRateLimit(String(cfg.chat?.rate_limit_per_minute ?? 30))
         setGenLimit(String(cfg.chat?.gen_limit_per_10min ?? 5))
         setPlatformControl(cfg.chat?.platform_control_enabled ?? true)
@@ -82,6 +97,10 @@ export function SettingsView() {
         max_concurrency: Number(maxConcurrency) || undefined,
         debug_exec_timeout: Number(debugExecTimeout) || undefined,
         debug_max_rounds: Number(debugMaxRounds) || undefined,
+        // 防卡死参数允许 0（= 不限制），不能用 `|| undefined` 把 0 吃掉
+        agent_round_timeout: numOr(agentRoundTimeout),
+        agent_idle_timeout: numOr(agentIdleTimeout),
+        agent_cancel_grace: numOr(agentCancelGrace),
         rate_limit_per_minute: Number(rateLimit) || undefined,
         gen_limit_per_10min: Number(genLimit) || undefined,
         platform_control_enabled: platformControl,
@@ -313,6 +332,45 @@ export function SettingsView() {
                     />
                     <p className="text-[11px] text-maia-text-muted mt-1">
                       超过即停止；环境变量 <span className="font-mono">DEBUG_MAX_ROUNDS</span>
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-[12px] text-maia-text-muted mb-1">对话单轮硬超时（秒）</label>
+                    <Input
+                      type="number" min={0} max={86400}
+                      value={agentRoundTimeout}
+                      onChange={(e) => setAgentRoundTimeout(e.target.value)}
+                      className="font-mono"
+                    />
+                    <p className="text-[11px] text-maia-text-muted mt-1">
+                      超时自动中断并释放 Agent，防「正忙」卡死；0=不限制；环境变量{' '}
+                      <span className="font-mono">AGENT_ROUND_TIMEOUT</span>
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-[12px] text-maia-text-muted mb-1">空闲心跳探活间隔（秒）</label>
+                    <Input
+                      type="number" min={0} max={86400}
+                      value={agentIdleTimeout}
+                      onChange={(e) => setAgentIdleTimeout(e.target.value)}
+                      className="font-mono"
+                    />
+                    <p className="text-[11px] text-maia-text-muted mt-1">
+                      无输出达此间隔即探活，仅探活失败才判卡死（长耗时工具不受影响）；0=不检查；环境变量{' '}
+                      <span className="font-mono">AGENT_IDLE_TIMEOUT</span>
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-[12px] text-maia-text-muted mb-1">取消等待窗口（秒）</label>
+                    <Input
+                      type="number" min={1} max={300}
+                      value={agentCancelGrace}
+                      onChange={(e) => setAgentCancelGrace(e.target.value)}
+                      className="font-mono"
+                    />
+                    <p className="text-[11px] text-maia-text-muted mt-1">
+                      超过仍未退出即强制重启 Agent 子进程；环境变量{' '}
+                      <span className="font-mono">AGENT_CANCEL_GRACE</span>
                     </p>
                   </div>
                 </div>

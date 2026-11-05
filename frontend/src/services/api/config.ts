@@ -39,6 +39,9 @@ export interface LLMConfig {
   max_concurrency: number
   debug_exec_timeout: number
   debug_max_rounds: number
+  agent_round_timeout: number
+  agent_idle_timeout: number
+  agent_cancel_grace: number
   gen: GenLLMConfig
   chat: ChatControlConfig
 }
@@ -50,6 +53,12 @@ export interface LLMConfigUpdatePayload {
   max_concurrency?: number
   debug_exec_timeout?: number
   debug_max_rounds?: number
+  /** Agent 单轮硬超时（秒）；0 = 不限制 */
+  agent_round_timeout?: number
+  /** Agent 单轮无输出空闲上限（秒）；0 = 不限制 */
+  agent_idle_timeout?: number
+  /** 温和取消等待窗口（秒） */
+  agent_cancel_grace?: number
   rate_limit_per_minute?: number
   gen_limit_per_10min?: number
   platform_control_enabled?: boolean

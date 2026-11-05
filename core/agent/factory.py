@@ -14,6 +14,21 @@ from typing import AsyncGenerator
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
+# 子进程槽位被残留轮次占用时回的错误前缀（与 core/agent/entrypoint.py 一致，
+# 用精确前缀匹配，避免把工具输出里恰好含「正忙」的普通错误误判成卡死）
+BUSY_MESSAGE_PREFIX = "Agent 正忙（上一轮 execute 尚未结束）"
+
+
+def _runtime_limit(name: str, default: int) -> int:
+    """读取运行时限流配置（每次现读环境变量，改配置后无需重启即生效）。
+
+    非法值回退默认值；返回 0 表示不限制。
+    """
+    try:
+        return max(0, int(os.getenv(name, str(default)) or default))
+    except (TypeError, ValueError):
+        return default
+
 
 class AgentFactory:
     """Agent 工厂 — 管理 Agent 子进程的完整生命周期
@@ -39,6 +54,15 @@ class AgentFactory:
         self._impl_paths: dict[str, str] = {}
         # 同一 Agent 的 execute 轮次串行化（事件流不互相穿插）
         self._exec_locks: dict[str, asyncio.Lock] = {}
+        # ── 防卡死：轮次中断状态 ──
+        # 子进程对 cancel 的回执（由 _route_reader 拦截，不进事件队列，
+        # 避免与并发的 execute_stream 争抢同一个事件）
+        self._round_acks: dict[str, asyncio.Event] = {}
+        self._round_cleared: dict[str, bool] = {}
+        # 心跳探活：等待 pong 的信号（由 _route_reader 拦截 pong 后置位）
+        self._pong_events: dict[str, asyncio.Event] = {}
+        # 正在中断中的 Agent，防止停止/超时/断开多路并发重复重启
+        self._interrupt_tasks: dict[str, asyncio.Task] = {}
         self._req_seq = 0
 
     # ══════════════════════════════════════════════════════════
@@ -85,6 +109,18 @@ class AgentFactory:
                         await self._route_frame(agent_id, obj)
                     elif is_frame(obj) and obj.get("dir") == "o":
                         pass  # 未知 v1 帧：丢弃，避免混入事件流
+                    elif obj.get("event") == "round_cancelled":
+                        # cancel 回执单独留信号：中断流程在本协程等待，
+                        # 不能塞进事件队列被其他 execute_stream 消费掉。
+                        self._round_cleared[agent_id] = bool(
+                            obj.get("data", {}).get("cleared"))
+                        ev = self._round_acks.get(agent_id)
+                        if ev is not None:
+                            ev.set()
+                    elif obj.get("event") == "pong":
+                        ev = self._pong_events.get(agent_id)
+                        if ev is not None:
+                            ev.set()
                     else:
                         await q.put(obj)
                 except Exception:
@@ -112,6 +148,13 @@ class AgentFactory:
         task = self._readers.pop(agent_id, None)
         if task is not None and task is not asyncio.current_task():
             task.cancel()
+        # 进程没了就不可能再回 cancel 回执：唤醒中断流程，立刻转强制路径
+        ack = self._round_acks.pop(agent_id, None)
+        if ack is not None:
+            ack.set()
+        pong = self._pong_events.pop(agent_id, None)
+        if pong is not None:
+            pong.set()
 
     async def _route_frame(self, src: str, frame: dict):
         """处理子进程发来的通信帧。"""
@@ -616,7 +659,7 @@ class AgentFactory:
         except Exception:
             return False
 
-    async def stop(self, agent_id: str) -> dict:
+    async def stop(self, agent_id: str, graceful_timeout: float = 20) -> dict:
         """优雅停止 Agent 子进程。
 
         顺序：发送 stop 命令 → 关闭 stdin（触发 Agent 主循环退出并执行清理，
@@ -624,6 +667,9 @@ class AgentFactory:
 
         注意：**不能**在发送 stop 后立刻 terminate()——那样 Agent 子进程
         来不及执行 on_stop() 清理，常驻工具进程与模型资源将无法被优雅释放。
+
+        graceful_timeout 可缩短：已探活确认事件循环卡死时（force 路径），
+        它不可能再执行任何清理，等满 20 秒只会让用户多等 20 秒。
         """
         proc = self._processes.pop(agent_id, None)
         # 清理 web-service 服务记录
@@ -653,7 +699,7 @@ class AgentFactory:
                 pass
             # 3) 等待优雅退出（给清理留出时间；模型/显存随常驻进程退出释放）
             try:
-                await asyncio.wait_for(proc.wait(), timeout=20)
+                await asyncio.wait_for(proc.wait(), timeout=graceful_timeout)
             except asyncio.TimeoutError:
                 # 4) 超时兜底：强制终止
                 try:
@@ -666,14 +712,175 @@ class AgentFactory:
         self._cleanup_agent_routes(agent_id)
         return {"agent_id": agent_id, "status": "stopped"}
 
-    async def restart(self, agent_id: str) -> dict:
-        """重启 Agent 子进程"""
-        await self.stop(agent_id)
+    async def restart(self, agent_id: str, graceful_timeout: float = 20) -> dict:
+        """重启 Agent 子进程。
+
+        优先复用 start() 记录的实现目录：按 id 重新搜索会在「私有根位于项目
+        之外」「以自定义路径启动」时定位到别的目录（甚至搜不到），导致防卡死
+        的强制重启把 Agent 拉起成另一个实现或直接失败。
+        """
+        await self.stop(agent_id, graceful_timeout=graceful_timeout)
         await asyncio.sleep(0.5)
 
-        # 在内置 + 私有资源根中重新定位实现目录后启动
-        impl_path = self._resolve_impl_path(agent_id)
-        return await self.start(agent_id, impl_path)
+        impl_path = self._impl_paths.get(agent_id) or self._resolve_impl_path(agent_id)
+        result = await self.start(agent_id, impl_path)
+        if result.get("status") == "failed":
+            # 记录的目录已失效（目录被移动/删除）→ 退回按 id 重新定位
+            fallback = self._resolve_impl_path(agent_id)
+            if fallback and fallback != impl_path:
+                result = await self.start(agent_id, fallback)
+        return result
+
+    def _ensure_interrupt_task(
+        self, agent_id: str, reason: str, restart: bool, force: bool = False
+    ) -> asyncio.Task | None:
+        """返回该 Agent 的中断任务；已有进行中的则复用，避免多路并发重复重启。
+
+        任务保存在字典里持有强引用：调用点常在生成器被取消（客户端断开）
+        时的 finally 中，那里不能 await（会立刻被 CancelledError 打断），
+        只能投递后立刻返回。
+
+        force=True 跳过温和取消直接强制重启——用于探活已判定事件循环卡死、
+        取消指令根本读不到的场景，省掉一个取消等待窗口。
+        """
+        running = self._interrupt_tasks.get(agent_id)
+        if running is not None and not running.done():
+            return running
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return None
+        task = loop.create_task(
+            self._interrupt_round_impl(agent_id, reason, restart, force))
+        self._interrupt_tasks[agent_id] = task
+        return task
+
+    def start_interrupt(
+        self, agent_id: str, reason: str = "", restart: bool = True
+    ) -> "asyncio.Task | None":
+        """投递中断任务并立即返回该任务（不等待完成）。
+
+        供 HTTP 接口使用：温和取消通常瞬时完成，但强制重启要等优雅退出，
+        接口不该为此挂住，可自行 `wait_for(shield(task), 小超时)` 决定等多久。
+        """
+        return self._ensure_interrupt_task(agent_id, reason, restart)
+
+    async def _probe_alive(self, agent_id: str, proc) -> bool:
+        """心跳探活：子进程事件循环是否还能响应指令。
+
+        区分两种「无输出」：
+          - 循环活着、只是本轮在等长耗时工具 → 回 pong，可继续耐心等待；
+          - 循环本身卡死（同步网络调用/阻塞线程占满循环，连指令都读不到）
+            → 无 pong，此时温和取消也必然无效，只能立即强制重启。
+        没有这一步，后者要等到空闲上限（默认 1 小时）才被发现。
+        """
+        ev: asyncio.Event = asyncio.Event()
+        self._pong_events[agent_id] = ev
+        try:
+            proc.stdin.write((json.dumps({"action": "ping"}) + "\n").encode())
+            await proc.stdin.drain()
+        except Exception:
+            self._pong_events.pop(agent_id, None)
+            return False
+        try:
+            await asyncio.wait_for(ev.wait(), timeout=10)
+            return True
+        except asyncio.TimeoutError:
+            return False
+        except Exception:
+            return False
+        finally:
+            self._pong_events.pop(agent_id, None)
+
+    async def _await_interrupt_idle(self, agent_id: str, timeout: float = 20.0):
+        """等待该 Agent 正在进行的后台中断收尾。
+
+        中断未结束时子进程仍在往外吐事件（补发的 done、取消后的尾部输出），
+        此时投递新轮次会让这些迟到的事件污染本轮事件流。
+        """
+        task = self._interrupt_tasks.get(agent_id)
+        if task is None or task.done():
+            return
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            pass
+
+    async def interrupt_round(
+        self, agent_id: str, reason: str = "", restart: bool = True
+    ) -> dict:
+        """中断该 Agent 正在进行的 execute 轮次（防卡死统一入口）。
+
+        两级手段：
+          1. 温和：发 ``{"action":"cancel"}`` 让子进程 cancel 当前任务——
+             Agent 代码里的 ``await`` 点（LLM 流、子进程通信）会立刻抛
+             CancelledError 释放，正常轮次几毫秒即回。
+          2. 强制：cancel 回执超时未到，说明该轮卡在**不可取消**的位置
+             （阻塞在 OS 调用、线程、无超时的第三方 SDK），温和手段无效，
+             只能终止并重启子进程，否则它永远报「Agent 正忙」。
+
+        返回 ``{"ok": bool, "mode": "cancel"|"restart"|...}``。
+        """
+        task = self._ensure_interrupt_task(agent_id, reason, restart)
+        if task is None:
+            return {"agent_id": agent_id, "ok": False, "mode": "no_loop"}
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            return {"agent_id": agent_id, "ok": False, "mode": "error",
+                    "reason": str(e)}
+
+    async def _interrupt_round_impl(
+        self, agent_id: str, reason: str, restart: bool, force: bool = False
+    ) -> dict:
+        try:
+            proc = self._processes.get(agent_id)
+            if proc is None or proc.returncode is not None:
+                return {"agent_id": agent_id, "ok": True, "mode": "not_running"}
+
+            ack: asyncio.Event = asyncio.Event()
+            self._round_acks[agent_id] = ack
+            self._round_cleared.pop(agent_id, None)
+            cleared = None
+            try:
+                if not force:
+                    try:
+                        proc.stdin.write((json.dumps({"action": "cancel"}) + "\n").encode())
+                        await proc.stdin.drain()
+                    except Exception:
+                        ack.set()  # 管道已断：直接走强制路径
+
+                    # 温和取消的等待窗口。子进程回执 data.cleared 表明任务是否真的结束。
+                    grace = max(1, _runtime_limit("AGENT_CANCEL_GRACE", 10))
+                    try:
+                        await asyncio.wait_for(ack.wait(), timeout=grace)
+                        cleared = self._round_cleared.get(agent_id)
+                    except asyncio.TimeoutError:
+                        pass
+            finally:
+                self._round_acks.pop(agent_id, None)
+
+            if cleared:
+                # 子进程确认槽位已释放且仍能读 stdin，无需重启。
+                return {"agent_id": agent_id, "ok": True,
+                        "mode": "cancel", "reason": reason}
+
+            print(f"[SOTABand] Agent {agent_id} 未能取消轮次（{reason or '未说明原因'}），"
+                  f"强制重启子进程", flush=True)
+            if not restart:
+                return {"agent_id": agent_id, "ok": False, "mode": "stuck",
+                        "reason": reason}
+            await self.restart(agent_id, graceful_timeout=3 if force else 20)
+            return {"agent_id": agent_id, "ok": True, "mode": "restart",
+                    "reason": reason}
+        finally:
+            cur = self._interrupt_tasks.get(agent_id)
+            if isinstance(cur, asyncio.Task) and asyncio.current_task() is cur:
+                self._interrupt_tasks.pop(agent_id, None)
 
     async def execute(
         self, agent_id: str, content: str, context: dict | None = None
@@ -707,6 +914,12 @@ class AgentFactory:
         proc = self._processes.get(agent_id)
         q = self._outputs.get(agent_id)
         if proc is None or proc.returncode is not None or q is None:
+            # 可能正处于防卡死的强制重启过程中（stop 与 start 之间的空档）。
+            # 等它收尾再判定，否则紧随其后的一条消息会莫名吃到「未运行」。
+            await self._await_interrupt_idle(agent_id)
+            proc = self._processes.get(agent_id)
+            q = self._outputs.get(agent_id)
+        if proc is None or proc.returncode is not None or q is None:
             yield {"event": "error", "data": {"message": f"Agent '{agent_id}' 未运行"}}
             return
 
@@ -722,61 +935,176 @@ class AgentFactory:
             if proc is None or proc.returncode is not None or q is None:
                 yield {"event": "error", "data": {"message": f"Agent '{agent_id}' 未运行"}}
                 return
-            # 丢弃上一轮超时后残留的过期事件，保证本轮从干净状态开始
-            while not q.empty():
-                try:
-                    q.get_nowait()
-                except asyncio.QueueEmpty:
-                    break
+            # 上一轮被中断时，子进程会先补发 done、再回 cancel 回执。必须等
+            # 中断流程彻底结束再取事件，否则那条迟到的 done 会混进本轮，
+            # 让本轮「秒结束」却什么都没有。
+            await self._await_interrupt_idle(agent_id)
+            # 等待期间中断可能已把子进程强制重启——必须重取句柄，
+            # 否则会把 execute 写进已关闭的管道（表现为「进程已断开」）。
+            proc = self._processes.get(agent_id)
+            q = self._outputs.get(agent_id)
+            if proc is None or proc.returncode is not None or q is None:
+                yield {"event": "error", "data": {
+                    "message": f"Agent '{agent_id}' 刚被重启，请重新发送"}}
+                return
 
             ctx = {"session_id": "default", "user_id": "default", "agent_id": agent_id}
             if context:
                 ctx.update(context)
 
-            task = {
-                "action": "execute",
-                "context": ctx,
-                "params": dict(params or {}),
-            }
+            # 防卡死重试：子进程里若残留一个未结束的轮次（历史上的「Agent 正忙」
+            # 死锁），先中断清理一次再重发，用户无需手工重启 Agent。
+            # outcome["why"] 初值 interrupted：客户端断开时生成器在 yield 处收到
+            # GeneratorExit，循环后的代码不会执行，收尾判断必须放在 finally 里。
+            outcome: dict = {"why": "interrupted"}
             try:
-                proc.stdin.write((json.dumps(task) + "\n").encode())
-                await proc.stdin.drain()
-            except Exception:
-                yield {"event": "error", "data": {"message": "Agent 进程已断开"}}
-                return
+                for attempt in (1, 2):
+                    # 每轮投递前清空残留事件（迟到的 done / 半截输出）
+                    while not q.empty():
+                        try:
+                            q.get_nowait()
+                        except asyncio.QueueEmpty:
+                            break
+                    if not await self._send_execute(proc, ctx, params):
+                        outcome["why"] = "exit"
+                        yield {"event": "error", "data": {"message": "Agent 进程已断开"}}
+                        return
 
-            # 从后台 reader 的输出队列取事件（reader 已把通信帧分流给总线路由，
-            # 队列里只有普通事件与 None 哨兵——协议帧不会混入 SSE 流）。
-            #
-            # 超时语义：
-            #   - timeout=None  → 不设总超时（长耗时工具，如模型训练，必须支持）。
-            #   - timeout>0     → 总时长上限，超出后向调用方报超时并终止子进程。
-            # 空闲超时：训练类任务可能数分钟不产生中间输出，给予较大容忍度。
-            deadline = (time.time() + timeout) if timeout else None
-            idle_timeout = max(600.0, float(timeout)) if timeout else 3600.0
-            while proc.returncode is None:
-                if deadline is not None and time.time() > deadline:
-                    yield {"event": "error", "data": {"message": f"Agent 执行超时 ({int(timeout)}s)"}}
-                    try:
-                        proc.terminate()
-                    except Exception:
-                        pass
+                    async for ev in self._read_round(agent_id, proc, q, timeout, outcome):
+                        yield ev
+                    if outcome["why"] != "busy" or attempt == 2:
+                        if outcome["why"] == "busy":
+                            # 清理后仍报正忙（极端情况）：显式报错，
+                            # 不能让前端只看到「流结束、无内容」
+                            outcome["why"] = "busy_final"
+                            yield {"event": "error", "data": {
+                                "message": "Agent 仍被上一轮任务占用且无法自动清理，"
+                                           "请在 Agent 详情页手动重启"}}
+                        break
+                    yield {"event": "notice", "data": {
+                        "message": "检测到上一轮任务残留，正在自动清理后重试"}}
+                    task = self._ensure_interrupt_task(
+                        agent_id, "残留轮次自动清理", True)
+                    if task is not None:
+                        await asyncio.shield(task)
+                    proc = self._processes.get(agent_id)
+                    q = self._outputs.get(agent_id)
+                    if proc is None or proc.returncode is not None or q is None:
+                        outcome["why"] = "exit"
+                        yield {"event": "error",
+                               "data": {"message": f"Agent '{agent_id}' 已重启，请重新发送"}}
+                        return
+            finally:
+                # done / 进程已退出之外的所有结束方式（超时、空闲、客户端断开、
+                # 异常）都必须回收子进程里的 execute 槽位——否则它会永久报
+                # 「Agent 正忙」。用独立任务执行：此处可能正处在被取消的生成器里。
+                if outcome["why"] not in ("done", "exit"):
+                    self._schedule_interrupt(
+                        agent_id, f"轮次结束于 {outcome['why']}",
+                        force=outcome["why"] == "dead")
+
+    async def _send_execute(self, proc, ctx: dict, params: dict | None) -> bool:
+        """向子进程投递一轮 execute。管道已断返回 False。"""
+        task = {"action": "execute", "context": ctx, "params": dict(params or {})}
+        try:
+            proc.stdin.write((json.dumps(task) + "\n").encode())
+            await proc.stdin.drain()
+            return True
+        except Exception:
+            return False
+
+    async def _read_round(
+        self, agent_id: str, proc, q: asyncio.Queue,
+        timeout: float | None, outcome: dict,
+    ) -> AsyncGenerator[dict, None]:
+        """读取一轮 execute 的事件流，结束原因写入 ``outcome["why"]``。
+
+        why 取值：
+          done      正常收到 done
+          busy      子进程回「Agent 正忙」（槽位被残留轮次占用）
+          exit      子进程退出
+          timeout   达到轮次硬超时
+          dead      长时间无输出且心跳探活失败（事件循环卡死）
+
+        超时语义（均可在系统设置/`.env` 调整，0 表示不限制）：
+          - 调用方显式传 timeout → 总时长上限，空闲检查取同一量级；
+          - timeout=None（对话链路）→ 用 AGENT_ROUND_TIMEOUT 兜底硬超时；
+            每 AGENT_IDLE_TIMEOUT 无输出做一次心跳探活，只有探活也失败
+            才判定为卡死并强制重启（长耗时工具不会被误杀）。
+        """
+        cap = _runtime_limit("AGENT_ROUND_TIMEOUT", 7200)
+        total = float(timeout) if timeout else float(cap)
+        deadline = (time.time() + total) if total > 0 else None
+        # 空闲到点只做「心跳探活」，不直接判死：循环活着就继续等（长耗时工具
+        # 数分钟无输出属正常），因此这里可以放心设小，让真正卡死的循环尽快暴露。
+        idle_limit = _runtime_limit("AGENT_IDLE_TIMEOUT", 300)
+        idle_cap = float(idle_limit) if idle_limit > 0 else 0.0
+        if timeout:
+            # 调用方限时（如 RPC 60s）时，空闲容忍与总时长同量级
+            idle_cap = max(60.0, float(timeout))
+
+        while proc.returncode is None:
+            wait = idle_cap
+            due = "idle"
+            if deadline is not None:
+                left = deadline - time.time()
+                if left <= 0:
+                    outcome["why"] = "timeout"
+                    yield {"event": "error", "data": {
+                        "message": f"Agent 单轮执行超过 {int(total)} 秒，已自动中断"}}
                     return
-                try:
-                    event = await asyncio.wait_for(q.get(), timeout=idle_timeout)
-                except asyncio.TimeoutError:
-                    yield {"event": "error",
-                           "data": {"message": f"Agent 长时间无响应（{int(idle_timeout)}s 无输出）"}}
-                    break
-                except Exception:
-                    break
-                if event is None:  # 进程已退出（reader 哨兵）
-                    break
-                yield event
-                # done 事件到达即表示本轮执行结束，立即返回，
-                # 避免继续阻塞读取等待下一轮输入。
-                if isinstance(event, dict) and event.get("event") == "done":
+                # 单次等待不能越过总时限，否则硬超时要等空闲超时才生效
+                if wait <= 0 or left <= wait:
+                    wait, due = left, "timeout"
+            try:
+                event = await asyncio.wait_for(q.get(), timeout=wait or None)
+            except asyncio.TimeoutError:
+                if due == "timeout":
+                    outcome["why"] = "timeout"
+                    yield {"event": "error", "data": {
+                        "message": f"Agent 单轮执行超过 {int(total)} 秒，已自动中断"}}
                     return
+                # 空闲到点先探活，区分两种情况：
+                #   循环活着 —— 本轮在等长耗时工具（模型训练等），继续等，
+                #             总时限仍然兜底；
+                #   循环卡死 —— 温和取消必然无效，立即强制重启，不再空等
+                #             到空闲上限（默认 1 小时）。
+                if await self._probe_alive(agent_id, proc):
+                    continue
+                outcome["why"] = "dead"
+                yield {"event": "error", "data": {
+                    "message": f"Agent 进程已无响应（{int(idle_cap)} 秒无输出且心跳超时），"
+                               "正在强制重启"}}
+                return
+            except Exception:
+                outcome["why"] = "exit"
+                return
+            if event is None:  # 进程已退出（reader 哨兵）
+                outcome["why"] = "exit"
+                return
+            if isinstance(event, dict):
+                et = event.get("event")
+                if et == "done":
+                    outcome["why"] = "done"
+                    yield event
+                    return
+                msg = str((event.get("data") or {}).get("message", ""))
+                if et == "error" and msg.startswith(BUSY_MESSAGE_PREFIX):
+                    # 不当作最终错误抛给调用方——上层会自动清理残留轮次后重试
+                    outcome["why"] = "busy"
+                    return
+            yield event
+
+    def _schedule_interrupt(self, agent_id: str, reason: str, force: bool = False):
+        """投递后台中断任务（不 await）。
+
+        调用点在生成器被取消时的 finally 里——那里 await 会立刻被
+        CancelledError 打断，中断动作根本没机会执行。
+        """
+        try:
+            self._ensure_interrupt_task(agent_id, reason, True, force)
+        except Exception:
+            pass
 
     def is_running(self, agent_id: str) -> bool:
         proc = self._processes.get(agent_id)
