@@ -4,14 +4,32 @@ import type { IChatService } from '@/services/types'
 import type { Message, CreateMessageInput, InlineCard } from '@/types/chat'
 import { apiFetchRaw, apiPost, assertOk } from './client'
 
+const SESSION_STORAGE_KEY = 'sotaband_chat_session_id'
+
+/** 浏览器级对话 session id：同一安装下不同用户不再共享 'default' 的历史。 */
+function browserSessionId(): string {
+  try {
+    const existing = localStorage.getItem(SESSION_STORAGE_KEY)
+    if (existing) return existing
+    const generated =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `session-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+    localStorage.setItem(SESSION_STORAGE_KEY, generated)
+    return generated
+  } catch {
+    return 'default'
+  }
+}
+
 export class ApiChatService implements IChatService {
   private currentAbortController: AbortController | null = null
-  private currentSessionId: string = 'default'
+  private currentSessionId: string = browserSessionId()
 
   async *sendMessage(input: CreateMessageInput): AsyncGenerator<Message> {
     // 创建新的 AbortController
     this.currentAbortController = new AbortController()
-    this.currentSessionId = input.sessionId || 'default'
+    this.currentSessionId = input.sessionId || browserSessionId()
 
     // SSE：必须用 apiFetchRaw 拿原始 body 的 reader（不能先解析 JSON）。
     // 但也必须 assertOk —— 否则错误响应会被当成事件流解析，最后报一句

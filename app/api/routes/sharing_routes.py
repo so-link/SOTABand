@@ -39,8 +39,9 @@ from core.auth.workload import WorkloadClaims
 from core.db.base import utcnow
 from core.db.models import RESOURCE_TYPES, Publication
 from core.db.session import get_db_session
-from core.errors import ConflictError, ForbiddenError, NotFoundError
+from core.errors import AppError, ConflictError, ForbiddenError, NotFoundError
 from core.sharing.service import (
+    audit_publish_denied,
     authorize_agent_invocation,
     get_catalog_item,
     install_publication,
@@ -107,15 +108,28 @@ async def publish_endpoint(
     rtype = _parse_resource_type(resource_type)
     scope_id = _parse_uuid(payload.scope_id, what="发布范围") if payload.scope_id else None
 
-    publication = await publish_resource(
-        session,
-        ctx,
-        resource_type=rtype,
-        release_id=release_id,
-        scope=payload.scope,
-        scope_id=scope_id,
-        request_id=request_id,
-    )
+    try:
+        publication = await publish_resource(
+            session,
+            ctx,
+            resource_type=rtype,
+            release_id=release_id,
+            scope=payload.scope,
+            scope_id=scope_id,
+            request_id=request_id,
+        )
+    except AppError:
+        # 拒绝也要留痕（FR-N9）：资源归属 404 与范围权限 403 都补一条 denied
+        # 审计并先提交，再抛出（服务层直接 raise 会让审计随事务回滚丢失）。
+        audit_publish_denied(
+            session,
+            ctx=ctx,
+            request_id=request_id,
+            resource_type=rtype,
+            release_id=release_id,
+        )
+        await session.commit()
+        raise
     await session.commit()
     return _to_publication(publication)
 

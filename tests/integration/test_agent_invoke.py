@@ -92,7 +92,7 @@ class World:
 
 
 @pytest_asyncio.fixture
-async def world(db_session: AsyncSession) -> World:
+async def world(db_session: AsyncSession, release_space) -> World:
     tag = uuid.uuid4().hex[:8]
 
     tenant = Tenant(name=f"调用测试-{tag}", slug=f"invoke-{tag}")
@@ -156,6 +156,15 @@ async def world(db_session: AsyncSession) -> World:
         )
     )
     await db_session.commit()
+
+    # ── 合成 release（发布接口会校验资源归属，见管理员评审意见 2）──
+    # 本文件所有 publish 均由 alice 发起，因此统一把合成 Agent 条目的 owner
+    # 设为 alice；这样被校验的是"发布范围/网络成员"逻辑，而不是归属。
+    for _rid in (
+        "agent-a", "agent-b", "agent-c", "agent-target",
+        "agent-bob-caller", "agent-alice-caller",
+    ):
+        await release_space("agent", _rid, owner=str(users["alice"].id))
 
     async with (
         new_client() as alice,

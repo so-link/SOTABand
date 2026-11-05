@@ -275,20 +275,26 @@ class TestNetworkAudit:
             assert resp.status_code == 404
 
     async def test_agent_invocations_appear_in_audit(
-        self, api_client: AsyncClient
+        self, api_client: AsyncClient, release_space
     ) -> None:
         """FR-N7 的调用记录必须能在审计里查到，且主体是 workload 而非 user。"""
         network_id, _ = await self._setup_world(api_client)
+        me = await api_client.get("/api/v1/me")
+        owner_uid = me.json()["user_id"]
 
         # 发布两个 Agent，装一个、拿凭证、调一次
+        # （发布接口校验资源归属：先把合成 release 注册到隔离的私有资源根）
         for release in ("audit-caller", "audit-target"):
-            await api_client.post(
+            await release_space("agent", release, owner=owner_uid)
+            resp = await api_client.post(
                 f"/api/v1/agent-releases/{release}/publications",
                 json={"scope": "network", "scopeId": network_id},
             )
+            assert resp.status_code == 201, resp.text
         inst = await api_client.post(
             f"/api/v1/agent-releases/audit-caller/installations?networkId={network_id}"
         )
+        assert inst.status_code == 201, inst.text
         installation_id = inst.json()["id"]
         cred = await api_client.post(
             f"/api/v1/installations/{installation_id}/credential"

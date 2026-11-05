@@ -67,7 +67,7 @@ class World:
 
 
 @pytest_asyncio.fixture
-async def world(db_session: AsyncSession) -> World:
+async def world(db_session: AsyncSession, release_space) -> World:
     """一个租户、一个网络、三个用户（alice=owner, bob=member, carol=非成员）。"""
     tag = uuid.uuid4().hex[:8]
 
@@ -137,6 +137,28 @@ async def world(db_session: AsyncSession) -> World:
         ]
     )
     await db_session.commit()
+
+    # ── 合成 release（发布接口会校验资源归属，见管理员评审意见 2）──
+    # 每个 release_id 的 owner 与「发布者身份」对应，保证测试验证的是
+    # 发布范围权限 / 网络成员关系，而不是先被归属校验挡掉。
+    _owner_of: dict[str, str] = {
+        # alice 发布
+        **{rid: "alice" for rid in (
+            "agent-v1", "agent-v3", "agent-v4", "agent-v6",
+            "agent-cat", "agent-detail", "agent-revoke", "agent-suspended",
+            "tool-v1", "tool-inst", "tool-idem", "tool-secret", "tool-uninst",
+            "tool-other", "tool-gone", "tool-private-list",
+        )},
+        # bob 发布
+        "tool-v2": "bob",
+        "tool-v3": "bob",
+        "agent-v5": "bob",
+        # carol 发布（验证"非网络成员" → 404）
+        "agent-v2": "carol",
+    }
+    for rid, who in _owner_of.items():
+        rtype = "tool" if rid.startswith("tool") else "agent"
+        await release_space(rtype, rid, owner=str(users[who].id))
 
     # 三个客户端各注入一个有效会话（这些用户是直接写库建的，没有密码）
     async with new_client() as alice, new_client() as bob, new_client() as carol:

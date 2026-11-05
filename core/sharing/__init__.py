@@ -11,6 +11,7 @@
 
 from core.sharing.service import (
     InvocationDecision,
+    audit_publish_denied,
     authorize_agent_invocation,
     get_catalog_item,
     install_publication,
@@ -25,6 +26,7 @@ from core.sharing.service import (
 
 __all__ = [
     "InvocationDecision",
+    "audit_publish_denied",
     "authorize_agent_invocation",
     "get_catalog_item",
     "install_publication",
