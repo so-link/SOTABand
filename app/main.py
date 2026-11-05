@@ -24,6 +24,7 @@ from app.api.routes.llm_routes import router as llm_router
 from app.api.routes.auth_routes import router as auth_router
 from app.api.routes.task_routes import router as task_router
 from app.api.routes.cron_routes import router as cron_router
+from app.api.routes.migrate_routes import router as migrate_router
 from core.auth import (
     SUPERUSER_UID,
     superuser,
@@ -171,6 +172,9 @@ _QUERY_TOKEN_GET_PATTERNS = (
     re.compile(r"^/api/data/[^/]+/raw$"),            # 数据集原文件
     re.compile(r"^/api/data/[^/]+/preview$"),        # 数据集预览
     re.compile(r"^/api/data/[^/]+/archive$"),        # 数据集打包下载
+    re.compile(r"^/api/tool/[^/]+/export$"),         # 工具 zip 导出（<a download> 直链）
+    re.compile(r"^/api/migrate/bundles/[^/]+$"),     # 工具迁移包下载（<a download> 直链）
+    re.compile(r"^/api/migrate/agent/bundles/[^/]+$"),  # Agent 迁移包下载
 )
 
 
@@ -303,6 +307,7 @@ app.include_router(api_list_router, prefix="/api/apis", tags=["api"])
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(task_router, prefix="/api/task", tags=["task"])
 app.include_router(cron_router, prefix="/api/cron", tags=["cron"])
+app.include_router(migrate_router, prefix="/api/migrate", tags=["migrate"])
 
 
 @app.get("/")

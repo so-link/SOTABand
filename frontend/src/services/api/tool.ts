@@ -1,6 +1,7 @@
 import type {
   SpecOutline, RefineResult, SpecTable, TableCellUpdateResult,
 } from '@/types/spec-outline'
+import { authedUrl } from '@/services/api/auth'
 
 /**
  * API 基础 URL — 始终指向 Vite 开发服务器（通过 Vite proxy → 后端 8201）
@@ -210,9 +211,9 @@ export const toolApi = {
     return res.json() as Promise<{ tools: Array<Record<string, unknown>> }>
   },
 
-  /** 导出工具的下载地址（配合 <a download> 使用） */
+  /** 导出工具的下载地址（配合 <a download> 使用；多用户模式追加 auth_token） */
   exportUrl(toolId: string) {
-    return `${BASE_URL}/api/tool/${encodeURIComponent(toolId)}/export`
+    return authedUrl(`${BASE_URL}/api/tool/${encodeURIComponent(toolId)}/export`)
   },
 
   /** 导入工具 zip 归档；409 表示同名冲突，调用方确认后带 overwrite 重试 */
