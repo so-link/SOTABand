@@ -8,6 +8,18 @@ import { apiGet, apiPost, apiDelete, describeError } from '@/services/api/client
 
 const resourceService = new MockResourceService()
 
+/**
+ * `can_edit` 的**三态**映射。
+ *
+ * 后端按 `can_write_resource` 计算该字段（owner 本人或租户 Owner/Admin；内置资产
+ * 仅租户管理员）。字段缺失（旧响应、请求失败、另一套部署）时**不能**当成 false ——
+ * 那会让视图误判为只读。缺失保持 `undefined`，视图按「有权限」渲染，由后端
+ * 403/404 兜底。
+ */
+function toCanEdit(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined
+}
+
 function mapModelResource(m: Record<string, unknown>): ModelResource {
   return {
     id: m.id as string, name: (m.name as string) || (m.id as string), description: '',
@@ -15,6 +27,8 @@ function mapModelResource(m: Record<string, unknown>): ModelResource {
     createdAt: (m.created_at as string) || '', updatedAt: '',
     tags: (m.tags as string[]) || [], framework: (m.framework as string) || '',
     modelType: 'timeseries', weightPath: (m.model_path as string) || '',
+    isOwner: m.is_owner === true,
+    canEdit: toCanEdit(m.can_edit),
     inputFormat: m.input_format ? [String(m.input_format)] : [],
     outputFormat: m.output_format ? [String(m.output_format)] : [],
     deploymentStatus: 'registered', relatedToolId: (m.associated_tool_id as string) || '',
@@ -39,6 +53,13 @@ interface ResourceState {
 
   selectResource: (resource: Resource | null) => void
   setCachedToolForDetail: (tool: ToolResource | null) => void
+  /**
+   * 清空所有资源数据与选中项。
+   *
+   * 登出 / 会话过期时调用（由认证订阅统一触发），否则下一个登录的账号会看到
+   * 上一个账号的资源列表、标签页标题和被选中的资源名 —— 串号最难察觉。
+   */
+  reset: () => void
   fetchResources: (type: ResourceType) => Promise<void>
   fetchAllResources: () => Promise<void>
   fetchAgentsFromApi: () => Promise<void>
@@ -73,6 +94,20 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
     set(state as ResourceState)
   },
   setCachedToolForDetail: (tool) => set({ cachedToolForDetail: tool }),
+
+  reset: () =>
+    set({
+      selectedResource: null,
+      cachedToolForDetail: null,
+      cachedDatasetForDetail: null,
+      dataResources: [],
+      toolResources: [],
+      modelResources: [],
+      modelGroups: [],
+      agentResources: [],
+      taskResources: [],
+      isLoading: false,
+    }),
 
   fetchResources: async (type) => {
     set({ isLoading: true })
@@ -109,6 +144,8 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
           dependencies: [], runtimeEnv: 'python' as const, usageCount: (t.usage_count as number) || 0,
           // 后端按 owner 字段判定：内置示例工具无 owner → 非本地生成
           isUserGenerated: Boolean(t.is_user_generated),
+          isOwner: Boolean(t.is_owner),
+          canEdit: toCanEdit(t.can_edit),
         }))
       })
     }
@@ -122,6 +159,8 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
           updatedAt: '', tags: (a.tags as string[]) || [], role: (a.role as AgentResource['role']) || 'task',
           capabilities: '', requiredTools: (a.tools as string[]) || [], inputFormat: 'text', outputFormat: 'text',
           collaborationProtocol: 'pub-sub', healthStatus: (a.health as AgentResource['healthStatus']) || 'healthy',
+          isOwner: Boolean(a.is_owner),
+          canEdit: toCanEdit(a.can_edit),
         }))
       })
     }
@@ -134,6 +173,9 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
           version: (d.version as string) || '0.1.0', status: 'active' as const, createdAt: (d.created_at as string) || '',
           updatedAt: '', tags: (d.tags as string[]) || [], format: ((d.formats as string[])?.[0]) || 'unknown',
           filePath: (d.data_path as string) || '', fileSize: (d.total_size as number) || 0, source: 'upload' as const, lineage: [],
+          isOwner: Boolean(d.is_owner),
+          // 数据集没有独立的 can_edit，写权限等同归属；同样保留三态
+          canEdit: toCanEdit(d.is_owner),
           available: d.available as boolean | undefined,
           dataPathAbs: d.data_path_abs as string | undefined,
           fileCountActual: d.file_count_actual as number | undefined,
@@ -175,6 +217,9 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
           updatedAt: '', tags: (a.tags as string[]) || [], role: (a.role as AgentResource['role']) || 'task',
           capabilities: '', requiredTools: (a.tools as string[]) || [], inputFormat: 'text', outputFormat: 'text',
           collaborationProtocol: 'pub-sub', healthStatus: (a.health as AgentResource['healthStatus']) || 'healthy',
+          // 这条刷新路径也要带权限字段：否则保存后列表被换新，只读态会"消失"
+          isOwner: Boolean(a.is_owner),
+          canEdit: toCanEdit(a.can_edit),
         })) })
       }
     } catch { /* ignore */ }
@@ -191,6 +236,8 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
           updatedAt: '', tags: (t.tags as string[]) || [], inputSpec: { formats: [] }, outputSpec: { formats: [] },
           dependencies: [], runtimeEnv: 'python' as const, usageCount: (t.usage_count as number) || 0,
           isUserGenerated: Boolean(t.is_user_generated),
+          isOwner: Boolean(t.is_owner),
+          canEdit: toCanEdit(t.can_edit),
         })) })
       }
     } catch { /* ignore */ }

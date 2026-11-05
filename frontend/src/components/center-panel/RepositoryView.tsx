@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import {
   ArrowLeft, Search, ChevronLeft, ChevronRight,
   Trash2, Plus, Check, Package, Download, X, Loader2, AlertTriangle,
@@ -259,10 +259,12 @@ export function RepositoryView() {
                         <span>已用 {tool.usage_count} 次</span>
                       </div>
                       <div className="flex items-center justify-center gap-3 shrink-0 border-t border-maia-border/30 pt-1.5">
-                        <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-red-400 hover:text-red-300 hover:bg-red-500/10"
-                          onClick={(e) => { e.stopPropagation(); handleDelete(tool) }}>
-                          <Trash2 className="h-3 w-3 mr-0.5" />删除
-                        </Button>
+                        {tool.can_edit !== false && (
+                          <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                            onClick={(e) => { e.stopPropagation(); handleDelete(tool) }}>
+                            <Trash2 className="h-3 w-3 mr-0.5" />删除
+                          </Button>
+                        )}
                         {loaded ? (
                           <span className="inline-flex items-center h-6 px-2 text-[10px] text-maia-text-muted">
                             <Check className="h-3 w-3 mr-0.5" />已加载
@@ -400,3 +402,4 @@ export function RepositoryView() {
     </div>
   )
 }
+

@@ -16,6 +16,10 @@ export interface BaseResource {
   createdAt: string
   updatedAt: string
   tags: string[]
+  /** 当前用户是否拥有该资源（后端计算，仅用于前端体验层门控） */
+  isOwner?: boolean
+  /** 当前用户是否可编辑/删除（后端计算；真正的权限判定在后端） */
+  canEdit?: boolean
 }
 
 // ---- 数据空间 ----

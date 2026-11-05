@@ -36,6 +36,8 @@ import type {
 import { tenantApi } from '@/services/api/tenant'
 import type { TenantInvitation, TenantMember } from '@/services/api/tenant'
 import { useAuthStore } from '@/stores/auth-store'
+import { useResourceStore } from '@/stores/resource-store'
+import { useUIStore } from '@/stores/ui-store'
 import type { TenantRole } from '@/types/auth'
 
 /** 最近生成的一条邀请链接 —— 明文令牌只此一次可见，必须抓住 */
@@ -492,30 +494,67 @@ export const useCollaborationStore = create<CollaborationState>((set, get) => ({
   },
 
   async switchTenant(tenantId) {
+    const previous = useAuthStore.getState().user
+    const previousTenantId = previous?.activeTenantId ?? null
+
     set({ switchingTenantId: tenantId, error: null })
+
+    // 切换失败也可能"服务端已切、响应丢了"，所以不能只看 switchTo 的结果 ——
+    // 下面统一用 /me 确认真实身份。
+    let switchError: string | null = null
     try {
       await tenantApi.switchTo(tenantId)
-      // 刷新用户快照（activeTenantId / tenantRole 在 /me 里）
-      await useAuthStore.getState().refresh()
-      // 租户变了，网络与会话内的资源视图必然整体不同 —— 清掉再重拉。
-      // 尤其 catalog / installations：不清会出现"上一个租户的目录还在"的错觉。
-      set({
-        switchingTenantId: null,
-        selectedNetworkId: null,
-        detail: null,
-        members: [],
-        invitations: [],
-        catalog: [],
-        installations: [],
-        audit: [],
-        networks: [],
-      })
-      await get().loadNetworks()
-      return true
     } catch (err) {
-      set({ switchingTenantId: null, error: describeError(err) })
+      switchError = describeError(err)
+    }
+
+    // 刷新用户快照（activeTenantId / tenantRole / tenants 都在 /me 里）。
+    // 刷新失败时**绝不能**继续用旧快照里的 tenantRole 渲染：旧角色可能高于新租户
+    // 里的真实角色，用户点下去就是 403/404（服务端拒、前端放行）。
+    if (!(await useAuthStore.getState().refresh())) {
+      // 先把服务器与本地一起退回切换前（能退就退），退不回去就让会话过期 ——
+      // 身份确认不了时宁可重新登录，也不按旧角色继续渲染。
+      const rolledBack =
+        previousTenantId && previousTenantId !== tenantId
+          ? await tenantApi
+              .switchTo(previousTenantId)
+              .then(() => useAuthStore.getState().refresh())
+              .catch(() => false)
+          : false
+
+      const message = rolledBack
+        ? '切换空间后刷新身份失败，已退回原空间，请稍后重试'
+        : '切换空间后无法确认身份，请重新登录'
+      if (!rolledBack) {
+        useAuthStore.setState({ status: 'expired', user: null, error: message })
+      }
+      set({ switchingTenantId: null, error: message })
       return false
     }
+
+    // /me 确认当前激活租户仍是旧的（例如 403 无权切换到该租户）→ 按失败处理。
+    // 以服务端确认的 activeTenantId 为准：switchTo 报错但实际已切过去时，
+    // 这里仍然按成功走，界面不会停在旧租户。
+    if (useAuthStore.getState().user?.activeTenantId !== tenantId) {
+      set({ switchingTenantId: null, error: switchError ?? '切换空间失败，请稍后重试' })
+      return false
+    }
+
+    // 租户变了，网络与会话内的资源视图必然整体不同 —— 清掉再重拉。
+    // 尤其 catalog / installations：不清会出现"上一个租户的目录还在"的错觉。
+    set({
+      switchingTenantId: null,
+      selectedNetworkId: null,
+      detail: null,
+      members: [],
+      invitations: [],
+      catalog: [],
+      installations: [],
+      audit: [],
+      networks: [],
+    })
+    await get().loadNetworks()
+    return true
   },
 
   async createTenant(name) {
@@ -591,13 +630,18 @@ export function resetCollaborationState() {
   useCollaborationStore.getState().reset()
 }
 
-// 监听认证状态：从"已登录"变成别的状态（登出 / 会话过期）时清空协作数据。
+// 监听认证状态：从"已登录"变成别的状态（登出 / 会话过期 / 账号被禁用）时，
+// 把**所有**与账号绑定的前端状态清空。
 //
 // 为什么用订阅而不是在每个登出入口手动调：登出路径有多条（主动退出、退出全部
-// 设备、401 过期、账号被禁用），漏一条就会让下一个登录的账号看到上一个账号的
-// 网络列表 —— 那是最难察觉也最严重的一类 bug。
+// 设备、401 过期、账号被禁用、切换空间时身份刷新失败），漏一条就会让下一个登录的
+// 账号看到上一个账号的网络列表、资源列表、页签标题 —— 那是最难察觉也最严重的一类 bug。
 useAuthStore.subscribe((state, prevState) => {
   if (prevState.status === 'authenticated' && state.status !== 'authenticated') {
     useCollaborationStore.getState().reset()
+    // 资源列表 / 选中项 / 详情缓存
+    useResourceStore.getState().reset()
+    // 页签与激活视图（顺带丢弃工具详情草稿）
+    useUIStore.getState().resetWorkspace()
   }
 })

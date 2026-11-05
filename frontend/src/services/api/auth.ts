@@ -44,6 +44,8 @@ interface RawMe {
   active_tenant_id: string
   tenant_role: TenantRole
   tenants?: RawTenant[]
+  /** 平台管理员标记。旧部署没有该字段 —— 缺失按 false 处理 */
+  is_platform_admin?: boolean
 }
 
 interface RawSessionProbe {
@@ -66,6 +68,8 @@ function mapMe(raw: RawMe): CurrentUser {
     activeTenantId: raw.active_tenant_id,
     tenantRole: raw.tenant_role,
     tenants: (raw.tenants ?? []).map(mapTenant),
+    // 严格等于 true：字段缺失（旧响应）或不是布尔都按「非平台管理员」处理
+    isPlatformAdmin: raw.is_platform_admin === true,
   }
 }
 

@@ -42,8 +42,11 @@ interface AuthState {
    *
    * 切换激活租户后必须调用 —— `activeTenantId` / `tenantRole` / `tenants`
    * 都在这个快照里，不刷新的话 UserMenu 会一直显示旧空间。
+   *
+   * 返回是否刷新成功。**调用方必须处理 false**：旧快照里的 `tenantRole`
+   * 可能已经和服务端不一致，继续按它渲染就会"服务端会拒、前端却放行"。
    */
-  refresh: () => Promise<void>
+  refresh: () => Promise<boolean>
   clearError: () => void
 }
 
@@ -129,12 +132,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   async refresh() {
     // 未登录时刷新没有意义，还可能把 unauthenticated 覆盖成别的东西
-    if (get().status !== 'authenticated') return
+    if (get().status !== 'authenticated') return false
     try {
       const me = await authApi.me()
       set({ user: me })
+      return true
     } catch {
-      // 401 已由全局处理器切到 expired；其它错误保留旧快照，不打断用户操作
+      // 401 已由全局处理器切到 expired；其它错误（网络 / 5xx）以前被静默吞掉，
+      // 调用方以为刷新成功 → 继续用旧快照里的角色渲染。现在如实返回 false，
+      // 由调用方决定回退（见 collaboration-store 的 switchTenant）。
+      return false
     }
   },
 

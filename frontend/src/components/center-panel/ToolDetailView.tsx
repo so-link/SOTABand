@@ -201,6 +201,11 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
     )
   }
 
+  // 只读态：`canEdit === false` 才是只读（后端 `can_write_resource`：owner 本人或
+  // 租户 Owner/Admin；内置资产仅租户管理员）。字段缺失时按有权限渲染 ——
+  // 后端写权限守卫 403/404 兜底，前端只做体验层，不得反向默认成只读。
+  const readOnly = tool.canEdit === false
+
   const inputs = parseInputs(specMd)
 
   // ── 导出为迁移包（.sotatool.zip）：可在另一套部署里导入 ──
@@ -482,7 +487,7 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
           </button>
           <button
             onClick={handleExport}
-            disabled={exporting}
+            disabled={exporting || readOnly}
             className="flex items-center gap-1 text-[11px] text-emerald-500 hover:underline ml-2 disabled:opacity-50"
             title="导出为 .sotatool.zip，可在其它环境导入"
           >
@@ -491,6 +496,12 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
           </button>
         </div>
       </div>
+
+      {readOnly && (
+        <div className="px-4 py-1.5 text-[11px] border-b border-maia-border bg-amber-500/10 text-amber-600 shrink-0">
+          只读：该工具属于其他用户或为内置资产，你只能查看与运行，不能编辑/删除。
+        </div>
+      )}
 
       {exportInfo && (
         <div className="flex items-center gap-2 px-4 py-1.5 text-[11px] border-b border-maia-border bg-emerald-500/10 shrink-0">
@@ -556,7 +567,7 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
                   <div className="flex items-center gap-2 mt-3 shrink-0">
                     <Button size="sm" variant="outline" onClick={runTests} disabled={isTesting || !editedCode.trim()}>
                       {isTesting ? <><Loader2 className="h-3 w-3 animate-spin" />测试中</> : <><Play className="h-3 w-3" />沙箱测试</>}</Button>
-                    <Button size="sm" onClick={updateCode} disabled={isUpdating || !codeModified || failed.length > 0}>
+                    <Button size="sm" onClick={updateCode} disabled={readOnly || isUpdating || !codeModified || failed.length > 0}>
                       {isUpdating ? <><Loader2 className="h-3 w-3 animate-spin" />更新中</> : <><Save className="h-3 w-3" />更新代码</>}</Button>
                   </div>
                   {testResults && (<div className="mt-2 space-y-1 shrink-0">
@@ -667,7 +678,7 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
                       <Square className="h-3 w-3" />停止调试
                     </Button>
                   ) : (
-                    <Button size="sm" className="bg-purple-500 hover:bg-purple-600 text-white h-7 text-[11px] w-full" onClick={handleModify} disabled={!modifyRequest.trim()}>
+                    <Button size="sm" className="bg-purple-500 hover:bg-purple-600 text-white h-7 text-[11px] w-full" onClick={handleModify} disabled={readOnly || !modifyRequest.trim()}>
                       修改
                     </Button>
                   )}

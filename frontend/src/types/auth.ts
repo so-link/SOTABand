@@ -47,6 +47,14 @@ export interface CurrentUser {
   activeTenantId: string
   tenantRole: TenantRole
   tenants: TenantSummary[]
+  /**
+   * 平台管理员（跨租户的运维身份，与 `tenantRole` 是两套判定）。
+   *
+   * 全局配置（`GET/POST /api/config/llm`）只对平台管理员开放 —— 租户
+   * Owner/Admin 也不行（契约改为「只有平台管理员」）。字段缺失时按 `false`
+   * 处理（fail-closed：不显示配置页），真正的拦截仍在后端。
+   */
+  isPlatformAdmin: boolean
 }
 
 /** `GET /api/auth/session` 的探测结果 —— 未登录也是 200 */

@@ -74,6 +74,9 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   const [exportInfo, setExportInfo] = useState<{ name: string; path: string; size: number } | null>(null)
 
   const setActiveView = useUIStore((s) => s.setActiveView)
+  // 只读态：只有 `canEdit === false` 才只读（字段缺失 = 旧响应/请求失败 → 按有权限
+  // 渲染，由后端写权限守卫 403/404 兜底）。不要写成 `!canEdit`，那会把"未知"当只读。
+  const readOnly = agent?.canEdit === false
 
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -589,13 +592,14 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => { if (isEditingCode) { setDraftCode(code); setIsEditingCode(false) } else { setDraftCode(code); setIsEditingCode(true) } }}
-                      className="flex items-center gap-1 text-[10px] text-maia-text-muted hover:text-maia-accent px-1.5 py-0.5 rounded border border-maia-border"
+                      disabled={readOnly}
+                      className="flex items-center gap-1 text-[10px] text-maia-text-muted hover:text-maia-accent px-1.5 py-0.5 rounded border border-maia-border disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       <Pencil className="h-2.5 w-2.5" />{isEditingCode ? '取消' : '手工微调'}
                     </button>
                     <button
                       onClick={handleSaveCode}
-                      disabled={!codeDirty || isSaving}
+                      disabled={readOnly || !codeDirty || isSaving}
                       className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border border-maia-border text-maia-accent hover:bg-maia-accent/10 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       {isSaving ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Save className="h-2.5 w-2.5" />}

@@ -396,7 +396,9 @@ function NetworkDetailPanel() {
   if (!detail) return null
 
   const role = detail.role
-  const manage = canManage(role) && detail.status !== 'archived'
+  // 写操作只在 active 网络可用：suspended / archived 时服务端一律 409。
+  // 状态机按钮（暂停/恢复/归档）单独按 Owner 判定 —— 否则暂停之后就没人能恢复了。
+  const manage = canManage(role) && detail.status === 'active'
   const archive = canArchive(role)
 
   return (
@@ -486,7 +488,7 @@ function NetworkDetailPanel() {
         </div>
       )}
 
-      <MembersSection manage={manage} />
+      <MembersSection manage={manage} myRole={role} />
       <CatalogSection
         role={role}
         policyAllowsMemberPublish={Boolean(detail.policy?.allowMemberPublish)}
@@ -494,14 +496,14 @@ function NetworkDetailPanel() {
       />
       {manage && <InviteSection />}
       <AuditSection />
-      <DangerSection />
+      <DangerSection active={detail.status === 'active'} />
     </div>
   )
 }
 
 // ── 成员 ──────────────────────────────────────────────────────────────
 
-function MembersSection({ manage }: { manage: boolean }) {
+function MembersSection({ manage, myRole }: { manage: boolean; myRole: TenantRole }) {
   const members = useCollaborationStore((s) => s.members)
   const busy = useCollaborationStore((s) => s.busy)
   const changeMemberRole = useCollaborationStore((s) => s.changeMemberRole)
@@ -514,61 +516,73 @@ function MembersSection({ manage }: { manage: boolean }) {
         <Users className="h-3.5 w-3.5" /> 成员
       </h3>
       <div className="overflow-hidden rounded border border-maia-border" data-testid="net-members">
-        {members.map((member) => (
-          <div
-            key={member.userId}
-            data-testid="net-member-row"
-            data-user-id={member.userId}
-            className="flex items-center gap-2 border-b border-maia-border/40 px-2.5 py-1.5 last:border-b-0"
-          >
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[11px] text-maia-text">
-                {member.displayName || member.email || member.userId}
+        {members.map((member) => {
+          const isSelf = member.userId === myId
+          // 服务端对 Admin 有两条真值表表达不了的额外限制（见 core/network/service.py
+          // ``_assert_admin_may_act_on``），前端必须同口径，否则点了只会拿到 404/409：
+          //   - Admin 不可对 Owner 行使任何成员管理动作（对 Admin 来说该成员"不存在"）；
+          //   - Admin 不可改 / 删自己，必须走「退出网络」。
+          const lockedByRole = myRole !== 'owner' && member.role === 'owner'
+          const lockedBySelf = myRole === 'admin' && isSelf
+          const rowManage = manage && !lockedByRole && !lockedBySelf
+
+          return (
+            <div
+              key={member.userId}
+              data-testid="net-member-row"
+              data-user-id={member.userId}
+              className="flex items-center gap-2 border-b border-maia-border/40 px-2.5 py-1.5 last:border-b-0"
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[11px] text-maia-text">
+                  {member.displayName || member.email || member.userId}
+                </span>
+                {member.email && member.displayName && (
+                  <span className="block truncate text-[9px] text-maia-text-muted">{member.email}</span>
+                )}
               </span>
-              {member.email && member.displayName && (
-                <span className="block truncate text-[9px] text-maia-text-muted">{member.email}</span>
-              )}
-            </span>
 
-            {manage ? (
-              <select
-                data-testid="net-role-select"
-                value={member.role}
-                disabled={busy === `role:${member.userId}`}
-                onChange={(e) =>
-                  void changeMemberRole(member.userId, e.target.value as TenantRole)
-                }
-                className="rounded border border-maia-border bg-maia-bg px-1.5 py-0.5 text-[10px] text-maia-text-secondary focus:border-maia-accent-border focus:outline-none"
-              >
-                <option value="owner">所有者</option>
-                <option value="admin">管理员</option>
-                <option value="member">成员</option>
-                <option value="viewer">访客</option>
-              </select>
-            ) : (
-              <Badge variant={member.role === 'owner' ? 'accent' : 'default'}>
-                {ROLE_LABEL[member.role]}
-              </Badge>
-            )}
-
-            {manage && member.userId !== myId && (
-              <Button
-                size="icon"
-                variant="ghost"
-                data-testid="net-remove-member-btn"
-                disabled={busy === `remove:${member.userId}`}
-                onClick={() => {
-                  if (window.confirm(`移除成员 ${member.displayName || member.email}？`)) {
-                    void removeMember(member.userId)
+              {rowManage ? (
+                <select
+                  data-testid="net-role-select"
+                  value={member.role}
+                  disabled={busy === `role:${member.userId}`}
+                  onChange={(e) =>
+                    void changeMemberRole(member.userId, e.target.value as TenantRole)
                   }
-                }}
-                title="移除成员"
-              >
-                <Trash2 className="h-3 w-3" />
-              </Button>
-            )}
-          </div>
-        ))}
+                  className="rounded border border-maia-border bg-maia-bg px-1.5 py-0.5 text-[10px] text-maia-text-secondary focus:border-maia-accent-border focus:outline-none"
+                >
+                  {/* owner 选项只对 Owner 显示：Admin 授予 Owner 会被后端 403 */}
+                  {myRole === 'owner' && <option value="owner">所有者</option>}
+                  <option value="admin">管理员</option>
+                  <option value="member">成员</option>
+                  <option value="viewer">访客</option>
+                </select>
+              ) : (
+                <Badge variant={member.role === 'owner' ? 'accent' : 'default'}>
+                  {ROLE_LABEL[member.role]}
+                </Badge>
+              )}
+
+              {rowManage && !isSelf && (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  data-testid="net-remove-member-btn"
+                  disabled={busy === `remove:${member.userId}`}
+                  onClick={() => {
+                    if (window.confirm(`移除成员 ${member.displayName || member.email}？`)) {
+                      void removeMember(member.userId)
+                    }
+                  }}
+                  title="移除成员"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+              )}
+            </div>
+          )
+        })}
       </div>
     </section>
   )
@@ -652,7 +666,7 @@ function InviteSection() {
 
 // ── 危险操作 ──────────────────────────────────────────────────────────
 
-function DangerSection() {
+function DangerSection({ active }: { active: boolean }) {
   const leaveNetwork = useCollaborationStore((s) => s.leaveNetwork)
   const busy = useCollaborationStore((s) => s.busy)
 
@@ -662,7 +676,9 @@ function DangerSection() {
         size="sm"
         variant="ghost"
         data-testid="net-leave-btn"
-        disabled={busy === 'leave'}
+        // 退出也是写操作：网络非 active 时后端 409（service.py 手动补的状态门禁）
+        disabled={busy === 'leave' || !active}
+        title={active ? undefined : '网络已暂停/归档，无法退出'}
         onClick={() => {
           if (window.confirm('退出这个网络？之后需要重新被邀请才能加入。')) {
             void leaveNetwork()
@@ -719,8 +735,8 @@ function CatalogSection({
   const currentUserId = useAuthStore((s) => s.user?.userId)
 
   // ── 「谁能调用」内联编辑器（FR-N7 按目标粒度授权）──
-  // 只有**发布者本人**能改自己资源的调用范围；网络 Owner/Admin 也能改，
-  // 但为避免界面噪音，这里只对发布者展示入口（管理员走同一接口即可）。
+  // 服务端允许**发布者本人**或网络 Owner/Admin（core/sharing/service.py::
+  // set_publication_invoke_policy），前端按同一口径显示入口。
   const [policyEditingId, setPolicyEditingId] = useState<string | null>(null)
   const [draftPolicy, setDraftPolicy] = useState<InvokePolicy>('network')
   const [draftAllowlist, setDraftAllowlist] = useState<string[]>([])
@@ -852,6 +868,11 @@ function CatalogSection({
           const revoking = busy === `revoke-pub:${pub.id}`
           const installing = busy === `install:${pub.resourceType}:${pub.releaseId}`
           const isMine = Boolean(currentUserId) && pub.publishedBy === currentUserId
+          // 撤回发布 / 设置调用范围：发布者本人 **或** 网络 Owner/Admin
+          // （服务端 revoke_publication / set_publication_invoke_policy 同口径）。
+          // 另加 networkActive：suspended/archived 时写操作一律 409（admin 路径会被
+          // 状态守卫拦下），暂停期间统一不给写入口，与状态提示条一致。
+          const canTouchPublication = networkActive && (isMine || canManage(role))
           const savingPolicy = busy === `invoke-policy:${pub.id}`
           const editing = policyEditingId === pub.id
           return (
@@ -881,7 +902,7 @@ function CatalogSection({
                   指定成员 ({pub.invokeAllowlist.length})
                 </Badge>
               )}
-              {isMine && (
+              {canTouchPublication && (
                 <Button
                   size="icon"
                   variant="ghost"
@@ -905,7 +926,9 @@ function CatalogSection({
                 size="sm"
                 variant={installed ? 'ghost' : 'outline'}
                 data-testid="catalog-install-btn"
-                disabled={installed || installing}
+                // 安装是写操作：网络非 active 时后端 authorize 直接 409
+                disabled={installed || installing || !networkActive}
+                title={networkActive ? undefined : '网络已暂停/归档，无法安装'}
                 onClick={() => void installResource(pub.resourceType, pub.releaseId)}
               >
                 {installing ? (
@@ -917,7 +940,7 @@ function CatalogSection({
                 )}
                 {installed ? '已安装' : '安装'}
               </Button>
-              {canManage(role) && (
+              {canTouchPublication && (
                 <Button
                   size="icon"
                   variant="ghost"

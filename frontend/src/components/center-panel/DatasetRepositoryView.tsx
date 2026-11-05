@@ -270,12 +270,14 @@ export function DatasetRepositoryView() {
                         <Plus className="h-3 w-3" />添加
                       </Button>
                     )}
-                    <Button size="sm" variant="ghost"
-                      onClick={() => handleDelete(ds.id)} disabled={isDeleting}
-                      className="h-7 w-7 p-0 text-maia-text-muted hover:text-maia-danger hover:bg-maia-danger/10 transition-colors"
-                      title="删除数据集">
-                      {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                    </Button>
+                    {ds.isOwner !== false && (
+                      <Button size="sm" variant="ghost"
+                        onClick={() => handleDelete(ds.id)} disabled={isDeleting}
+                        className="h-7 w-7 p-0 text-maia-text-muted hover:text-maia-danger hover:bg-maia-danger/10 transition-colors"
+                        title="删除数据集">
+                        {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                      </Button>
+                    )}
                   </div>
                 </div>
               )

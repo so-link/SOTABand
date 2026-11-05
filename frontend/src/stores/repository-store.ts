@@ -9,6 +9,9 @@ export interface RepositoryTool {
   tags: string[]
   usage_count: number
   created_at: string
+  /** 后端计算的写权限标记（仅用于前端按钮门控） */
+  can_edit?: boolean
+  is_owner?: boolean
 }
 
 interface RepositoryState {
@@ -52,6 +55,10 @@ export const useRepositoryStore = create<RepositoryState>((set, get) => ({
         tags: Array.isArray(t.tags) ? t.tags : [],
         usage_count: (t.usage_count as number) || 0,
         created_at: (t.created_at as string) || '',
+        // 三态保留：字段缺失时保持 undefined（视图按「有权限」渲染，后端兜底），
+        // 不能写成 `=== true` —— 那会把缺失变成 false，误判为不可编辑。
+        can_edit: typeof t.can_edit === 'boolean' ? t.can_edit : undefined,
+        is_owner: t.is_owner === true,
       }))
       set({ tools, tagStats: data.tag_stats || {}, loading: false })
     } catch {
