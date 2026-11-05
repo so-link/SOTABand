@@ -130,7 +130,11 @@ export class ApiChatService implements IChatService {
 
                 case 'card':
                   pendingCards.push({
-                    id: `card-${Date.now()}`,
+                    // 后端可下发稳定 card_id（如执行确认卡的 op_id）：结果回灌
+                    // 按它定位目标卡，必须原样采用，不能一律重新生成。
+                    id: (typeof payload.card_id === 'string' && payload.card_id)
+                      ? payload.card_id
+                      : `card-${Date.now()}`,
                     type: payload.type,
                     title: payload.title,
                     summary: payload.summary || '',

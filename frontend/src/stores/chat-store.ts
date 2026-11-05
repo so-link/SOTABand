@@ -54,6 +54,8 @@ interface ChatState {
   deleteSession: (sessionId: string) => Promise<void>
   /** 平台确认卡：确认/取消待执行操作，结果卡追加到同一消息 */
   resolvePlatformOp: (messageId: string, cardId: string, action: 'confirm' | 'cancel') => Promise<void>
+  /** 工具选择/执行确认卡：点选后回写 selected 标记，按钮即刻失效防止重复选择 */
+  markCardSelected: (messageId: string, cardId: string, label: string) => void
 }
 
 /** 生成会话唯一 ID（浏览器无 crypto.randomUUID 时退化为时间戳 + 随机数） */
@@ -80,6 +82,52 @@ function restoreDatasetRefs(content: string): Message['attachments'] {
     format: '',
     fileId: fid,
   }))
+}
+
+/**
+ * 工作空间工具「执行结果回灌」：后端把结果卡带 target_card_id（=执行确认卡
+ * 的 op_id）下发，前端不单独渲染该结果卡，而是把结果合并进执行卡：
+ * 执行卡变终态徽标（已执行/执行失败）并内联展示结果数据。
+ *
+ * 执行确认卡与结果卡分属两轮对话（确认/自动确认后是新的一轮），因此对全量
+ * 消息扫描回灌；幂等，运行时流式与历史加载回放共用同一入口。
+ * 找不到目标卡时结果卡原样保留、独立展示（不丢结果）。
+ */
+function backfillExecResults(messages: Message[]): Message[] {
+  const patchByTarget = new Map<string, Record<string, unknown>>()
+  const consumed = new Set<string>()
+  for (const m of messages) {
+    for (const c of m.cards || []) {
+      const d = c.data as Record<string, unknown>
+      if (c.type !== 'result-summary') continue
+      if (!(d?.kind === 'workspace-exec-result' || typeof d?.target_card_id === 'string')) continue
+      const target = String(d.target_card_id || '')
+      if (!target || !messages.some((mm) =>
+        mm.cards?.some((x) => x.id === target && x.type === 'tool-confirm'))) continue
+      consumed.add(c.id)
+      const res = (d.result as Record<string, unknown>) || null
+      const hasError = d.error !== undefined && d.error !== null && d.error !== ''
+      const failed = hasError || (!!res && typeof res.status === 'string' && res.status !== 'success')
+      patchByTarget.set(target, {
+        exec_status: failed ? 'failed' : 'executed',
+        exec_result: res,
+        exec_summary: hasError ? String(d.error) : String(d.summary || ''),
+        registered_dataset_id: d.registered_dataset_id,
+      })
+    }
+  }
+  if (consumed.size === 0) return messages
+  return messages.map((m) => {
+    const had = m.cards?.some((c) => patchByTarget.has(c.id) && c.type === 'tool-confirm')
+    const cards = m.cards
+      ?.filter((c) => !consumed.has(c.id))
+      .map((c) => {
+        const patch = patchByTarget.get(c.id)
+        return patch && c.type === 'tool-confirm' ? { ...c, data: { ...c.data, ...patch } } : c
+      })
+    const next = { ...m, cards: cards && cards.length > 0 ? cards : undefined }
+    return had || m.cards?.some((c) => consumed.has(c.id)) ? next : m
+  })
 }
 
 /**
@@ -305,7 +353,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
           role: m.role === 'agent' ? 'agent' : 'user',
           content: m.content,
           timestamp: new Date(m.created_at * 1000).toISOString(),
-          cards: Array.isArray(m.cards) && m.cards.length > 0 ? m.cards as Message['cards'] : undefined,
+          // 落库卡片是 {type, card_id?, title, summary, data} 原始事件形状：
+          // 规范化成前端 InlineCard（稳定 id 优先取 card_id——执行卡/结果卡
+          // 的回灌按它配对；旧数据无 card_id 则按消息+序号生成），否则
+          // 历史卡片没有 id，重复选择禁用与结果回灌都会失效。
+          cards: Array.isArray(m.cards) && m.cards.length > 0
+            ? (m.cards as Array<Record<string, unknown>>).map((c, i) => ({
+                id: (typeof c.card_id === 'string' && c.card_id) || `db-card-${m.id}-${i}`,
+                type: c.type as InlineCard['type'],
+                title: String(c.title || ''),
+                summary: String(c.summary || ''),
+                data: (c.data as Record<string, unknown>) || {},
+              }))
+            : undefined,
           // 历史回放：附件/引用一并恢复（刷新后仍能看到）
           attachments: Array.isArray(m.attachments) && m.attachments.length > 0
             ? m.attachments as Message['attachments']
@@ -314,7 +374,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       )
       // 落库的卡片是下发时的 pending 快照：用审计流水把已确认/已执行/已取消的
       // 操作回放成终态，并补上缺失的执行结果卡，刷新后不再看到假「待确认」。
-      set({ messages: restored, sessionId, isSending: false })
+      set({ messages: backfillExecResults(restored), sessionId, isSending: false })
       void replayPlatformCards(sessionId)
     } catch { /* ignore */ }
   },
@@ -463,6 +523,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
     await get().sendMessage()
   },
 
+  markCardSelected: (messageId, cardId, label) => {
+    set((s) => ({
+      messages: s.messages.map((m) =>
+        m.id !== messageId
+          ? m
+          : {
+              ...m,
+              cards: m.cards?.map((c) =>
+                c.id === cardId ? { ...c, data: { ...c.data, selected: label } } : c,
+              ),
+            },
+      ),
+    }))
+  },
+
   sendMessage: async () => {
     const { inputText, attachedFiles, pathRefs } = get()
     if (!inputText.trim() && attachedFiles.length === 0 && pathRefs.length === 0) return
@@ -575,7 +650,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }
         }
         set((s) => ({
-          messages: s.messages.map((m) =>
+          messages: backfillExecResults(s.messages.map((m) =>
             m.id === agentMsgId
               ? {
                   ...m,
@@ -584,7 +659,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                   steps: chunk.steps || m.steps,
                 }
               : m
-          ),
+          )),
         }))
       }
     } catch (e) {

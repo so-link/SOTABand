@@ -10,6 +10,7 @@ import { useChatStore } from '@/stores/chat-store'
 import { useWorkspaceToolStore } from '@/stores/workspace-tool-store'
 import { useAuthStore } from '@/stores/auth-store'
 import { fileUrl } from '@/types/workspace'
+import { cn } from '@/lib/utils'
 import { authedUrl } from '@/services/api/auth'
 import {
   Database,
@@ -43,9 +44,9 @@ export function InlineCard({ card, messageId }: InlineCardProps) {
     case 'tool-match':
       return <ToolMatchCard title={title} summary={summary} data={data} />
     case 'tool-confirm':
-      return <ToolConfirmCard title={title} summary={summary} data={data} />
+      return <ToolConfirmCard cardId={card.id} title={title} summary={summary} data={data} messageId={messageId} />
     case 'mode-selection':
-      return <ModeSelectionCard title={title} summary={summary} data={data} />
+      return <ModeSelectionCard cardId={card.id} title={title} summary={summary} data={data} messageId={messageId} />
     case 'code-review':
       return <CodeReviewCard title={title} summary={summary} data={data} setActiveView={setActiveView} />
     case 'execution-progress':
@@ -249,8 +250,6 @@ function ResultSummaryCard({ title, summary, data }: { title: string; summary: s
   const hasError = data.error !== undefined && data.error !== null && data.error !== ''
   const resultStatus = typeof result.status === 'string' ? result.status : ''
   const failed = hasError || (!!resultStatus && resultStatus !== 'success')
-  const outputFormat = result.output_format as string || ''
-  const outputData = (result.data as Record<string, unknown>) || {}
 
   return (
     <Card className={failed ? 'border-maia-danger bg-maia-danger-bg' : 'border-maia-card-green bg-maia-card-green'}>
@@ -265,31 +264,29 @@ function ResultSummaryCard({ title, summary, data }: { title: string; summary: s
       </CardHeader>
       <CardBody>
         <p className={`text-[13px] mb-2 ${failed ? 'text-maia-danger' : 'text-maia-text-secondary'}`}>{summary}</p>
-
-        {/* Full result data (non-image fields) — 失败且无 result 时不展示空对象 */}
-        {!failed || Object.keys(result).length > 0 ? <FullResult result={result} /> : null}
-
-        {/* Image */}
-        {outputFormat === 'image' ? (
-          <ImageOutput data={outputData} />
-        ) : null}
-
-        {/* Table — 有 columns+rows 就渲染 */}
-        {((outputData.columns as unknown[])?.length > 0 || (outputData.rows as unknown[])?.length > 0) && (
-          <TableOutput data={outputData} />
-        )}
-
-        {/* Plain table format */}
-        {outputFormat === 'table' && !(outputData.columns as unknown[])?.length && (
-          <TableOutput data={outputData} />
-        )}
-
-        {/* File — 音频播放器 / 下载链接 */}
-        {outputFormat === 'file' && (
-          <FileOutput data={outputData} />
-        )}
+        {!failed || Object.keys(result).length > 0 ? <ResultBody result={result} /> : null}
       </CardBody>
     </Card>
+  )
+}
+
+// ---- Result Body（结果数据/图片/表格/文件渲染，供结果卡与执行卡回灌共用） ----
+
+function ResultBody({ result }: { result: Record<string, unknown> }) {
+  const outputFormat = (result.output_format as string) || ''
+  const outputData = (result.data as Record<string, unknown>) || {}
+  return (
+    <>
+      <FullResult result={result} />
+      {outputFormat === 'image' && <ImageOutput data={outputData} />}
+      {((outputData.columns as unknown[])?.length > 0 || (outputData.rows as unknown[])?.length > 0) && (
+        <TableOutput data={outputData} />
+      )}
+      {outputFormat === 'table' && !(outputData.columns as unknown[])?.length && (
+        <TableOutput data={outputData} />
+      )}
+      {outputFormat === 'file' && <FileOutput data={outputData} />}
+    </>
   )
 }
 
@@ -554,13 +551,64 @@ function AddWorkspaceToolCard({ title, summary, data }: { title: string; summary
 
 // ── Tool Confirm Card ──
 
-function ToolConfirmCard({ title, summary, data }: { title: string; summary: string; data: Record<string, unknown> }) {
+function ToolConfirmCard({ cardId, title, summary, data, messageId }: {
+  cardId: string; title: string; summary: string
+  data: Record<string, unknown>; messageId?: string
+}) {
   const sendDirectMessage = useChatStore((s) => s.sendDirectMessage)
+  const markCardSelected = useChatStore((s) => s.markCardSelected)
   const candidates = (data.candidates as Array<{ id: string; name: string; index: number }>) || []
+  const isExecGate = data.kind === 'workspace-exec'
+  // 点选即消费：selected 标记落进卡片 data，按钮永久失效——历史会话里重新
+  // 打开也禁止再点（重复点击会以旧参数/旧选择重新触发执行，属越权执行）。
+  // 快照未带 selected 的旧历史卡按同样规则处理：只要该消息后面还有
+  // 任何消息，说明这个选择早已被回答过，同样禁用。
+  const answered = typeof data.selected === 'string'
+  const execStatus = String(data.exec_status || '')
+  const execResult = (data.exec_result as Record<string, unknown>) || null
+  const execSummary = String(data.exec_summary || '')
 
   const handleSelect = (candidate: { id: string; name: string; index: number }) => {
+    const label = `我选择第${candidate.index}个工具：${candidate.name}`
+    if (messageId) markCardSelected(messageId, cardId, candidate.name)
     // 发送选择消息，让后端识别并继续引导参数
-    sendDirectMessage(`我选择第${candidate.index}个工具：${candidate.name}`)
+    sendDirectMessage(label)
+  }
+
+  // 历史快照兜底禁用所需的"后面还有消息"判定（新数据一律走 selected 标记）
+  const hasLaterMessage = useChatStore((s) => {
+    if (answered || !messageId) return false
+    const idx = s.messages.findIndex((m) => m.id === messageId)
+    return idx >= 0 && idx < s.messages.length - 1
+  })
+  const disabled = answered || (!execStatus && hasLaterMessage)
+
+  // ── 执行确认门（workspace-exec）：回灌结果后转为执行回执卡 ──
+  if (isExecGate && execStatus) {
+    const failed = execStatus === 'failed'
+    return (
+      <Card className={failed ? 'border-maia-danger bg-maia-danger-bg' : 'border-maia-card-green bg-maia-card-green'}>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            {failed
+              ? <XCircle className="h-4 w-4 text-maia-danger" />
+              : <CheckCircle2 className="h-4 w-4 text-emerald-500" />}
+            <span className="text-[13px] font-medium">
+              工具执行{failed ? '失败' : '完成'}：{candidates[0]?.name || ''}
+            </span>
+            <Badge variant={failed ? 'danger' : 'success'}>{failed ? '失败' : '完成'}</Badge>
+          </div>
+        </CardHeader>
+        <CardBody>
+          {execSummary && (
+            <p className={`text-[13px] mb-2 ${failed ? 'text-maia-danger' : 'text-maia-text-secondary'}`}>
+              {execSummary}
+            </p>
+          )}
+          {execResult && Object.keys(execResult).length > 0 && <ResultBody result={execResult} />}
+        </CardBody>
+      </Card>
+    )
   }
 
   return (
@@ -569,7 +617,9 @@ function ToolConfirmCard({ title, summary, data }: { title: string; summary: str
         <div className="flex items-center gap-2">
           <Wrench className="h-4 w-4 text-amber-500" />
           <span className="text-[13px] font-medium">{title}</span>
-          <Badge variant="default">{candidates.length} 个候选</Badge>
+          {disabled
+            ? <Badge>{answered && typeof data.selected === 'string' ? `已选择 ${data.selected}` : '已失效'}</Badge>
+            : <Badge variant="default">{candidates.length} 个候选</Badge>}
         </div>
       </CardHeader>
       <CardBody>
@@ -579,7 +629,13 @@ function ToolConfirmCard({ title, summary, data }: { title: string; summary: str
             <button
               key={c.id}
               onClick={() => handleSelect(c)}
-              className="w-full flex items-center gap-2 px-3 py-2 rounded border border-maia-border bg-maia-surface hover:bg-maia-accent/10 hover:border-maia-accent/40 transition-colors text-left group"
+              disabled={disabled}
+              className={cn(
+                'w-full flex items-center gap-2 px-3 py-2 rounded border text-left',
+                disabled
+                  ? 'border-maia-border bg-maia-bg text-maia-text-muted cursor-not-allowed opacity-60'
+                  : 'border-maia-border bg-maia-surface hover:bg-maia-accent/10 hover:border-maia-accent/40 transition-colors group',
+              )}
             >
               <span className="flex items-center justify-center h-5 w-5 rounded-full bg-maia-bg text-[12px] font-medium text-maia-text-secondary shrink-0 group-hover:bg-maia-accent group-hover:text-white">
                 {c.index}
@@ -596,11 +652,24 @@ function ToolConfirmCard({ title, summary, data }: { title: string; summary: str
 
 // ── Mode Selection Card ──
 
-function ModeSelectionCard({ title, summary, data }: { title: string; summary: string; data: Record<string, unknown> }) {
+function ModeSelectionCard({ cardId, title, summary, data, messageId }: {
+  cardId: string; title: string; summary: string
+  data: Record<string, unknown>; messageId?: string
+}) {
   const sendDirectMessage = useChatStore((s) => s.sendDirectMessage)
+  const markCardSelected = useChatStore((s) => s.markCardSelected)
   const modes = (data.modes as Array<{ id: string; name: string; desc?: string; index: number }>) || []
+  // 与工具选择卡一致：选过即失效，防止历史会话里重复选择以旧上下文重跑流程
+  const answered = typeof data.selected === 'string'
+  const hasLaterMessage = useChatStore((s) => {
+    if (answered || !messageId) return false
+    const idx = s.messages.findIndex((m) => m.id === messageId)
+    return idx >= 0 && idx < s.messages.length - 1
+  })
+  const disabled = answered || hasLaterMessage
 
   const handleSelect = (mode: { name: string; index: number }) => {
+    if (messageId) markCardSelected(messageId, cardId, mode.name)
     // 发送选择消息（回复模式名称），由后端解析并继续
     sendDirectMessage(mode.name)
   }
@@ -611,7 +680,9 @@ function ModeSelectionCard({ title, summary, data }: { title: string; summary: s
         <div className="flex items-center gap-2">
           <Layers className="h-4 w-4 text-blue-500" />
           <span className="text-[13px] font-medium">{title}</span>
-          <Badge variant="default">{modes.length} 个模式</Badge>
+          {disabled
+            ? <Badge>{answered && typeof data.selected === 'string' ? `已选择 ${data.selected}` : '已失效'}</Badge>
+            : <Badge variant="default">{modes.length} 个模式</Badge>}
         </div>
       </CardHeader>
       <CardBody>
@@ -621,7 +692,13 @@ function ModeSelectionCard({ title, summary, data }: { title: string; summary: s
             <button
               key={m.id || m.name}
               onClick={() => handleSelect(m)}
-              className="w-full flex items-start gap-2 px-3 py-2 rounded border border-maia-border bg-maia-surface hover:bg-maia-accent/10 hover:border-maia-accent/40 transition-colors text-left group"
+              disabled={disabled}
+              className={cn(
+                'w-full flex items-start gap-2 px-3 py-2 rounded border text-left',
+                disabled
+                  ? 'border-maia-border bg-maia-bg cursor-not-allowed opacity-60'
+                  : 'border-maia-border bg-maia-surface hover:bg-maia-accent/10 hover:border-maia-accent/40 transition-colors group',
+              )}
             >
               <span className="flex items-center justify-center h-5 w-5 rounded-full bg-maia-bg text-[12px] font-medium text-maia-text-secondary shrink-0 group-hover:bg-maia-accent group-hover:text-white">
                 {m.index}

@@ -548,27 +548,12 @@ class InteractiveAgent(BaseAgent):
             # 返回规范或无数据），空 dict 在 Python 中是 falsy，会被误判为"执行失败"
             # 而丢弃真实返回。只要 _execute_tool 没返回 None，就当作有结果返回。
             if tool_result is not None:
-                # 先出结果卡（用户要求：结果卡在 LLM 解析之前）
-                # 与平台工具结果卡保持一致（platform-result / PlatformResultCard），
-                # 不另搞一套；数据字段对齐：status/tool/result/error
+                # 结果只出一张卡（result-summary）：它已内联渲染结果数据 / 图片 /
+                # 表格 / 文件并带成功·失败徽标，不再叠加 platform-result，避免同一次
+                # 执行出现两张内容重复的结果卡。结果卡先于 LLM 解析下发。
                 _ok = tool_result.get("status") == "success"
                 _name = matched_tool.get("name", matched_tool.get("id", ""))
                 yield {"event": "step", "data": {"id": "call_tool", "text": f"工具「{_name}」执行{'完成' if _ok else '失败'}", "status": "done" if _ok else "error"}}
-                yield {
-                    "event": "card",
-                    "data": {
-                        "type": "platform-result",
-                        "title": f"工具执行结果：{_name}",
-                        "summary": str(tool_result.get("message", "")
-                                       or tool_result.get("summary", ""))[:200],
-                        "data": {
-                            "status": "ok" if _ok else "error",
-                            "tool": _name,
-                            "result": tool_result.get("data"),
-                            "error": "" if _ok else str(tool_result.get("message", "")),
-                        },
-                    },
-                }
                 # 检测工具执行过程中是否注册了新数据集
                 registered_dataset_id = None
                 try:
@@ -604,6 +589,9 @@ class InteractiveAgent(BaseAgent):
                             "tool_id": matched_tool["id"],
                             "result": tool_result,
                             "registered_dataset_id": registered_dataset_id,
+                            # 回灌目标：确认门执行卡（card_id=op_id）。前端把本卡
+                            # 合并进执行卡展示，不再单独渲染一张结果卡。
+                            "target_card_id": exec_op_id,
                         },
                     },
                 }
@@ -619,7 +607,8 @@ class InteractiveAgent(BaseAgent):
                         "type": "result-summary",
                         "title": f"工具执行失败: {matched_tool['name']}",
                         "summary": "工具调用失败，请检查工具代码或参数",
-                        "data": {"tool_id": matched_tool["id"], "error": "execution_failed"},
+                        "data": {"tool_id": matched_tool["id"], "error": "execution_failed",
+                                "target_card_id": exec_op_id},
                     },
                 }
 
@@ -939,12 +928,18 @@ class InteractiveAgent(BaseAgent):
         return self._pending_confirm[session_key]
 
     def _workspace_exec_card(self, entry: dict) -> dict:
-        """确认门下发的确认卡片事件（前端 auto 模式按 kind 自动确认）。"""
+        """确认门下发的确认卡片事件（前端 auto 模式按 kind 自动确认）。
+
+        card_id/op_id 用审计 op_id 作稳定标识：执行结果以「回灌卡」事件
+        （kind=workspace-exec-result, target_card_id=op_id）回写这张卡，
+        前端按 id 把结果合并进执行卡，不再单独展示结果卡。
+        """
         cand = entry["candidates"][0]
         return {
             "event": "card",
             "data": {
                 "type": "tool-confirm",
+                "card_id": entry.get("op_id", ""),
                 "title": "请确认执行工具",
                 "summary": f"即将执行工具 {cand['name']}，参数: "
                            f"{json.dumps(entry.get('arguments') or {}, ensure_ascii=False)[:200]}。"
@@ -952,6 +947,7 @@ class InteractiveAgent(BaseAgent):
                 "data": {
                     "candidates": entry["candidates"],
                     "kind": "workspace-exec",
+                    "op_id": entry.get("op_id", ""),
                 },
             },
         }
