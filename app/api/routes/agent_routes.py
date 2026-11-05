@@ -525,29 +525,47 @@ async def agent_stop_auto_debug(req: dict):
 
 @router.post("/bus/publish")
 async def bus_publish(req: dict):
-    """外部系统向总线频道发布消息，投递给所有订阅该频道的运行中 Agent。"""
+    """外部系统向总线频道发布消息，投递给所有订阅该频道的运行中 Agent。
+
+    频道本身无归属，收口按**订阅方可见性**：只投递给调用者可见的
+    Agent（public/内置 + 自己的私有），他人私有 Agent 静默过滤——
+    与其余入口同一道 _visible_agent 闸门，且不泄露其存在。
+    """
     channel = str(req.get("channel") or "").strip()
     if not channel:
         raise HTTPException(400, "缺少 channel")
+    uid = get_current_user_id()
+
+    async def _subscriber_visible(aid: str) -> bool:
+        entry = await registry.get(aid)
+        return bool(entry) and registry.is_visible(entry, uid)
+
     return await agent_factory.bus_publish(
         channel, req.get("message") if isinstance(req.get("message"), dict) else {},
-        src=str(req.get("src") or "main"))
+        src=str(req.get("src") or "main"), can_deliver=_subscriber_visible)
 
 
 @router.post("/bus/call")
 async def bus_call(req: dict):
-    """外部系统以 RPC 方式调用一个运行中的 Agent（被调方 execute 聚合返回）。"""
+    """外部系统以 RPC 方式调用一个运行中的 Agent（被调方 execute 聚合返回）。
+
+    目标必须对调用者可见（同 _visible_agent 闸门）；执行身份由服务端
+    按当前登录用户注入帧的受信字段 caller_uid，请求体的 from 只是
+    会话标签——客户端自报身份一律不信。
+    """
     to = str(req.get("to") or "").strip()
     method = str(req.get("method") or "").strip()
     if not to or not method:
         raise HTTPException(400, "缺少 to 或 method")
+    await _visible_agent(to)
     params = req.get("params") if isinstance(req.get("params"), dict) else {}
     try:
         timeout = float(req.get("timeout") or 60)
     except (TypeError, ValueError):
         timeout = 60.0
     result = await agent_factory.call_agent(
-        str(req.get("from") or "main"), to, method, params, timeout=timeout)
+        str(req.get("from") or "main"), to, method, params,
+        timeout=timeout, caller_uid=get_current_user_id())
     return result
 
 

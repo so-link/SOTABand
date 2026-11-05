@@ -201,9 +201,12 @@ class AgentFactory:
         elif not self.is_running(to):
             result = {"ok": False, "error": f"目标 Agent '{to}' 未运行"}
         else:
+            # user_id 透传给被调侧做身份覆写（与 platform_call 同一信任模型：
+            # 子进程环境里的 uid 由主进程每轮 execute 注入，见 entrypoint）。
             fwd = make_frame("i", FRAME_AGENT_CALL, req=req,
                              frm=src, method=frame.get("method"),
-                             params=frame.get("params") or {})
+                             params=frame.get("params") or {},
+                             user_id=frame.get("user_id"))
             # 先登记再投递：应答帧可能在投递后立即回到本循环，
             # 若彼时 pending 尚未登记，应答会被当作无主帧丢弃、误报超时。
             loop = asyncio.get_event_loop()
@@ -225,14 +228,20 @@ class AgentFactory:
             "i", "agent_call_response", req=req, **result))
 
     async def call_agent(self, from_agent: str, to: str, method: str,
-                         params: dict | None = None, timeout: float = 60) -> dict:
-        """主进程侧发起 RPC（供 API 端点与测试使用），语义同子进程侧。"""
+                         params: dict | None = None, timeout: float = 60,
+                         caller_uid: str | None = None) -> dict:
+        """主进程侧发起 RPC（供 API 端点与测试使用），语义同子进程侧。
+
+        caller_uid 是服务端判定的调用者身份，注入帧的 user_id 字段供被调侧
+        覆写执行身份——请求体自报的 from 只是会话标签，不参与身份。
+        """
         from core.agent.protocol import FRAME_AGENT_CALL, make_frame
         if not self.is_running(to):
             return {"ok": False, "error": f"目标 Agent '{to}' 未运行"}
         req = self._next_req()
         fwd = make_frame("i", FRAME_AGENT_CALL, req=req, frm=from_agent,
-                         method=method, params=dict(params or {}))
+                         method=method, params=dict(params or {}),
+                         user_id=caller_uid)
         loop = asyncio.get_event_loop()
         fut = loop.create_future()
         self._bus_pending[req] = (from_agent, loop, fut, to)
@@ -247,14 +256,22 @@ class AgentFactory:
             self._bus_pending.pop(req, None)
 
     async def bus_publish(self, channel: str, message: dict | None = None,
-                          src: str = "main") -> dict:
-        """主进程侧发布（API 端点/外部系统注入总线消息），返回投递统计。"""
+                          src: str = "main",
+                          can_deliver=None) -> dict:
+        """主进程侧发布（API 端点/外部系统注入总线消息），返回投递统计。
+
+        can_deliver: 可选异步谓词 `async (agent_id) -> bool`。API 端点传入
+        按调用者可见性的过滤——他人私有 Agent 不收（delivered/failed 也不
+        列出，避免泄露其存在）。不传则全量扇出（主进程内部/Agent 间路由）。
+        """
         from core.agent.protocol import FRAME_BUS_MESSAGE, make_frame
         channel = str(channel)
         frame = make_frame("i", FRAME_BUS_MESSAGE, channel=channel,
                            message=message or {}, frm=src)
         delivered, failed = [], []
         for aid in list(self._subscribers.get(channel, ())):
+            if can_deliver is not None and not await can_deliver(aid):
+                continue
             (delivered if await self._deliver(aid, frame) else failed).append(aid)
         return {"channel": channel, "delivered": delivered, "failed": failed}
 

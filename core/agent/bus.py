@@ -84,14 +84,21 @@ class AgentBusClient:
     async def call_agent(self, target: str, method: str,
                          params: dict | None = None,
                          timeout: float = 60) -> dict:
-        """RPC 调用另一个 Agent，返回 {"ok": bool, "result"|"error": ...}。"""
+        """RPC 调用另一个 Agent，返回 {"ok": bool, "result"|"error": ...}。
+
+        user_id 携带本轮执行身份：取进程环境 SOTABAND_USER_ID（由主进程
+        每轮 execute 注入，非 Agent 代码自报）——与 platform_call 同一
+        信任模型，被调侧据此覆写身份，杜绝沿用上一轮残留 uid。
+        """
+        import os
         req = self._next_req()
         loop = asyncio.get_event_loop()
         fut = loop.create_future()
         self._pending[req] = fut
         sent = await self._send(make_frame(
             "o", "agent_call", req=req, to=target, method=method,
-            params=params or {}, timeout=timeout, src=self.agent_id))
+            params=params or {}, timeout=timeout, src=self.agent_id,
+            user_id=os.environ.get("SOTABAND_USER_ID") or None))
         if not sent:
             self._pending.pop(req, None)
             return {"ok": False, "error": "通信通道不可用（stdout 已关闭）"}
@@ -132,6 +139,27 @@ class AgentBusClient:
         finally:
             self._pending.pop(req, None)
 
+    async def workspace_audit(self, *, op_id: str, session_id: str, owner: str,
+                              tool: str, args: dict, risk: str, status: str,
+                              result: dict | None = None, error: str = "",
+                              duration_ms: int | None = None) -> bool:
+        """把工作空间工具生命周期事件交主进程写 chat_ops 审计（单向，不等回执）。
+
+        审计唯一入口在主进程 core.chat_control.audit——子进程不直接写用户的
+        platform.db，经帧交主进程落库，与 platform_call 同一信任模型。
+        owner 取进程环境 SOTABAND_USER_ID（主进程每轮 execute 注入，非
+        Agent 代码自报），防止伪造归属。
+        """
+        import os
+        from core.agent.protocol import FRAME_WORKSPACE_AUDIT, make_frame
+        return await self._send(make_frame(
+            "o", FRAME_WORKSPACE_AUDIT, session_id=session_id,
+            op_id=op_id,
+            owner=os.environ.get("SOTABAND_USER_ID") or owner or "default",
+            tool=tool, args=args or {}, risk=risk,
+            status=status, result=result, error=error, duration_ms=duration_ms,
+            src=self.agent_id))
+
     # ── entrypoint 内部：接收主进程帧 ──
 
     def resolve(self, frame: dict) -> None:
@@ -169,9 +197,11 @@ class AgentBusClient:
                 if handler is None:
                     result = {"ok": False, "error": f"{self.agent_id} 未实现 RPC 处理"}
                 else:
+                    # 第 4 参 user_id 为主进程注入的受信身份（调用者 uid）；
+                    # 旧帧缺该字段时为 None，由处理侧回退，绝不取 from。
                     result = await handler(
                         frame.get("from", ""), frame.get("method", ""),
-                        frame.get("params") or {})
+                        frame.get("params") or {}, frame.get("user_id"))
             except Exception as e:
                 result = {"ok": False, "error": f"{type(e).__name__}: {e}"}
             await self._send(make_frame(

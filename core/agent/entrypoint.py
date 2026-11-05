@@ -154,17 +154,26 @@ async def main():
     bus.bind(writer)
     agent._bus = bus
 
-    async def _handle_rpc(from_agent: str, method: str, params: dict) -> dict:
+    async def _handle_rpc(from_agent: str, method: str, params: dict,
+                          caller_uid: str | None = None) -> dict:
         """被调侧：以 execute 语义执行 RPC，把事件流聚合为一次性响应。
 
         聚合规则：error 事件 → 失败；result 事件 → 取其 data；
         否则拼接 content 事件文本。RPC 事件不外发，避免混入本 Agent
         正常执行轮次的事件流。
+
+        身份：与 execute 轮同语义——「以发起本轮的用户身份跑」。uid 取
+        主进程注入的受信帧字段 user_id（帧内 from 是会话标签不是 uid，
+        绝不可信）；缺字段（旧帧）或为空时与 execute 轮一致回退 "0"。
+        必须覆写 SOTABAND_USER_ID：共享进程里若不覆写，RPC 触发的工具
+        会沿用上一个 execute 轮残留的用户身份落盘——跨用户串号。
         """
         from core.agent.base import AgentContext
 
+        uid = str(caller_uid or "").strip() or "0"
+        os.environ["SOTABAND_USER_ID"] = uid
         ctx = AgentContext(agent_id=args.agent_id,
-                           session_id=f"rpc:{from_agent}", user_id=from_agent)
+                           session_id=f"rpc:{from_agent}", user_id=uid)
         result = None
         contents: list = []
         err: str | None = None

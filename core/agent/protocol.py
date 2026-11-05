@@ -15,12 +15,14 @@ stdin/stdout JSON-line 通道。为区分「旧执行协议」与「通信帧」
     bus_subscribe          i  主→子：（仅登记用，实际订阅表在主进程）
     bus_publish            o  子→主：发布消息 {channel, message}
     bus_message            i  主→子：投递订阅消息 {channel, message, from}
-    agent_call             o  子→主：RPC 请求 {to, method, params, timeout}
-    agent_call             i  主→子：转发 RPC 请求 {from, method, params}
+    agent_call             o  子→主：RPC 请求 {to, method, params, timeout, user_id}
+    agent_call             i  主→子：转发 RPC 请求 {from, method, params, user_id}
+      （user_id = 服务端注入的调用者 uid，被调侧据此覆写执行身份；旧帧缺字段时回退默认）
     agent_reply            o  子→主：RPC 应答 {ok, result|error}
     agent_call_response    i  主→子：（发起方收到的 RPC 结果回执）
     platform_call          o  子→主：平台工具调用 {tool, args, session_id, user_id}
     platform_call_response i  主→子：平台调用回执（网关返回的结构化结果）
+    workspace_audit        o  子→主：工作空间工具生命周期审计（单向，主进程落 chat_ops）
 
 语义约定：
 - Pub/Sub 为尽力而为：目标未启动/未订阅时消息丢弃，不排队重投。
@@ -40,12 +42,14 @@ FRAME_AGENT_REPLY = "agent_reply"
 FRAME_AGENT_CALL_RESPONSE = "agent_call_response"
 FRAME_PLATFORM_CALL = "platform_call"
 FRAME_PLATFORM_CALL_RESPONSE = "platform_call_response"
+FRAME_WORKSPACE_AUDIT = "workspace_audit"
 
 BUS_FRAME_TYPES = frozenset({
     FRAME_BUS_SUBSCRIBE, FRAME_BUS_UNSUBSCRIBE, FRAME_BUS_PUBLISH,
     FRAME_BUS_MESSAGE, FRAME_AGENT_CALL, FRAME_AGENT_REPLY,
     FRAME_AGENT_CALL_RESPONSE,
     FRAME_PLATFORM_CALL, FRAME_PLATFORM_CALL_RESPONSE,
+    FRAME_WORKSPACE_AUDIT,
 })
 
 
