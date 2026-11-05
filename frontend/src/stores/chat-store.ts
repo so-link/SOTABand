@@ -507,6 +507,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
     set((s) => ({ messages: [...s.messages, agentMsg] }))
 
+    // 自动确认队列：流式进行中 isSending=true，此时直接调 sendDirectMessage /
+    // resolvePlatformOp 会被「忙线」拦掉——auto 模式因此形同虚设，确认卡一直
+    // 停在原地。统一收集到队列，流结束（isSending 归位）后按序执行。
+    // 声明在 try 之外：finally 也要访问它（try 内声明会触发 ReferenceError）。
+    const autoConfirmQueue: Array<() => void> = []
+
     try {
       // 获取当前工具空间的工具 ID 列表
       let workspaceToolIds: string[] = []
@@ -521,11 +527,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
           onTitle: () => set((s) => ({ sessionsVersion: s.sessionsVersion + 1 })),
         },
       )
-
-      // 自动确认队列：流式进行中 isSending=true，此时直接调 sendDirectMessage /
-      // resolvePlatformOp 会被「忙线」拦掉——auto 模式因此形同虚设，确认卡一直
-      // 停在原地。统一收集到队列，流结束（isSending 归位）后按序执行。
-      const autoConfirmQueue: Array<() => void> = []
 
       for await (const chunk of stream) {
         // 卡片 _action 钩子：平台操作成功后自动刷新对应空间

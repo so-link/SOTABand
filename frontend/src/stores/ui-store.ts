@@ -156,6 +156,7 @@ export const useUIStore = create<UIState>()(
           try { localStorage.setItem('sotaband-theme', next) } catch {}
           return { theme: next }
         }),
+    }),
     {
       name: 'sotaband-ui',
       // 只持久化与「刷新后恢复界面」相关的字段：左侧标签、中栏打开的标签与激活标签。
