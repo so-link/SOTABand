@@ -1,4 +1,4 @@
-"""沙箱自动调试的依赖安装闭环测试。
+﻿"""沙箱自动调试的依赖安装闭环测试。
 
 覆盖线上问题：工具带新的外部依赖时，点「自动调试」会反复报缺失依赖、
 永远无法通过，工具注册不了。根因有四个，这里逐条锁死：
@@ -269,7 +269,7 @@ async def test_auto_debug_installs_declared_deps_before_guessing(monkeypatch):
         for dep in deps:
             yield {"event": "dep_installed", "dep": dep}
 
-    async def _ok_execute(self, code, test_input, tool_id=None, exec_timeout=None):
+    async def _ok_execute(self, code, test_input, tool_id=None, exec_timeout=None, owner_id=None):
         return {"exit_code": 0, "stdout": '{"status":"success"}', "stderr": "", "success": True}
 
     monkeypatch.setattr(tb.ToolCodeBuilder, "_write_debug_log", _write_log, raising=False)
@@ -352,7 +352,7 @@ async def test_auto_debug_survives_install_success_and_reports_exec(monkeypatch)
             yield {"event": "dep_installing", "dep": dep}
             yield {"event": "dep_installed", "dep": dep, "env": "project_venv"}
 
-    async def _ok_execute(self, code, test_input, tool_id=None, exec_timeout=None):
+    async def _ok_execute(self, code, test_input, tool_id=None, exec_timeout=None, owner_id=None):
         return {
             "exit_code": 0,
             "stdout": '{"status":"success","output_format":"text","message":"ok","data":{}}',
@@ -371,3 +371,4 @@ async def test_auto_debug_survives_install_success_and_reports_exec(monkeypatch)
     kinds = [e.get("event") for e in events]
     assert "debug_blocked" not in kinds
     assert kinds[-1] == "done"
+
