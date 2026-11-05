@@ -3,8 +3,14 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 
-const apiPort = Number(process.env.SOTABAND_API_PORT || 8002)
-const frontendPort = Number(process.env.SOTABAND_FRONTEND_PORT || 5174)
+// 默认与主流程 / docker-compose 保持一致（前端 5173、后端 8001）。
+// 历史：hypoxemia 内置运行时为了在「主实例仍开着」时并行跑第二套后端+前端，
+// 曾把默认值改成 5174/8002；结果主流程 `npm run dev`（不带环境变量）也会
+// 代理到没人监听的 8002，页面所有 /api 请求 502。现在默认值改回主流程，
+// 需要并行实例时按 hypoxemia 文档显式传参：
+//   SOTABAND_API_PORT=8002 npm run dev -- --port 5174 --strictPort
+const apiPort = Number(process.env.SOTABAND_API_PORT || 8001)
+const frontendPort = Number(process.env.SOTABAND_FRONTEND_PORT || 5173)
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],

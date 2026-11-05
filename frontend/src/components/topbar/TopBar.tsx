@@ -8,8 +8,14 @@ import { useUIStore } from '@/stores/ui-store'
 export function TopBar() {
   const { leftPanelOpen, rightPanelOpen, toggleLeftPanel, toggleRightPanel, theme, toggleTheme, setActiveView } = useUIStore()
 
+  // header 上的 z-40 是必需的，不是随手加的：
+  // `.glass` 带 backdrop-filter（会创建层叠上下文），header 自身 z-index 是 auto；
+  // 下方内容区（react-resizable-panels 的 Panel）在 DOM 里更靠后，同层级下后者绘制在上
+  // → 用户菜单浮窗（z-50，但被限制在 header 的层叠上下文内）会被页签栏盖住/糊掉。
+  // 给 header 一个显式 z-index 后，整条顶栏（含所有下拉浮层）才真正浮在内容之上；
+  // 内容区的模态框是 fixed + z-50，仍然高于这里。
   return (
-    <header className="grid h-9 items-center grid-cols-[1fr_auto_1fr] px-3 shrink-0 select-none glass border-b border-white/[0.04] relative">
+    <header className="grid h-9 items-center grid-cols-[1fr_auto_1fr] px-3 shrink-0 select-none glass border-b border-white/[0.04] relative z-40">
       <div className="absolute bottom-0 left-0 right-0 gradient-line" />
       <div className="flex items-center gap-2 justify-self-start">
         <Tooltip content={leftPanelOpen ? '隐藏侧边栏' : '显示侧边栏'}>
