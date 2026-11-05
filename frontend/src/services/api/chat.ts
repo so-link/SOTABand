@@ -50,6 +50,11 @@ export class ApiChatService implements IChatService {
     let pendingCards: InlineCard[] = []
     // 步骤时间线：同一 id 的事件覆盖更新（running → done/error）
     let steps: ChatStep[] = []
+    // currentEvent 必须跨 chunk 保留：event: 行与 data: 行可能被读块边界切开，
+    // 每块都重置会把事件名丢掉（如 done 被当成 content 吞掉，表现为空回复）。
+    let currentEvent = ''
+    // 是否已产出终态消息（done/stopped）：流被截断且从未产出时按空回复报错
+    let produced = false
 
     try {
       while (true) {
@@ -62,10 +67,8 @@ export class ApiChatService implements IChatService {
         const parts = buffer.split('\n')
         buffer = parts.pop() || ''
 
-        let currentEvent = ''
-
         for (const line of parts) {
-          if (line === '') {
+          if (line.trim() === '') {
             currentEvent = ''
             continue
           }
@@ -136,6 +139,10 @@ export class ApiChatService implements IChatService {
                   break
 
                 case 'done':
+                  if (!fullContent.trim() && pendingCards.length === 0 && steps.length === 0) {
+                    throw new Error('Agent 未返回内容')
+                  }
+                  produced = true
                   yield {
                     id: payload.messageId || `msg-${Date.now()}`,
                     role: 'agent',
@@ -153,6 +160,7 @@ export class ApiChatService implements IChatService {
                   break
 
                 case 'stopped':
+                  produced = true
                   yield {
                     id: `msg-${Date.now()}`,
                     role: 'agent',
@@ -174,6 +182,11 @@ export class ApiChatService implements IChatService {
             }
           }
         }
+      }
+      // 流已结束但从未产出终态消息（done/stopped）：Agent 进程静默退出，
+      // 表现为「转圈后空回复」——显式报错让上层可见，而非停在空正文。
+      if (!produced) {
+        throw new Error('连接已结束，但 Agent 未返回内容')
       }
     } finally {
       this.currentAbortController = null

@@ -94,6 +94,14 @@ def _parse_role_from_md(raw_md: str) -> AgentRole:
 
 
 async def main():
+    # Windows Proactor 事件循环不支持 connect_read_pipe/write_pipe 挂标准流；
+    # 统一强制 UTF-8 行协议，读写都走线程（见下方 send_event / 主读循环）。
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace", newline="\n")
+        except (AttributeError, ValueError):
+            pass
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--agent-id", required=True)
     parser.add_argument("--impl-path", required=True)
@@ -114,26 +122,41 @@ async def main():
         agent = None
         agent_loaded = False
 
-    # 通过 stdin/stdout JSON-line 协议通信
-    reader = asyncio.StreamReader()
-    protocol = asyncio.StreamReaderProtocol(reader)
-    await asyncio.get_event_loop().connect_read_pipe(lambda: protocol, sys.stdin)
-    w_transport, _ = await asyncio.get_event_loop().connect_write_pipe(
-        asyncio.streams.FlowControlMixin, sys.stdout
-    )
-    writer = asyncio.StreamWriter(w_transport, protocol, reader, asyncio.get_event_loop())
+    # 通过 stdin/stdout JSON-line 协议通信。不用 loop 的 pipe transport：
+    # Windows Proactor 无法把标准流管道挂进事件循环（Linux 上则是
+    # 该实现异常时静默丢事件、Agent 空回复）。写侧包装成 StreamWriter
+    # 兼容对象（write 入队 / drain 线程内 flush），bus 与 send_event 共用，
+    # 锁保证后台任务与主循环同时发帧时不交错。
+    write_lock = asyncio.Lock()
+    _pending: list[bytes] = []
+
+    async def _flush_pending():
+        # 切分在事件循环内完成（与 write 追加无竞态），字节写出走线程。
+        if not _pending:
+            return
+        data = b"".join(_pending)
+        _pending.clear()
+        async with write_lock:
+            await asyncio.to_thread(_write_now, data)
+
+    def _write_now(data: bytes):
+        sys.stdout.buffer.write(data)
+        sys.stdout.buffer.flush()
+
+    class _LineWriter:
+        def write(self, data: bytes) -> None:
+            _pending.append(data)
+
+        async def drain(self) -> None:
+            await _flush_pending()
+
+    writer = _LineWriter()
 
     async def send_event(event: dict):
-        """发送 JSON 行到主进程。
-
-        注意：必须显式 await drain()。asyncio.StreamWriter.write() 仅把数据放入
-        缓冲区，不保证立即送出；若不 drain，事件会滞留在缓冲区，导致主进程读取端
-        「一直转圈」等待——每次用户输入都要等缓冲区满或进程结束才能真正收到。
-        这正是「交互 Agent 每步输入都要等很久」的根因。
-        """
-        line = json.dumps(event, ensure_ascii=False) + "\n"
-        writer.write(line.encode())
+        """发送 JSON 行到主进程（立即 flush，不等缓冲区攒满）。"""
+        line = (json.dumps(event, ensure_ascii=False) + "\n").encode("utf-8")
         try:
+            writer.write(line)
             await writer.drain()
         except Exception:
             pass
@@ -274,7 +297,7 @@ async def main():
     try:
         while True:
             try:
-                line = await reader.readline()
+                line = await asyncio.to_thread(sys.stdin.buffer.readline)
                 if not line:
                     break  # stdin closed → 主进程要求退出
 
