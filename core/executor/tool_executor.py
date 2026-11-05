@@ -35,6 +35,29 @@ class ToolExecutor:
         """项目根目录"""
         return Path(__file__).resolve().parent.parent.parent
 
+    @staticmethod
+    def _child_env(owner_id: str | None) -> dict:
+        """构造工具子进程的环境变量。
+
+        **身份显式注入**（管理员评审意见 1 的修复点）：
+
+        - 有 ``owner_id`` → 覆盖为 ``SOTABAND_USER_ID``；
+        - 无 ``owner_id`` → **删除**该变量，避免继承父进程残留的脏值
+          （父进程可能是上一个用户/另一个 Agent 的上下文）。
+
+        工具的 ``api_data.*`` 通过 ``current_owner_id()`` 读这个变量，
+        从而在子进程里也能拿到发起方 UUID。
+        """
+        env = dict(os.environ)
+        if owner_id:
+            env["SOTABAND_USER_ID"] = str(owner_id)
+        # 无显式 owner 时**保留父进程身份**：entrypoint 每个任务已设置正确值，
+        # 主动 pop 会让 workflow / 生成的 Agent 等「未显式传 owner」的路径
+        # 退化到机器身份（评审发现的回归点）。
+        # Agent Web 服务的引擎令牌只属于 Agent 进程，不能泄漏给工具子进程。
+        env.pop("SOTABAND_AGENT_HTTP_TOKEN", None)
+        return env
+
     @classmethod
     def _resolve_impl_dir(cls, tool_id: str) -> Path:
         """在「内置 + 私有」资源根中定位工具实现目录。
@@ -278,6 +301,7 @@ class ToolExecutor:
         params: dict,
         timeout: float = None,
         code: str = None,
+        owner_id: str | None = None,
     ) -> dict:
         """异步执行工具。
 
@@ -286,6 +310,9 @@ class ToolExecutor:
             params: 执行参数字典
             timeout: 超时秒数，None 表示无超时，传入数字则限时
             code: 可选，直接传入代码字符串（用于自动调试，避免重复读文件）
+            owner_id: 可选，资源归属标识（已登录用户 UUID）。注入子进程环境，
+                供工具内 ``api_data.*`` 按人过滤数据集；None 表示不注入
+                （未登录 / 无上下文场景，回退机器身份）
 
         Returns:
             {"status": "success"|"failed", "message": ..., "data": ...}
@@ -318,6 +345,7 @@ class ToolExecutor:
                 python_exe, tmp_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env=cls._child_env(owner_id),
                 **no_window_kwargs(),
             )
             try:
@@ -360,6 +388,7 @@ class ToolExecutor:
         params: dict,
         timeout: float = None,
         code: str = None,
+        owner_id: str | None = None,
     ) -> dict:
         """同步执行工具。内部实现与 execute() 完全一致，仅使用同步 subprocess。
 
@@ -368,6 +397,7 @@ class ToolExecutor:
             params: 执行参数字典
             timeout: 超时秒数
             code: 可选，直接传入代码字符串
+            owner_id: 可选，资源归属标识（注入子进程环境，语义同 execute）
 
         Returns:
             {"status": "success"|"failed", "message": ..., "data": ...}
@@ -398,6 +428,7 @@ class ToolExecutor:
                 [python_exe, tmp_path],
                 capture_output=True, text=True, timeout=timeout,
                 encoding='utf-8', errors='replace',
+                env=cls._child_env(owner_id),
                 **no_window_kwargs(),
             )
             result = cls._parse_output(proc.stdout.strip())

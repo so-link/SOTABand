@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+import uuid
 from pathlib import Path
 
 from core.proc_utils import no_window_kwargs
@@ -88,6 +89,19 @@ for line in sys.stdin:
         break
     if task.get("type") != "call":
         continue
+    # ── 身份：每次调用按 RPC 载荷里的 owner_id 重设环境变量 ──
+    # 常驻 Worker 会连续服务多个用户，若沿用启动时的环境变量就会串号
+    # （A 的数据被写成 B 的 owner）。这里每次调用都显式覆盖/清除。
+    _owner = str(task.get("owner_id") or "")
+    if _owner:
+        os.environ["SOTABAND_USER_ID"] = _owner
+    else:
+        os.environ.pop("SOTABAND_USER_ID", None)
+    try:
+        from core.user_context import reset_cache
+        reset_cache()
+    except Exception:
+        pass
     try:
         if not _LOADED:
             result = {"status": "failed", "message": f"工具加载失败: {_LOAD_ERR[:300]}"}
@@ -96,7 +110,13 @@ for line in sys.stdin:
             result = out if isinstance(out, dict) else {"status": "success", "data": out}
     except Exception as e:
         result = {"status": "failed", "message": f"执行异常: {e}\n{traceback.format_exc()[:800]}"}
-    sys.stdout.write(json.dumps({"event": "result", "result": result}, ensure_ascii=False) + "\n")
+    sys.stdout.write(json.dumps({
+        "event": "result",
+        # 回显 call_id：父进程据此确认「这条结果属于本轮调用」，
+        # 防止超时/取消后滞留的旧结果被下一次调用读走。
+        "call_id": str(task.get("call_id") or ""),
+        "result": result,
+    }, ensure_ascii=False) + "\n")
     sys.stdout.flush()
 """
 
@@ -109,6 +129,21 @@ class ToolRuntime:
         # {tool_id: {"proc": Process, "ready": bool, "load_error": str}}
         self._workers: dict[str, dict] = {}
         self._lock = asyncio.Lock()
+        # 每个 tool 一把调用锁：常驻 Worker 是单通道 RPC（写一条 → 读一条），
+        # 并发调用会互相抢读，导致「第二个调用拿到前一个的结果」或超时后
+        # 回退到 ToolExecutor 把有副作用的工具执行两遍。
+        self._call_locks: dict[str, asyncio.Lock] = {}
+
+    def _call_lock(self, tool_id: str) -> asyncio.Lock:
+        """返回某工具的调用锁（惰性创建；兼容 ``__new__`` 构造的测试替身）。"""
+        locks = getattr(self, "_call_locks", None)
+        if locks is None:
+            locks = self._call_locks = {}
+        lock = locks.get(tool_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            locks[tool_id] = lock
+        return lock
 
     # ── 进程探测 ──
 
@@ -173,13 +208,20 @@ class ToolRuntime:
                     PYTHONUNBUFFERED="1",
                     PYTHONPATH=str(self.project_root),
                 )
+                # 清掉父进程可能残留的身份变量：Worker 的默认身份应为「未指定」，
+                # 具体身份由每次 call 的 owner_id 覆盖（避免启动时把某个用户的
+                # UUID 固化进长期进程）。
+                _base_env = {
+                    k: v for k, v in __import__("os").environ.items()
+                    if k != "SOTABAND_USER_ID"
+                }
                 proc = await asyncio.create_subprocess_exec(
                     self._python_exe(tool_id),
                     "-c", _WORKER_SCRIPT,
                     stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
-                    env={**__import__("os").environ, **env},
+                    env={**_base_env, **env},
                     **no_window_kwargs(),
                 )
                 # 等待 ready 事件（预热可能耗时数秒，给足超时）
@@ -207,32 +249,109 @@ class ToolRuntime:
 
     # ── 调用 ──
 
-    async def call(self, tool_id: str, params: dict, timeout: float | None = 300) -> dict | None:
-        """通过常驻 Worker 调用工具；不可用时返回 None（调用方回退）。"""
-        w = self._workers.get(tool_id)
-        if not w or w["proc"].returncode is not None or not w.get("ready"):
-            # 尝试按需启动
-            st = await self._start_one(tool_id)
-            w = self._workers.get(tool_id)
-            if not w or not w.get("ready"):
-                return None
+    async def call(
+        self,
+        tool_id: str,
+        params: dict,
+        timeout: float | None = 300,
+        owner_id: str | None = None,
+    ) -> dict | None:
+        """通过常驻 Worker 调用工具；不可用时返回 None（调用方回退）。
 
-        proc = w["proc"]
-        try:
-            task = json.dumps({"type": "call", "params": params}, ensure_ascii=False) + "\n"
-            proc.stdin.write(task.encode("utf-8"))
-            await proc.stdin.drain()
-            line = await asyncio.wait_for(proc.stdout.readline(), timeout=timeout)
-            if not line:
-                raise RuntimeError("Worker 无响应")
-            evt = json.loads(line.decode("utf-8", "replace"))
-            if evt.get("event") != "result":
-                raise RuntimeError(f"Worker 返回异常事件: {evt.get('event')}")
-            return evt.get("result")
-        except Exception as e:
-            # 调用失败 → 标记失效，交由调用方回退
-            w["ready"] = False
-            return {"status": "failed", "message": f"常驻调用失败: {e}", "_runtime_error": True}
+        ``owner_id`` 会随 RPC 载荷下发，Worker 在每次执行前重设
+        ``SOTABAND_USER_ID`` —— 这是多用户共用同一常驻进程时不串号的关键。
+
+        **并发语义**：同一 tool 的调用用 ``_call_lock`` 串行化。Worker 是
+        单通道 RPC（写一条任务 → 读一条结果），并发调用会让第二个调用与前
+        一个抢读同一条 stdout：轻则读到别人的结果，重则超时后拿到
+        ``_runtime_error`` 而回退到 ToolExecutor **把工具再执行一遍**。
+        协议错误后旧 Worker 不可复用，必须停掉（否则残留结果会漏给下一次调用）。
+        """
+        async with self._call_lock(tool_id):
+            # Worker 状态必须在锁内重新判断：可能刚被另一个调用标记失效并停止。
+            w = self._workers.get(tool_id)
+            if not w or w["proc"].returncode is not None or not w.get("ready"):
+                await self._start_one(tool_id)
+                w = self._workers.get(tool_id)
+                if not w or not w.get("ready"):
+                    return None
+
+            proc = w["proc"]
+            call_id = uuid.uuid4().hex
+            try:
+                task = json.dumps(
+                    {
+                        "type": "call",
+                        "params": params,
+                        "owner_id": owner_id or "",
+                        "call_id": call_id,
+                    },
+                    ensure_ascii=False,
+                ) + "\n"
+                proc.stdin.write(task.encode("utf-8"))
+                await proc.stdin.drain()
+                line = await asyncio.wait_for(proc.stdout.readline(), timeout=timeout)
+                if not line:
+                    raise RuntimeError("Worker 无响应")
+                evt = json.loads(line.decode("utf-8", "replace"))
+                if evt.get("event") != "result":
+                    raise RuntimeError(f"Worker 返回异常事件: {evt.get('event')}")
+                echoed = evt.get("call_id")
+                if echoed and echoed != call_id:
+                    raise RuntimeError("Worker 响应与本轮调用不匹配（协议失步）")
+                return evt.get("result")
+            except asyncio.CancelledError:
+                # 调用方被取消后 Worker 仍会把结果写回管道；继续复用会让下一个
+                # 调用读到它。标记失效并停掉，下次调用重新预热。
+                w["ready"] = False
+                try:
+                    await self.stop(tool_id)
+                except Exception:
+                    self._workers.pop(tool_id, None)
+                raise
+            except Exception as e:
+                # 调用失败 → 标记失效并**停掉旧 Worker**（避免残留/半截响应
+                # 被下一次调用读走），交由调用方回退。
+                w["ready"] = False
+                try:
+                    await self.stop(tool_id)
+                except Exception:
+                    self._workers.pop(tool_id, None)
+                return {"status": "failed", "message": f"常驻调用失败: {e}", "_runtime_error": True}
+
+    async def stop(self, tool_id: str) -> dict:
+        """停止并回收单个常驻 Worker（幂等）。"""
+        async with self._lock:
+            w = self._workers.pop(tool_id, None)
+        if w is None:
+            return {"tool_id": tool_id, "status": "not_running"}
+        proc = w.get("proc")
+        if proc is not None and proc.returncode is None:
+            # 1) 请求优雅退出（让 Worker 有机会释放模型/显存）
+            try:
+                proc.stdin.write((json.dumps({"type": "shutdown"}) + "\n").encode())
+                await proc.stdin.drain()
+                proc.stdin.close()
+            except Exception:
+                pass
+            # 2) 等待退出
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=8)
+            except asyncio.TimeoutError:
+                # 3) 超时兜底：强制终止
+                try:
+                    proc.terminate()
+                    await asyncio.wait_for(proc.wait(), timeout=3)
+                except asyncio.TimeoutError:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+            except Exception:
+                pass
+        return {"tool_id": tool_id, "status": "stopped"}
 
     # ── 状态 / 停止 ──
 
@@ -252,29 +371,8 @@ class ToolRuntime:
         先发送 shutdown 命令请求优雅退出；若超时未退出则强制终止。
         Worker 进程退出后，其加载的模型与占用的显存/内存由操作系统自动释放。
         """
-        for tid, w in list(self._workers.items()):
-            proc = w.get("proc")
-            if proc and proc.returncode is None:
-                # 1) 请求优雅退出
-                try:
-                    proc.stdin.write((json.dumps({"type": "shutdown"}) + "\n").encode())
-                    await proc.stdin.drain()
-                    proc.stdin.close()
-                except Exception:
-                    pass
-                # 2) 等待退出（给模型释放留出时间）
-                try:
-                    await asyncio.wait_for(proc.wait(), timeout=8)
-                except asyncio.TimeoutError:
-                    # 3) 超时兜底：强制终止
-                    try:
-                        proc.terminate()
-                        await asyncio.wait_for(proc.wait(), timeout=3)
-                    except asyncio.TimeoutError:
-                        try:
-                            proc.kill()
-                        except Exception:
-                            pass
-                    except Exception:
-                        pass
-            self._workers.pop(tid, None)
+        for tid in list(self._workers):
+            try:
+                await self.stop(tid)
+            except Exception:
+                self._workers.pop(tid, None)

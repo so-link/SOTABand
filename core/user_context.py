@@ -34,22 +34,32 @@ SOTABand 的三类资源可见性**不同**，改动前务必确认：
 **数据集私有是物理约束（数据在本机），不是权限偏好。上云后这个约束消失，
 数据集会自然演化为可共享**——所以预留 visibility，而不是把"私有"写死。
 
-## 这里提供什么
+## 身份解析（重要，多用户隔离的基础）
 
-一个稳定的本地用户标识，充当"这个安装实例属于谁"。取值的优先级：
+``owner`` 键的取值按优先级解析（:func:`current_owner_id`）：
 
-1. 环境变量 ``SOTABAND_USER_ID``  —— 多人/多环境显式区分时使用
-2. ``storage/user.json`` 中持久化的标识 —— 首次运行自动生成
-3. 兜底 ``local``
+1. **显式上下文**（``ContextVar``）—— 后端请求/后台任务通过 :func:`use_owner`
+   设置，进程内多处调用拿到同一个身份；
+2. **环境变量 ``SOTABAND_USER_ID``** —— **每次调用现取，不缓存**。Agent 子进程
+   在每次 ``execute`` 前由 entrypoint 设置/清除；工具子进程由 ``ToolExecutor``
+   在 spawn 时显式注入。这样可以避免「同一进程连续服务两个用户时缓存串号」；
+3. **``storage/user.json`` 中持久化的机器标识** —— 仅未登录 / 无会话兜底，
+   只缓存这一层。
+
+历史上第 2 层结果也被缓存，导致同一 Agent 进程先服务 A 再服务 B 时，
+B 的工具调用仍按 A 的 owner 落库（= A 能看到 B 的数据集）。现在环境变量层
+永远实时读取，彻底消除该问题。
 
 ``storage/`` 通常在版本控制之外，因此复制项目不会带走过别人的身份标识，
 天然实现"每个安装实例是独立用户"。
 """
 
+import contextlib
 import json
 import os
 import time
 import uuid
+from contextvars import ContextVar
 from pathlib import Path
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -71,8 +81,14 @@ DEFAULT_VISIBILITY = {
     "agent": VISIBILITY_PUBLIC,
 }
 
-# 进程内缓存：避免每次请求都读写文件
-_cached_user_id: str | None = None
+# 显式身份覆盖（ContextVar）：后端请求 / 后台任务用，优先级最高。
+_CURRENT_OWNER: ContextVar[str | None] = ContextVar(
+    "sotaband_current_owner", default=None
+)
+
+# 进程内缓存：**只缓存机器身份兜底值**。
+# 环境变量层不缓存 —— 否则子进程内切换用户会串号（见模块文档）。
+_cached_machine_id: str | None = None
 
 
 def get_visibility(entry: dict, resource_type: str) -> str:
@@ -137,35 +153,91 @@ def _persist(uid: str) -> None:
         pass
 
 
-def get_current_user_id() -> str:
-    """获取当前用户 / 工作区标识（带进程内缓存）"""
-    global _cached_user_id
-    if _cached_user_id:
-        return _cached_user_id
+# ── 显式身份覆盖（ContextVar）───────────────────────────────────────
 
-    # 1) 环境变量优先，便于显式指定
-    env_uid = os.getenv("SOTABAND_USER_ID", "").strip()
-    if env_uid:
-        _cached_user_id = env_uid
-        return _cached_user_id
 
-    # 2) 已持久化的标识
+def set_current_owner(owner_id: str | None) -> None:
+    """设置当前执行上下文的资源归属标识（None = 清除）。"""
+    _CURRENT_OWNER.set(str(owner_id) if owner_id else None)
+
+
+def get_current_owner() -> str | None:
+    """读取 ContextVar 中显式设置的归属标识（未设置返回 None）。"""
+    return _CURRENT_OWNER.get()
+
+
+@contextlib.contextmanager
+def use_owner(owner_id: str | None):
+    """以指定归属身份执行一段代码（退出后自动恢复）。
+
+    典型用法：后台任务 / 请求中间件里包住整个处理过程，
+    这样深层代码（registry、api_data 等）拿到的都是同一个身份。
+    """
+    token = _CURRENT_OWNER.set(str(owner_id) if owner_id else None)
+    try:
+        yield
+    finally:
+        _CURRENT_OWNER.reset(token)
+
+
+# ── 解析 ────────────────────────────────────────────────────────────
+
+
+def _machine_identity() -> str:
+    """机器身份兜底（只缓存这一层，见模块文档）。"""
+    global _cached_machine_id
+    if _cached_machine_id:
+        return _cached_machine_id
+
     persisted = _load_persisted()
     if persisted:
-        _cached_user_id = persisted
-        return _cached_user_id
+        _cached_machine_id = persisted
+        return _cached_machine_id
 
-    # 3) 首次运行：生成一个稳定的本地标识并持久化
+    # 首次运行：生成一个稳定的本地标识并持久化
     uid = f"local-{uuid.uuid4().hex[:8]}"
     _persist(uid)
-    _cached_user_id = uid
-    return _cached_user_id
+    _cached_machine_id = uid
+    return _cached_machine_id
+
+
+def current_owner_id() -> str:
+    """解析当前执行上下文的资源归属标识。
+
+    优先级（见模块文档"身份解析"）：
+
+    1. ContextVar 显式设置（:func:`use_owner` / :func:`set_current_owner`）；
+    2. 环境变量 ``SOTABAND_USER_ID``（**每次现取，不缓存**）；
+    3. ``storage/user.json`` 持久化的机器身份（仅未登录兜底）。
+    """
+    explicit = _CURRENT_OWNER.get()
+    if explicit:
+        return explicit
+
+    env_uid = os.getenv("SOTABAND_USER_ID", "").strip()
+    if env_uid:
+        return env_uid
+
+    return _machine_identity()
+
+
+def get_current_user_id() -> str:
+    """兼容别名 —— 等价于 :func:`current_owner_id`。
+
+    历史代码大量调用本函数；统一转调后，「系统 API」与 HTTP 路由共用同一套
+    身份解析语义（这是管理员评审意见 1 的修复点之一）。
+    """
+    return current_owner_id()
 
 
 def reset_cache() -> None:
-    """清空缓存（供测试或切换用户时使用）"""
-    global _cached_user_id
-    _cached_user_id = None
+    """清空身份缓存（供测试或身份切换时使用）。
+
+    注意：环境变量层本来就不缓存，这里主要清机器身份兜底值。
+    进程内切换执行身份请优先使用 :func:`use_owner` / :func:`set_current_owner`。
+    """
+    global _cached_machine_id
+    _cached_machine_id = None
 
 
 def resolve_owner_id(ctx=None) -> str:
@@ -181,10 +253,28 @@ def resolve_owner_id(ctx=None) -> str:
     规则：
 
     - 已认证请求（传入 ``AuthContext``）→ 使用 ``ctx.user_id``（UUID）；
-    - 未认证 / 无会话（CLI、Agent 子进程、后台任务）→ 回退到机器身份
-      :func:`get_current_user_id`（其优先读取 ``SOTABAND_USER_ID`` 环境变量，
-      因此工具子进程若被注入该变量，会自然拿到发起方的 UUID）。
+    - 未认证 / 无会话（CLI、Agent 子进程、后台任务）→ 回退到
+      :func:`current_owner_id`（其优先读显式上下文与环境变量
+      ``SOTABAND_USER_ID``，因此工具/Agent 子进程若被注入该变量，
+      会自然拿到发起方的 UUID）。
     """
     if ctx is not None and getattr(ctx, "user_id", None):
         return str(ctx.user_id)
-    return get_current_user_id()
+    return current_owner_id()
+
+
+__all__ = [
+    "DEFAULT_VISIBILITY",
+    "VISIBILITY_PRIVATE",
+    "VISIBILITY_PUBLIC",
+    "current_owner_id",
+    "detect_storage",
+    "get_current_owner",
+    "get_current_user_id",
+    "get_visibility",
+    "is_visible_to",
+    "reset_cache",
+    "resolve_owner_id",
+    "set_current_owner",
+    "use_owner",
+]

@@ -180,17 +180,34 @@ class BaseAgent(ABC):
             return {}
         return await self.get_tool_runtime().ensure_started(tool_ids)
 
-    async def call_tool(self, tool_id: str, params: dict | None = None) -> dict:
+    async def call_tool(
+        self, tool_id: str, params: dict | None = None, owner_id: str | None = None
+    ) -> dict:
         """统一调用已注册工具。
 
         优先走本 Agent 的**常驻 Worker**（若该工具已常驻且就绪）——
         省去每次调用重复 import 重型库与加载模型的开销；
         常驻不可用时回退到 ToolExecutor 的一次性子进程执行，保证可用性。
 
+        ``owner_id``：发起方身份（登录用户 UUID）。常驻 Worker / 子进程都会在
+        每次执行前用它重设 ``SOTABAND_USER_ID``，工具内 ``api_data.*`` 据此
+        按人过滤数据集。Agent 实现应传 ``ctx.user_id``（哨兵值传 None）。
+
         tool_id 必须是真实工具 id：MD 的 flow/apis 在解析阶段
         （`parse_structured_fields`）已把显示名归一化成 id。
         """
         params = dict(params or {})
+
+        # owner 缺省兜底：workflow / 生成的 Agent 等调用方可能不显式传，
+        # 此时从当前执行上下文解析（Agent 进程每任务已设置 SOTABAND_USER_ID），
+        # 不能静默退化成机器身份。
+        if owner_id is None:
+            try:
+                from core.user_context import current_owner_id
+
+                owner_id = current_owner_id()
+            except Exception:
+                owner_id = None
 
         # 0) 必填参数兜底：常驻 Worker 不经过 ToolExecutor，必须在这里拦，
         #    否则「界面把参数设为必填」会被常驻路径绕过。
@@ -203,7 +220,7 @@ class BaseAgent(ABC):
         # 1) 尝试常驻路径
         runtime = self._tool_runtime
         if runtime is not None:
-            result = await runtime.call(tool_id, params)
+            result = await runtime.call(tool_id, params, owner_id=owner_id)
             if result is not None and not result.get("_runtime_error"):
                 return result
             # 常驻失败 → 回退（并清除 runtime 错误标记）
@@ -211,7 +228,7 @@ class BaseAgent(ABC):
         # 2) 回退：一次性子进程执行
         from core.executor.tool_executor import ToolExecutor
 
-        return await ToolExecutor.execute(tool_id, params)
+        return await ToolExecutor.execute(tool_id, params, owner_id=owner_id)
 
     @staticmethod
     def resolve_refs(value, scope: dict):
