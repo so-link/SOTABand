@@ -59,11 +59,30 @@ services:
         PIP_INDEX: ${PIP_INDEX:-https://mirrors.aliyun.com/pypi/simple/}
     container_name: sotaband-backend
     environment:
+      # 生产必填：多 worker / 重启后 Agent 工作负载凭证仍然有效
+      SOTABAND_WORKLOAD_SECRET: ${SOTABAND_WORKLOAD_SECRET:-}
+      # 开发/容器 http 默认 0（否则浏览器会丢弃 Secure Cookie，永远登录不上）；
+      # 生产 https 环境用项目根 .env 覆盖成 1。
+      # ⚠️ 不要在后面再写一份固定值 —— YAML 后者胜，会把可配置项覆盖成死配置。
+      SOTABAND_COOKIE_SECURE: ${SOTABAND_COOKIE_SECURE:-0}
+      SOTABAND_SESSION_TTL_DAYS: ${SOTABAND_SESSION_TTL_DAYS:-30}
+      SOTABAND_BCRYPT_ROUNDS: ${SOTABAND_BCRYPT_ROUNDS:-12}
+      SOTABAND_LOGIN_MAX_ATTEMPTS: ${SOTABAND_LOGIN_MAX_ATTEMPTS:-5}
+      SOTABAND_LOGIN_IP_MAX: ${SOTABAND_LOGIN_IP_MAX:-20}
+      SOTABAND_REGISTER_MAX_PER_HOUR: ${SOTABAND_REGISTER_MAX_PER_HOUR:-5}
+      SOTABAND_PASSWORD_MIN_LENGTH: ${SOTABAND_PASSWORD_MIN_LENGTH:-8}
+      SOTABAND_WORKLOAD_TTL: ${SOTABAND_WORKLOAD_TTL:-600}
+      SOTABAND_INVOKE_MAX_PER_WINDOW: ${SOTABAND_INVOKE_MAX_PER_WINDOW:-120}
+      SOTABAND_INVOKE_WINDOW: ${SOTABAND_INVOKE_WINDOW:-60}
+      SOTABAND_INVOKE_DELIVERY_TIMEOUT: ${SOTABAND_INVOKE_DELIVERY_TIMEOUT:-5}
       # 容器网络里用服务名 `db` 作主机名
       DATABASE_URL: postgresql+asyncpg://sotaband:sotaband@db:5432/sotaband
-      # http 环境必须设 0，否则浏览器会丢弃 Secure Cookie，永远登录不上
-      SOTABAND_COOKIE_SECURE: "0"
       SOTABAND_CORS_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173"
+      # 反向代理后的真实客户端 IP（uvicorn 默认只信任 127.0.0.1；compose 内为前端 Nginx）
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
+      # 平台管理员名单（逗号分隔 user UUID）。空 = 无人是平台管理员。
+      # 全局 LLM 配置 / 查看他人数据集 / 认领历史数据集 / test-connection 需要它。
+      SOTABAND_PLATFORM_ADMINS: ${SOTABAND_PLATFORM_ADMINS:-}
       # 私有资源目录（本机新建的工具/Agent/数据集）。
       # 默认值会解析成 ``/``（见 Dockerfile 里的说明），必须显式指向可写目录。
       SOTABAND_PRIVATE_RESOURCES: /app/resources-private

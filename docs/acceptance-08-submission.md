@@ -296,3 +296,28 @@ frontend/src/components/account/ChangePasswordDialog.tsx 改密码弹窗（三�
 | Agent 身份 | HMAC 短期令牌 `w1.<installation_id>.<exp>.<jti>.<sig>`；**是工牌不是通行证** —— 每次调用现查 DB 推授权 |
 | 前端请求 | **裸 `fetch` 归零**，全部经统一 client（`credentials: 'include'` + 统一 401 处理） |
 | 级联删除 | **无**。所有 `*_id` 是逻辑引用，存在性由应用层保证 |
+
+## 7. 安全加固验收（v2，2026-11-04 增补）
+
+| # | 用例 | 预期 |
+|---|---|---|
+| 1 | 未登录访问 `/api/data/list`、`/api/file/list`、`/api/tool/list`、`/api/model/list`、`/api/task/list`、`/api/config/llm`、`/api/migrate/bundles` | 401；`/api/auth/session`、`/api/health` 仍 200 |
+| 2 | 工具详情页执行会注册数据集的工具 | 数据集 owner = 登录用户 UUID（不是 `local-xxxx`） |
+| 3 | 同一 Agent/工具进程先后被 A、B 使用 | 两次注册的数据集 owner 分别为 A、B（不串号） |
+| 4 | B 发布 A 的私有数据集/私有工具 | 404（不泄露存在性）；发布自己的 → 201 |
+| 5 | B 读取/删除 A 的数据集 | 404；仓库列表默认不出现他人条目；`include_others` 非管理员 403 |
+| 6 | `/api/file/download?path=../.env`、`/api/file/delete` 越界路径 | 403；允许根内文件正常 |
+| 7 | `/api/tool/upload-test-file` 文件名带 `..\..\` | 400/落盘仍在允许目录 |
+| 8 | 登记 data_path 指向 `storage/` 或项目根 | 400 |
+| 9 | 非管理员改全局 LLM 配置 / 测试 LLM 连接 | 403 |
+| 10 | B 覆盖 A 的私有工具（migrate `overwrite=true`） | 404/400；A 自己覆盖 → 200 |
+| 11 | A、B 的工具空间/工作区文件树 | 互相不可见、不互相覆盖 |
+| 12 | 删除工具/数据集/文件、保存代码、改 LLM 配置 | 审计表有对应 `action`，`actor_id` 正确 |
+| 13 | Agent Web 服务端口无令牌直连 | 401；`/_health` 免令牌；仅监听 127.0.0.1 |
+| 14 | 普通成员 `GET /api/data/list?include_others=true` | 403 |
+| 15 | 普通成员用 register/注册接口覆盖他人工具/Agent/数据集/模型 | 404（不能接管） |
+| 16 | A 的上传附件被 B list/download/delete；删除 `resources-private/**/registry.json` | 均被拒绝（按归属/敏感黑名单） |
+| 17 | 同一 Agent 两用户并发执行 / 一用户两标签页 | 事件不串号（工厂锁+失步恢复）；断流后下一请求不继承残留输出 |
+| 18 | Web 服务式 Agent 调用的数据归属 | 数据集 owner = 发起调用的用户 UUID（签名身份头透传）；验签失败退回机器身份 |
+| 19 | 迁移包 zip 成员含 Windows 盘符绝对路径（`E:/...`） | 导入拒绝；不覆盖任意文件 |
+| 20 | 默认 SQLite 下两个并发请求移除/降级/退出最后一位 Owner | 至少保留 1 位 Owner（败者 409/404）；过期邀请点击后状态落库为 expired |

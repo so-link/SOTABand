@@ -1,7 +1,7 @@
 # 8. 用户空间与用户网络 — 文档索引
 
 > 需求编号：8.1 用户注册与登录 / 8.2 用户组网
-> 更新日期：2026-10-15 ｜ 状态：**待评审**（尚未开工）
+> 更新日期：2026-11-04 ｜ 状态：**已实现**（功能 + v2 多用户安全加固，见文末修订记录）
 
 ---
 
@@ -441,3 +441,25 @@ tests/unit/test_password_hashing.py   bcrypt 72 字节边界
 
 **本次改造不触碰任何既有数据**——48 个工具、30 个模型、数据集的既有行为不变
 （ADR-08-08）。没有数据迁移任务，只有建表。
+
+---
+
+## 十、v2 修订记录（2026-11-04，评审后安全加固）
+
+> 状态：**已实现**（8.1/8.2 功能 + 多用户安全加固）；合并 upstream/main 后
+> 后端 553 passed / 3 skipped，前端 tsc/build 通过。
+
+| 修订 | 内容 | 权威文档 |
+|---|---|---|
+| 身份统一 | owner 一律 users.id UUID；`current_owner_id()` 三层解析、env 不缓存；执行链显式下传至工具子进程/常驻 Worker/系统 API/migrate | [design-08-isolation.md §12.1](design-08-isolation.md)、[design-08-01-auth.md §9](design-08-01-auth.md) |
+| 认证基线（D1） | 全部业务 API 需登录；仅 `/api/auth/*`、`/api/health` 公开 | [contract-08-auth-network.md](contract-08-auth-network.md) §A |
+| 资源写权限（D2） | owner 或租户 Owner/Admin；内置仅租户管理员；普通成员互不编辑 | 同上 §B；`core/auth/ownership.py` |
+| 发布归属 | 发布前校验资源存在性与归属；拒绝 404 + 审计 | [design-08-02-network.md](design-08-02-network.md) v2 节；契约 §C |
+| 文件访问边界（D3） | 允许根 + 敏感目录黑名单；上传文件名净化/大小限制；数据集注册路径校验 | [design-08-isolation.md §12.2](design-08-isolation.md) |
+| 工作区隔离 | 工具空间/文件树按 user_id 命名空间存储 | 同上 §12.2 |
+| 迁移包归属（D4） | 导入 owner=导入者 UUID；`exported_by` 溯源；包可见性按导出者；overwrite 权限 | 同上 §12.2 |
+| 审计补全 | 代码/规范变更、删除、数据集/文件删除、LLM 配置、claim-local、迁移导入导出 | 同上 §12.4 |
+| 验收 | 新增安全加固验收 16 条 | [acceptance-08-submission.md](acceptance-08-submission.md) §7 |
+| v2 复审补强 | 文件接口补「归属」维度（他人数据集/上传不可读写删；registry 等元数据禁删）；register/upsert 禁止接管他人资源；写守卫覆盖 refine/register/运行控制；导出需归属；chat 停止按用户隔离；Agent Web 令牌 fail-closed | 同 §12.2 / 契约 §B·§C |
+
+| v3 终审补强 | Agent 通道并发隔离/Web 服务身份透传/任务归属；数据集删除边界+迁移包盘符 slip；config .env 注入与 LLM 重定向 SSRF；发布撤权/幂等/代发/删除撤发布/凭证链路；网络最后一位 Owner 在 SQLite 的并发不变量；平台管理员口径 | 契约 §G、isolation §12.6 |

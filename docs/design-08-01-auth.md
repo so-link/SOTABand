@@ -393,3 +393,50 @@ def safe_return_url(raw: str | None) -> str:
 2. **部署是否严格单 worker**——影响进程内限流的有效性（§5.2）；
 3. 会话有效期 30 天是否合适（也可 7 天）；
 4. 是否需要「修改密码」接口（不依赖邮箱，只需要旧密码）——技术上可行，成本低，建议纳入。
+
+---
+
+## 9. v2 实现补充：身份传导与旧接口覆盖（2026-11-04）
+
+### 9.1 身份传导（管理员评审意见 1 的落地）
+
+原设计只定义了 `AuthContext`（HTTP 层），未定义「身份如何到达工具子进程」。
+v2 补全为一条显式链路：
+
+```
+浏览器 Cookie → 路由 resolve_owner_id(ctx) = users.id (UUID)
+  → Agent 执行 context={"user_id": uuid}
+    → Agent 子进程 os.environ[SOTABAND_USER_ID] = uuid（每次 execute 前设置/清除）
+      → ToolExecutor.execute(owner_id=uuid) 起子进程时显式注入 env
+        → 常驻 Worker 每次 call 的 RPC 载荷带 owner_id，执行前重设 env + reset_cache()
+          → 工具内 api_data.* 经 current_owner_id() 读取 UUID
+```
+
+要点：
+
+- `current_owner_id()` 优先级：**ContextVar（进程内显式）> 环境变量（每次现取，不缓存）>
+  机器身份**；env 层不缓存是「同一进程连续服务两个用户会串号」的根因修复；
+- 未认证路径（CLI/后台任务/Web 服务式 Agent）回退机器身份 `local-xxxx`，
+  仅能看见历史无主数据（已由审计与文档留痕）；
+- `migrate` 导入的资源 owner = 导入者 UUID（原实现记机器身份，属遗留断层）。
+
+### 9.2 旧接口纳入认证基线（D1）
+
+原设计只约束 8.1 新增的 `/api/v1/*` 路由；v2 起**全部业务 API** 都要求登录，
+公开白名单仅 `/api/auth/*` 与 `/api/health`。实现方式是 `app/main.py` 在
+`include_router` 统一挂 `get_auth_context` 依赖，前端本就强制登录。
+
+### 9.3 交互会话的归属（v2 评审补）
+
+- 停止标志与归属记录改为按 ``(user_id, session_id)`` 复合键：同一安装下不同
+  用户即使都用默认 session 也不会互相停止/覆盖；
+- 前端对话 session id 改为浏览器级随机值（localStorage），不再固定 ``default``；
+- **已知限制**：交互 Agent 进程内的对话历史仍按 session_id 存储；`(user, session)`
+  隔离依赖前端生成唯一 session id。多用户同安装时若要强隔离，应在 Agent
+  侧把 session 键改为 `(user_id, session_id)`（后续需求，已记录）。
+- Agent 的启动/停止/重启属于运行控制，纳入 D2 写权限（owner 或租户管理员）。
+
+### 9.4 会话安全复核
+
+HttpOnly + SameSite=Lax + Secure（可配）、登录签发新会话、改密吊销全部会话、
+会话删除校验归属 —— 实现与设计一致，v2 未改动，仅补充了回归测试。

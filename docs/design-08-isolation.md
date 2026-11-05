@@ -371,3 +371,92 @@ PRD FR-N8 给出了完整规则表。提炼成工程要求：
 2. `file_routes.py` / `data_routes.py` 的路径穿越加固是否纳入本模块；
 3. 「敏感私有资源统一 404」的判定标准——哪些资源算"敏感"需要明确清单；
 4. 无权限缓存的方案在数据量增长后是否需要调整（当前判断：不需要）。
+
+---
+
+## 12. v2 实现补充：多用户安全加固（2026-11-04）
+
+> 本节记录评审后落地的实现，覆盖 §11「待确认」第 1–4 项的实际裁定。
+
+### 12.1 身份统一（管理员评审意见 1）
+
+- **资源 owner 一律为 `users.id`（UUID）**；机器身份 `local-xxxx` 仅作未登录兜底。
+- 身份解析统一走 `core/user_context.py`：`current_owner_id()`
+  = 显式上下文（ContextVar）> `SOTABAND_USER_ID`（**每次现取，不缓存**）> 机器身份。
+  历史问题「同一 Agent 进程先后服务 A/B 时 B 的数据集写成 A 的 owner」由
+  「env 层不缓存」根除。
+- **执行链显式下传**：HTTP 边界 `resolve_owner_id(ctx)` →
+  `ToolExecutor.execute(owner_id=)`（子进程按需注入/删除 `SOTABAND_USER_ID`）→
+  常驻 Worker `call(owner_id=)`（每次调用重设环境并 `reset_cache()`）→
+  工具内 `api_data.*` 通过 `current_owner_id()` 读取。
+- **系统 API 与 HTTP 路由同源**：`core/api/implementations/api_data.py` 改用
+  `current_owner_id()`，不再有第二套身份语义；`migrate` 导入的资源 owner
+  也改为导入者 UUID。
+
+### 12.2 文件与工作区边界（原 §7.2「文件接口需重点审查」的落地）
+
+- 新增 `core/file_guard.py`：
+  - **允许根**：项目根、`.runtime/refactor`、`resources-private`、上传根、
+    全部已注册数据集的 `data_path`、`SOTABAND_FILE_ALLOWED_ROOTS` 扩展；
+  - **敏感黑名单**：任何包含 `storage` / `.git` / `.env` / `venv` 的路径一律拒绝；
+  - **规范化**：先 `resolve()` 再按 `Path.parents` 判断，避免 `..` 与符号链接绕过。
+- `/api/file/*` 全部要求登录；下载/预览/图片/音频/删除/目录浏览均走上述校验；
+  上传文件名净化（`Path(name).name`）并限制大小（`SOTABAND_UPLOAD_MAX_MB`）。
+- **数据集注册路径校验**：`data_path` 必须在数据允许根内、不能是资源根本身、
+  不能与其他已注册数据集目录重叠 —— 否则可借「注册任意目录 + `/files` 预览」
+  绕过文件边界。
+- **工作区状态按用户隔离**：`storage/workspace_tools/{user_id}.json`、
+  `storage/workspace_tree/{user_id}.json`；旧全局文件只迁移给第一个读取者。
+- **目录列举同样过滤敏感条目**：即使允许根包含项目根，`scan-directory` /
+  `browse-directory` / 数据集扫描也不会列出 `storage/`、`.env`、`.git` 等条目
+  （否则可借"扫根目录"旁路获得敏感路径清单）。
+- **文件接口的第二层边界：归属**（v2 评审补）：数据集目录只把**当前用户自己的**
+  （以及历史无主本机条目、public 可见性）加入允许根；上传目录按
+  ``UPLOAD_ROOT/<user_id>/`` 命名空间隔离，跨用户不可读/不可删；
+  ``registry.json`` / ``workspace_*.json`` / ``data/exports/**`` 等平台元数据
+  一律禁止通过文件接口读/删（否则可清空注册表）。
+- **迁移包**：目标环境 owner = 导入者 UUID；manifest 新增 `exported_by`
+  （仅溯源与可见性）；包列表/下载默认只看自己导出的（旧包仅租户管理员可见）；
+  `overwrite=true` 需对现有资源有写权限。
+
+### 12.3 数据集归属与 404 语义
+
+| 端点 | 规则 |
+|---|---|
+| `GET /api/data/{id}`、`/{id}/files`、`/{id}/preview`、`/{id}/thumbnail`、`DELETE /{id}`、`POST /match-tools` | 非本人一律 404（不泄露存在性）；历史无 owner 条目按「本机有数据」启发式 |
+| `GET /api/data/repository` | 默认只返回本人；`include_others=true` 仅租户 Owner/Admin |
+| `GET /api/data/search/find` | 结果按 owner 过滤 |
+| `POST /api/data/claim-local` | 仅租户 Owner/Admin（避免"先到先得"认领全部历史数据），写审计 |
+
+### 12.4 审计补全（FR-N9）
+
+除既有认证/租户/网络/共享事件外，新增：`resource.code.change`、
+`resource.spec.change`、`resource.delete`（工具/Agent）、`data.delete`、
+`file.delete`、`config.llm.change`、`data.claim_local`、`migrate.export/import`；
+发布被拒绝也写 `publication.create result=denied`。
+
+### 12.5 §11 待确认项的裁定
+
+1. **模型空间**：仍按共享资产（读/用登录即可），但**写/删**纳入 D2 口径
+   （owner 或租户 Owner/Admin；`model_path` 受文件允许根约束）；
+2. **路径穿越加固**：纳入本模块并已实现（§12.2）；
+3. **敏感资源清单**：文件层用「目录/文件名黑名单 + 允许根」，资源层统一 404；
+4. **无权限缓存**：维持不需要（当前无缓存）。
+
+### 12.6 v3 终审补强（2026-11-04 晚）
+
+- **Agent 子进程并发隔离**：同一 Agent 的 stdin/stdout 通道由工厂级 asyncio 锁
+  串行化；超时/异常/消费者提前断开时排空或重建通道，禁止残留输出串给下一个请求；
+  常驻 Worker 每工具一把调用锁 + call_id 回包校验，失败即停旧 Worker。
+- **Web 服务式 Agent 身份**：引擎代理透传 HMAC 签名的发起者头
+  （`x-sotaband-owner` + sig，密钥为引擎共享令牌）；Web 侧验签后用
+  `use_owner()` 执行，工具/任务以发起用户归属落库；验签失败退回机器身份。
+- **任务归属**：长任务注册表记录 owner，HTTP 端点按 owner 过滤（他人 404）。
+- **数据集边界**：`validate_dataset_path` 收紧允许根（data/output/private-data/
+  runtime/datasets/本人 upload），新增 `validate_dataset_deletion`；迁移包解压
+  拒绝 Windows 盘符/绝对路径成员（写盘前再次 `relative_to` 校验）。
+- **网络不变量**：SQLite 下成员变更临界区先取库级写锁（等效 BEGIN IMMEDIATE），
+  保证"最后一位 Owner 不可移除/降级/退出"在默认部署上真实成立；
+  过期邀请状态先提交再返回 410；成员移除/退出吊销该邮箱 pending 邀请；
+  网络状态变更改条件更新（CAS）。
+- **升级兼容（历史机器身份数据集）**：8.1 之前注册的数据集 owner 为机器身份（`local-xxxx`），升级后按「未认领的历史条目」处理——本机有数据即对登录用户可见，平台管理员可用 `POST /api/data/claim-local` 批量打上 UUID 归属；不会静默失联。

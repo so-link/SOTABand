@@ -156,3 +156,21 @@ docker compose ps                 # db / backend / frontend 均应为 running/he
 ## 开发状态
 
 🚧 初具规模
+
+## 多用户部署与安全基线（v2，2026-11-04）
+
+从本版本起，业务 API **一律要求登录**（前端本来就是登录门禁；`/api/auth/*` 与
+`/api/health` 除外）。一台服务器多人共用的部署请额外确认：
+
+| 项 | 要求 |
+|---|---|
+| 会话 | 生产 https 必须 `SOTABAND_COOKIE_SECURE=1`；`SOTABAND_CORS_ORIGINS` 必须是显式来源 |
+| 工作负载 | `SOTABAND_WORKLOAD_SECRET` 必须显式配置（否则重启后 Agent 凭证失效、多 worker 互不认） |
+| 文件边界 | 「打开目录 / 预览 / 下载 / 删除」默认只允许项目根、`.runtime`、`resources-private`、上传目录、已注册数据集目录；需要其它目录用 `SOTABAND_FILE_ALLOWED_ROOTS` 显式授权 |
+| 资源写权限 | 工具/Agent/模型的「改代码/改规范/标签/装依赖/删除」只允许资源 owner 或租户 Owner/Admin；内置资产仅租户管理员。同一租户普通成员之间**默认不能互改** |
+| 审计 | 登录、租户/网络/共享操作、工具/Agent 代码变更与删除、数据集/文件删除、LLM 配置变更、迁移导入导出均写 `audit_event` |
+| 工具代码执行 | 工具以**服务器进程权限**运行（产品固有行为）。多用户生产环境请开启代码安全审查的 enforce 模式与资源/网络限制，或为不同团队使用独立 OS 用户/容器隔离（容器化隔离为后续需求） |
+| 迁移包 | `.sotatool.zip` / `.sotaagent.zip` 默认只有导出者本人与租户管理员可见；`overwrite` 只能覆盖自己的资源（管理员可兜底） |
+
+相关配置项见 `.env.example` 的「数据库与存储」「会话与认证」「工作负载身份」
+「文件访问边界」四节。

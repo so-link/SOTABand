@@ -525,3 +525,87 @@ export default function App() {
 3. 网络资源操作**必须**过 `await authorize(ctx, permission=..., network_id=...)`，不要自己写 if-else。
 
 **Step 2 交付后即可开工**（见 ADR-08-10），无需等待数据库或网络表就绪——先用 `AuthContext`，`network_id` 到 Step 4 再接入。
+
+---
+
+## v2 修订：认证基线与资源权限（2026-11-04）
+
+> 本修订为**行为变更**，实现对应 PR #5 评审修复。冻结契约 §3 的路径/字段不变，
+> 新增以下约束。
+
+### A. 认证基线（D1）
+
+- **所有业务 API 未登录一律 401**，包括 8.1 之前的历史接口（data/file/tool/
+  agent/model/task/config/llm/migrate/chat/apis）。
+- **公开白名单**仅两项：`/api/auth/*` 认证生命周期（注册/登录/会话探测/登出）
+  与 `/api/health`。
+- 前端已强制登录，不需要新的调用方式；统一 client 的 401 会切到 `expired` 状态。
+
+### B. 资源写权限矩阵（D2）
+
+| 操作 | user-generated（有 owner） | builtin（无 owner） |
+|---|---|---|
+| 读/列出/执行（工具/Agent/模型） | 登录即可（共享资产） | 登录即可 |
+| 改代码/规范/标签/参数/装依赖/删除 | **owner 或租户 Owner/Admin** | **仅租户 Owner/Admin** |
+| 启动/停止/重启 Agent（运行控制） | **owner 或租户 Owner/Admin** | **仅租户 Owner/Admin** |
+| 停止自动调试 | 同上（按工具归属校验） | 同上 |
+
+- 同一租户的普通成员之间**不允许**互相编辑对方资源（用户明确拍板）；
+- 失败统一 404（不确认存在性）；实现见 `core/auth/ownership.py`。
+- 前端据 `is_owner` / `can_edit` 渲染只读态（后端为唯一判定方）。
+
+### C. 发布归属校验（管理员评审意见 2）
+
+- 发布（`POST /api/v1/{type}-releases/{release_id}/publications`）新增**资源归属校验**，
+  位于范围权限校验之前：
+  - `data`：必须存在且 owner = 当前用户（历史无 owner 按本机有数据启发式）；
+  - `tool` / `agent`：存在且（owner = 当前用户 或 `visibility=public`）；
+  - 不存在 / 无权：统一 **404「资源版本不存在或无权发布」**（fail-closed，不泄露存在性）；
+- 拒绝也写审计（`publication.create` result=denied，覆盖 404 与 403 两种拒绝），
+  再由路由层 commit。
+- **`release_id` 必须等值于本机 registry 中的资源 id**（v2 明确）：原文档的
+  "跨系统引用"语义只保留在**查询侧降级**；发布侧为了做归属校验，无法识别
+  的版本号一律 404。前端手输任意版本号会被拒绝。
+- 前端发布候选列表只列当前用户可发布的资源（输入框仍允许手输，后端兜底）。
+
+### D. 其它行为变更
+
+| 接口 | 变更 |
+|---|---|
+| `POST /api/v1/.../installations`（tenant 范围） | 发布记录必须属于当前激活租户，否则 404 |
+| `POST /api/chat/stop` | 仅本人会话；租户 Owner/Admin 可兜底；否则 404 |
+| `POST /api/data/claim-local` | 仅租户 Owner/Admin，写审计 |
+| `POST /api/config/llm` | 仅租户 Owner/Admin，写审计 |
+| `GET /api/llm/test-connection` | 仅租户 Owner/Admin；`base_url` 只允许 http/https，默认拒绝内网/回环（`SOTABAND_LLM_ALLOW_LOCAL=1` 显式放开） |
+| `/api/file/*` | 需登录；路径必须在允许根内且不命中敏感黑名单，否则 403 |
+| `/api/migrate/*` | 需登录；导入 owner=导入者 UUID；包可见性按导出者；`overwrite` 需写权限 |
+
+### E. 已知限制：LLM 配置是安装级全局配置
+
+`LLM_PROVIDER / LLM_API_KEY` 写在安装目录的 `.env`，被**同一安装下的所有租户**
+共用。因此「仅租户 Owner/Admin 可改」只解决"普通成员不能改"，不能防止
+同一安装内的多个租户管理员互相影响；多租户共用一个安装时，需通过运维手段
+（独立安装/独立 OS 用户）隔离。这是当前架构的已知限制，不是遗漏。
+
+### F. 不变的部分
+
+- 会话 Cookie 属性（HttpOnly + SameSite=Lax + Secure 可配）、工作负载令牌格式与
+  校验链、发布/安装/调用授权链、网络角色真值表、404 优先于 403 的语义。
+
+### G. v3 终审补充口径（2026-11-04 晚）
+
+- **平台管理员**（`SOTABAND_PLATFORM_ADMINS`，逗号分隔 user UUID，空=无人）：
+  安装级全局配置（`GET/POST /api/config/llm`、`GET /api/llm/test-connection`）、
+  跨用户数据集管理视图（`/api/data/*` 的 `include_others`）与
+  `POST /api/data/claim-local` 仅平台管理员。理由：个人租户下"租户 Owner"
+  对每个注册用户恒真，不能作为安装级管理权限依据。
+- **数据集删除**：仅当 `data_path` 位于安全数据集根内（且为本人资源）才允许；
+  否则 409（不再直接 rmtree 任意目录）。允许根外的历史数据集需手工清理。
+- **发布撤权**：非发布者撤回 publication 需 `network.update`；tool/agent 代他人
+  发布需租户 Owner/Admin；重复发布命中他人条目：private → 404、network → 409。
+- **凭证/调用**：`issue_credential` 校验网络装载权限；invoke 链额外校验发起者
+  租户成员/租户/用户状态。
+- **删除资源**：工具/Agent/数据集删除时自动撤回其 active publication。
+- **LLM 测试连接**：不跟随 HTTP 重定向、拒绝 URL userinfo（防 SSRF 重定向绕过）；
+  `.env` 写入对 api_key/model 做字符白名单（防换行注入）。
+- **升级兼容（历史机器身份数据集）**：8.1 之前注册的数据集 owner 为机器身份（`local-xxxx`），升级后按「未认领的历史条目」处理——本机有数据即对登录用户可见，平台管理员可用 `POST /api/data/claim-local` 批量打上 UUID 归属；不会静默失联。
