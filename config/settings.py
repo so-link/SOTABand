@@ -12,11 +12,40 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
+def _parse_dotenv_value(raw: str) -> str:
+    """解析 ``.env`` 的一行值。
+
+    - 引号包裹的值原样保留（含空格与 ``#``）；
+    - 未加引号的值剥离**行内注释**：仅当 ``#`` 前面有空格（``" #"``）时才切。
+      这样 ``SOTABAND_COOKIE_SECURE=1 # 生产必须`` 解析为 ``1``（此前会被整段
+      当成字符串 → ``in ("1", ...)`` 判 False、int 项直接 ValueError），
+      而 URL 里的 ``#``（如 ``http://host/path#frag``）不会被误切。
+    """
+    text = raw.strip()
+    if not text:
+        return ""
+    if text[0] in ("'", '"'):
+        quote = text[0]
+        end = text.rfind(quote)
+        if end > 0:
+            return text[1:end]
+        return text.strip(quote)
+    marker = text.find(" #")
+    if marker >= 0:
+        text = text[:marker]
+    return text.strip()
+
+
 # 自动加载项目根目录的 .env 文件
-def _load_dotenv():
+def _load_dotenv(env_file: Path | None = None):
+    """把 ``.env`` 载入 ``os.environ``（已存在的环境变量优先）。
+
+    ``env_file`` 仅用于测试注入；生产/默认读取项目根目录的 ``.env``。
+    """
     if os.environ.get("SOTABAND_LOAD_DOTENV", "1") == "0":
         return
-    env_file = Path(__file__).resolve().parent.parent / ".env"
+    if env_file is None:
+        env_file = Path(__file__).resolve().parent.parent / ".env"
     if env_file.exists():
         with open(env_file, encoding='utf-8') as f:
             for line in f:
@@ -24,11 +53,36 @@ def _load_dotenv():
                 if not line or line.startswith("#") or "=" not in line:
                     continue
                 key, _, val = line.partition("=")
-                key, val = key.strip(), val.strip().strip('"').strip("'")
+                key = key.strip()
                 if key and key not in os.environ:
-                    os.environ[key] = val
+                    os.environ[key] = _parse_dotenv_value(val)
 
 _load_dotenv()
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    """读取布尔型环境变量（1/true/yes/on 视为真）。"""
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _env_path_list(name: str) -> list[str]:
+    """解析「多个目录」环境变量（``os.pathsep`` 分隔；无分隔符时兼容逗号）。"""
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return []
+    parts = raw.split(os.pathsep) if os.pathsep in raw else raw.split(",")
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _env_csv_list(name: str) -> list[str]:
+    """解析逗号分隔的环境变量（如平台管理员 UUID 名单）。空值 → 空列表。"""
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return []
+    return [p.strip() for p in raw.split(",") if p.strip()]
 
 
 # OpenAI 兼容协议的主流服务商预设表
@@ -416,6 +470,17 @@ class SecurityConfig:
     max_file_size_mb: int = 512
     max_processes: int = 64
 
+    # ── 平台管理员（部署级，可跨租户）──
+    #: 逗号分隔的 ``users.id``（UUID）。平台管理员可操作**全局**配置：
+    #: 修改 LLM 配置 / 测试 LLM 连接 / 查看与认领他人数据集。
+    #:
+    #: ⚠️ 空列表 = **没有人**是平台管理员（fail-closed）—— 绝不能把
+    #: ``tenant_role == owner/admin`` 当作平台管理员：任何自助注册用户都会成为
+    #: 自己个人租户的 owner。名单只来自部署环境变量，没有任何 HTTP 接口可改它。
+    platform_admins: list = field(
+        default_factory=lambda: _env_csv_list("SOTABAND_PLATFORM_ADMINS")
+    )
+
 
 @dataclass
 class ObservabilityConfig:
@@ -454,6 +519,30 @@ class AppConfig:
             ).split(",")
             if o.strip()
         ]
+    )
+
+
+@dataclass
+class FileAccessConfig:
+    """文件访问边界（D3 决策，2026-11-04；见 ``core/file_guard.py``）。
+
+    多用户共用一台服务器时，必须限制「工作区间打开目录 / 预览 / 下载 / 删除」
+    只能访问明确允许的目录，否则任何登录用户都能读别人的数据集、``.env``、
+    数据库文件。
+    """
+
+    #: 额外允许根目录（``os.pathsep`` 分隔）。默认空：
+    #: 项目根 / runtime / resources-private / 上传根 / 已注册数据集目录已自动允许。
+    allowed_roots: list = field(
+        default_factory=lambda: _env_path_list("SOTABAND_FILE_ALLOWED_ROOTS")
+    )
+    #: 单文件上传大小上限（MB）
+    upload_max_mb: int = field(
+        default_factory=lambda: int(os.getenv("SOTABAND_UPLOAD_MAX_MB", "512"))
+    )
+    #: LLM 连通性测试是否允许访问 localhost/内网（本机 Ollama 场景置 1）
+    llm_allow_local: bool = field(
+        default_factory=lambda: _env_flag("SOTABAND_LLM_ALLOW_LOCAL", False)
     )
 
 
@@ -590,6 +679,7 @@ class Settings:
     agent: AgentConfig = field(default_factory=AgentConfig)
     security: SecurityConfig = field(default_factory=SecurityConfig)
     observability: ObservabilityConfig = field(default_factory=ObservabilityConfig)
+    file_access: FileAccessConfig = field(default_factory=FileAccessConfig)
 
     @classmethod
     def from_env(cls) -> "Settings":
