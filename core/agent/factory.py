@@ -6,6 +6,7 @@ import ast
 import asyncio
 import json
 import re
+import secrets
 import sys
 import time
 from pathlib import Path
@@ -15,6 +16,10 @@ from core.proc_utils import no_window_kwargs
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
+#: 上一轮执行被中途放弃后，下一轮开始前最多等待多久把残留输出排到任务边界。
+#: 超时仍无法对齐 → 终止子进程重建通道（fail-closed）。
+_RESYNC_TIMEOUT = 180.0
+
 
 class AgentFactory:
     """Agent 工厂 — 管理 Agent 子进程的完整生命周期"""
@@ -23,8 +28,144 @@ class AgentFactory:
         self._processes: dict[str, asyncio.subprocess.Process] = {}
         # web-service Agent 的 HTTP 服务信息：{agent_id: {"host":..., "port":..., "apis":[...]}}
         self._services: dict[str, dict] = {}
+        # 引擎 ↔ Agent Web 服务之间的共享令牌（防本机其它进程/外部直连调用）
+        self._http_tokens: dict[str, str] = {}
         # 启动期由子进程上报的错误（如 spec/代码加载失败），便于 start 响应暴露原因
         self._startup_errors: dict[str, str] = {}
+        # 每个 agent 的执行独占锁：子进程 stdin/stdout 是单通道 JSON-line 协议，
+        # 「发送一条 → 读完本轮响应」必须原子，否则并发请求会互相抢读。
+        self._exec_locks: dict[str, asyncio.Lock] = {}
+        # 上一轮被消费者提前放弃（没读到 done）的 agent：管道里还有残留输出，
+        # 下一次执行前必须先排空，禁止被下一个请求当成本轮响应。
+        self._desynced: set[str] = set()
+
+    def get_http_token(self, agent_id: str) -> str:
+        """取某 Agent Web 服务的引擎共享令牌（供 /test-api 代理使用）。"""
+        return self._http_tokens.get(agent_id, "")
+
+    def execution_lock(self, agent_id: str) -> asyncio.Lock:
+        """返回该 Agent 子进程 stdin/stdout 通道的独占执行锁。
+
+        JSON-line 协议是**单通道**：一次 send 到读完本轮响应之间必须原子。
+        并发调用（两个 HTTP 请求，或 HTTP 与 stdin 任务）同时写/读时，前一个
+        请求的响应会被后一个请求读走（实测 B 的回复被 C 收到）。
+
+        因此 ``execute_stream`` 全程持锁；Web 服务式 Agent 的 ``/test-api``
+        代理也必须在同一把锁内调用，才能与 stdin 任务互斥（``WebServiceHost``
+        内部的锁只保证 HTTP 请求之间串行）。
+        """
+        lock = self._exec_locks.get(agent_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._exec_locks[agent_id] = lock
+        return lock
+
+    def _discard_execution_lock(self, agent_id: str) -> None:
+        """start/stop 时丢弃空闲的执行锁（正在使用/等待中的锁必须保留）。"""
+        lock = self._exec_locks.get(agent_id)
+        if lock is not None and not lock.locked():
+            self._exec_locks.pop(agent_id, None)
+
+    @staticmethod
+    async def _drain_stdout(proc, timeout: float = 1.0) -> bool:
+        """丢弃 stdout 中残留的协议行，返回是否已读到 EOF（管道已清空）。"""
+        stream = getattr(proc, "stdout", None)
+        if stream is None:
+            return True
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                line = await asyncio.wait_for(
+                    stream.readline(), timeout=max(0.05, deadline - time.time())
+                )
+            except asyncio.TimeoutError:
+                return getattr(proc, "returncode", None) is not None
+            except Exception:
+                return True
+            if not line:
+                return True
+        return getattr(proc, "returncode", None) is not None
+
+    async def _abort_channel(self, agent_id: str, proc) -> None:
+        """停止失步的子进程并排空管道（fail-closed）。
+
+        读取异常 / 超时 / 上一轮未收尾时，管道里可能还留着本轮或上一轮的
+        输出。若直接返回，这些字节会被**下一个请求**当成自己的响应读走；
+        因此统一「优雅 stop（限时）→ 排空 → 丢弃进程记录」，下一次 start
+        使用全新管道，残留字节不可能被继承。
+        """
+        self._desynced.discard(agent_id)
+        if proc is not None and getattr(proc, "returncode", None) is None:
+            # 先请求优雅退出：Agent 子进程的 on_stop 会回收它的常驻工具进程 /
+            # 模型资源（Windows 上强杀父进程不会连带回收子进程）。
+            try:
+                proc.stdin.write((json.dumps({"action": "stop"}) + "\n").encode())
+                await proc.stdin.drain()
+            except Exception:
+                pass
+            try:
+                proc.stdin.close()
+            except Exception:
+                pass
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=5)
+            except asyncio.TimeoutError:
+                try:
+                    proc.terminate()
+                    await asyncio.wait_for(proc.wait(), timeout=5)
+                except asyncio.TimeoutError:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+            except Exception:
+                pass
+        await self._drain_stdout(proc, timeout=1.0)
+        current = self._processes.get(agent_id)
+        if current is None or current is proc:
+            self._processes.pop(agent_id, None)
+            self._services.pop(agent_id, None)
+            self._http_tokens.pop(agent_id, None)
+
+    async def _resync_channel(self, agent_id: str, proc) -> bool:
+        """把上一轮未读完的输出丢弃到任务边界（``done``）。
+
+        **只把 ``done`` 当作边界**：``error`` 事件可能出现在执行中途（Agent
+        自己 yield 的领域错误），据此提前发送下一轮会把旧任务的后续输出读成
+        新响应——那正是要修的串号问题。若旧任务失败且没发 ``done``，这里会
+        等到 ``_RESYNC_TIMEOUT`` 后返回 False，由调用方终止重建通道
+        （fail-closed：宁可重启，也不冒串号风险）。
+
+        Returns:
+            True 表示通道已对齐，可以安全发送下一轮；False 表示无法对齐
+            （进程已退出 / 长时间未收尾），调用方应终止并重建通道。
+        """
+        stream = getattr(proc, "stdout", None)
+        if stream is None or getattr(proc, "returncode", None) is not None:
+            return False
+        deadline = time.time() + _RESYNC_TIMEOUT
+        while True:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                return False
+            try:
+                line = await asyncio.wait_for(stream.readline(), timeout=min(remaining, 5.0))
+            except asyncio.TimeoutError:
+                if getattr(proc, "returncode", None) is not None:
+                    return False
+                continue
+            except Exception:
+                return False
+            if not line:
+                return False
+            try:
+                event = json.loads(line.strip().decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                continue
+            if isinstance(event, dict) and event.get("event") == "done":
+                return True
 
     @staticmethod
     def _resolve_impl_path(agent_id: str) -> str | None:
@@ -55,8 +196,11 @@ class AgentFactory:
         if agent_id in self._processes and self._processes[agent_id].returncode is None:
             return {"agent_id": agent_id, "status": "already_running"}
 
-        # 新的启动周期：清掉上一轮残留的启动错误
+        # 新的启动周期：清掉上一轮残留的启动错误与通道状态
+        # （新进程 = 全新的 stdin/stdout，旧通道的失步标记与空闲锁都应丢弃）
         self._startup_errors.pop(agent_id, None)
+        self._desynced.discard(agent_id)
+        self._discard_execution_lock(agent_id)
 
         if impl_path is None:
             # 在内置 + 私有资源根中检索实现目录
@@ -94,6 +238,9 @@ class AgentFactory:
         entrypoint = str(PROJECT_ROOT / "core" / "agent" / "entrypoint.py")
 
         try:
+            # 每次启动生成新的引擎共享令牌（重启即轮换），经环境变量注入子进程；
+            # WebServiceHost 用它校验除 /_health 外的所有请求（P1-13）。
+            http_token = secrets.token_urlsafe(24)
             proc = await asyncio.create_subprocess_exec(
                 python, entrypoint,
                 "--agent-id", agent_id,
@@ -102,25 +249,32 @@ class AgentFactory:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(PROJECT_ROOT),
+                env={**__import__("os").environ, "SOTABAND_AGENT_HTTP_TOKEN": http_token},
                 **no_window_kwargs(),
             )
             self._processes[agent_id] = proc
+            self._http_tokens[agent_id] = http_token
 
             # 等待子进程初始化
             await asyncio.sleep(1.0)
 
             if proc.returncode is not None:
-                # 进程已退出 → 读取 stderr 获取错误信息
-                try:
-                    stderr_data = await proc.stdout.read(4096)  # 可能包含 error 事件
-                    stderr_text = stderr_data.decode(errors="replace") if stderr_data else ""
-                except Exception:
-                    stderr_text = ""
-                try:
-                    err_data = await proc.stderr.read(4096)
-                    err_text = err_data.decode(errors="replace") if err_data else ""
-                except Exception:
-                    err_text = ""
+                # 进程已退出 → 读取 stdout/stderr 获取错误信息。
+                # stdout 也是 execute_stream 的读对象，必须持同一把锁（否则并发
+                # 请求时这里会抢走/吞掉执行输出）。
+                stderr_text = ""
+                err_text = ""
+                async with self.execution_lock(agent_id):
+                    try:
+                        stderr_data = await proc.stdout.read(4096)  # 可能包含 error 事件
+                        stderr_text = stderr_data.decode(errors="replace") if stderr_data else ""
+                    except Exception:
+                        stderr_text = ""
+                    try:
+                        err_data = await proc.stderr.read(4096)
+                        err_text = err_data.decode(errors="replace") if err_data else ""
+                    except Exception:
+                        err_text = ""
                 detail = (stderr_text + err_text)[:300].strip() or "进程异常退出"
                 self._processes.pop(agent_id, None)
                 return {"agent_id": agent_id, "status": "failed", "running": False, "error": detail}
@@ -132,7 +286,10 @@ class AgentFactory:
             # 同一套子进程启动流程，因此这里按角色分支而不是按"有没有关键字"。
             role = self._resolve_role(agent_id, impl_path)
             if role == "web-service":
-                svc = await self._probe_service_ready(agent_id)
+                # 与 execute_stream 共用同一把锁：服务就绪探测也是 stdout 读方，
+                # 并发读取同样会把执行响应读成 service_ready（或反之）。
+                async with self.execution_lock(agent_id):
+                    svc = await self._probe_service_ready(agent_id)
                 if svc is None and proc.returncode is not None:
                     # 启动期就退出了（加载 spec/代码失败、端口被占等）
                     # → 明确回报，避免留下"状态 running 但服务不可用"的假象
@@ -285,7 +442,9 @@ class AgentFactory:
             if name == "service_ready":
                 data = event.get("data") or {}
                 self._services[agent_id] = {
-                    "host": data.get("host", "127.0.0.1"),
+                    # 强制 loopback：host 来自子进程上报，用户自建 Agent 可伪造，
+                    # 若信任它，/test-api 代理就变成任意 host:port 的 SSRF。
+                    "host": "127.0.0.1",
                     "port": data.get("port"),
                     "apis": data.get("apis", []),
                 }
@@ -433,8 +592,12 @@ class AgentFactory:
         来不及执行 on_stop() 清理，常驻工具进程与模型资源将无法被优雅释放。
         """
         proc = self._processes.pop(agent_id, None)
-        # 清理 web-service 服务记录
+        # 清理 web-service 服务记录与共享令牌
         self._services.pop(agent_id, None)
+        self._http_tokens.pop(agent_id, None)
+        # 进程已停止：通道失步标记与空闲的执行锁一并清理（新 start 重新建立）
+        self._desynced.discard(agent_id)
+        self._discard_execution_lock(agent_id)
         if proc is None:
             return {"agent_id": agent_id, "status": "not_running"}
 
@@ -493,80 +656,112 @@ class AgentFactory:
     ) -> AsyncGenerator[dict, None]:
         """向 Agent 子进程发送任务（支持任意参数），流式读取响应。
 
+        **并发安全**：同一 agent 的 stdin/stdout 是单通道协议，本方法从 send
+        到读完整个流持有 :meth:`execution_lock`。并发调用会排队，而不是互相
+        抢读——否则 A 的响应会被 B 读走（跨用户串号）。
+
         Args:
             agent_id: Agent ID
             params: 传给 agent.execute(**params) 的参数（如 content / attachments / workspace_tool_ids）
             context: 执行上下文覆盖（session_id / user_id / metadata）
             timeout: 总超时（秒）
         """
-        proc = self._processes.get(agent_id)
-        if proc is None or proc.returncode is not None:
-            yield {"event": "error", "data": {"message": f"Agent '{agent_id}' 未运行"}}
-            return
-
-        ctx = {"session_id": "default", "user_id": "default", "agent_id": agent_id}
-        if context:
-            ctx.update(context)
-
-        task = {
-            "action": "execute",
-            "context": ctx,
-            "params": dict(params or {}),
-        }
-        try:
-            proc.stdin.write((json.dumps(task) + "\n").encode())
-            await proc.stdin.drain()
-        except Exception:
-            yield {"event": "error", "data": {"message": "Agent 进程已断开"}}
-            return
-
-        # 流式读取 stdout：按行读取（JSON-line 协议），保证事件到达即被取出。
-        # 注意：不要用 read(4096)——它会「攒满 4096 字节或 EOF」才返回，导致
-        # 单条小事件被长时间挂起，表现为「每步输入都要等很久」。
-        # readline() 在遇到换行符即返回，与子进程的 flush 配合可做到低延迟。
-        #
-        # 超时语义：
-        #   - timeout=None  → 不设总超时（长耗时工具，如模型训练，必须支持）。
-        #   - timeout>0     → 总时长上限，超出后向调用方报超时并终止子进程。
-        # 空闲超时（idle）：单次 readline 长时间无新事件不代表任务卡死——
-        # 训练类任务可能数分钟不产生中间输出。故给予较大的空闲容忍度，
-        # 仅在「确实长时间完全无输出且进程仍存活」时才放弃等待。
-        deadline = (time.time() + timeout) if timeout else None
-        idle_timeout = max(600.0, float(timeout)) if timeout else 3600.0
-        while True:
-            if deadline is not None and time.time() > deadline:
-                yield {"event": "error", "data": {"message": f"Agent 执行超时 ({int(timeout)}s)"}}
-                try:
-                    proc.terminate()
-                except Exception:
-                    pass
+        wrote = False
+        settled = False
+        async with self.execution_lock(agent_id):
+            proc = self._processes.get(agent_id)
+            if proc is None or proc.returncode is not None:
+                self._desynced.discard(agent_id)
+                yield {"event": "error", "data": {"message": f"Agent '{agent_id}' 未运行"}}
                 return
-            try:
-                line = await asyncio.wait_for(proc.stdout.readline(), timeout=idle_timeout)
-                if not line:
-                    yield {"event": "error",
-                           "data": {"message": f"Agent '{agent_id}' 进程已退出"}}
+
+            # 上一轮被消费者提前放弃（用户点“停止”/客户端断连）：先把残留输出
+            # 排到任务边界再发本轮；排不干净就重建通道，绝不把旧输出当本轮响应。
+            if agent_id in self._desynced:
+                if await self._resync_channel(agent_id, proc):
+                    self._desynced.discard(agent_id)
+                else:
+                    await self._abort_channel(agent_id, proc)
+                    yield {"event": "error", "data": {"message": (
+                        f"Agent '{agent_id}' 上一轮执行未收尾，已重建执行通道，请重试"
+                    )}}
                     return
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    event = json.loads(line.decode('utf-8'))
-                    yield event
-                    # done 事件到达即表示本轮执行结束，立即返回，
-                    # 避免继续阻塞读取等待下一轮输入。
-                    if isinstance(event, dict) and event.get("event") == "done":
-                        return
-                except (json.JSONDecodeError, UnicodeDecodeError):
-                    pass
-            except asyncio.TimeoutError:
-                # 空闲超时：超过容忍时长仍无任何输出。
-                yield {"event": "error",
-                       "data": {"message": f"Agent 长时间无响应（{int(idle_timeout)}s 无输出）"}}
-                break
-            except Exception as e:
-                yield {"event": "error", "data": {"message": f"读取 Agent 响应失败: {e}"}}
+
+            ctx = {"session_id": "default", "user_id": "default", "agent_id": agent_id}
+            if context:
+                ctx.update(context)
+
+            task = {
+                "action": "execute",
+                "context": ctx,
+                "params": dict(params or {}),
+            }
+            try:
+                proc.stdin.write((json.dumps(task) + "\n").encode())
+                await proc.stdin.drain()
+            except Exception:
+                yield {"event": "error", "data": {"message": "Agent 进程已断开"}}
+                await self._abort_channel(agent_id, proc)
                 return
+            wrote = True
+
+            # 流式读取 stdout：按行读取（JSON-line 协议），保证事件到达即被取出。
+            # 注意：不要用 read(4096)——它会「攒满 4096 字节或 EOF」才返回，导致
+            # 单条小事件被长时间挂起，表现为「每步输入都要等很久」。
+            # readline() 在遇到换行符即返回，与子进程的 flush 配合可做到低延迟。
+            #
+            # 超时语义：
+            #   - timeout=None  → 不设总超时（长耗时工具，如模型训练，必须支持）。
+            #   - timeout>0     → 总时长上限，超出后向调用方报超时并终止子进程。
+            # 空闲超时（idle）：单次 readline 长时间无新事件不代表任务卡死——
+            # 训练类任务可能数分钟不产生中间输出。故给予较大的空闲容忍度，
+            # 仅在「确实长时间完全无输出且进程仍存活」时才放弃等待。
+            deadline = (time.time() + timeout) if timeout else None
+            idle_timeout = max(600.0, float(timeout)) if timeout else 3600.0
+            try:
+                while True:
+                    if deadline is not None and time.time() > deadline:
+                        yield {"event": "error",
+                               "data": {"message": f"Agent 执行超时 ({int(timeout)}s)"}}
+                        break
+                    try:
+                        line = await asyncio.wait_for(proc.stdout.readline(), timeout=idle_timeout)
+                    except asyncio.TimeoutError:
+                        # 空闲超时：超过容忍时长仍无任何输出。
+                        yield {"event": "error", "data": {
+                            "message": f"Agent 长时间无响应（{int(idle_timeout)}s 无输出）"}}
+                        break
+                    except Exception as e:
+                        yield {"event": "error",
+                               "data": {"message": f"读取 Agent 响应失败: {e}"}}
+                        break
+                    if not line:
+                        yield {"event": "error",
+                               "data": {"message": f"Agent '{agent_id}' 进程已退出"}}
+                        break
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        event = json.loads(line.decode('utf-8'))
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        continue
+                    if isinstance(event, dict) and event.get("event") == "done":
+                        # done 事件到达即表示本轮执行结束，立即返回，
+                        # 避免继续阻塞读取等待下一轮输入。
+                        settled = True
+                        yield event
+                        return
+                    yield event
+            finally:
+                if wrote and not settled:
+                    # 本轮没有读到 done（超时 / 读失败 / 消费者提前关闭）：
+                    # 管道里可能还有残留输出，标记待排空，禁止被下一个请求读走。
+                    self._desynced.add(agent_id)
+
+            # 异常收尾（超时/读失败/进程退出）：终止并排空，让下一条请求从
+            # 干净状态开始（而不是读走本轮滞留的字节）。
+            await self._abort_channel(agent_id, proc)
 
     def is_running(self, agent_id: str) -> bool:
         proc = self._processes.get(agent_id)
