@@ -143,6 +143,23 @@ async def db_session() -> AsyncIterator[AsyncSession]:
 
 
 @pytest.fixture(autouse=True)
+def _isolate_data_registry(tmp_path, monkeypatch) -> Iterator[None]:
+    """隔离 DataRegistry 的写路径，杜绝测试污染真实 ``resources-private``。
+
+    历史问题：跑全量测试会因为 ``/api/data/register`` 等路径重写真实
+    ``registry.json``（reviewer 在评审中也观察到该副作用）。
+    """
+    from core.resource.registry import data_registry as dr
+
+    sandbox = tmp_path / "_data_registry"
+    sandbox.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(dr, "REGISTRY_FILE", sandbox / "registry.json")
+    monkeypatch.setattr(dr, "DATA_DIR", sandbox)
+    monkeypatch.setattr(dr, "DATASETS_DIR", sandbox / "datasets")
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _reset_limiters() -> Iterator[None]:
     """每个测试重置进程内限流状态。
 
@@ -166,6 +183,9 @@ async def api_client(db_session: AsyncSession) -> AsyncIterator[AsyncClient]:
        同一份已建表的数据库，不必额外建连接；
     2. **不触发 lifespan** —— httpx 的 ``ASGITransport`` 默认不跑 lifespan，所以
        不会在测试里拉起 Agent 子进程（那会极慢且不稳定）。
+
+    ⚠️ 这个夹具**未登录**。业务 API 自 2026-11-04 起统一要求登录（D1），
+    需要登录态的用例请使用 :func:`authed_client`。
     """
     from httpx import ASGITransport, AsyncClient
 
@@ -182,3 +202,95 @@ async def api_client(db_session: AsyncSession) -> AsyncIterator[AsyncClient]:
             yield client
     finally:
         app.dependency_overrides.clear()
+
+
+#: 测试账号统一密码（满足"字母+数字，8-20 位"密码策略）
+TEST_PASSWORD = "Passw0rd2026"
+
+
+@pytest_asyncio.fixture
+async def authed_client(api_client: AsyncClient) -> AsyncIterator[AsyncClient]:
+    """已登录的测试客户端（注册一个全新账号，Cookie 由客户端保持）。
+
+    业务 API 统一要求登录后，凡是要访问 /api/{data,file,tool,agent,model,task,
+    config,llm,migrate} 的用例都应使用本夹具。
+    """
+    import uuid as _uuid
+
+    email = f"user-{_uuid.uuid4().hex[:10]}@example.com"
+    resp = await api_client.post(
+        "/api/auth/register",
+        json={"email": email, "password": TEST_PASSWORD, "display_name": "测试用户"},
+    )
+    assert resp.status_code == 201, resp.text
+    yield api_client
+
+
+@pytest_asyncio.fixture
+async def release_space(tmp_path, monkeypatch):
+    """隔离私有资源根，并提供「注册合成 release」的工具。
+
+    2026-11-04 起发布接口会校验资源归属（管理员评审意见 2）：只能发布
+    「自己的 / public 的 / 存在的」资源版本。共享与调用类测试习惯用合成
+    ``release_id``（agent-v1 / tool-inst …），因此需要先把它们注册进
+    **隔离的**私有资源根，避免污染真实 ``resources-private``。
+
+    用法::
+
+        async def test_x(world, release_space):
+            await release_space("agent", "agent-x", owner=alice_uuid)
+    """
+    from core.resource import paths
+
+    monkeypatch.setattr(paths, "PRIVATE_ROOT", tmp_path / "resources-private")
+
+    async def register(resource_type: str, resource_id: str, owner: str) -> None:
+        if resource_type == "tool":
+            from core.resource.registry.tool_registry import ToolRegistry
+
+            await ToolRegistry().register(
+                {"id": resource_id, "name": resource_id}, owner=owner
+            )
+        elif resource_type == "agent":
+            from core.resource.registry.agent_registry import AgentRegistry
+
+            await AgentRegistry().register(
+                {"id": resource_id, "name": resource_id}, owner=owner
+            )
+        elif resource_type == "data":
+            from core.resource.registry.data_registry import DataRegistry
+
+            await DataRegistry().register(
+                {"id": resource_id, "name": resource_id}, owner=owner
+            )
+        else:  # pragma: no cover - 测试辅助
+            raise ValueError(f"未知资源类型: {resource_type}")
+
+    return register
+
+
+@pytest.fixture
+def override_auth():
+    """用固定 ``AuthContext`` 覆盖 ``get_auth_context`` 依赖。
+
+    只用于「验证路由/业务逻辑、不关心认证」的单元测试（例如模型分组 CRUD）。
+    需要真实登录态/会话的用例请用 :func:`authed_client`。
+    """
+    import uuid as _uuid
+
+    from app.api.deps import get_auth_context
+    from app.main import app
+    from core.auth.context import AuthContext
+
+    ctx = AuthContext(
+        user_id=str(_uuid.uuid4()),
+        session_id=str(_uuid.uuid4()),
+        tenant_id=str(_uuid.uuid4()),
+        tenant_role="owner",
+        request_id="test-request",
+    )
+    app.dependency_overrides[get_auth_context] = lambda: ctx
+    try:
+        yield ctx
+    finally:
+        app.dependency_overrides.pop(get_auth_context, None)

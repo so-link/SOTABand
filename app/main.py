@@ -6,10 +6,11 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.deps import get_auth_context
 from app.api.middleware.request_context import RequestContextMiddleware
 from app.api.routes.agent_routes import router as agent_router
 from app.api.routes.api_routes import router as api_list_router
@@ -114,17 +115,41 @@ async def _app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.message})
 
 # 注册路由
-app.include_router(chat_router, prefix="/api/chat", tags=["chat"])
-app.include_router(agent_router, prefix="/api/agent", tags=["agent"])
-app.include_router(tool_router, prefix="/api/tool", tags=["tool"])
-app.include_router(data_router, prefix="/api/data", tags=["data"])
-app.include_router(file_router, prefix="/api/file", tags=["file"])
-app.include_router(model_router, prefix="/api/model", tags=["model"])
-app.include_router(config_router, prefix="/api/config", tags=["config"])
-app.include_router(api_list_router, prefix="/api/apis", tags=["api"])
-app.include_router(llm_router, prefix="/api/llm", tags=["llm"])
-app.include_router(task_router, prefix="/api/task", tags=["task"])
-app.include_router(migrate_router, prefix="/api/migrate", tags=["migrate"])
+#
+# ── 鉴权基线（D1，2026-11-04 决策）──────────────────────────────────
+# 业务 API 一律要求登录：除「认证生命周期」与「健康检查」外，全部路由在
+# include_router 处统一挂 ``get_auth_context`` 依赖。
+#
+# 为什么放在 include_router 而不是中间件：
+# - 依赖注入是 FastAPI 原生语义，路由内再声明 ctx 会命中同一请求内依赖缓存，
+#   不会重复查库；
+# - 公开端点白名单显式可见（就是下面不带 _auth 的那几行），评审时一眼能核对。
+#
+# 历史背景：8.1 之前引擎是单机无登录形态，工具/数据/文件等接口全部匿名可用。
+# 多用户部署（一台服务器多人共用）下这是严重越权面，故统一收口。
+_auth = [Depends(get_auth_context)]
+
+#: 资源写权限守卫（D2）：工具/Agent 的改代码/改规范/标签/装依赖/删除
+#: 需要 owner 或租户 Owner/Admin；内置资产仅租户管理员。读/执行不受影响。
+from core.auth.ownership import (  # noqa: E402 - 需在 app 创建后集中注册依赖
+    require_agent_write_access,
+    require_tool_write_access,
+)
+
+_tool_deps = [Depends(get_auth_context), Depends(require_tool_write_access)]
+_agent_deps = [Depends(get_auth_context), Depends(require_agent_write_access)]
+
+app.include_router(chat_router, prefix="/api/chat", tags=["chat"], dependencies=_auth)
+app.include_router(agent_router, prefix="/api/agent", tags=["agent"], dependencies=_agent_deps)
+app.include_router(tool_router, prefix="/api/tool", tags=["tool"], dependencies=_tool_deps)
+app.include_router(data_router, prefix="/api/data", tags=["data"], dependencies=_auth)
+app.include_router(file_router, prefix="/api/file", tags=["file"], dependencies=_auth)
+app.include_router(model_router, prefix="/api/model", tags=["model"], dependencies=_auth)
+app.include_router(config_router, prefix="/api/config", tags=["config"], dependencies=_auth)
+app.include_router(api_list_router, prefix="/api/apis", tags=["api"], dependencies=_auth)
+app.include_router(llm_router, prefix="/api/llm", tags=["llm"], dependencies=_auth)
+app.include_router(task_router, prefix="/api/task", tags=["task"], dependencies=_auth)
+app.include_router(migrate_router, prefix="/api/migrate", tags=["migrate"], dependencies=_auth)
 
 # 需求 8.1：认证与会话。
 # 认证接口挂在 /api/auth/* 而不是 PRD 的 /auth/* —— 只有 /api 前缀走 Vite 代理，
