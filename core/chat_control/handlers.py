@@ -757,6 +757,12 @@ async def create_agent(args: CreateAgentArgs, ctx: CallContext) -> dict:
     if not scan.ok:
         return {"error": "静态安全审查未通过，Agent 未注册：\n" + "\n".join(scan.errors)}
 
+    # 工作流程步骤事件闸门：task/interactive 对话运行依赖 _step 展示每步过程与
+    # 耗时，缺失即视为生成质量不达标，阻断注册（web-service 走 HTTP，不强制）。
+    if role != "web-service" and "self._step(" not in code:
+        return {"error": "生成的代码缺少工作流程步骤事件（self._step），Agent 未注册；"
+                         "请重试，或在编辑器中补全每步的 _step/_log_step 调用后再保存"}
+
     await ctx.progress({"type": "agent-gen", "step": "register", "message": "正在注册 Agent…"})
     tool_ids: list[str] = []
     try:

@@ -659,7 +659,7 @@ yield {{"event": "content", "data": {{"text": response}}}}
     # 沙箱测试
     # ══════════════════════════════════════════════════════════
 
-    async def dry_run(self, code: str) -> dict:
+    async def dry_run(self, code: str, role: str = "task") -> dict:
         """沙箱预跑：语法检查 + 接口校验 + 导入检查"""
         results = {"passed": [], "failed": [], "errors": []}
 
@@ -710,6 +710,20 @@ yield {{"event": "content", "data": {{"text": response}}}}
             results["failed"].append("包含 __import__ hack，应使用 import sys; sys.executable")
         else:
             results["passed"].append("无 __import__ hack")
+
+        # 8. 检查工作流程步骤事件注入（对话中展示每步过程与耗时的前提）。
+        #    task/interactive 在对话里运行，必须有 _step；web-service 走 HTTP，不强制。
+        role_key = (role or "").strip().lower()
+        if role_key in ("web_service", "webservice"):
+            role_key = "web-service"
+        if role_key != "web-service":
+            if "self._step(" in code:
+                results["passed"].append("包含工作流程步骤事件 (_step)")
+            else:
+                results["failed"].append(
+                    '缺少工作流程步骤事件：每个步骤必须 yield self._step("步骤id", "描述", "running"/"done"/"error")，'
+                    '并用 self._log_step(...) 记录执行日志'
+                )
 
         return results
 
@@ -1271,7 +1285,8 @@ stdout: {_safe_stdout}
 stderr: {_safe_stderr}
 ===  END 结果 ===
 
-仍按 <analysis>/<code> 格式输出。要求：<code> 内是完整 Python 文件（含模板头部与全部辅助方法）。"""
+仍按 <analysis>/<code> 格式输出。要求：<code> 内是完整 Python 文件（含模板头部与全部辅助方法）。
+【重要】必须完整保留原有的 self._step(...) 工作流程步骤事件与 self._log_step(...) 执行日志调用（每步 running/done/error 成对），修复不得删减它们。"""
             else:
                 fix_prompt = f"""Debug this Agent code. It failed the sandbox test run.
 
@@ -1314,7 +1329,8 @@ stderr: {_safe_stderr}
 5. 不要使用 ctx.get_input()、ctx.session、ctx.metadata_id（不存在）；多轮状态存 self._state。
 6. 依赖由项目环境管理：ModuleNotFoundError 时改用标准库或已安装模块，禁止 pip install / subprocess 安装依赖。
 7. 禁止 shell=True、eval、删除类原语（静态安全审查会阻断执行）。
-8. 调用大模型（self._get_llm().chat / _extract_params_with_llm）时 max_tokens 用大值（100000），不要 4096/1024。"""
+8. 调用大模型（self._get_llm().chat / _extract_params_with_llm）时 max_tokens 用大值（100000），不要 4096/1024。
+9. 【重要】必须完整保留 self._step(...) 工作流程步骤事件与 self._log_step(...) 执行日志调用（每步 running/done/error 成对），修复不得删减它们。"""
 
             log_entry = {"round": round_num, "exec_result": exec_summary,
                          "gate_feedback": "", "prompt": fix_prompt, "response": ""}

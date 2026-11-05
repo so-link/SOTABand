@@ -406,7 +406,7 @@ async def generate_code(req: GenerateCodeRequest):
             code = await build_task
 
             # 沙箱测试
-            sandbox = await builder.dry_run(code)
+            sandbox = await builder.dry_run(code, role=req.role or "task")
 
             yield {"event": "done", "data": json.dumps({"code": code, "sandbox_results": sandbox}, ensure_ascii=False, default=str)}
 
