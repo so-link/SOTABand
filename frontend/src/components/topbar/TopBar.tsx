@@ -27,9 +27,8 @@ export function TopBar() {
           <div className="flex items-center justify-center w-5 h-5 rounded bg-maia-accent/10 border border-maia-accent-border" style={{ display: 'none' }}>
             <span className="h-3 w-3 text-maia-accent text-[12px] font-semibold flex items-center justify-center">S</span>
           </div>
-          <span className="text-[13px] font-semibold text-maia-text-heading">SOTABand</span>
+          <span className="text-[16px] font-semibold text-maia-text-heading">SOTABand 优智联邦</span>
         </div>
-        <Badge variant="accent" className="text-[12px] ml-1 font-mono">v{APP_VERSION}</Badge>
       </div>
 
       <div className="flex items-center gap-0.5">
