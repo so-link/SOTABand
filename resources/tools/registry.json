@@ -2292,5 +2292,1959 @@
     "created_at": "2026-10-12T02:02:29Z",
     "owner": "local-662a9da9",
     "visibility": "public"
+  },
+  {
+    "id": "github-code-search",
+    "name": "GitHub学术代码查找",
+    "version": "1.3.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/github-code-search.md",
+    "impl_path": "implementations/github-code-search/",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "find",
+            "search",
+            "inspect",
+            "search_code",
+            "export",
+            "paper_code",
+            "compare",
+            "config_status",
+            "configure",
+            "config_reset"
+          ],
+          "default": "search"
+        },
+        "config_file": {
+          "type": "string",
+          "description": "Deployment-local temporary configuration JSON path; never include secret values in tool parameters"
+        }
+      },
+      "additionalProperties": true
+    },
+    "output_schema": {
+      "type": "object",
+      "required": [
+        "status",
+        "output_format",
+        "message",
+        "data"
+      ]
+    },
+    "param_meta": [
+      {
+        "name": "mode",
+        "type": "string",
+        "required": false,
+        "default": "search",
+        "desc": "选择以下模式",
+        "hints": []
+      },
+      {
+        "name": "register_output",
+        "type": "bool",
+        "required": false,
+        "default": false,
+        "desc": "导出文件时可选登记到平台数据空间，默认为关闭",
+        "hints": []
+      },
+      {
+        "name": "query",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "前序操作返回的 query",
+        "hints": [],
+        "mode": "search"
+      },
+      {
+        "name": "limit",
+        "type": "int",
+        "required": false,
+        "default": 10,
+        "desc": "每页 1-100 条",
+        "hints": [],
+        "mode": "search"
+      },
+      {
+        "name": "page",
+        "type": "int",
+        "required": false,
+        "default": 1,
+        "desc": "第 1-10 页",
+        "hints": [],
+        "mode": "search"
+      },
+      {
+        "name": "repository",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "前序操作返回的 repository",
+        "hints": [],
+        "mode": "inspect"
+      },
+      {
+        "name": "ref",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "分支、标签或 SHA，省略为默认分支",
+        "hints": [],
+        "mode": "inspect"
+      },
+      {
+        "name": "paper_url",
+        "type": "string",
+        "required": false,
+        "default": "",
+        "desc": "用于检查 README 中的论文链接",
+        "hints": [],
+        "mode": "inspect"
+      },
+      {
+        "name": "paper_title",
+        "type": "string",
+        "required": false,
+        "default": "",
+        "desc": "用于检查 README 中的论文标题证据",
+        "hints": [],
+        "mode": "inspect"
+      },
+      {
+        "name": "query",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "前序操作返回的 query",
+        "hints": [],
+        "mode": "search_code"
+      },
+      {
+        "name": "snapshot_id",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "inspect 返回的快照 ID",
+        "hints": [],
+        "mode": "search_code"
+      },
+      {
+        "name": "repository",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "可选 owner/name 仓库范围",
+        "hints": [],
+        "mode": "search_code"
+      },
+      {
+        "name": "limit",
+        "type": "int",
+        "required": false,
+        "default": 10,
+        "desc": "每页 1-100 条",
+        "hints": [],
+        "mode": "search_code"
+      },
+      {
+        "name": "page",
+        "type": "int",
+        "required": false,
+        "default": 1,
+        "desc": "第 1-10 页",
+        "hints": [],
+        "mode": "search_code"
+      },
+      {
+        "name": "snapshot_id",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "前序操作返回的 snapshot_id",
+        "hints": [],
+        "mode": "export"
+      },
+      {
+        "name": "paper_title",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "论文完整标题",
+        "hints": [],
+        "mode": "paper_code"
+      },
+      {
+        "name": "paper_url",
+        "type": "string",
+        "required": false,
+        "default": "",
+        "desc": "DOI、OpenReview 或论文主页链接，用于 README 证据核验",
+        "hints": [],
+        "mode": "paper_code"
+      },
+      {
+        "name": "keywords",
+        "type": "string",
+        "required": false,
+        "default": "",
+        "desc": "方法名、作者名或框架等补充检索词",
+        "hints": [],
+        "mode": "paper_code"
+      },
+      {
+        "name": "limit",
+        "type": "int",
+        "required": false,
+        "default": 10,
+        "desc": "返回候选数，1-30",
+        "hints": [],
+        "mode": "paper_code"
+      },
+      {
+        "name": "inspect_limit",
+        "type": "int",
+        "required": false,
+        "default": 5,
+        "desc": "固定并深度检查的前若干候选，1-limit",
+        "hints": [],
+        "mode": "paper_code"
+      },
+      {
+        "name": "snapshot_ids",
+        "type": "list",
+        "required": true,
+        "default": null,
+        "desc": "至少两个 inspect 或 paper_code 返回的快照 ID",
+        "hints": [],
+        "mode": "compare"
+      },
+      {
+        "name": "config_file",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "可选临时配置 JSON 路径，仅预览不保存",
+        "mode": "config_status",
+        "hints": []
+      },
+      {
+        "name": "config_file",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "部署机上的受保护 UTF-8 JSON 文件路径",
+        "mode": "configure",
+        "hints": []
+      },
+      {
+        "name": "request",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "用一句话描述论文标题或 GitHub 仓库地址",
+        "hints": [],
+        "mode": "find"
+      },
+      {
+        "name": "ref",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "检查指定仓库时可选的分支、标签或 SHA",
+        "hints": [],
+        "mode": "find"
+      }
+    ],
+    "modes": [
+      {
+        "id": "search",
+        "name": "仓库检索",
+        "desc": "使用 GitHub 原生搜索表达式检索仓库。"
+      },
+      {
+        "id": "inspect",
+        "name": "固定仓库快照",
+        "desc": "解析提交、README、文件树、许可证和论文关联。"
+      },
+      {
+        "id": "search_code",
+        "name": "代码检索",
+        "desc": "有 snapshot_id 时搜索固定版本文件路径，否则使用需授权的 GitHub 内容搜索。"
+      },
+      {
+        "id": "export",
+        "name": "导出快照",
+        "desc": "导出可用于复现计划的 JSON 仓库证据。"
+      },
+      {
+        "id": "paper_code",
+        "name": "按论文找代码",
+        "desc": "按论文标题检索候选仓库，固定提交并评估论文关联和复现完整度。"
+      },
+      {
+        "id": "compare",
+        "name": "比较候选代码",
+        "desc": "比较多个固定仓库快照的入口、依赖、许可证和复现准备度。"
+      },
+      {
+        "id": "config_status",
+        "name": "配置状态",
+        "desc": "查看凭据是否配置及来源，不发起付费模型请求。"
+      },
+      {
+        "id": "configure",
+        "name": "持久配置",
+        "desc": "从本机文件替换当前用户的学术工具配置，不改平台设置。"
+      },
+      {
+        "id": "config_reset",
+        "name": "清除私有配置",
+        "desc": "删除当前用户的学术工具配置，恢复环境或平台默认。"
+      },
+      {
+        "id": "find",
+        "name": "自然语言查找",
+        "desc": "用一句普通描述查找论文代码或检查指定 GitHub 仓库，并生成可直接交给复现工具的固定快照。"
+      }
+    ],
+    "tags": [
+      "学术工具箱",
+      "GitHub",
+      "代码查找",
+      "11.3.1"
+    ],
+    "usage_count": 0,
+    "created_at": "2026-09-28T00:00:00Z",
+    "visibility": "public",
+    "owner": "system"
+  },
+  {
+    "id": "code-reproduction",
+    "name": "GPU代码复现",
+    "version": "1.5.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/code-reproduction.md",
+    "impl_path": "implementations/code-reproduction/",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "reproduce",
+            "inspect",
+            "plan",
+            "run",
+            "resume",
+            "jobs",
+            "status",
+            "cancel",
+            "logs",
+            "report",
+            "diagnose",
+            "worker_start",
+            "worker_status",
+            "worker_stop",
+            "config_status",
+            "configure",
+            "config_reset",
+            "preflight",
+            "benchmark"
+          ],
+          "default": "inspect"
+        },
+        "config_file": {
+          "type": "string",
+          "description": "Deployment-local temporary configuration JSON path; never include secret values in tool parameters"
+        }
+      },
+      "additionalProperties": true
+    },
+    "output_schema": {
+      "type": "object",
+      "required": [
+        "status",
+        "output_format",
+        "message",
+        "data"
+      ]
+    },
+    "param_meta": [
+      {
+        "name": "mode",
+        "type": "string",
+        "required": false,
+        "default": "inspect",
+        "desc": "选择以下模式",
+        "hints": []
+      },
+      {
+        "name": "register_output",
+        "type": "bool",
+        "required": false,
+        "default": false,
+        "desc": "导出文件时可选登记到平台数据空间，默认为关闭",
+        "hints": []
+      },
+      {
+        "name": "request",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "用一句话说明源码目录或固定快照、启动命令以及可选的 GPU 数量、超时和镜像",
+        "hints": [],
+        "mode": "reproduce"
+      },
+      {
+        "name": "snapshot_id",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "GitHub 代码查找返回的固定快照 ID；提供时无需本地源码目录",
+        "hints": [],
+        "mode": "reproduce"
+      },
+      {
+        "name": "idempotency_key",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "可选幂等请求键",
+        "hints": [],
+        "mode": "reproduce"
+      },
+      {
+        "name": "plan_json",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "前序操作返回的 plan_json",
+        "hints": [],
+        "mode": "plan"
+      },
+      {
+        "name": "snapshot_id",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "代码查找工具固定的仓库快照",
+        "hints": [],
+        "mode": "plan"
+      },
+      {
+        "name": "source_path",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "本地源码目录，不含数据集或模型权重",
+        "hints": [],
+        "mode": "plan"
+      },
+      {
+        "name": "plan_id",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "前序操作返回的 plan_id",
+        "hints": [],
+        "mode": "run"
+      },
+      {
+        "name": "idempotency_key",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "重复提交同一计划和键返回同一任务",
+        "hints": [],
+        "mode": "run"
+      },
+      {
+        "name": "job_id",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "前序操作返回的 job_id",
+        "hints": [],
+        "mode": "resume"
+      },
+      {
+        "name": "plan_id",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "含检查点加载命令的新计划 ID",
+        "hints": [],
+        "mode": "resume"
+      },
+      {
+        "name": "idempotency_key",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "幂等请求键",
+        "hints": [],
+        "mode": "resume"
+      },
+      {
+        "name": "job_id",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "前序操作返回的 job_id",
+        "hints": [],
+        "mode": "status"
+      },
+      {
+        "name": "job_id",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "前序操作返回的 job_id",
+        "hints": [],
+        "mode": "cancel"
+      },
+      {
+        "name": "job_id",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "前序操作返回的 job_id",
+        "hints": [],
+        "mode": "logs"
+      },
+      {
+        "name": "lines",
+        "type": "int",
+        "required": false,
+        "default": 200,
+        "desc": "1-10000 行",
+        "hints": [],
+        "mode": "logs"
+      },
+      {
+        "name": "job_id",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "前序操作返回的 job_id",
+        "hints": [],
+        "mode": "report"
+      },
+      {
+        "name": "job_id",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "前序操作返回的 job_id",
+        "hints": [],
+        "mode": "diagnose"
+      },
+      {
+        "name": "config_file",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "可选临时配置 JSON 路径，仅预览不保存",
+        "mode": "config_status",
+        "hints": []
+      },
+      {
+        "name": "config_file",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "部署机上的受保护 UTF-8 JSON 文件路径",
+        "mode": "configure",
+        "hints": []
+      },
+      {
+        "name": "source_path",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "本地源码目录；与 snapshot_id 二选一",
+        "hints": [],
+        "mode": "preflight"
+      },
+      {
+        "name": "snapshot_id",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "GitHub 代码查找工具返回的固定快照 ID",
+        "hints": [],
+        "mode": "preflight"
+      },
+      {
+        "name": "command",
+        "type": "string",
+        "required": false,
+        "default": "",
+        "desc": "拟运行的程序及参数，例如 python train.py",
+        "hints": [],
+        "mode": "preflight"
+      },
+      {
+        "name": "image",
+        "type": "string",
+        "required": false,
+        "default": "sotaband-academic-gpu:1.0",
+        "desc": "检查运行环境时使用的镜像",
+        "hints": [],
+        "mode": "preflight"
+      },
+      {
+        "name": "gpu_count",
+        "type": "int",
+        "required": false,
+        "default": 1,
+        "desc": "检查运行环境时要求的 GPU 数量",
+        "hints": [],
+        "mode": "preflight"
+      },
+      {
+        "name": "check_runtime",
+        "type": "bool",
+        "required": false,
+        "default": false,
+        "desc": "是否实际检查 Docker 镜像和 GPU；默认只做源码静态检查",
+        "hints": [],
+        "mode": "preflight"
+      },
+      {
+        "name": "job_ids",
+        "type": "list",
+        "required": true,
+        "default": null,
+        "desc": "至少两个已结束任务 ID",
+        "hints": [],
+        "mode": "benchmark"
+      }
+    ],
+    "modes": [
+      {
+        "id": "reproduce",
+        "name": "复现",
+        "desc": "从一句普通描述中解析源码、命令和 GPU 资源，创建不可变计划并开始调度。"
+      },
+      {
+        "id": "inspect",
+        "name": "检查环境",
+        "desc": "检查 NVIDIA GPU 和 Docker 服务。"
+      },
+      {
+        "id": "plan",
+        "name": "创建复现计划",
+        "desc": "校验 JSON 计划并固定代码来源；source_path 和 snapshot_id 二选一。"
+      },
+      {
+        "id": "run",
+        "name": "提交任务",
+        "desc": "幂等提交持久任务，不同步等待训练。"
+      },
+      {
+        "id": "resume",
+        "name": "检查点恢复",
+        "desc": "新建任务，将原输出只读挂载到 /checkpoint；命令必须显式加载检查点。"
+      },
+      {
+        "id": "jobs",
+        "name": "任务列表",
+        "desc": "列出当前用户的任务。"
+      },
+      {
+        "id": "status",
+        "name": "任务状态",
+        "desc": "查询并推进任务状态；无后台调度时可手工轮询。"
+      },
+      {
+        "id": "cancel",
+        "name": "取消任务",
+        "desc": "停止实际容器并释放 GPU 租约。"
+      },
+      {
+        "id": "logs",
+        "name": "查看日志",
+        "desc": "返回容器标准输出和错误输出的尾部。"
+      },
+      {
+        "id": "report",
+        "name": "复现报告",
+        "desc": "导出环境、代码、状态及指标比较记录。"
+      },
+      {
+        "id": "diagnose",
+        "name": "失败分析",
+        "desc": "调用平台 LLM 根据日志提出诊断，不自动修改代码或声称修复。"
+      },
+      {
+        "id": "worker_start",
+        "name": "启动调度",
+        "desc": "启动本工具附属后台进程，处理 GPU 队列和论文订阅。"
+      },
+      {
+        "id": "worker_status",
+        "name": "调度状态",
+        "desc": "查看心跳、进程和错误。"
+      },
+      {
+        "id": "worker_stop",
+        "name": "停止调度",
+        "desc": "停止调度进程；已运行容器需单独 cancel，容器内超时仍生效。"
+      },
+      {
+        "id": "config_status",
+        "name": "配置状态",
+        "desc": "查看凭据是否配置及来源，不发起付费模型请求。"
+      },
+      {
+        "id": "configure",
+        "name": "持久配置",
+        "desc": "从本机文件替换当前用户的学术工具配置，不改平台设置。"
+      },
+      {
+        "id": "config_reset",
+        "name": "清除私有配置",
+        "desc": "删除当前用户的学术工具配置，恢复环境或平台默认。"
+      },
+      {
+        "id": "preflight",
+        "name": "运行前检查",
+        "desc": "在占用 GPU 前固定源码，检查入口、依赖、命令、数据/权重提示和可选运行环境。"
+      },
+      {
+        "id": "benchmark",
+        "name": "多次实验汇总",
+        "desc": "汇总多个已结束复现任务的数值指标，并检查源码、镜像和命令是否一致。"
+      }
+    ],
+    "tags": [
+      "学术工具箱",
+      "GPU",
+      "代码复现",
+      "11.3.2"
+    ],
+    "usage_count": 0,
+    "created_at": "2026-09-28T00:00:00Z",
+    "visibility": "public",
+    "owner": "system"
+  },
+  {
+    "id": "paper-tracker",
+    "name": "顶会顶刊论文跟踪",
+    "version": "2.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/paper-tracker.md",
+    "impl_path": "implementations/paper-tracker/",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "track",
+            "catalog",
+            "import_catalog",
+            "search",
+            "subscribe",
+            "subscriptions",
+            "update_subscription",
+            "unsubscribe",
+            "sync",
+            "digest",
+            "export",
+            "worker_start",
+            "worker_status",
+            "worker_stop",
+            "config_status",
+            "configure",
+            "config_reset",
+            "diagnose_sources",
+            "topics",
+            "paper_detail",
+            "related"
+          ],
+          "default": "search"
+        },
+        "config_file": {
+          "type": "string",
+          "description": "Deployment-local temporary configuration JSON path; never include secret values in tool parameters"
+        }
+      },
+      "additionalProperties": true
+    },
+    "output_schema": {
+      "type": "object",
+      "required": [
+        "status",
+        "output_format",
+        "message",
+        "data"
+      ]
+    },
+    "param_meta": [
+      {
+        "name": "mode",
+        "type": "string",
+        "required": false,
+        "default": "search",
+        "desc": "选择以下模式",
+        "hints": []
+      },
+      {
+        "name": "register_output",
+        "type": "bool",
+        "required": false,
+        "default": false,
+        "desc": "导出文件时可选登记到平台数据空间，默认为关闭",
+        "hints": []
+      },
+      {
+        "name": "request",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "例如“持续跟踪 ICML、NeurIPS 2025 年以来的时间序列异常检测论文，每周更新”",
+        "hints": [],
+        "mode": "track"
+      },
+      {
+        "name": "venues",
+        "type": "list",
+        "required": false,
+        "default": [],
+        "desc": "会议简称或目录 ID 数组；空值选择目录范围内全部",
+        "hints": [],
+        "mode": "catalog"
+      },
+      {
+        "name": "scope",
+        "type": "string",
+        "required": false,
+        "default": "all",
+        "desc": "all / ccf_a",
+        "hints": [],
+        "mode": "catalog"
+      },
+      {
+        "name": "file_path",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "前序操作返回的 file_path",
+        "hints": [],
+        "mode": "import_catalog"
+      },
+      {
+        "name": "venues",
+        "type": "list",
+        "required": false,
+        "default": [],
+        "desc": "会议简称或目录 ID 数组；空值选择目录范围内全部",
+        "hints": [],
+        "mode": "search"
+      },
+      {
+        "name": "query",
+        "type": "string",
+        "required": false,
+        "default": "",
+        "desc": "传给来源的宽召回检索词；省略时从 topic 选择",
+        "hints": [],
+        "mode": "search"
+      },
+      {
+        "name": "topic",
+        "type": "string",
+        "required": false,
+        "default": "",
+        "desc": "具体研究方向，中英文均可，也支持自定义方向",
+        "hints": [],
+        "mode": "search"
+      },
+      {
+        "name": "keywords",
+        "type": "list",
+        "required": false,
+        "default": [],
+        "desc": "额外纳入的关键词或短语",
+        "hints": [],
+        "mode": "search"
+      },
+      {
+        "name": "exclude_keywords",
+        "type": "list",
+        "required": false,
+        "default": [],
+        "desc": "标题或摘要命中即排除的词",
+        "hints": [],
+        "mode": "search"
+      },
+      {
+        "name": "authors",
+        "type": "list",
+        "required": false,
+        "default": [],
+        "desc": "作者姓名过滤",
+        "hints": [],
+        "mode": "search"
+      },
+      {
+        "name": "min_relevance",
+        "type": "int",
+        "required": false,
+        "default": 1,
+        "desc": "最低相关性分数，0-100",
+        "hints": [],
+        "mode": "search"
+      },
+      {
+        "name": "scope",
+        "type": "string",
+        "required": false,
+        "default": "all",
+        "desc": "all / ccf_a",
+        "hints": [],
+        "mode": "search"
+      },
+      {
+        "name": "source",
+        "type": "string",
+        "required": false,
+        "default": "auto",
+        "desc": "auto / dblp / crossref / openreview / cvf / anthology / jmlr",
+        "hints": [],
+        "mode": "search"
+      },
+      {
+        "name": "max_pages",
+        "type": "int",
+        "required": false,
+        "default": 3,
+        "desc": "分页源每个会议每年最多 1-100 页，未取完会标记 truncated",
+        "hints": [],
+        "mode": "search"
+      },
+      {
+        "name": "since",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "YYYY-MM-DD，默认最近 30 天",
+        "hints": [],
+        "mode": "search"
+      },
+      {
+        "name": "until",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "YYYY-MM-DD，默认今天",
+        "hints": [],
+        "mode": "search"
+      },
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "前序操作返回的 name",
+        "hints": [],
+        "mode": "subscribe"
+      },
+      {
+        "name": "venues",
+        "type": "list",
+        "required": false,
+        "default": [],
+        "desc": "会议简称或目录 ID 数组；空值选择目录范围内全部",
+        "hints": [],
+        "mode": "subscribe"
+      },
+      {
+        "name": "query",
+        "type": "string",
+        "required": false,
+        "default": "",
+        "desc": "关键词",
+        "hints": [],
+        "mode": "subscribe"
+      },
+      {
+        "name": "topic",
+        "type": "string",
+        "required": false,
+        "default": "",
+        "desc": "持续跟踪的研究方向",
+        "hints": [],
+        "mode": "subscribe"
+      },
+      {
+        "name": "keywords",
+        "type": "list",
+        "required": false,
+        "default": [],
+        "desc": "额外纳入词",
+        "hints": [],
+        "mode": "subscribe"
+      },
+      {
+        "name": "exclude_keywords",
+        "type": "list",
+        "required": false,
+        "default": [],
+        "desc": "排除词",
+        "hints": [],
+        "mode": "subscribe"
+      },
+      {
+        "name": "authors",
+        "type": "list",
+        "required": false,
+        "default": [],
+        "desc": "作者姓名过滤",
+        "hints": [],
+        "mode": "subscribe"
+      },
+      {
+        "name": "min_relevance",
+        "type": "int",
+        "required": false,
+        "default": 1,
+        "desc": "最低相关性分数，0-100",
+        "hints": [],
+        "mode": "subscribe"
+      },
+      {
+        "name": "scope",
+        "type": "string",
+        "required": false,
+        "default": "all",
+        "desc": "all / ccf_a",
+        "hints": [],
+        "mode": "subscribe"
+      },
+      {
+        "name": "source",
+        "type": "string",
+        "required": false,
+        "default": "auto",
+        "desc": "auto / dblp / crossref / openreview / cvf / anthology / jmlr",
+        "hints": [],
+        "mode": "subscribe"
+      },
+      {
+        "name": "max_pages",
+        "type": "int",
+        "required": false,
+        "default": 3,
+        "desc": "分页源每个会议每年最多 1-100 页，未取完会标记 truncated",
+        "hints": [],
+        "mode": "subscribe"
+      },
+      {
+        "name": "interval_hours",
+        "type": "int",
+        "required": false,
+        "default": 24,
+        "desc": "同步间隔 1-8760 小时",
+        "hints": [],
+        "mode": "subscribe"
+      },
+      {
+        "name": "lookback_days",
+        "type": "int",
+        "required": false,
+        "default": 365,
+        "desc": "滚动重扫窗口，覆盖晚索引论文",
+        "hints": [],
+        "mode": "subscribe"
+      },
+      {
+        "name": "subscription_id",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "前序操作返回的 subscription_id",
+        "hints": [],
+        "mode": "update_subscription"
+      },
+      {
+        "name": "action",
+        "type": "string",
+        "required": false,
+        "default": "pause",
+        "desc": "pause / resume",
+        "hints": [],
+        "mode": "update_subscription"
+      },
+      {
+        "name": "subscription_id",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "前序操作返回的 subscription_id",
+        "hints": [],
+        "mode": "unsubscribe"
+      },
+      {
+        "name": "subscription_id",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "前序操作返回的 subscription_id",
+        "hints": [],
+        "mode": "sync"
+      },
+      {
+        "name": "report_id",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "同步返回的 digest ID",
+        "hints": [],
+        "mode": "digest"
+      },
+      {
+        "name": "report_id",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "同步返回的 digest ID",
+        "hints": [],
+        "mode": "export"
+      },
+      {
+        "name": "config_file",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "可选临时配置 JSON 路径，仅预览不保存",
+        "mode": "config_status",
+        "hints": []
+      },
+      {
+        "name": "config_file",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "部署机上的受保护 UTF-8 JSON 文件路径",
+        "mode": "configure",
+        "hints": []
+      },
+      {
+        "name": "sources",
+        "type": "list",
+        "required": false,
+        "default": "[\"dblp\",\"openreview\"]",
+        "desc": "dblp / openreview / github / crossref",
+        "mode": "diagnose_sources",
+        "hints": []
+      },
+      {
+        "name": "routing",
+        "type": "string",
+        "required": false,
+        "default": "\"configured\"",
+        "desc": "configured 使用当前 HTTP 路由；direct 不使用环境代理，仅用于允许直连的部署网络",
+        "mode": "diagnose_sources",
+        "hints": []
+      },
+      {
+        "name": "paper_id",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "search、track 或 digest 返回的论文 ID",
+        "hints": [],
+        "mode": "paper_detail"
+      },
+      {
+        "name": "paper_id",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "作为相似度基准的论文 ID",
+        "hints": [],
+        "mode": "related"
+      },
+      {
+        "name": "limit",
+        "type": "int",
+        "required": false,
+        "default": 10,
+        "desc": "返回 1-100 篇",
+        "hints": [],
+        "mode": "related"
+      }
+    ],
+    "modes": [
+      {
+        "id": "track",
+        "name": "跟踪",
+        "desc": "用一句自然语言描述方向、会刊和时间，立即检索具体论文并创建持续订阅。"
+      },
+      {
+        "id": "catalog",
+        "name": "会议期刊目录",
+        "desc": "查看当前版本、分级、领域及来源。"
+      },
+      {
+        "id": "import_catalog",
+        "name": "导入目录",
+        "desc": "导入含 version、source_url、venues 的 JSON 目录，仅影响当前用户。"
+      },
+      {
+        "id": "search",
+        "name": "论文检索",
+        "desc": "查询来源并保存证据，返回来源健康状态和变更 ID。"
+      },
+      {
+        "id": "subscribe",
+        "name": "创建订阅",
+        "desc": "保存可定时执行的论文检索配置。"
+      },
+      {
+        "id": "subscriptions",
+        "name": "订阅列表",
+        "desc": "查看当前用户的订阅。"
+      },
+      {
+        "id": "update_subscription",
+        "name": "暂停或恢复订阅",
+        "desc": "改变订阅启用状态，不会被正在执行的同步覆盖。"
+      },
+      {
+        "id": "unsubscribe",
+        "name": "删除订阅",
+        "desc": "移除订阅，已存论文和摘要保留。"
+      },
+      {
+        "id": "sync",
+        "name": "同步订阅",
+        "desc": "手动执行一次订阅并保存增量摘要。"
+      },
+      {
+        "id": "digest",
+        "name": "查看摘要",
+        "desc": "查看某次同步中的变化，省略 ID 为全部已存论文。"
+      },
+      {
+        "id": "export",
+        "name": "导出论文",
+        "desc": "导出论文与来源记录为 JSON。"
+      },
+      {
+        "id": "worker_start",
+        "name": "启动调度",
+        "desc": "启动本工具附属后台进程，处理 GPU 队列和论文订阅。"
+      },
+      {
+        "id": "worker_status",
+        "name": "调度状态",
+        "desc": "查看心跳、进程和错误。"
+      },
+      {
+        "id": "worker_stop",
+        "name": "停止调度",
+        "desc": "停止调度进程；已运行容器需单独 cancel，容器内超时仍生效。"
+      },
+      {
+        "id": "config_status",
+        "name": "配置状态",
+        "desc": "查看凭据是否配置及来源，不发起付费模型请求。"
+      },
+      {
+        "id": "configure",
+        "name": "持久配置",
+        "desc": "从本机文件替换当前用户的学术工具配置，不改平台设置。"
+      },
+      {
+        "id": "config_reset",
+        "name": "清除私有配置",
+        "desc": "删除当前用户的学术工具配置，恢复环境或平台默认。"
+      },
+      {
+        "id": "diagnose_sources",
+        "name": "来源访问诊断",
+        "desc": "探测固定官方接口，区分网络、鉴权、限流与站点验证，不绕过访问限制。"
+      },
+      {
+        "id": "topics",
+        "name": "方向画像",
+        "desc": "查看内置研究方向、同义词和推荐会刊；未列出的方向仍可自定义。"
+      },
+      {
+        "id": "paper_detail",
+        "name": "论文详情",
+        "desc": "查看一篇已索引论文的摘要、作者、方向命中、来源记录和评级依据。"
+      },
+      {
+        "id": "related",
+        "name": "相似论文",
+        "desc": "在当前用户已索引论文中按标题和摘要词汇查找相似论文。"
+      }
+    ],
+    "tags": [
+      "学术工具箱",
+      "CCF A",
+      "论文跟踪",
+      "顶会顶刊",
+      "11.3.3"
+    ],
+    "usage_count": 0,
+    "created_at": "2026-09-28T00:00:00Z",
+    "visibility": "public",
+    "owner": "system"
+  },
+  {
+    "id": "paper-writing",
+    "name": "论文撰写",
+    "version": "1.3.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/paper-writing.md",
+    "impl_path": "implementations/paper-writing/",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "compose",
+            "create",
+            "projects",
+            "attach",
+            "outline",
+            "draft",
+            "revise",
+            "save_section",
+            "read",
+            "validate",
+            "versions",
+            "restore",
+            "export",
+            "config_status",
+            "configure",
+            "config_reset",
+            "evidence_matrix",
+            "literature_review",
+            "claim_check"
+          ],
+          "default": "create"
+        },
+        "config_file": {
+          "type": "string",
+          "description": "Deployment-local temporary configuration JSON path; never include secret values in tool parameters"
+        }
+      },
+      "additionalProperties": true
+    },
+    "output_schema": {
+      "type": "object",
+      "required": [
+        "status",
+        "output_format",
+        "message",
+        "data"
+      ]
+    },
+    "param_meta": [
+      {
+        "name": "mode",
+        "type": "string",
+        "required": false,
+        "default": "create",
+        "desc": "选择以下模式",
+        "hints": []
+      },
+      {
+        "name": "register_output",
+        "type": "bool",
+        "required": false,
+        "default": false,
+        "desc": "导出文件时可选登记到平台数据空间，默认为关闭",
+        "hints": []
+      },
+      {
+        "name": "title",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "前序操作返回的 title",
+        "hints": [],
+        "mode": "create"
+      },
+      {
+        "name": "research_question",
+        "type": "string",
+        "required": false,
+        "default": "",
+        "desc": "研究问题或综述主线",
+        "hints": [],
+        "mode": "create"
+      },
+      {
+        "name": "target_venue",
+        "type": "string",
+        "required": false,
+        "default": "",
+        "desc": "目标会议或期刊，用于组织写作要求",
+        "hints": [],
+        "mode": "create"
+      },
+      {
+        "name": "language",
+        "type": "string",
+        "required": false,
+        "default": "中文",
+        "desc": "生成内容使用的语言",
+        "hints": [],
+        "mode": "create"
+      },
+      {
+        "name": "paper_ids",
+        "type": "list",
+        "required": false,
+        "default": [],
+        "desc": "论文跟踪工具返回的 paper ID 数组",
+        "hints": [],
+        "mode": "create"
+      },
+      {
+        "name": "report_ids",
+        "type": "list",
+        "required": false,
+        "default": [],
+        "desc": "论文跟踪工具返回的 digest ID，批量导入其中的具体论文",
+        "hints": [],
+        "mode": "create"
+      },
+      {
+        "name": "job_ids",
+        "type": "list",
+        "required": false,
+        "default": [],
+        "desc": "复现任务 ID 数组，保存当前结果快照",
+        "hints": [],
+        "mode": "create"
+      },
+      {
+        "name": "material_paths",
+        "type": "list",
+        "required": false,
+        "default": [],
+        "desc": "当前部署机器上的 PDF、Markdown、TXT、JSON 文件路径",
+        "hints": [],
+        "mode": "create"
+      },
+      {
+        "name": "bibliography_path",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "UTF-8 BibTeX 文件",
+        "hints": [],
+        "mode": "create"
+      },
+      {
+        "name": "project_id",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "前序操作返回的 project_id",
+        "hints": [],
+        "mode": "attach"
+      },
+      {
+        "name": "base_revision",
+        "type": "int",
+        "required": true,
+        "default": null,
+        "desc": "read 返回的当前 revision",
+        "hints": [],
+        "mode": "attach"
+      },
+      {
+        "name": "paper_ids",
+        "type": "list",
+        "required": false,
+        "default": [],
+        "desc": "论文跟踪工具返回的 paper ID 数组",
+        "hints": [],
+        "mode": "attach"
+      },
+      {
+        "name": "report_ids",
+        "type": "list",
+        "required": false,
+        "default": [],
+        "desc": "论文跟踪工具返回的 digest ID",
+        "hints": [],
+        "mode": "attach"
+      },
+      {
+        "name": "job_ids",
+        "type": "list",
+        "required": false,
+        "default": [],
+        "desc": "复现任务 ID 数组，保存当前结果快照",
+        "hints": [],
+        "mode": "attach"
+      },
+      {
+        "name": "material_paths",
+        "type": "list",
+        "required": false,
+        "default": [],
+        "desc": "当前部署机器上的 PDF、Markdown、TXT、JSON 文件路径",
+        "hints": [],
+        "mode": "attach"
+      },
+      {
+        "name": "project_id",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "前序操作返回的 project_id",
+        "hints": [],
+        "mode": "outline"
+      },
+      {
+        "name": "section",
+        "type": "string",
+        "required": false,
+        "default": "outline",
+        "desc": "章节名称",
+        "hints": [],
+        "mode": "outline"
+      },
+      {
+        "name": "instruction",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "写作要求和目标语言",
+        "hints": [],
+        "mode": "outline"
+      },
+      {
+        "name": "project_id",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "前序操作返回的 project_id",
+        "hints": [],
+        "mode": "draft"
+      },
+      {
+        "name": "section",
+        "type": "string",
+        "required": false,
+        "default": "draft",
+        "desc": "章节名称",
+        "hints": [],
+        "mode": "draft"
+      },
+      {
+        "name": "instruction",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "写作要求和目标语言",
+        "hints": [],
+        "mode": "draft"
+      },
+      {
+        "name": "project_id",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "前序操作返回的 project_id",
+        "hints": [],
+        "mode": "revise"
+      },
+      {
+        "name": "section",
+        "type": "string",
+        "required": false,
+        "default": "draft",
+        "desc": "章节名称",
+        "hints": [],
+        "mode": "revise"
+      },
+      {
+        "name": "instruction",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "写作要求和目标语言",
+        "hints": [],
+        "mode": "revise"
+      },
+      {
+        "name": "project_id",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "前序操作返回的 project_id",
+        "hints": [],
+        "mode": "save_section"
+      },
+      {
+        "name": "base_revision",
+        "type": "int",
+        "required": true,
+        "default": null,
+        "desc": "当前 revision",
+        "hints": [],
+        "mode": "save_section"
+      },
+      {
+        "name": "section",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "前序操作返回的 section",
+        "hints": [],
+        "mode": "save_section"
+      },
+      {
+        "name": "content",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "前序操作返回的 content",
+        "hints": [],
+        "mode": "save_section"
+      },
+      {
+        "name": "project_id",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "前序操作返回的 project_id",
+        "hints": [],
+        "mode": "read"
+      },
+      {
+        "name": "project_id",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "前序操作返回的 project_id",
+        "hints": [],
+        "mode": "validate"
+      },
+      {
+        "name": "project_id",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "前序操作返回的 project_id",
+        "hints": [],
+        "mode": "versions"
+      },
+      {
+        "name": "project_id",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "前序操作返回的 project_id",
+        "hints": [],
+        "mode": "restore"
+      },
+      {
+        "name": "version_id",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "前序操作返回的 version_id",
+        "hints": [],
+        "mode": "restore"
+      },
+      {
+        "name": "base_revision",
+        "type": "int",
+        "required": true,
+        "default": null,
+        "desc": "当前 revision",
+        "hints": [],
+        "mode": "restore"
+      },
+      {
+        "name": "project_id",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "前序操作返回的 project_id",
+        "hints": [],
+        "mode": "export"
+      },
+      {
+        "name": "format",
+        "type": "string",
+        "required": false,
+        "default": "markdown",
+        "desc": "markdown / latex / bibtex / docx / pdf / bundle",
+        "hints": [],
+        "mode": "export"
+      },
+      {
+        "name": "config_file",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "可选临时配置 JSON 路径，仅预览不保存",
+        "mode": "config_status",
+        "hints": []
+      },
+      {
+        "name": "config_file",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "部署机上的受保护 UTF-8 JSON 文件路径",
+        "mode": "configure",
+        "hints": []
+      },
+      {
+        "name": "project_id",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "写作项目 ID",
+        "hints": [],
+        "mode": "evidence_matrix"
+      },
+      {
+        "name": "project_id",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "写作项目 ID",
+        "hints": [],
+        "mode": "literature_review"
+      },
+      {
+        "name": "section",
+        "type": "string",
+        "required": false,
+        "default": "Related Work",
+        "desc": "保存章节名",
+        "hints": [],
+        "mode": "literature_review"
+      },
+      {
+        "name": "instruction",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "综述结构、语言和侧重点",
+        "hints": [],
+        "mode": "literature_review"
+      },
+      {
+        "name": "project_id",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "写作项目 ID",
+        "hints": [],
+        "mode": "claim_check"
+      },
+      {
+        "name": "section",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "可选，仅检查指定章节",
+        "hints": [],
+        "mode": "claim_check"
+      },
+      {
+        "name": "request",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "用一句话说明要生成提纲、章节还是文献综述",
+        "hints": [],
+        "mode": "compose"
+      },
+      {
+        "name": "project_id",
+        "type": "string",
+        "required": false,
+        "default": null,
+        "desc": "可选已有写作项目 ID；省略时自动创建",
+        "hints": [],
+        "mode": "compose"
+      },
+      {
+        "name": "title",
+        "type": "string",
+        "required": false,
+        "default": "自动识别",
+        "desc": "无法从描述识别标题时可由 Agent 补充",
+        "hints": [],
+        "mode": "compose"
+      },
+      {
+        "name": "paper_ids",
+        "type": "list",
+        "required": false,
+        "default": [],
+        "desc": "论文跟踪结果 ID",
+        "hints": [],
+        "mode": "compose"
+      },
+      {
+        "name": "report_ids",
+        "type": "list",
+        "required": false,
+        "default": [],
+        "desc": "论文跟踪摘要 ID",
+        "hints": [],
+        "mode": "compose"
+      },
+      {
+        "name": "job_ids",
+        "type": "list",
+        "required": false,
+        "default": [],
+        "desc": "代码复现任务 ID",
+        "hints": [],
+        "mode": "compose"
+      },
+      {
+        "name": "material_paths",
+        "type": "list",
+        "required": false,
+        "default": [],
+        "desc": "本机材料文件路径",
+        "hints": [],
+        "mode": "compose"
+      }
+    ],
+    "modes": [
+      {
+        "id": "create",
+        "name": "创建写作项目",
+        "desc": "导入可追踪材料，BibTeX 导入项标记为用户提供而非已验证文献。"
+      },
+      {
+        "id": "projects",
+        "name": "写作项目列表",
+        "desc": "列出当前用户项目。"
+      },
+      {
+        "id": "attach",
+        "name": "补充材料",
+        "desc": "添加或刷新论文、实验和文件材料，使用乐观并发控制。"
+      },
+      {
+        "id": "outline",
+        "name": "生成提纲",
+        "desc": "通过平台配置的 LLM 生成文本，不编造证据。"
+      },
+      {
+        "id": "draft",
+        "name": "起草章节",
+        "desc": "通过平台配置的 LLM 生成文本，不编造证据。"
+      },
+      {
+        "id": "revise",
+        "name": "修订章节",
+        "desc": "通过平台配置的 LLM 生成文本，不编造证据。"
+      },
+      {
+        "id": "save_section",
+        "name": "保存章节",
+        "desc": "保存手工编辑内容；版本冲突时拒绝覆盖。"
+      },
+      {
+        "id": "read",
+        "name": "读取项目",
+        "desc": "返回项目、引用键和 Markdown 文稿。"
+      },
+      {
+        "id": "validate",
+        "name": "引用检查",
+        "desc": "检查未知引用、待补证据标记和实验状态。"
+      },
+      {
+        "id": "versions",
+        "name": "修订历史",
+        "desc": "查看不可变修订快照。"
+      },
+      {
+        "id": "restore",
+        "name": "恢复版本",
+        "desc": "把历史快照保存为新的版本，不覆盖历史。"
+      },
+      {
+        "id": "export",
+        "name": "导出文稿",
+        "desc": "阻止未知引用导出，生成文稿、参考文献和证据记录。"
+      },
+      {
+        "id": "config_status",
+        "name": "配置状态",
+        "desc": "查看凭据是否配置及来源，不发起付费模型请求。"
+      },
+      {
+        "id": "configure",
+        "name": "持久配置",
+        "desc": "从本机文件替换当前用户的学术工具配置，不改平台设置。"
+      },
+      {
+        "id": "config_reset",
+        "name": "清除私有配置",
+        "desc": "删除当前用户的学术工具配置，恢复环境或平台默认。"
+      },
+      {
+        "id": "evidence_matrix",
+        "name": "证据矩阵",
+        "desc": "把跟踪到的论文整理为可引用的证据矩阵，区分摘要证据和仅元数据记录。"
+      },
+      {
+        "id": "literature_review",
+        "name": "文献综述",
+        "desc": "基于证据矩阵综合主题、差异和研究缺口，并保存为项目章节。"
+      },
+      {
+        "id": "claim_check",
+        "name": "论断引用检查",
+        "desc": "逐句检查引用缺口、未知引用和待补证据标记。"
+      },
+      {
+        "id": "compose",
+        "name": "自然语言撰写",
+        "desc": "用一句普通描述创建或继续写作项目，并自动选择提纲、章节起草或基于证据的文献综述。"
+      }
+    ],
+    "tags": [
+      "学术工具箱",
+      "论文撰写",
+      "BibTeX",
+      "学术写作",
+      "11.3.4"
+    ],
+    "usage_count": 0,
+    "created_at": "2026-09-28T00:00:00Z",
+    "visibility": "public",
+    "owner": "system"
   }
 ]
