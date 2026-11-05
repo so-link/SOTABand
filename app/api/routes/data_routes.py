@@ -6,6 +6,7 @@ import json as _json
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.data_schemas import (
     ScanDirectoryRequest,
@@ -15,9 +16,18 @@ from app.api.schemas.data_schemas import (
 )
 from core.llm.client import create_llm_client
 from core.resource.registry.data_registry import DataRegistry
-from app.api.deps import get_optional_auth
+from app.api.deps import get_auth_context, get_optional_auth
 from core.auth.context import AuthContext
-from core.user_context import get_current_user_id, resolve_owner_id
+from core.db.session import get_db_session
+from core.auth.platform_admin import is_platform_admin
+from core.file_guard import (
+    PathAccessError,
+    is_sensitive_path,
+    resolve_checked_path,
+    validate_dataset_deletion,
+    validate_dataset_path,
+)
+from core.user_context import resolve_owner_id
 
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".webp", ".gif"}
 _TEXT_SUFFIXES = {".txt", ".md", ".csv", ".json"}
@@ -100,6 +110,52 @@ tool_registry = ToolRegistry()
 tool_discoverer = ToolDiscoverer()
 llm = create_llm_client()
 
+
+# ── 归属与路径校验（管理员评审意见 1 + D3）──────────────────────────
+
+
+def _is_machine_owner(value: str | None) -> bool:
+    """机器身份（8.1 之前 local-xxxx）判定；兼容测试替身 registry。"""
+    fn = getattr(registry, "is_machine_owner", None)
+    if callable(fn):
+        try:
+            return bool(fn(value))
+        except Exception:
+            pass
+    return str(value or "").startswith("local-")
+
+
+async def _require_owner_dataset_async(ctx: AuthContext, dataset_id: str) -> dict:
+    """数据集归属校验。
+
+    - 有 owner：必须等于当前用户，否则 **404**（不泄露"存在但不属于你"）；
+    - 历史无 owner：本机有数据视为本人（与 ``DataRegistry.belongs_to`` 一致）。
+    """
+    me = resolve_owner_id(ctx)
+    entry = await registry.get(dataset_id)
+    if entry is None:
+        raise HTTPException(404, "数据集不存在")
+    owner = str(entry.get("owner") or "")
+    if owner and not _is_machine_owner(owner):
+        if owner != me:
+            raise HTTPException(404, "数据集不存在")
+    elif not registry.is_present_locally(entry):
+        # 无 owner 或机器身份历史条目：本机有数据视为本人（升级兼容）
+        raise HTTPException(404, "数据集不存在")
+    return entry
+
+
+def _guard_dir(raw: str, owner_id: str | None = None) -> Path:
+    """目录路径边界 + 归属校验（扫描/浏览类接口，D3 / v3 评审）。
+
+    必须传 ``owner_id``：否则上传目录的归属规则不生效，任何登录用户都能
+    扫描他人上传目录（实测越权）。
+    """
+    try:
+        return resolve_checked_path(raw, must_exist=True, owner_id=owner_id)
+    except PathAccessError as exc:
+        raise HTTPException(403, str(exc)) from exc
+
 SPEC_PROMPT = """你是一个数据集规格文档生成器。你必须严格根据用户提供的数据文件信息来生成文档，
 **严禁编造不存在的信息**。如果某个信息没有提供，填写"待补充"。
 
@@ -155,17 +211,20 @@ public
 
 
 @router.post("/scan-directory")
-async def scan_directory(req: ScanDirectoryRequest):
-    """扫描目录，返回文件列表和格式分析"""
-    path = Path(req.path)
-    if not path.exists():
-        raise HTTPException(404, f"目录不存在: {req.path}")
+async def scan_directory(
+    req: ScanDirectoryRequest, ctx: AuthContext = Depends(get_auth_context)
+):
+    """扫描目录，返回文件列表和格式分析（仅允许根内 + 本人的目录，D3）"""
+    path = _guard_dir(req.path, resolve_owner_id(ctx))
 
     files = []
     total_size = 0
     formats = set()
 
     for entry in path.rglob("*"):
+        # 目录扫描不得旁路列出敏感条目（storage/.env/.git 等）
+        if is_sensitive_path(entry):
+            continue
         if entry.is_file():
             size = entry.stat().st_size
             fmt = entry.suffix.lstrip(".").lower()
@@ -234,7 +293,7 @@ async def generate_spec(req: GenerateDataSpecRequest):
 @router.post("/register")
 async def register_dataset(
     req: RegisterDatasetRequest,
-    ctx: AuthContext | None = Depends(get_optional_auth),
+    ctx: AuthContext = Depends(get_auth_context),
 ):
     """注册数据集 — 文件保持在原位置，不复制"""
     if not req.spec_md.strip():
@@ -264,6 +323,18 @@ async def register_dataset(
                 total_size += src.stat().st_size
                 formats.add(src.suffix.lstrip(".").lower())
 
+    # 路径边界（D3/P1-10）：注册任意目录会绕过文件接口的允许根，
+    # 因此 data_path 必须在数据允许根内、不能是资源根本身、不能与他人数据集重叠。
+    if data_path:
+        try:
+            data_path = str(
+                validate_dataset_path(data_path, owner_id=resolve_owner_id(ctx))
+            )
+            if not Path(data_path).exists():
+                raise HTTPException(404, f"数据集目录不存在: {data_path}")
+        except PathAccessError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
     resource = {
         "id": ds_id,
         "name": req.dataset_name or ds_id,
@@ -279,6 +350,11 @@ async def register_dataset(
     if data_path:
         path_info = f"\n\n---\n## 数据集目录\n- **路径**: `{data_path}`\n- **文件数**: {file_count}\n- **总大小**: {total_size} bytes\n- **格式**: {', '.join(sorted(formats))}\n"
         resource["raw_md"] = req.spec_md + path_info
+
+    # 已存在同 id：只有资源所有者/管理员可以更新（否则等于接管他人条目）
+    existing = await registry.get(ds_id)
+    if existing is not None:
+        await _require_owner_dataset_async(ctx, ds_id)
 
     registered_id = await registry.register(resource, owner=resolve_owner_id(ctx))
     entry = await registry.get(registered_id)
@@ -374,22 +450,32 @@ def _extract_tags_json(text: str) -> list[str] | None:
 
 
 @router.get("/repository")
-async def get_dataset_repository():
-    """获取数据集仓库列表（含标签统计、缩略图与**可用性标记**）。
+async def get_dataset_repository(
+    include_others: bool = False,
+    ctx: AuthContext = Depends(get_auth_context),
+):
+    """获取数据集仓库列表（**默认只本人**；含标签统计/缩略图/可用性标记）。
 
     为什么要带 is_local：注册表 ``data/registry.json`` 随项目目录走，而数据本身
     不随（``data_path`` 常是原机器的绝对路径，如 ``/Users/leo/...``）。从别人环境
     复制项目后，条目能看到但文件打不开 —— 前端需要据此区分"可选"与"不可选"，
     并在选择框里给出具体原因，而不是只显示一句"暂无数据集"。
-    """
-    datasets = await registry.list_all()
 
-    current_user = get_current_user_id()
+    ⚠️ 多用户：默认只返回当前用户的数据集；``include_others=true`` 仅**平台
+    管理员**可用（否则会泄露他人数据集的名称/路径）。租户 Owner/Admin 不是
+    平台管理员 —— 跨租户可见性必须由部署方显式授权。
+    """
+    current_user = resolve_owner_id(ctx)
+    if include_others and not is_platform_admin(ctx):
+        raise HTTPException(403, "只有平台管理员可以查看他人的数据集")
+    datasets = await registry.list_all(owner=None if include_others else current_user)
+
     for ds in datasets:
         ds["is_local"] = registry.is_present_locally(ds)
         owner = ds.get("owner")
         # 无 owner 的历史条目：数据在本机就视为本人的（与 is_visible 的启发式一致）
         ds["owner_match"] = (owner == current_user) if owner else ds["is_local"]
+        ds["is_owner"] = ds["owner_match"]
         ds.setdefault("data_path", "")
 
     # 计算标签统计
@@ -418,7 +504,7 @@ async def get_dataset_repository():
 async def list_datasets(
     available_only: bool = Query(False, description="仅返回本机有数据的数据集"),
     include_others: bool = Query(False, description="包含其他用户的数据集（默认只返回本人的）"),
-    ctx: AuthContext | None = Depends(get_optional_auth),
+    ctx: AuthContext = Depends(get_auth_context),
 ):
     """列出已注册数据集（**按归属隔离**）。
 
@@ -431,10 +517,12 @@ async def list_datasets(
     - 早期无 owner 的历史条目 → 本机确实有数据的视为本人的（平滑迁移）
 
     参数：
-    - include_others=true ：返回全部（含他人条目），仅供排查/迁移使用
+    - include_others=true ：返回全部（含他人条目），仅平台管理员可用
     - available_only=true ：只返回本机确实有数据的
     """
     current_user = resolve_owner_id(ctx)
+    if include_others and not is_platform_admin(ctx):
+        raise HTTPException(403, "只有平台管理员可以查看他人的数据集")
     entries = await registry.list_all(owner=None if include_others else current_user)
 
     checked = []
@@ -460,23 +548,69 @@ async def list_datasets(
 
 
 @router.post("/claim-local")
-async def claim_local_datasets(ctx: AuthContext | None = Depends(get_optional_auth)):
+async def claim_local_datasets(
+    ctx: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_db_session),
+):
     """把本机有数据、但缺少归属标记的历史数据集认领到当前用户。
 
     用于一次性迁移：这些条目确认是自己的数据后打上 owner，
     之后列表就走精确的归属匹配，不再依赖"本机是否有数据"的启发式判断。
+
+    ⚠️ 仅平台管理员可调用：服务器从单机升级时无主条目是共享资产，
+    "先到先得"会让第一个调用者把所有人的历史数据认领走。
     """
+    if not is_platform_admin(ctx):
+        raise HTTPException(403, "只有平台管理员可以认领历史数据集")
     owner = resolve_owner_id(ctx)
     claimed = registry.claim_local_orphans(user_id=owner)
+
+    import uuid as _uuid
+    from core.auth.audit import add_audit_event
+    from core.db.models import RESULT_SUCCESS
+
+    add_audit_event(
+        session,
+        action="data.claim_local",
+        result=RESULT_SUCCESS,
+        request_id=ctx.request_id,
+        actor_id=ctx.user_id,
+        tenant_id=_uuid.UUID(ctx.tenant_id),
+        target_type="user_dataset_claim",
+        target_id=owner,
+    )
+    await session.commit()
     return {"claimed": claimed, "owner": owner}
 
 
+@router.get("/{dataset_id}/thumbnail")
+async def dataset_thumbnail(
+    dataset_id: str, ctx: AuthContext = Depends(get_auth_context)
+):
+    """数据集列表缩略图（第一张图片）。仅本人可见，且路径须在允许根内。"""
+    from fastapi.responses import FileResponse
+
+    entry = await _require_owner_dataset_async(ctx, dataset_id)
+    data_path = entry.get("data_path", "")
+    img = _find_first_image(dataset_id, data_path)
+    if not img:
+        raise HTTPException(404, "缩略图不存在")
+    try:
+        # 必须带 owner：否则可借缩略图接口读他人上传目录里的图片
+        safe = resolve_checked_path(
+            img, must_exist=True, owner_id=resolve_owner_id(ctx)
+        )
+    except PathAccessError:
+        raise HTTPException(404, "缩略图不存在")
+    return FileResponse(str(safe), media_type="image/png")
+
+
 @router.get("/{dataset_id}")
-async def get_dataset(dataset_id: str):
-    """数据集详情（含 MD）"""
-    entry = await registry.get(dataset_id)
-    if not entry:
-        raise HTTPException(404, f"Dataset '{dataset_id}' not found")
+async def get_dataset(
+    dataset_id: str, ctx: AuthContext = Depends(get_auth_context)
+):
+    """数据集详情（含 MD；**仅本人**，他人条目按 404 处理）"""
+    entry = await _require_owner_dataset_async(ctx, dataset_id)
 
     spec_path = registry._get_def_dir() / f"{dataset_id}.md"
     spec_md = spec_path.read_text(encoding="utf-8") if spec_path.exists() else ""
@@ -484,11 +618,11 @@ async def get_dataset(dataset_id: str):
 
 
 @router.get("/{dataset_id}/files")
-async def list_files(dataset_id: str):
-    """数据集文件列表"""
-    entry = await registry.get(dataset_id)
-    if not entry:
-        raise HTTPException(404, f"Dataset '{dataset_id}' not found")
+async def list_files(
+    dataset_id: str, ctx: AuthContext = Depends(get_auth_context)
+):
+    """数据集文件列表（仅本人）"""
+    entry = await _require_owner_dataset_async(ctx, dataset_id)
 
     data_path = registry.resolve_data_path(entry.get("data_path", ""))
     if not data_path.exists():
@@ -512,9 +646,15 @@ async def list_files(dataset_id: str):
 
 
 @router.post("/match-tools")
-async def match_tools(req: MatchToolsRequest):
-    """根据数据集和用户需求，匹配可用工具"""
-    entry = await registry.get(req.dataset_id) if req.dataset_id else None
+async def match_tools(
+    req: MatchToolsRequest, ctx: AuthContext = Depends(get_auth_context)
+):
+    """根据数据集和用户需求，匹配可用工具（数据集须属于本人）"""
+    entry = (
+        await _require_owner_dataset_async(ctx, req.dataset_id)
+        if req.dataset_id
+        else None
+    )
 
     # 收集数据集信息
     ds_info = ""
@@ -563,11 +703,11 @@ async def match_tools(req: MatchToolsRequest):
 
 
 @router.get("/{dataset_id}/preview")
-async def preview_dataset(dataset_id: str):
-    """预览数据集 — 从 MD 文档解析文件列表 + 匹配预览工具"""
-    entry = await registry.get(dataset_id)
-    if not entry:
-        raise HTTPException(404, f"Dataset '{dataset_id}' not found")
+async def preview_dataset(
+    dataset_id: str, ctx: AuthContext = Depends(get_auth_context)
+):
+    """预览数据集（仅本人）— 从 MD 文档解析文件列表 + 匹配预览工具"""
+    entry = await _require_owner_dataset_async(ctx, dataset_id)
 
     spec_path = registry._get_def_dir() / f"{dataset_id}.md"
     spec_md = spec_path.read_text(encoding="utf-8") if spec_path.exists() else ""
@@ -596,33 +736,76 @@ async def preview_dataset(dataset_id: str):
 
 
 @router.get("/search/find")
-async def search_datasets(q: str = "", tags: str = ""):
-    """搜索数据集"""
+async def search_datasets(
+    q: str = "", tags: str = "", ctx: AuthContext = Depends(get_auth_context)
+):
+    """搜索数据集（**按归属过滤**，不返回他人条目）"""
     tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
     results = await discoverer.search(query=q, tags=tag_list)
-    return {"datasets": results}
+    me = resolve_owner_id(ctx)
+    filtered = [
+        d
+        for d in results
+        if (str(d.get("owner") or "") == me)
+        or (not d.get("owner") and registry.is_present_locally(d))
+    ]
+    return {"datasets": filtered}
 
 
 @router.delete("/{dataset_id}")
-async def delete_dataset(dataset_id: str):
-    """删除数据集（registry + data files）"""
-    entry = await registry.get(dataset_id)
-    if not entry:
-        raise HTTPException(404, f"Dataset '{dataset_id}' not found")
+async def delete_dataset(
+    dataset_id: str,
+    ctx: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """删除数据集（registry + data files；**仅本人**）。
+
+    删除文件前经 :func:`core.file_guard.validate_dataset_deletion` 二次校验：
+    资源根本身 / 他人上传目录 / 他人数据集重叠一律 **409**，绝不 rmtree。
+    """
+    entry = await _require_owner_dataset_async(ctx, dataset_id)
 
     import shutil
     # 删除数据文件
     # 必须解析成绝对路径：相对路径若直接 rmtree，会误删 resources/data 下的目录
     data_path = registry.resolve_data_path(entry.get("data_path", ""))
     if data_path.exists() and data_path.is_dir():
-        # 安全兜底：绝不允许删除 resources/data 根目录自身
-        if data_path.resolve() == registry._get_data_dir().resolve().parent.resolve():
-            raise HTTPException(400, "拒绝删除数据根目录")
-        shutil.rmtree(data_path, ignore_errors=True)
+        # v3 评审：删除前必须再做一次"删除边界"校验 —— registry 里的 data_path
+        # 不可信（历史条目 / 被篡改的注册表），只允许删除安全根内的、本人拥有的
+        # 独立数据集目录；资源根本身、他人上传目录、他人数据集一律 409。
+        try:
+            safe_path = validate_dataset_deletion(
+                data_path, owner_id=resolve_owner_id(ctx)
+            )
+        except PathAccessError as exc:
+            raise HTTPException(409, f"拒绝删除：{exc}") from exc
+        shutil.rmtree(safe_path, ignore_errors=True)
     # 删除 MD 文档
     spec_path = registry._get_def_dir() / f"{dataset_id}.md"
     if spec_path.exists():
         spec_path.unlink()
     # 从 registry 移除
     await registry.unregister(dataset_id)
+
+    # 删除后撤回其发布，避免 catalog/install 悬空指向已不存在的资源
+    try:
+        from core.sharing.service import revoke_publications_for_release
+
+        await revoke_publications_for_release(
+            session,
+            "data",
+            dataset_id,
+            actor_id=str(ctx.user_id),
+            tenant_id=getattr(ctx, "tenant_id", None),
+            request_id=getattr(ctx, "request_id", "") or "",
+        )
+    except Exception:  # noqa: BLE001 - 撤发布失败不应回滚已完成的删除
+        pass
+
+    from core.auth.audit_actions import ACTION_DATA_DELETED, record_resource_change
+
+    await record_resource_change(
+        session, ctx,
+        action=ACTION_DATA_DELETED, target_type="data", target_id=dataset_id,
+    )
     return {"deleted": dataset_id}

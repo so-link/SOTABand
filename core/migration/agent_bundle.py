@@ -24,7 +24,7 @@ import io
 import json
 import time
 import zipfile
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from core.deps import extract_imports
 from core.migration.tool_bundle import (
@@ -35,9 +35,11 @@ from core.migration.tool_bundle import (
     _collect_impl_files,
     _current_user,
     _now_iso,
+    _parse_dependencies,
+    _safe_write_target,
     _sha256,
     _stamp,
-    _parse_dependencies,
+    _validate_member_rel,
 )
 from core.resource import paths
 from core.resource.registry.agent_registry import AgentRegistry
@@ -101,6 +103,8 @@ def export_agent(
     agent_id: str,
     out_dir: Path | str | None = None,
     include_assets: bool = True,
+    *,
+    exported_by: str | None = None,
 ) -> dict:
     """把 Agent 打成迁移包，返回包信息。"""
     import re
@@ -150,6 +154,8 @@ def export_agent(
         "format": BUNDLE_FORMAT,
         "format_version": BUNDLE_VERSION,
         "exported_at": _now_iso(),
+        # 导出者身份（UUID）：仅用于包可见性与溯源，不承载权限。
+        "exported_by": exported_by or _current_user(),
         "source": {
             "project": paths.PROJECT_ROOT.name,
             "origin": "private" if origin == paths.PRIVATE_ROOT else "builtin",
@@ -203,16 +209,18 @@ def export_agent(
 # ── 导入 ──────────────────────────────────────────────────────
 
 def _safe_member(name: str, agent_id: str) -> str | None:
+    """校验 zip 成员名（zip slip，含 Windows 盘符），返回实现目录内相对路径。"""
     if not name or name.endswith("/"):
         return None
     if "\\" in name or name.startswith("/") or ".." in name.split("/"):
         raise ValueError(f"包内存在非法路径: {name!r}")
     if name in {"manifest.json", "registry_entry.json"}:
         return None
+    if PureWindowsPath(name).drive:
+        raise ValueError(f"包内存在非法路径: {name!r}")
     prefix = f"implementations/{agent_id}/"
     if name.startswith(prefix):
-        rel = name[len(prefix):]
-        return rel or None
+        return _validate_member_rel(name[len(prefix):], name)
     if name == f"definitions/{agent_id}.md":
         return None
     raise ValueError(f"包内存在非预期路径: {name!r}")
@@ -222,6 +230,9 @@ def import_agent(
     bundle_path: Path | str | None = None,
     bundle_bytes: bytes | None = None,
     overwrite: bool = False,
+    *,
+    owner_id: str | None = None,
+    allow_overwrite: bool = False,
 ) -> dict:
     """把 Agent 迁移包导入当前环境的私有 Agent 空间。"""
     import re
@@ -296,6 +307,13 @@ def import_agent(
                 f"（旧文件会备份为 .bak.<时间戳>）"
             )
 
+        if existing and overwrite and not allow_overwrite:
+            # 覆盖 = 改别人的代码（可植入后门）。只允许覆盖自己的 Agent；
+            # 租户 Owner/Admin 的兜底由路由层传 allow_overwrite=True。
+            existing_owner = str((existing_entry or {}).get("owner") or "")
+            importer = str(owner_id or _current_user())
+            if existing_owner and existing_owner != importer:
+                raise ValueError("该 Agent 已存在且属于其他用户，无权覆盖")
         plan: list[tuple[str, bytes]] = []
         total = 0
         max_file = MAX_FILE_MB * 1024 * 1024
@@ -334,8 +352,12 @@ def import_agent(
 
         written: list[str] = []
         impl_dir.mkdir(parents=True, exist_ok=True)
+        # 写盘前再解析一次目标路径，确保不会因盘符 / 符号链接跳出私有资源根
+        impl_dir_resolved = impl_dir.resolve()
         for rel, data in plan:
-            target = impl_dir / rel
+            target = _safe_write_target(
+                impl_dir_resolved, rel, f"implementations/{agent_id}/{rel}"
+            )
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
             written.append(f"implementations/{agent_id}/{rel}")
@@ -355,7 +377,7 @@ def import_agent(
         "tools": entry.get("tools", agent_meta.get("tools", [])),
         "tags": entry.get("tags", agent_meta.get("tags", [])),
         "health": entry.get("health", "healthy"),
-        "owner": _current_user(),
+        "owner": owner_id or _current_user(),
         "visibility": entry.get("visibility") or "public",
         "imported_at": _now_iso(),
     })
@@ -438,7 +460,12 @@ def inspect_agent_dependencies(agent_id: str) -> dict:
 
 # ── 包列表 ────────────────────────────────────────────────────
 
-def list_agent_bundles(directory: Path | str | None = None) -> list[dict]:
+def list_agent_bundles(
+    directory: Path | str | None = None,
+    *,
+    user_id: str | None = None,
+    include_all: bool = False,
+) -> list[dict]:
     d = Path(directory) if directory else export_dir()
     if not d.is_dir():
         return []
@@ -461,9 +488,16 @@ def list_agent_bundles(directory: Path | str | None = None) -> list[dict]:
                     "role": a.get("role"),
                     "tools": a.get("tools") or [],
                     "dependencies": m.get("dependencies") or [],
+                    "exported_by": m.get("exported_by"),
                 })
         except Exception:
             item["error"] = "manifest 读取失败"
+
+        # 可见性：本人导出 / 租户管理员看全部；旧包（无 exported_by）fail-closed
+        if not include_all:
+            owner = item.get("exported_by")
+            if not user_id or owner != user_id:
+                continue
         out.append(item)
     return out
 
