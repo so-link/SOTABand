@@ -424,3 +424,119 @@ def test_dataset_endpoints_enforce_ownership(client, tokens):
     assert client.get("/api/data/list?include_others=true", headers=hbob).status_code == 403
     assert client.get("/api/data/list?include_others=true",
                       headers=_bearer(tokens["root"])).status_code == 200
+
+
+# ── 数据集注册边界（sourceFiles / datasetId）──
+
+def test_register_rejects_source_files_outside_user_home(client, tokens):
+    """sourceFiles 是客户端原样传的路径：用户目录外（含他人 uploads）一律 400。"""
+    h = _bearer(tokens["alice"])
+    for bad in (
+        "/etc/passwd",
+        "/root/SB-USER/1001/uploads/x.csv",
+        "../../etc/passwd",
+    ):
+        r = client.post("/api/data/register", headers=h, json={
+            "specMd": "# spec", "datasetName": "ds", "sourceFiles": [bad],
+        })
+        assert r.status_code == 400, (bad, r.status_code, r.text)
+
+
+def test_register_allows_source_files_inside_user_home(client, tokens, tmp_path):
+    """当前用户目录内的绝对路径仍可注册（历史兼容，不放水越权）。"""
+    h = _bearer(tokens["alice"])  # alice uid=1000
+    f = tmp_path / "SB-USER" / "1000" / "uploads" / "x.csv"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text("a,b\n1,2\n", encoding="utf-8")
+    r = client.post("/api/data/register", headers=h, json={
+        "specMd": "# spec", "datasetName": "ds", "sourceFiles": [str(f)],
+    })
+    assert r.status_code == 200, r.text
+
+
+def test_register_rejects_invalid_dataset_id(client, tokens):
+    """dataset_id 直接拼 spec 文件路径，"../evil" 之类必须 400。"""
+    h = _bearer(tokens["alice"])
+    for bad in ("../../evil", "a/b", "Abc", "x" * 200):
+        r = client.post("/api/data/register", headers=h, json={
+            "specMd": "# spec", "datasetName": "ds", "datasetId": bad,
+        })
+        assert r.status_code == 400, (bad, r.status_code, r.text)
+
+
+# ── preview_table 前缀穿越 ──
+
+def test_preview_table_rejects_sibling_dir_prefix(client, tokens):
+    """../sibling 拼出的兄弟目录（data_path 字符串前缀）不得放行。
+
+    旧实现用 str.startswith 比对：data_path=…/ds 会放过 …/ds_backup/f。
+    """
+    import asyncio
+    from core.auth.session import AuthUser, reset_current_user, set_current_user
+    from core.resource.registry.data_registry import DataRegistry
+
+    home = user_paths.user_home("1000")
+    (home / "ds" / "inner").mkdir(parents=True)
+    (home / "ds_backup").mkdir(parents=True)
+    leak = home / "ds_backup" / "other.csv"
+    leak.write_text("secret\n", encoding="utf-8")
+
+    token = set_current_user(AuthUser(id="1000", username="alice", role="user"))
+    try:
+        asyncio.run(DataRegistry().register(
+            {"id": "ds-prefix", "name": "ds-prefix", "data_path": str(home / "ds")}))
+    finally:
+        reset_current_user(token)
+
+    h = _bearer(tokens["alice"])
+    r = client.get("/api/data/ds-prefix/table", headers=h,
+                   params={"path": "../ds_backup/other.csv"})
+    assert r.status_code == 404, (r.status_code, r.text)
+
+
+# ── scan-directory 空路径 ──
+
+def test_scan_directory_empty_path_scans_only_controlled_subdirs(client, tokens):
+    """空路径=用户目录本身：只扫 uploads/plots，不吐 platform.db 等平台文件。"""
+    h = _bearer(tokens["alice"])
+    up = client.post("/api/file/upload", headers=h,
+                     files={"file": ("data.csv", b"a,b\n1,2\n", "text/csv")})
+    assert up.status_code == 200, up.text
+    home = user_paths.user_home("1000")
+    (home / "platform.db").write_bytes(b"junk")
+
+    r = client.post("/api/data/scan-directory", headers=h, json={"path": ""})
+    assert r.status_code == 200, r.text
+    names = [f["name"] for f in r.json()["files"]]
+    assert "data.csv" in names
+    assert "platform.db" not in names
+
+
+# ── 对话附件 filePath ──
+
+def test_chat_send_rejects_file_path_outside_user_home(client, tokens, monkeypatch):
+    """附件 filePath 指向他人/系统目录 → 400；目录内路径与 file_id 放行。"""
+    import app.api.routes.chat_routes as cr
+
+    async def fake_execute_stream(agent_id, params=None, context=None, timeout=None):
+        yield {"event": "done", "data": {"messageId": "m1"}}
+
+    monkeypatch.setattr(cr.agent_factory, "is_running", lambda _aid: True)
+    monkeypatch.setattr(cr.agent_factory, "execute_stream", fake_execute_stream)
+
+    h = _bearer(tokens["alice"])
+
+    def _send(file_path):
+        return client.post("/api/chat/send", headers=h, json={
+            "content": "hi", "sessionId": "s-fp",
+            "attachments": [{"id": "a1", "fileName": "x.csv", "filePath": file_path}],
+        })
+
+    for bad in ("/root/SB-USER/1001/uploads/x.csv", "/etc/passwd",
+                "../../etc/passwd"):
+        assert _send(bad).status_code == 400, bad
+
+    home = user_paths.user_home("1000")
+    (home / "uploads").mkdir(parents=True, exist_ok=True)
+    assert _send(str(home / "uploads" / "x.csv")).status_code == 200
+    assert _send("f_0123456789ab").status_code == 200

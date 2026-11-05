@@ -142,22 +142,29 @@ async def scan_directory(req: ScanDirectoryRequest):
     if not target.exists():
         raise HTTPException(404, f"目录不存在: {req.path}")
 
+    # 空串/根路径即用户目录本身：rglob 会扫到 platform.db、资源注册表等
+    # 平台文件，收敛为只扫受控子目录
+    scan_dirs = [base / s for s in ("uploads", "plots")] if target == base else [target]
+
     files = []
     total_size = 0
     formats = set()
 
-    for entry in target.rglob("*"):
-        if entry.is_file():
-            size = entry.stat().st_size
-            fmt = entry.suffix.lstrip(".").lower()
-            files.append({
-                "name": entry.name,
-                "path": str(entry.relative_to(target)),
-                "format": fmt,
-                "size": size,
-            })
-            total_size += size
-            formats.add(fmt)
+    for d in scan_dirs:
+        if not d.is_dir():
+            continue
+        for entry in d.rglob("*"):
+            if entry.is_file():
+                size = entry.stat().st_size
+                fmt = entry.suffix.lstrip(".").lower()
+                files.append({
+                    "name": entry.name,
+                    "path": str(entry.relative_to(target)),
+                    "format": fmt,
+                    "size": size,
+                })
+                total_size += size
+                formats.add(fmt)
 
     return {
         "path": req.path,
@@ -233,7 +240,14 @@ async def register_dataset(req: RegisterDatasetRequest):
     if not req.spec_md.strip():
         raise HTTPException(400, "specMd 不能为空")
 
+    # id 会被直接拼进 spec 文件路径（definitions/<id>.md），必须消毒；
+    # 从 dataset_name 派生的 id 同样可能含 "/"、".."，不合法则退回时间戳 id
+    from core.resource.paths import is_valid_resource_id
+    if req.dataset_id and not is_valid_resource_id(req.dataset_id):
+        raise HTTPException(400, "datasetId 含非法字符（仅允许小写字母/数字/-/_）")
     ds_id = req.dataset_id or f"{req.dataset_name}_{int(time.time())}" if req.dataset_name else f"dataset_{int(time.time())}"
+    if not is_valid_resource_id(ds_id):
+        ds_id = f"dataset_{int(time.time())}"
 
     # 数据集文件保持在原位置，从上传的文件路径推断 data_path
     data_path = ""
@@ -252,6 +266,16 @@ async def register_dataset(req: RegisterDatasetRequest):
                 continue
         if not source_files:
             raise HTTPException(400, "sourceFileIds 均无法解析为有效文件")
+
+    # sourceFiles 是客户端原样传入的路径：resolve 后必须仍在当前用户目录内，
+    # 否则可借注册别人的 uploads 路径读取他人文件
+    from core.user_paths import user_home
+    _home = user_home().resolve()
+    for fp in req.source_files:
+        try:
+            Path(fp).expanduser().resolve().relative_to(_home)
+        except ValueError:
+            raise HTTPException(400, f"sourceFiles 只能引用当前用户目录内的文件: {fp}")
 
     if source_files:
         # 用第一个文件的父目录作为数据集根路径
@@ -588,9 +612,14 @@ async def preview_table(dataset_id: str, path: str = Query(..., description="数
     entry = await _owned_dataset(dataset_id)
 
     data_path = registry.resolve_data_path(entry.get("data_path", ""))
+    # 防目录穿越：resolve 后必须仍在数据集目录内（前缀字符串比对会把
+    # 兄弟目录 ds_backup 误判为 ds 之内，见 raw 接口的 relative_to 写法）
     target = (data_path / path).resolve()
-    # 防目录穿越：只允许读取数据集目录内的文件
-    if not str(target).startswith(str(data_path.resolve())) or not target.is_file():
+    try:
+        target.relative_to(data_path.resolve())
+    except ValueError:
+        raise HTTPException(404, f"文件不存在: {path}")
+    if not target.is_file():
         raise HTTPException(404, f"文件不存在: {path}")
 
     suffix = target.suffix.lower()

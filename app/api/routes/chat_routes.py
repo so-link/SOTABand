@@ -13,6 +13,7 @@ import json
 import asyncio
 import threading
 import time
+from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from sse_starlette.sse import EventSourceResponse
 
@@ -23,6 +24,7 @@ from app.api.schemas.chat_schemas import (
 )
 from core.agent.factory import agent_factory
 from core.user_context import get_current_user_id
+from core.user_paths import user_home
 
 # ── 系统默认交互 Agent 的标识 ──
 # 它是系统默认入口：引擎启动时自动拉起；用户自定义交互 Agent 则需手动启动。
@@ -107,6 +109,32 @@ async def _summarize_title(session_id: str) -> str:
     return ""
 
 
+def _validate_attachment_paths(attachments) -> None:
+    """附件 filePath 收口：只允许当前用户目录内的路径或 file_id。
+
+    语义（读前端/agent 代码确认）：现行前端 filePath 恒为空串——文件走
+    fileId，数据集引用走消息文本里的 dataset:<id>；filePath 只是历史
+    通道（旧客户端可传工作区相对路径或绝对路径，Agent 原样拼给工具）。
+    绝对路径等于"路径即凭证"，可指向他人用户目录；相对路径 ".." 同样
+    能拼出目录外。这里统一要求 resolve 后落在当前用户目录内；
+    file_id 形态放行（后续链路经 user_files 解析，天然限本用户目录）。
+    """
+    from core.user_files import looks_like_file_id
+
+    home = user_home().resolve()
+    for att in attachments:
+        fp = (att.filePath or "").strip()
+        if not fp or looks_like_file_id(fp):
+            continue
+        p = Path(fp).expanduser()
+        if not p.is_absolute():
+            p = home / p
+        try:
+            p.resolve().relative_to(home)
+        except ValueError:
+            raise HTTPException(400, "附件 filePath 只能引用当前用户目录内的文件")
+
+
 @router.post("/send")
 async def chat_send(request: ChatRequest):
     """
@@ -126,6 +154,7 @@ async def chat_send(request: ChatRequest):
         await ensure_default_interactive_agent()
 
     # 构建附件列表（兼容 camelCase 和 snake_case）
+    _validate_attachment_paths(request.attachments or [])
     attachments = [
         {
             "fileName": att.fileName,
