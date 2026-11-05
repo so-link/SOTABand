@@ -13,6 +13,11 @@ authors = [{ name = "jmlv" }]
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
+    # httpx 是 core/llm/client.py 与 agent_routes 的直接依赖（直连各厂商 OpenAI
+    # 兼容端点）。**必须显式声明**：以前靠 openai 的传递依赖间接装，一旦 openai
+    # 装的是旧版（或已满足而被跳过），全新 venv 里就会缺 httpx，
+    # 表现为 `ModuleNotFoundError: No module named 'httpx'` 导致后端起不来。
+    "httpx>=0.27.0",
     "openai>=1.50.0",
     "sse-starlette>=2.0.0",
     "pydantic>=2.0",
