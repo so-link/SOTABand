@@ -5,8 +5,14 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardHeader, CardBody } from '@/components/ui/card'
 import { configApi, type LLMConfig, type SupportedModel } from '@/services/api/config'
+import { useAuthStore } from '@/stores/auth-store'
 
 export function SettingsView() {
+  // 角色守卫：activeView 会经 localStorage/偏好恢复，普通用户刷新页面可能
+  // 直接落在设置页（系统级配置，仅超管可见，同 UsersView 的自守卫口径）。
+  const me = useAuthStore((s) => s.user)
+  const isAdmin = me?.role === 'admin'
+
   const [config, setConfig] = useState<LLMConfig | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -31,6 +37,8 @@ export function SettingsView() {
   const [showGenKey, setShowGenKey] = useState(false)
 
   useEffect(() => {
+    // 身份异步恢复：未确认超管身份前不发请求；确认非超管则直接停转（下方渲染守卫兜底）
+    if (!isAdmin) { setLoading(false); return }
     let cancelled = false
     ;(async () => {
       try {
@@ -56,7 +64,7 @@ export function SettingsView() {
       }
     })()
     return () => { cancelled = true }
-  }, [])
+  }, [isAdmin])
 
   const handleSave = async () => {
     if (!model) { setSaveError('请选择大模型类型'); return }
@@ -102,6 +110,16 @@ export function SettingsView() {
       ...supportedModels,
     ]
   })()
+
+  if (!isAdmin) {
+    return (
+      <div className="h-full overflow-auto">
+        <div className="max-w-2xl mx-auto px-6 py-16 text-center text-[13px] text-maia-text-muted">
+          仅超级用户可访问系统设置。
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="h-full overflow-auto">

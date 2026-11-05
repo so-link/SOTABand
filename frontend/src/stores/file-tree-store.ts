@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import type { FileTreeNode } from '@/types/workspace'
+import { getStoredToken } from '@/services/api/auth'
+import { useAuthStore } from '@/stores/auth-store'
 
 const STORAGE_KEY = 'maia-workspace-tree'
 
@@ -96,9 +98,14 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => ({
 
     // 1. 先以后端为准：后端保存了工作现场（服务重启 / 换浏览器都能恢复）
     let persisted: FileTreeNode | null = null
+    // 有身份 = 带令牌（多用户已登录）或后端已注入超管（单用户模式）。
+    // 没有身份时，localStorage 里可能是上一个账号的树，绝对不能拿来展示。
+    const hasIdentity = () => !!getStoredToken() || !!useAuthStore.getState().user
     try {
       const res = await fetch('/api/file/workspace/tree')
-      if (res.ok) {
+      if (res.status === 401) {
+        /* 未登录/会话失效：保持空态，见下方处理 */
+      } else if (res.ok) {
         const data = await res.json()
         if (data && data.root) {
           persisted = data.root as FileTreeNode
@@ -114,7 +121,15 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => ({
       }
     } catch { /* 后端不可达：回落到 localStorage */ }
 
-    // 2. 后端不可达或为空时，回落到 localStorage
+    // 2. 没有身份（多用户模式未登录）：无论 401 还是后端不可达，都只展示空内容，
+    //    并清掉本地缓存，避免把上一账号的文件树留给下一个打开页面的人。
+    if (!hasIdentity()) {
+      try { localStorage.removeItem(STORAGE_KEY) } catch { /* ignore */ }
+      set({ root: emptyTree(), isLoading: false })
+      return
+    }
+
+    // 3. 后端不可达或为空时，回落到 localStorage
     if (!persisted) {
       persisted = loadPersisted()
     }

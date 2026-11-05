@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { X, LogIn } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -9,6 +9,16 @@ export function LoginDialog() {
   const { loginOpen, closeLogin, login, busy, error } = useAuthStore()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+
+  // Esc 关闭（与其余弹层一致）；放在 return 之前，保证 Hook 顺序稳定
+  useEffect(() => {
+    if (!loginOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeLogin()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [loginOpen, closeLogin])
 
   if (!loginOpen) return null
 

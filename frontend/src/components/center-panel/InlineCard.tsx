@@ -8,7 +8,9 @@ import { useUIStore, type ActiveView } from '@/stores/ui-store'
 import { useToolEditorStore } from '@/stores/tool-editor-store'
 import { useChatStore } from '@/stores/chat-store'
 import { useWorkspaceToolStore } from '@/stores/workspace-tool-store'
+import { useAuthStore } from '@/stores/auth-store'
 import { fileUrl } from '@/types/workspace'
+import { authedUrl } from '@/services/api/auth'
 import {
   Database,
   Wrench,
@@ -241,11 +243,12 @@ function ExecutionProgressCard({ title, summary }: { title: string; summary: str
 
 function ResultSummaryCard({ title, summary, data }: { title: string; summary: string; data: Record<string, unknown> }) {
   const result = (data.result as Record<string, unknown>) || {}
-  // 失败判定：data 中显式带 error，或工具返回的 status 不是 "success"
-  // （覆盖 status === 'failed'、无 status 字段、空 dict {} 等所有非成功情况）
+  // 失败判定：data 显式带 error，或工具返回了**明确的非 success** status。
+  // status 缺失（旧卡片、空 result {}）视为中性/成功——不能把无法判定的
+  // 历史数据一律标红（后端工具失败走独立 error 事件，不落此卡）。
   const hasError = data.error !== undefined && data.error !== null && data.error !== ''
-  const resultOk = result.status === 'success'
-  const failed = hasError || !resultOk
+  const resultStatus = typeof result.status === 'string' ? result.status : ''
+  const failed = hasError || (!!resultStatus && resultStatus !== 'success')
   const outputFormat = result.output_format as string || ''
   const outputData = (result.data as Record<string, unknown>) || {}
 
@@ -327,7 +330,8 @@ function ImageOutput({ data }: { data: Record<string, unknown> }) {
   const [error, setError] = useState(false)
   if (!fileId) return <p className="text-[13px] text-maia-text-muted">图片已不可用（旧卡片，无文件凭证）</p>
 
-  const src = fileUrl(fileId)
+  // <img> 原生请求带不了 Authorization 头：多用户模式追加 ?auth_token=
+  const src = authedUrl(fileUrl(fileId))
 
   return (
     <div className="mt-2 rounded-lg overflow-hidden border border-maia-border">
@@ -398,7 +402,8 @@ function FileOutput({ data }: { data: Record<string, unknown> }) {
 
   if (!fileId) return <p className="text-[13px] text-maia-text-muted">文件已不可用（旧卡片，无文件凭证）</p>
 
-  const downloadUrl = fileUrl(fileId)
+  // 供 <a href> 直链/点击下载使用：追加 auth_token（fetch 走头注入，参数无害）
+  const downloadUrl = authedUrl(fileUrl(fileId))
 
   // 音频文件通过 fetch → Blob → ObjectURL 加载，避免跨域和 Range 请求问题
   useEffect(() => {
@@ -472,6 +477,7 @@ function CreateToolCard({ title, summary, data }: { title: string; summary: stri
   const desc = (data.description as string) || summary
 
   const handleCreate = () => {
+    if (!useAuthStore.getState().requireLogin()) return
     useToolEditorStore.getState().prefill(desc)
     setActiveView('tool-editor')
   }

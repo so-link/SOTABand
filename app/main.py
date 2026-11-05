@@ -4,6 +4,7 @@
 """
 
 from contextlib import asynccontextmanager
+import re
 from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, Request
@@ -161,6 +162,22 @@ def _is_anonymous_allowed(path: str) -> bool:
     return any(path.startswith(p) for p in _ANONYMOUS_PREFIXES)
 
 
+# GET 文件/数据集原文件类只读端点：<img>/<video>/window.open 等原生请求
+# 带不了 Authorization 头，允许以 ?auth_token=<token> 查询参数携带**同一枚**
+# JWT（校验逻辑与 Bearer 完全同一条，仅凭证来源不同）。仅限这些只读前缀，
+# 写端点与非文件端点不走此通道。
+_QUERY_TOKEN_GET_PATTERNS = (
+    re.compile(r"^/api/file/[^/]+$"),                # /api/file/{file_id} 内容
+    re.compile(r"^/api/data/[^/]+/raw$"),            # 数据集原文件
+    re.compile(r"^/api/data/[^/]+/preview$"),        # 数据集预览
+    re.compile(r"^/api/data/[^/]+/archive$"),        # 数据集打包下载
+)
+
+
+def _query_token_allowed(path: str) -> bool:
+    return any(p.match(path) for p in _QUERY_TOKEN_GET_PATTERNS)
+
+
 def _multiuser_enabled() -> bool:
     """多用户是否启用 = 是否在 .env 配置了超级用户密码。
 
@@ -225,6 +242,17 @@ async def auth_identity_middleware(request: Request, call_next):
                 status_code=401,
                 content={"detail": "登录凭证无效或已过期，请重新登录"},
             )
+    elif method == "GET" and _query_token_allowed(path):
+        # 原生资源请求（<img> 等）无法带 Authorization 头：仅对上面白名单内
+        # 的只读文件端点接受 ?auth_token=，走同一个 verify_token，无旁路。
+        query_token = request.query_params.get("auth_token", "")
+        if query_token:
+            payload = verify_token(query_token)
+            if payload is None:
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "登录凭证无效或已过期，请重新登录"},
+                )
 
     guard = _browser_guard(request, method)
     if guard is not None:

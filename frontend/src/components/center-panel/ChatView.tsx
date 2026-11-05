@@ -6,6 +6,7 @@ import { ChatInput } from './ChatInput'
 import { ChatEmptyState } from './ChatEmptyState'
 import { MessageSquarePlus, Loader2 } from 'lucide-react'
 import { extractDraggedPayload, attachDroppedOsFiles } from '@/lib/file-dnd'
+import { useAuthStore } from '@/stores/auth-store'
 
 export function ChatView() {
   const messages = useChatStore((s) => s.messages)
@@ -54,6 +55,11 @@ export function ChatView() {
     // OS 文件拖入：先上传到「我的文件」，再记录 file_id 引用
     const files = e.dataTransfer.files
     if (files && files.length > 0) {
+      // 拖入 OS 文件会触发上传：未登录时先弹登录框，避免 401 后静默失败
+      if (!useAuthStore.getState().requireLogin()) {
+        setDragKind(null)
+        return
+      }
       setIsUploading(true)
       void attachDroppedOsFiles(files, addPathRef).finally(() => {
         setIsUploading(false)

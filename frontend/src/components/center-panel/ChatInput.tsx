@@ -115,7 +115,7 @@ export function ChatInput() {
               handleInput()
             }}
             onKeyDown={handleKeyDown}
-            placeholder={isSending ? '工具执行中…' : '输入你的需求…（Enter 发送，Shift+Enter 换行，拖拽文件自动附上文件凭证）'}
+            placeholder={isSending ? '工具执行中…' : '输入你的需求…（Enter 发送，Shift+Enter 换行）'}
             rows={1}
             className="flex-1 bg-transparent px-1 py-1.5 text-[14px] leading-[22px] text-maia-text outline-none focus-visible:outline-none resize-none min-h-[32px] max-h-[150px] placeholder:text-maia-text-muted"
             disabled={isSending}

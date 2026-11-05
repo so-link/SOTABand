@@ -26,7 +26,9 @@ import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { DatasetImportDialog } from './DatasetImportDialog'
 import { nodeFileUrl, type FileTreeNode, type FileCategory } from '@/types/workspace'
+import { authedUrl } from '@/services/api/auth'
 import { useUIStore } from '@/stores/ui-store'
+import { useAuthStore } from '@/stores/auth-store'
 
 const FILE_ICONS: Record<FileCategory, typeof File> = {
   eeg: Activity,
@@ -59,6 +61,10 @@ export function WorkspaceFileTree() {
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.length) return
+    if (!useAuthStore.getState().requireLogin()) {
+      e.target.value = ''
+      return
+    }
     setUploading(true)
     await uploadFiles(e.target.files)
     setUploading(false)
@@ -110,8 +116,9 @@ export function WorkspaceFileTree() {
     // PDF 文件：直接用浏览器打开（按 file_id 访问）
     const ext = (node.format || node.name.split('.').pop() || '').toLowerCase()
     if (ext === 'pdf') {
+      // window.open 是原生请求，带不了 Authorization 头：追加 ?auth_token=
       const url = nodeFileUrl(node)
-      if (url) window.open(url, '_blank')
+      if (url) window.open(authedUrl(url), '_blank')
       return
     }
 
@@ -133,6 +140,23 @@ export function WorkspaceFileTree() {
       }
       // 从文件树中移除该节点
       useFileTreeStore.getState().removeNode(deleteTarget.id)
+      // 与 clearWorkspace 同口径：树里已删除的文件，对话里的待发/历史附件
+      // 引用一并剪掉（dataset: 引用不属于文件登记表，保留）。
+      try {
+        const { useChatStore } = await import('@/stores/chat-store')
+        const chat = useChatStore.getState()
+        const valid = new Set<string>()
+        const collect = (n: FileTreeNode) => {
+          if (n.fileId) valid.add(n.fileId)
+          n.children?.forEach(collect)
+        }
+        useFileTreeStore.getState().root?.children?.forEach(collect)
+        for (const f of chat.attachedFiles) if (f.id.startsWith('dataset:')) valid.add(f.id)
+        for (const m of chat.messages) {
+          for (const f of m.attachments || []) if (f.id.startsWith('dataset:')) valid.add(f.id)
+        }
+        chat.pruneAttachmentsToValidIds(valid)
+      } catch { /* 剪附件失败不影响删除主流程 */ }
     } catch (e) {
       alert(`删除失败: ${e}`)
     } finally {
@@ -163,7 +187,10 @@ export function WorkspaceFileTree() {
           <Button
             variant="outline" size="sm"
             className="flex-1 min-w-0 px-2 text-[13px] h-7 border-maia-border text-maia-text-secondary hover:bg-maia-sidebar-hover"
-            onClick={() => fileInputRef.current?.click()} disabled={uploading}
+            onClick={() => {
+              if (!useAuthStore.getState().requireLogin()) return
+              fileInputRef.current?.click()
+            }} disabled={uploading}
           >
             <Upload className="h-3.5 w-3.5" />
             {uploading ? '上传中...' : '上传'}
@@ -171,7 +198,10 @@ export function WorkspaceFileTree() {
           <Button
             variant="outline" size="sm"
             className="flex-1 min-w-0 px-2 text-[13px] h-7 border-maia-border text-maia-text-secondary hover:bg-maia-sidebar-hover"
-            onClick={() => setShowImport(true)}
+            onClick={() => {
+              if (!useAuthStore.getState().requireLogin()) return
+              setShowImport(true)
+            }}
             title="从数据空间导入已注册的数据集"
           >
             <FolderInput className="h-3.5 w-3.5" />
@@ -182,7 +212,10 @@ export function WorkspaceFileTree() {
           <Button
             variant="ghost" size="sm"
             className="w-full text-[13px] h-6 text-maia-text-muted hover:text-maia-danger hover:bg-maia-danger-bg"
-            onClick={handleClear}
+            onClick={() => {
+              if (!useAuthStore.getState().requireLogin()) return
+              handleClear()
+            }}
           >
             <Trash2 className="h-3 w-3" />
             清空我的文件

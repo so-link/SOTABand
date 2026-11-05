@@ -291,6 +291,7 @@ export function ResourceBrowser() {
                 <button
                   onClick={(e) => {
                     e.stopPropagation()
+                    if (!useAuthStore.getState().requireLogin()) return
                     // 「+」的语义是新建：必须先把编辑器 store 复位，
                     // 否则残留的 editingAgentId 会让界面继续停留在旧 Agent 的编辑态。
                     const st = useAgentEditorStore.getState()
@@ -310,6 +311,7 @@ export function ResourceBrowser() {
                 <button
                   onClick={(e) => {
                     e.stopPropagation()
+                    if (!useAuthStore.getState().requireLogin()) return
                     // 「+」的语义是新建：必须先把编辑器 store 复位，
                     // 否则残留的 editingToolId 会让界面继续停留在旧工具的编辑态。
                     const st = useToolEditorStore.getState()
@@ -329,6 +331,7 @@ export function ResourceBrowser() {
                 <button
                   onClick={(e) => {
                     e.stopPropagation()
+                    if (!useAuthStore.getState().requireLogin()) return
                     useUIStore.getState().setActiveView('dataset-editor')
                   }}
                   className="flex items-center justify-center h-4 w-4 rounded hover:bg-maia-accent/10 text-maia-text-muted hover:text-maia-accent transition-colors"

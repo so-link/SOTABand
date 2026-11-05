@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { cronApi, type CronJob, type CronOptions, type CronRun, type CronJobPayload } from '@/services/api/cron'
+import { useAuthStore } from '@/stores/auth-store'
 
 // ── spec 输入表解析（与 ToolDetailView.parseInputs 同格式） ──
 interface SpecField { name: string; type: string; required: boolean; default: string | null; desc: string }
@@ -194,6 +195,7 @@ export function CronJobsView() {
   }
 
   const doTrigger = async (job: CronJob) => {
+    if (!useAuthStore.getState().requireLogin()) return
     setBusyId(job.id)
     try {
       await cronApi.trigger(job.id)
@@ -204,11 +206,13 @@ export function CronJobsView() {
   }
 
   const doToggle = async (job: CronJob) => {
+    if (!useAuthStore.getState().requireLogin()) return
     try { await cronApi.toggle(job.id); reload() }
     catch (e) { alert(`操作失败：${e instanceof Error ? e.message : e}`) }
   }
 
   const doDelete = async (job: CronJob) => {
+    if (!useAuthStore.getState().requireLogin()) return
     if (!confirm(`确定删除定时任务「${job.name}」？执行历史将保留。`)) return
     try { await cronApi.remove(job.id); if (expanded === job.id) setExpanded(null); reload() }
     catch (e) { alert(`删除失败：${e instanceof Error ? e.message : e}`) }
@@ -230,7 +234,10 @@ export function CronJobsView() {
           className="flex items-center gap-1 h-7 px-2 rounded-md text-[12px] text-maia-text-muted hover:text-maia-text hover:bg-maia-sidebar-hover transition-colors">
           <RefreshCw className="h-3 w-3" />刷新
         </button>
-        <button onClick={() => setEditing('new')}
+        <button onClick={() => {
+          if (!useAuthStore.getState().requireLogin()) return
+          setEditing('new')
+        }}
           className="flex items-center gap-1 h-7 px-2.5 rounded-md bg-maia-accent text-white text-[12px] hover:opacity-90 transition-opacity">
           <Plus className="h-3 w-3" />新建任务
         </button>

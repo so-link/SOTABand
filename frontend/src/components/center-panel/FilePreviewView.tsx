@@ -7,6 +7,7 @@ import { useFileTreeStore } from '@/stores/file-tree-store'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { nodeFileUrl } from '@/types/workspace'
+import { authedUrl } from '@/services/api/auth'
 
 const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'ico'])
 const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'm4v'])
@@ -143,8 +144,10 @@ export function FilePreviewView() {
     )
   }
 
-  const downloadUrl = contentUrl || ''
-  const imageUrl = contentUrl || ''
+  // 供原生请求使用（window.open / <a download> / <img> / <video>）：
+  // 追加 ?auth_token=，多用户模式下原生请求才带得上凭证
+  const downloadUrl = contentUrl ? authedUrl(contentUrl) : ''
+  const imageUrl = contentUrl ? authedUrl(contentUrl) : ''
 
   // 旧数据节点缺少 file_id（迁移前的工作区树）时无法取回内容
   if (!contentUrl) {

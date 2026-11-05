@@ -43,11 +43,24 @@ export function setStoredToken(token: string) {
   } catch {}
 }
 
-let onUnauthorized: (() => void) | null = null
+/**
+ * 给原生资源请求（<img>/<video>/<a download>/window.open）的 URL 追加
+ * ?auth_token=<token>：这类请求带不了 Authorization 头，后端仅对
+ * /api/file/{id}、/api/data/{id}/raw|preview|archive 等 GET 只读文件端点
+ * 接受该参数（校验与 Bearer 同一条，仅凭证来源不同）。
+ * 单用户模式没有令牌，原样返回。
+ */
+export function authedUrl(url: string): string {
+  const token = getStoredToken()
+  if (!token) return url
+  return `${url}${url.includes('?') ? '&' : '?'}auth_token=${encodeURIComponent(token)}`
+}
 
-/** 注册 401 回调（登录过期时由 store 挂上：清令牌、弹登录框）。 */
-export function setOnUnauthorized(cb: (() => void) | null) {
-  onUnauthorized = cb
+let onUnauthorized: (info: { expired: boolean }) => void = () => {}
+
+/** 注册 401 回调（登录过期或未登录操作时由 store 挂上：清令牌、弹登录框）。 */
+export function setOnUnauthorized(cb: ((info: { expired: boolean }) => void) | null) {
+  onUnauthorized = cb || (() => {})
 }
 
 // 全局 fetch 补丁：只要本地存有令牌，所有 /api 请求自动携带
@@ -65,7 +78,14 @@ if (typeof window !== 'undefined') {
       init = { ...(init ?? {}), headers }
     }
     const res = await origFetch(input as RequestInfo, init)
-    if (res.status === 401 && token && !url.includes('/api/auth/')) onUnauthorized?.()
+    // 401 处理口径：
+    // - 带令牌 → 会话过期，弹「请重新登录」
+    // - 未登录且是写操作（上传/导入/创建等）→ 弹登录框，否则操作会静默失败
+    // - 未登录的 GET → 静默（首屏各列表就是靠这个保持空态，不主动打扰）
+    if (res.status === 401 && !url.includes('/api/auth/')) {
+      const method = (init?.method || 'GET').toUpperCase()
+      if (token || method !== 'GET') onUnauthorized({ expired: !!token })
+    }
     return res
   }
 }

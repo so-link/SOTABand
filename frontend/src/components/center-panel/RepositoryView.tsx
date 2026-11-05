@@ -188,7 +188,10 @@ export function RepositoryView() {
         <div className="flex items-center gap-2">
           <Button size="sm" variant="outline" className="h-7 px-2 text-[13px]"
             disabled={importing}
-            onClick={() => importInputRef.current?.click()}>
+            onClick={() => {
+              if (!useAuthStore.getState().requireLogin()) return
+              importInputRef.current?.click()
+            }}>
             {importing
               ? <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />导入中...</>
               : <><Upload className="h-3.5 w-3.5 mr-1" />导入工具包</>}

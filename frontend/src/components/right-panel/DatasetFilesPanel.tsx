@@ -2,6 +2,7 @@ import { Download, File } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { useResourceStore } from '@/stores/resource-store'
 import { datasetFileUrl } from '@/types/workspace'
+import { authedUrl } from '@/services/api/auth'
 
 /**
  * 数据集预览的文件列表（右栏）。
@@ -31,7 +32,8 @@ export function DatasetFilesPanel({ hideHeader = false }: { hideHeader?: boolean
   const fileUrl = (f: Record<string, unknown>) => {
     if (!previewDatasetId) return ''
     const relPath = (f.path as string) || (f.name as string)
-    return relPath ? datasetFileUrl(previewDatasetId, relPath) : ''
+    // window.open 原生请求带不了 Authorization 头：追加 ?auth_token=
+    return relPath ? authedUrl(datasetFileUrl(previewDatasetId, relPath)) : ''
   }
 
   return (

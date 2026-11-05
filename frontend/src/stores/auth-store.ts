@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { authApi, setStoredToken, setOnUnauthorized, type AuthUser } from '@/services/api/auth'
+import { authApi, getStoredToken, setStoredToken, setOnUnauthorized, type AuthUser } from '@/services/api/auth'
 import { startPrefsSync, stopPrefsSync } from '@/services/prefs-sync'
 import { useUIStore } from '@/stores/ui-store'
 
@@ -17,6 +17,8 @@ interface AuthState {
   updateDisplayName: (name: string) => Promise<boolean>
   openLogin: () => void
   closeLogin: () => void
+  /** 未登录时弹登录框并返回 false；已登录返回 true。用于拦截上传/导入/新建等操作入口。 */
+  requireLogin: () => boolean
 }
 
 /**
@@ -83,7 +85,7 @@ async function reloadUserScopedData(): Promise<void> {
   } catch { /* 拉取失败时界面保持空态，可手动刷新 */ }
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   checked: false,
   loginOpen: false,
@@ -93,7 +95,11 @@ export const useAuthStore = create<AuthState>((set) => ({
   async refresh() {
     try {
       const me = await authApi.me()
-      set({ user: me.authenticated && me.user ? me.user : null, checked: true })
+      const user = me.authenticated && me.user ? me.user : null
+      set({ user, checked: true })
+      // 已配置管理员密码且未登录：清空所有按账号加载的内容与标签，首屏保持空。
+      // 单用户模式（未配密码）后端会直接返回超管身份，不会走到这里。
+      if (!user) await clearUserScopedData()
     } catch {
       set({ user: null, checked: true })
     }
@@ -155,6 +161,12 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   openLogin: () => set({ loginOpen: true, error: '' }),
   closeLogin: () => set({ loginOpen: false, error: '' }),
+
+  requireLogin: () => {
+    if (get().user) return true
+    set({ loginOpen: true, error: '' })
+    return false
+  },
 }))
 
 // 身份变化驱动偏好同步：拿到身份且有令牌（多用户模式）才开启；
@@ -169,14 +181,19 @@ useAuthStore.subscribe((s) => {
   else stopPrefsSync()
 })
 
-// 令牌过期（401）时全局弹出登录框；启动时拉取一次当前身份。
-setOnUnauthorized(() => {
+// 令牌过期或未登录操作（401）时全局弹出登录框；启动时拉取一次当前身份。
+setOnUnauthorized(({ expired }) => {
+  const hadToken = !!getStoredToken()
   stopPrefsSync()
   setStoredToken('')
   syncedUid = null
   // 与主动登出同口径：先清掉按旧账号加载的数据，再弹登录框
   void clearUserScopedData()
-  useAuthStore.setState({ user: null, loginOpen: true, error: '登录已过期，请重新登录' })
+  useAuthStore.setState({
+    user: null,
+    loginOpen: true,
+    error: expired || hadToken ? '登录已过期，请重新登录' : '请先登录后再操作',
+  })
 })
 
 if (typeof window !== 'undefined') {

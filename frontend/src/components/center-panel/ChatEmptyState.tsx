@@ -3,6 +3,7 @@ import { Bot, Clock, Database, FolderOpen, Loader2, Plus, Wrench, BrainCircuit, 
 import { useChatStore } from '@/stores/chat-store'
 import { useFileTreeStore } from '@/stores/file-tree-store'
 import { useResourceStore } from '@/stores/resource-store'
+import { useAuthStore } from '@/stores/auth-store'
 
 interface Suggestion {
   key: string
@@ -112,6 +113,10 @@ export function ChatEmptyState() {
 
   const handleUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return
+    if (!useAuthStore.getState().requireLogin()) {
+      if (fileRef.current) fileRef.current.value = ''
+      return
+    }
     setIsUploading(true)
     try {
       await uploadFiles(files)
@@ -202,7 +207,11 @@ export function ChatEmptyState() {
         )}
 
         <button
-          onClick={() => fileRef.current?.click()}
+          onClick={() => {
+            // 未登录时直接弹登录框，而不是先弹出系统文件选择器
+            if (!useAuthStore.getState().requireLogin()) return
+            fileRef.current?.click()
+          }}
           disabled={isUploading}
           className="mt-3 inline-flex items-center gap-1.5 h-7 px-2.5 rounded-[7px] border border-maia-border bg-maia-surface text-[13px] text-maia-text-secondary hover:bg-maia-sidebar-hover transition-colors disabled:opacity-60"
         >

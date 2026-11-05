@@ -6,10 +6,12 @@ import { Card, CardBody } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import { useResourceStore } from '@/stores/resource-store'
 import { useUIStore } from '@/stores/ui-store'
+import { useAuthStore } from '@/stores/auth-store'
 import { DataTablePreview } from './DataTablePreview'
 import { MarkdownPreview } from './MarkdownPreview'
 import { TextPreview } from './TextPreview'
 import { datasetFileUrl } from '@/types/workspace'
+import { authedUrl } from '@/services/api/auth'
 import type { DataResource } from '@/types/resources'
 
 const BASE_URL = ''
@@ -102,7 +104,10 @@ export function DataPreviewView({ datasetId }: { datasetId?: string }) {
                 size="sm"
                 variant="outline"
                 className="gap-1.5"
-                onClick={() => setActiveView('dataset-editor')}
+                onClick={() => {
+                  if (!useAuthStore.getState().requireLogin()) return
+                  setActiveView('dataset-editor')
+                }}
               >
                 <Plus className="h-3.5 w-3.5" />
                 新建数据集
@@ -194,8 +199,9 @@ export function DataPreviewView({ datasetId }: { datasetId?: string }) {
       </div>
 
       <div className="flex-1 min-h-0 overflow-auto">
-        {/* 单栏宽度与工具详情（max-w-2xl）对齐 */}
-        <div className="p-4 max-w-2xl mx-auto space-y-4 w-full">
+        {/* 单栏宽度与工具详情（max-w-2xl）对齐；表格预览不在此列，见下方满宽区块。
+            empty:hidden：纯表格数据集时本容器无子节点，不留空白高度 */}
+        <div className="p-4 max-w-2xl mx-auto space-y-4 w-full empty:hidden">
         {/* Image gallery */}
         {imageFiles.length > 0 && (
           <Card className="border-maia-border">
@@ -245,7 +251,8 @@ export function DataPreviewView({ datasetId }: { datasetId?: string }) {
               <div className="grid grid-cols-4 gap-2">
                 {pageImages.map((img, i) => {
                   const imgRel = (img.path as string) || (img.name as string)
-                  const imgUrl = imgRel ? datasetFileUrl(dataset.id, imgRel) : ''
+                  // <img>/window.open 原生请求：追加 ?auth_token= 供多用户模式鉴权
+                  const imgUrl = imgRel ? authedUrl(datasetFileUrl(dataset.id, imgRel)) : ''
                   return (
                     <div
                       key={i}
@@ -302,17 +309,23 @@ export function DataPreviewView({ datasetId }: { datasetId?: string }) {
             </CardBody>
           </Card>
         )}
+        </div>
 
-        {/* 表格预览：CSV / Excel / Parquet 统一表格组件，布局一致 */}
+        {/* 表格预览：CSV / Excel / Parquet 统一表格组件，布局一致。
+            宽度与「我的文件」CSV 预览（max-w-5xl）对齐撑满中栏，
+            不受上方文档区 max-w-2xl 单栏约束 */}
         {tableFiles.length > 0 && (
-          <DataTablePreview datasetId={dataset.id} tableFiles={tableFiles} activeIndex={activeCsv} onActiveChange={setActiveCsv} />
+          <div className="px-4 pb-4 max-w-5xl mx-auto w-full">
+            <DataTablePreview datasetId={dataset.id} tableFiles={tableFiles} activeIndex={activeCsv} onActiveChange={setActiveCsv} />
+          </div>
         )}
 
         {/* JSON / TXT 纯文本预览 */}
         {textFiles.length > 0 && (
-          <TextPreview key={`text:${activeText}`} datasetId={dataset.id} textFiles={textFiles} initialIndex={activeText} />
+          <div className="p-4 pt-0 max-w-2xl mx-auto w-full">
+            <TextPreview key={`text:${activeText}`} datasetId={dataset.id} textFiles={textFiles} initialIndex={activeText} />
+          </div>
         )}
-      </div>
       </div>
     </div>
   )
