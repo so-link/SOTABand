@@ -241,23 +241,30 @@ function ExecutionProgressCard({ title, summary }: { title: string; summary: str
 
 function ResultSummaryCard({ title, summary, data }: { title: string; summary: string; data: Record<string, unknown> }) {
   const result = (data.result as Record<string, unknown>) || {}
+  // 失败判定：data 中显式带 error，或工具返回的 status 不是 "success"
+  // （覆盖 status === 'failed'、无 status 字段、空 dict {} 等所有非成功情况）
+  const hasError = data.error !== undefined && data.error !== null && data.error !== ''
+  const resultOk = result.status === 'success'
+  const failed = hasError || !resultOk
   const outputFormat = result.output_format as string || ''
   const outputData = (result.data as Record<string, unknown>) || {}
 
   return (
-    <Card className="border-maia-card-green bg-maia-card-green">
+    <Card className={failed ? 'border-maia-danger bg-maia-danger-bg' : 'border-maia-card-green bg-maia-card-green'}>
       <CardHeader>
         <div className="flex items-center gap-2">
-          <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+          {failed
+            ? <XCircle className="h-4 w-4 text-maia-danger" />
+            : <CheckCircle2 className="h-4 w-4 text-emerald-500" />}
           <span className="text-[13px] font-medium">{title}</span>
-          <Badge variant="success">完成</Badge>
+          <Badge variant={failed ? 'danger' : 'success'}>{failed ? '失败' : '完成'}</Badge>
         </div>
       </CardHeader>
       <CardBody>
-        <p className="text-[13px] text-maia-text-secondary mb-2">{summary}</p>
+        <p className={`text-[13px] mb-2 ${failed ? 'text-maia-danger' : 'text-maia-text-secondary'}`}>{summary}</p>
 
-        {/* Full result data (non-image fields) */}
-        <FullResult result={result} />
+        {/* Full result data (non-image fields) — 失败且无 result 时不展示空对象 */}
+        {!failed || Object.keys(result).length > 0 ? <FullResult result={result} /> : null}
 
         {/* Image */}
         {outputFormat === 'image' ? (

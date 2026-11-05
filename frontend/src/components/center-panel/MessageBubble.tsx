@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils'
-import type { Message } from '@/types/chat'
+import type { ChatStep, Message } from '@/types/chat'
 import { InlineCard } from './InlineCard'
 import { Bot, Info } from 'lucide-react'
 import { FileCategoryIcon } from '@/lib/file-icon'
@@ -8,12 +8,40 @@ interface MessageBubbleProps {
   message: Message
 }
 
+function StepTimeline({ steps }: { steps: ChatStep[] }) {
+  return (
+    <div className="rounded-lg border border-maia-border bg-maia-bg/50 px-3 py-2 space-y-1.5">
+      <div className="text-[11px] uppercase tracking-wide text-maia-text-muted">工作流程</div>
+      {steps.map((s) => (
+        <div key={s.id} className="flex items-center gap-2 text-[12px]">
+          <span className={cn(
+            'inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px]',
+            s.status === 'done' && 'bg-maia-success/20 text-maia-success',
+            s.status === 'error' && 'bg-maia-danger/20 text-maia-danger',
+            s.status === 'running' && 'bg-maia-accent/20 text-maia-accent animate-pulse',
+          )}>
+            {s.status === 'done' ? '✓' : s.status === 'error' ? '✕' : '•'}
+          </span>
+          <span className={cn(s.status === 'done' ? 'text-maia-text-muted' : 'text-maia-text')}>
+            {s.text}
+          </span>
+          {s.durationMs !== undefined && (
+            <span className="text-[11px] text-maia-text-muted tabular-nums">
+              {s.durationMs < 1000 ? `${s.durationMs}ms` : `${(s.durationMs / 1000).toFixed(1)}s`}
+            </span>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function formatTime(timestamp: string): string {
   return new Date(timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 }
 
 export function MessageBubble({ message }: MessageBubbleProps) {
-  const { role, content, timestamp, cards, attachments } = message
+  const { role, content, timestamp, cards, attachments, steps } = message
 
   if (role === 'system') {
     return (
@@ -57,6 +85,8 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         <span className="text-[13px] font-medium text-maia-text-secondary">SOTABand Agent</span>
         <span className="text-[13px] text-maia-text-muted">{formatTime(timestamp)}</span>
       </div>
+
+      {steps && steps.length > 0 && <StepTimeline steps={steps} />}
 
       <div
         className={cn(

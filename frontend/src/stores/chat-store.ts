@@ -430,7 +430,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         set((s) => ({
           messages: s.messages.map((m) =>
             m.id === agentMsgId
-              ? { ...m, content: chunk.content, cards: chunk.cards || m.cards }
+              ? { ...m, content: chunk.content, cards: chunk.cards || m.cards, steps: chunk.steps || m.steps }
               : m
           ),
         }))
@@ -558,6 +558,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                   ...m,
                   content: chunk.content,
                   cards: chunk.cards || m.cards,
+                  steps: chunk.steps || m.steps,
                 }
               : m
           ),

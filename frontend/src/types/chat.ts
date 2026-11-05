@@ -29,6 +29,18 @@ export interface InlineCard {
   data: Record<string, unknown>  // 卡片类型相关的具体数据
 }
 
+/** Agent 执行步骤（时间线展示用） */
+export interface ChatStep {
+  /** 步骤标识，同一 id 的多次事件按最新状态覆盖（running → done/error） */
+  id: string
+  text: string
+  status: 'running' | 'done' | 'error'
+  /** running 开始时间戳（ms），用于计算耗时 */
+  startedAt?: number
+  /** done/error 时的耗时（ms） */
+  durationMs?: number
+}
+
 /** 附件信息 */
 export interface FileAttachment {
   id: string
@@ -48,6 +60,7 @@ export interface Message {
   timestamp: string
   cards?: InlineCard[]
   attachments?: FileAttachment[]
+  steps?: ChatStep[]
 }
 
 /** 创建消息的输入 */

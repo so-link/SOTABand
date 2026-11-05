@@ -1,7 +1,7 @@
 /** ApiChatService — 通过 SSE 调用后端交互 Agent */
 
 import type { IChatService } from '@/services/types'
-import type { Message, CreateMessageInput, InlineCard } from '@/types/chat'
+import type { Message, CreateMessageInput, InlineCard, ChatStep } from '@/types/chat'
 
 const BASE_URL = ''
 
@@ -48,6 +48,8 @@ export class ApiChatService implements IChatService {
     let buffer = ''
     let fullContent = ''
     let pendingCards: InlineCard[] = []
+    // 步骤时间线：同一 id 的事件覆盖更新（running → done/error）
+    let steps: ChatStep[] = []
 
     try {
       while (true) {
@@ -86,8 +88,42 @@ export class ApiChatService implements IChatService {
                     role: 'agent',
                     content: fullContent,
                     timestamp: new Date().toISOString(),
+                    steps: steps.length > 0 ? [...steps] : undefined,
                   }
                   break
+
+                case 'step': {
+                  const stepId = payload.id || `step-${steps.length}`
+                  const status = payload.status === 'error' ? 'error'
+                    : payload.status === 'running' ? 'running' : 'done'
+                  const now = Date.now()
+                  const idx = steps.findIndex((s) => s.id === stepId)
+                  // running 时记录开始时间；done/error 时算出该步耗时
+                  const prev = idx >= 0 ? steps[idx] : undefined
+                  const next: ChatStep = {
+                    id: stepId,
+                    text: payload.text || '',
+                    status,
+                    startedAt: status === 'running'
+                      ? (prev?.startedAt ?? now)
+                      : prev?.startedAt,
+                    durationMs: status !== 'running' && prev?.startedAt !== undefined
+                      ? now - prev.startedAt
+                      : prev?.durationMs,
+                  }
+                  steps = idx >= 0
+                    ? steps.map((s, i) => (i === idx ? next : s))
+                    : [...steps, next]
+                  // 立即回传，让时间线实时更新（此时正文可能还没开始输出）
+                  yield {
+                    id: 'streaming',
+                    role: 'agent',
+                    content: fullContent,
+                    timestamp: new Date().toISOString(),
+                    steps: [...steps],
+                  }
+                  break
+                }
 
                 case 'card':
                   pendingCards.push({
@@ -106,6 +142,7 @@ export class ApiChatService implements IChatService {
                     content: fullContent,
                     timestamp: new Date().toISOString(),
                     cards: pendingCards.length > 0 ? pendingCards : undefined,
+                    steps: steps.length > 0 ? [...steps] : undefined,
                   }
                   break
 
@@ -122,6 +159,7 @@ export class ApiChatService implements IChatService {
                     content: fullContent || '对话已停止',
                     timestamp: new Date().toISOString(),
                     cards: pendingCards.length > 0 ? pendingCards : undefined,
+                    steps: steps.length > 0 ? [...steps] : undefined,
                   }
                   break
 

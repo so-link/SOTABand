@@ -283,6 +283,7 @@ class InteractiveAgent(BaseAgent):
                                                         ctx.user_id or ""):
                     yield ev
                 return
+            yield {"event": "step", "data": {"id": "match_tool", "text": "正在匹配工具", "status": "running"}}
             matched_tools, need_create_tool_desc, repo_tools = await self._pre_match_tool(content, workspace_tool_ids or [])
 
         history = self._sessions.get(session_key, [])
@@ -318,6 +319,7 @@ class InteractiveAgent(BaseAgent):
                 "event": "content",
                 "data": {"text": f"检测到多个可能匹配的工具，请选择：{options_text}。回复编号或工具名称即可。"},
             }
+            yield {"event": "step", "data": {"id": "match_tool", "text": "找到多个候选工具，等待选择", "status": "done"}}
             return
 
         # 唯一候选 → 直接使用
@@ -347,6 +349,7 @@ class InteractiveAgent(BaseAgent):
                 "data": {"text": f"当前工具空间里没有匹配的工具，不过工具仓库里已经有 {options}，"
                                  f"点上方卡片加入工具空间，我马上就能用它处理。"},
             }
+            yield {"event": "step", "data": {"id": "match_tool", "text": "未匹配到工具，已推荐仓库工具", "status": "done"}}
             return
 
         # 需要创建新工具 → 直接发卡片，提供跳转入口
@@ -365,6 +368,7 @@ class InteractiveAgent(BaseAgent):
                 "event": "content",
                 "data": {"text": f"当前工具空间中没有匹配的工具，我理解你需要创建一个新工具：{need_create_tool_desc}。点击下方卡片即可跳转到工具编辑器。"},
             }
+            yield {"event": "step", "data": {"id": "match_tool", "text": "未匹配到工具，需要新建", "status": "done"}}
             return
 
         if matched_tool:
@@ -434,6 +438,7 @@ class InteractiveAgent(BaseAgent):
                 }
                 p = missing[0]
                 yield {"event": "content", "data": {"text": f"要使用 **{matched_tool['name']}** 工具，请提供以下参数:\n\n**{p['name']}** — {p.get('desc', '')}"}}
+                yield {"event": "step", "data": {"id": "extract_params", "text": "参数不足，等待补充", "status": "error"}}
                 return
             # 记录执行前的数据集 ID 列表，用于检测新注册的数据集
             datasets_before = set()
