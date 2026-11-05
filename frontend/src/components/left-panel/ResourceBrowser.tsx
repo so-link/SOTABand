@@ -22,6 +22,7 @@ import { useUnsavedMarks } from '@/hooks/use-unsaved-marks'
 import { cn } from '@/lib/utils'
 import type { ModelCategory, ModelResource, Resource, ResourceType, ToolResource } from '@/types/resources'
 
+import { apiDelete, apiPost, apiUpload } from '@/services/api/client'
 interface ResourceSectionDef {
   type: ResourceType
   label: string
@@ -107,9 +108,7 @@ export function ResourceBrowser() {
       const form = new FormData()
       form.append('file', file)
       form.append('overwrite', 'false')
-      const res = await fetch(`/api/migrate/${kind}/import-upload`, { method: 'POST', body: form })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.detail || `导入失败 (${res.status})`)
+      const data = await apiUpload<any>(`/api/migrate/${kind}/import-upload`, form)
 
       const targetId: string = kind === 'tool' ? data.tool_id : data.agent_id
       const name: string = data.name || targetId
@@ -159,13 +158,7 @@ export function ResourceBrowser() {
       const url = dlg.kind === 'agent'
         ? `/api/migrate/agent/${encodeURIComponent(dlg.targetId)}/install-deps`
         : `/api/tool/${encodeURIComponent(dlg.targetId)}/install-deps`
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dependencies: dlg.install }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.detail || `安装失败 (${res.status})`)
+      const data = await apiPost<any>(url, { dependencies: dlg.install })
       const results: DepResultItem[] = data.results || []
       const failed = results.filter((r) => !r.success)
       setDepDialog({ ...dlg, installing: false, results })
@@ -288,9 +281,8 @@ export function ResourceBrowser() {
     // 模型：确认后彻底删除
     if (resource.type === 'model') {
       if (!confirm(`确定删除模型 "${resource.name}"？此操作不可恢复。`)) return
-      const BASE_URL = ''
       try {
-        await fetch(`${BASE_URL}/api/model/${resource.id}`, { method: 'DELETE' })
+        await apiDelete(`/api/model/${resource.id}`)
         fetchModelsFromApi()
       } catch { /* ignore */ }
       return
@@ -298,9 +290,8 @@ export function ResourceBrowser() {
     // Agent：确认后彻底删除（数据/模型已在上方分支处理）
     if (resource.type !== 'agent') return
     if (!confirm(`确定删除 "${resource.name}"？此操作不可恢复。`)) return
-    const BASE_URL = ''
     try {
-      await fetch(`${BASE_URL}/api/agent/${resource.id}`, { method: 'DELETE' })
+      await apiDelete(`/api/agent/${resource.id}`)
       fetchAgentsFromApi()
     } catch { /* ignore */ }
   }

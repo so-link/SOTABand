@@ -76,6 +76,9 @@ def isolated_registry(tmp_path, monkeypatch):
         return []
 
     monkeypatch.setattr(tool_routes.builder, "extract_param_metadata", _no_param_meta)
+    # 本文件只测「重新注册的更新语义」；写权限由
+    # tests/unit/test_authz_baseline.py / test_review_security_gaps.py 覆盖。
+    monkeypatch.setattr(tool_routes, "can_write_resource", lambda ctx, entry: True)
     return tool_routes.registry
 
 

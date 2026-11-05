@@ -1,11 +1,19 @@
 import type {
   SpecOutline, RefineResult, SpecTable, TableCellUpdateResult,
 } from '@/types/spec-outline'
+import { apiFetchRaw, apiGet, apiPost, apiUpload, assertOk } from './client'
 
 /**
- * API 基础 URL — 始终指向 Vite 开发服务器（通过 Vite proxy → 后端 8001）
+ * 工具相关 API。
+ *
+ * ⚠️ 全部走统一 client（`./client`）—— 它统一处理 `credentials: 'include'`、
+ * 401 全局回调、FormData 的 Content-Type、以及把错误转成带 HTTP 语义的
+ * `ApiError`。**不要再出现裸 `fetch`**：认证落地后漏掉 `credentials` 会导致
+ * 请求永远被当作未登录。
+ *
+ * 两个 SSE 接口（`testWithInput` / `autoDebug` / `refineSpecNodeStream`）用
+ * `apiFetchRaw` —— 它们需要拿 `res.body` 的 reader，不能先解析成 JSON。
  */
-const BASE_URL = ''
 
 /** 一个引用方（Agent 或其它工具） */
 export interface ToolReferenceItem {
@@ -32,34 +40,54 @@ function extractIdName(md: string) {
   return { toolId: idMatch?.[1]?.trim() || 'custom-tool', toolName: nameMatch?.[1]?.trim() || 'Custom Tool' }
 }
 
+/** 把表单要发的字段拼成 FormData（工具调试/自动修复/上传共用）。 */
+function buildToolForm(
+  specMd: string,
+  code: string,
+  testInputs: Record<string, string>,
+  files?: File[]
+): FormData {
+  const { toolId, toolName } = extractIdName(specMd)
+  const form = new FormData()
+  form.append('spec_md', specMd)
+  form.append('tool_id', toolId)
+  form.append('tool_name', toolName)
+  form.append('code', code)
+  form.append('test_input_json', JSON.stringify(testInputs))
+  if (files) files.forEach((f) => form.append('files', f))
+  return form
+}
+
 export const toolApi = {
   async generateSpec(description: string, referenceCode: string = '') {
-    const res = await fetch(`${BASE_URL}/api/tool/generate-spec`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ description, reference_code: referenceCode }),
+    return apiPost<{ spec_md: string; tags: string[] }>('/api/tool/generate-spec', {
+      description,
+      reference_code: referenceCode,
     })
-    if (!res.ok) { const err = await res.json().catch(() => ({ detail: res.statusText })); throw new Error(err.detail) }
-    return res.json() as Promise<{ spec_md: string; tags: string[] }>
   },
 
   async generateCode(specMd: string) {
     const { toolId, toolName } = extractIdName(specMd)
-    const res = await fetch(`${BASE_URL}/api/tool/generate-code`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ specMd, toolId, toolName }),
-    })
-    if (!res.ok) { const err = await res.json().catch(() => ({ detail: res.statusText })); throw new Error(err.detail) }
-    return res.json() as Promise<{ code: string; params: Array<Record<string, unknown>>; modes?: Array<{ id: string; name: string; desc?: string }> }>
+    return apiPost<{
+      code: string
+      params: Array<Record<string, unknown>>
+      modes?: Array<{ id: string; name: string; desc?: string }>
+    }>('/api/tool/generate-code', { specMd, toolId, toolName })
   },
 
-  async testWithInput(specMd: string, code: string, testInputs: Record<string, string>, files?: File[], signal?: AbortSignal) {
-    const { toolId, toolName } = extractIdName(specMd)
-    const form = new FormData()
-    form.append('spec_md', specMd); form.append('tool_id', toolId); form.append('tool_name', toolName)
-    form.append('code', code); form.append('test_input_json', JSON.stringify(testInputs))
-    if (files) files.forEach((f) => form.append('files', f))
-    const res = await fetch(`${BASE_URL}/api/tool/test`, { method: 'POST', body: form, signal })
-    if (!res.ok) { const err = await res.json().catch(() => ({ detail: res.statusText })); throw new Error(err.detail) }
+  async testWithInput(
+    specMd: string,
+    code: string,
+    testInputs: Record<string, string>,
+    files?: File[],
+    signal?: AbortSignal
+  ) {
+    const res = await apiFetchRaw('/api/tool/test', {
+      method: 'POST',
+      body: buildToolForm(specMd, code, testInputs, files),
+      signal,
+    })
+    await assertOk(res)
 
     const reader = res.body?.getReader()
     if (!reader) throw new Error('No response body')
@@ -83,7 +111,7 @@ export const toolApi = {
               if (currentEvent === 'result' || currentEvent === 'message') {
                 return data as { stdout: string; stderr: string; exit_code: number; success: boolean }
               }
-            } catch { /* skip */ }
+            } catch { /* 跳过非法帧 */ }
             currentEvent = ''
           } else if (line === '') { currentEvent = '' }
         }
@@ -95,21 +123,28 @@ export const toolApi = {
   },
 
   async uploadTestFile(file: File) {
-    const form = new FormData(); form.append('file', file)
-    const res = await fetch(`${BASE_URL}/api/tool/upload-test-file`, { method: 'POST', body: form })
-    if (!res.ok) throw new Error('Upload failed')
-    return res.json() as Promise<{ file_path: string; file_name: string }>
+    const form = new FormData()
+    form.append('file', file)
+    return apiUpload<{ file_path: string; file_name: string }>(
+      '/api/tool/upload-test-file',
+      form
+    )
   },
 
-  async autoDebug(specMd: string, code: string, testInputs: Record<string, string>, files: File[] | undefined, onEvent: (type: string, data: Record<string, unknown>) => void, signal?: AbortSignal) {
-    const { toolId, toolName } = extractIdName(specMd)
-    const form = new FormData()
-    form.append('spec_md', specMd); form.append('tool_id', toolId); form.append('tool_name', toolName)
-    form.append('code', code); form.append('test_input_json', JSON.stringify(testInputs))
-    if (files) files.forEach((f) => form.append('files', f))
-
-    const res = await fetch(`${BASE_URL}/api/tool/auto-debug`, { method: 'POST', body: form, signal })
-    if (!res.ok) { const err = await res.json().catch(() => ({ detail: res.statusText })); throw new Error(err.detail) }
+  async autoDebug(
+    specMd: string,
+    code: string,
+    testInputs: Record<string, string>,
+    files: File[] | undefined,
+    onEvent: (type: string, data: Record<string, unknown>) => void,
+    signal?: AbortSignal
+  ) {
+    const res = await apiFetchRaw('/api/tool/auto-debug', {
+      method: 'POST',
+      body: buildToolForm(specMd, code, testInputs, files),
+      signal,
+    })
+    await assertOk(res)
 
     const reader = res.body?.getReader()
     if (!reader) throw new Error('No response body')
@@ -129,7 +164,7 @@ export const toolApi = {
         for (const line of lines) {
           if (line.startsWith('event: ')) { currentEvent = line.slice(7).trim() }
           else if (line.startsWith('data: ')) {
-            try { onEvent(currentEvent || 'message', JSON.parse(line.slice(6))) } catch { /* skip */ }
+            try { onEvent(currentEvent || 'message', JSON.parse(line.slice(6))) } catch { /* 跳过非法帧 */ }
             currentEvent = ''
           } else if (line === '') { currentEvent = '' }
         }
@@ -141,12 +176,7 @@ export const toolApi = {
 
   async stopAutoDebug(specMd: string) {
     const { toolId } = extractIdName(specMd)
-    const res = await fetch(`${BASE_URL}/api/tool/auto-debug/stop`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tool_id: toolId }),
-    })
-    if (!res.ok) { const err = await res.json().catch(() => ({ detail: res.statusText })); throw new Error(err.detail) }
-    return res.json()
+    return apiPost<unknown>('/api/tool/auto-debug/stop', { tool_id: toolId })
   },
 
   /**
@@ -156,36 +186,24 @@ export const toolApi = {
    * 不传时退回 MD 里的 id（新建工具的旧行为）——否则重新生成文档
    * 改掉了 frontmatter 的 id，就会多出一个重复工具。
    */
-  async register(specMd: string, code: string, testInputs: Record<string, string>, demandDesc: string = '', referenceCode: string = '', tags: string[] = [], baseToolId?: string) {
+  async register(specMd: string, code: string, testInputs: Record<string, string>, demandDesc: string = '', referenceCode: string = '', tags: string[] = [], baseToolId?: string): Promise<{ tool_id: string; entry: Record<string, unknown>; updated?: boolean; version?: string; previous_version?: string }> {
     const { toolId, toolName } = extractIdName(specMd)
-    const res = await fetch(`${BASE_URL}/api/tool/register`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        specMd, code, toolId, toolName, testData: testInputs, demandDesc, referenceCode, tags,
-        ...(baseToolId ? { baseToolId } : {}),
-      }),
+    return apiPost<{ tool_id: string; entry: Record<string, unknown>; updated?: boolean; version?: string; previous_version?: string }>('/api/tool/register', {
+      specMd, code, toolId, toolName, testData: testInputs, demandDesc, referenceCode, tags,
+      ...(baseToolId ? { baseToolId } : {}),
     })
-    if (!res.ok) { const err = await res.json().catch(() => ({ detail: res.statusText })); throw new Error(err.detail) }
-    return res.json() as Promise<{ tool_id: string; entry: Record<string, unknown>; updated?: boolean; version?: string; previous_version?: string }>
   },
 
   async list() {
-    const res = await fetch(`${BASE_URL}/api/tool/list`)
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    return res.json() as Promise<{ tools: Array<Record<string, unknown>> }>
+    return apiGet<{ tools: Array<Record<string, unknown>> }>('/api/tool/list')
   },
 
   /** 解析规范文档结构，返回节点树（withSummary=true 时同时生成人话摘要） */
   async getSpecOutline(toolId: string, specMd: string = '', withSummary: boolean = false): Promise<SpecOutline> {
-    const res = await fetch(`${BASE_URL}/api/tool/${encodeURIComponent(toolId)}/spec-outline`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ spec_md: specMd, with_summary: withSummary }),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }))
-      throw new Error(err.detail || `HTTP ${res.status}`)
-    }
-    return res.json()
+    return apiPost<SpecOutline>(
+      `/api/tool/${encodeURIComponent(toolId)}/spec-outline`,
+      { spec_md: specMd, with_summary: withSummary }
+    )
   },
 
   /**
@@ -199,20 +217,15 @@ export const toolApi = {
     specMd?: string
     save?: boolean
   }): Promise<RefineResult> {
-    const res = await fetch(`${BASE_URL}/api/tool/${encodeURIComponent(params.toolId)}/refine-spec-node`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    return apiPost<RefineResult>(
+      `/api/tool/${encodeURIComponent(params.toolId)}/refine-spec-node`,
+      {
         node_id: params.nodeId,
         feedback: params.feedback,
         spec_md: params.specMd || '',
         save: params.save ?? false,
-      }),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }))
-      throw new Error(err.detail || `HTTP ${res.status}`)
-    }
-    return res.json()
+      }
+    )
   },
 
   /**
@@ -228,22 +241,17 @@ export const toolApi = {
     specMd?: string
     save?: boolean
   }): Promise<TableCellUpdateResult> {
-    const res = await fetch(`${BASE_URL}/api/tool/${encodeURIComponent(params.toolId)}/update-table-cell`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    return apiPost<TableCellUpdateResult>(
+      `/api/tool/${encodeURIComponent(params.toolId)}/update-table-cell`,
+      {
         node_id: params.nodeId,
         row_index: params.rowIndex,
         column: params.column,
         value: params.value,
         spec_md: params.specMd || '',
         save: params.save ?? false,
-      }),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }))
-      throw new Error(err.detail || `HTTP ${res.status}`)
-    }
-    return res.json()
+      }
+    )
   },
 
   /** 读取文档中的表格结构，供前端渲染可编辑表单 */
@@ -270,56 +278,45 @@ export const toolApi = {
     saved: boolean
     references: ToolReferences
   }> {
-    const res = await fetch(`${BASE_URL}/api/tool/${encodeURIComponent(params.toolId)}/param-required`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    return apiPost<{
+      tool_id: string
+      name: string
+      required: boolean
+      spec_md: string
+      params: Array<Record<string, unknown>>
+      changed: number
+      saved: boolean
+      references: ToolReferences
+    }>(
+      `/api/tool/${encodeURIComponent(params.toolId)}/param-required`,
+      {
         name: params.name,
         required: params.required,
         spec_md: params.specMd || '',
         save: params.save ?? true,
-      }),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }))
-      throw new Error(err.detail || `HTTP ${res.status}`)
-    }
-    return res.json()
+      }
+    )
   },
 
   /** 引用体检：谁在用这个工具（Agent 流程/API、其它工具），纯只读 */
   async getToolReferences(toolId: string, param: string = ''): Promise<ToolReferences> {
     const q = param ? `?param=${encodeURIComponent(param)}` : ''
-    const res = await fetch(`${BASE_URL}/api/tool/${encodeURIComponent(toolId)}/references${q}`)
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }))
-      throw new Error(err.detail || `HTTP ${res.status}`)
-    }
-    return res.json()
+    return apiGet<ToolReferences>(`/api/tool/${encodeURIComponent(toolId)}/references${q}`)
   },
 
   /** 开关：执行前是否按 param_meta.required 做必填拦截（默认开启） */
   async setEnforceRequired(toolId: string, enabled: boolean): Promise<{ tool_id: string; enforce_required: boolean }> {
-    const res = await fetch(`${BASE_URL}/api/tool/${encodeURIComponent(toolId)}/enforce-required`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled }),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }))
-      throw new Error(err.detail || `HTTP ${res.status}`)
-    }
-    return res.json()
+    return apiPost<{ tool_id: string; enforce_required: boolean }>(
+      `/api/tool/${encodeURIComponent(toolId)}/enforce-required`,
+      { enabled }
+    )
   },
 
   async getSpecTable(toolId: string, specMd: string = ''): Promise<SpecTable> {
-    const res = await fetch(`${BASE_URL}/api/tool/${encodeURIComponent(toolId)}/spec-table`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ spec_md: specMd, with_summary: false }),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }))
-      throw new Error(err.detail || `HTTP ${res.status}`)
-    }
-    return res.json()
+    return apiPost<SpecTable>(
+      `/api/tool/${encodeURIComponent(toolId)}/spec-table`,
+      { spec_md: specMd, with_summary: false }
+    )
   },
 
   /**
@@ -338,22 +335,22 @@ export const toolApi = {
     save?: boolean
     signal?: AbortSignal
   }, onToken?: (t: string) => void): Promise<RefineResult> {
-    const res = await fetch(`${BASE_URL}/api/tool/${encodeURIComponent(params.toolId)}/refine-spec-node-stream`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        node_id: params.nodeId,
-        feedback: params.feedback,
-        spec_md: params.specMd || '',
-        save: params.save ?? false,
-      }),
-      signal: params.signal,
-    })
-    if (!res.ok || !res.body) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }))
-      throw new Error(err.detail || `HTTP ${res.status}`)
-    }
+    const res = await apiFetchRaw(
+      `/api/tool/${encodeURIComponent(params.toolId)}/refine-spec-node-stream`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          node_id: params.nodeId,
+          feedback: params.feedback,
+          spec_md: params.specMd || '',
+          save: params.save ?? false,
+        }),
+        signal: params.signal,
+      }
+    )
 
+    await assertOk(res)
+    if (!res.body) throw new Error('No response body')
     const reader = res.body.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
@@ -393,28 +390,18 @@ export const toolApi = {
 
   /** 保存手工编辑后的 MD 规范文档 */
   async saveSpec(toolId: string, specMd: string): Promise<{ saved: string }> {
-    const res = await fetch(`${BASE_URL}/api/tool/${encodeURIComponent(toolId)}/save-spec`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ spec_md: specMd }),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }))
-      throw new Error(err.detail || `HTTP ${res.status}`)
-    }
-    return res.json()
+    return apiPost<{ saved: string }>(
+      `/api/tool/${encodeURIComponent(toolId)}/save-spec`,
+      { spec_md: specMd }
+    )
   },
 
   /** 保存手工编辑后的工具代码 */
   async saveCode(toolId: string, code: string): Promise<{ saved: string }> {
-    const res = await fetch(`${BASE_URL}/api/tool/${encodeURIComponent(toolId)}/save-code`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code }),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }))
-      throw new Error(err.detail || `HTTP ${res.status}`)
-    }
-    return res.json()
+    return apiPost<{ saved: string }>(
+      `/api/tool/${encodeURIComponent(toolId)}/save-code`,
+      { code }
+    )
   },
 
   /**
@@ -427,16 +414,14 @@ export const toolApi = {
     original_code: string
     current_spec: string
   }) {
-    const res = await fetch(`${BASE_URL}/api/tool/${encodeURIComponent(params.tool_id)}/sync-spec-from-code`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    return apiPost<{ spec_md: string }>(
+      `/api/tool/${encodeURIComponent(params.tool_id)}/sync-spec-from-code`,
+      {
         tool_id: params.tool_id,
         code: params.code,
         original_code: params.original_code,
         current_spec: params.current_spec,
-      }),
-    })
-    if (!res.ok) { const err = await res.json().catch(() => ({ detail: res.statusText })); throw new Error(err.detail) }
-    return res.json() as Promise<{ spec_md: string }>
+      }
+    )
   },
 }

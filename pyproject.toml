@@ -19,6 +19,14 @@ dependencies = [
     "pyyaml>=6.0",
     "python-multipart>=0.0.9",
     "requests>=2.31.0",
+    # ── 持久化与认证（需求 8.1/8.2）────────────────────────────
+    # 设计见 docs/design-08-schema.md；决策见 docs/adr-08-user-space-and-network.md
+    # SQLAlchemy 2.0 async + Alembic：开发 SQLite、生产 PostgreSQL 共用一套迁移
+    "sqlalchemy[asyncio]>=2.0.30",
+    "alembic>=1.13.0",
+    "aiosqlite>=0.20.0",
+    # 密码哈希。刻意不用 passlib —— 其 1.7.4 与 bcrypt>=4.1 不兼容（ADR-08-01a）
+    "bcrypt>=4.1.0",
 ]
 
 [project.optional-dependencies]
@@ -30,6 +38,18 @@ dev = [
     "mypy",
     "pre-commit",
 ]
+# 生产/压测切换到 PostgreSQL 时安装：pip install -e ".[postgres]"
+postgres = [
+    # ⚠️ 必须用 asyncpg，**不能用 psycopg**。
+    #
+    # psycopg 的 async 模式不支持 Windows 默认的 ProactorEventLoop
+    # （报 "Psycopg cannot use the 'ProactorEventLoop'"）；而本项目的 Agent 工厂
+    # 依赖 asyncio.create_subprocess_exec —— Windows 上它**只在 Proactor 下可用**。
+    # 两者直接冲突：切到 Selector 修 psycopg 会让 Agent 子进程彻底不可用。
+    #
+    # asyncpg 基于 transport 实现，在 Proactor 与 Selector 下都能工作（已实测）。
+    "asyncpg>=0.29",
+]
 
 [tool.setuptools.packages.find]
 include = ["app*", "core*", "resources*", "storage*", "config*"]
@@ -38,9 +58,25 @@ include = ["app*", "core*", "resources*", "storage*", "config*"]
 line-length = 100
 target-version = "py311"
 
+[tool.ruff.lint.flake8-bugbear]
+# B008 的本意是防"在默认参数里求值可变对象"。但 FastAPI 的依赖注入
+# **标准写法就是在默认参数里调用 Depends(...)**（官方文档如此），对它是误报。
+# 因此把这些调用声明为"不可变调用"，而不是在每个函数上堆 noqa。
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Body",
+    "fastapi.Path",
+    "fastapi.Header",
+    "fastapi.Cookie",
+    "fastapi.File",
+    "fastapi.Form",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# 显式固定夹具事件循环作用域，避免 pytest-asyncio 的隐式默认值随版本变化
 asyncio_default_fixture_loop_scope = "function"
 
 [tool.setuptools.package-data]

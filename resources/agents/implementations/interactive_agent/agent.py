@@ -95,6 +95,12 @@ class InteractiveAgent(BaseAgent):
         attachments = kwargs.get("attachments", [])
         workspace_tool_ids = kwargs.get("workspace_tool_ids", [])
 
+        # 记录本次执行的身份：工具子进程据此按「人」隔离数据集。
+        # "default"/"http" 是未认证/Web 服务直连哨兵 → 不回退成某个真实用户。
+        self._owner_id = getattr(ctx, "user_id", None)
+        if self._owner_id in ("default", "http", ""):
+            self._owner_id = None
+
         if not content.strip():
             yield {"event": "done", "data": {"messageId": ctx.session_id}}
             return
@@ -849,6 +855,7 @@ class InteractiveAgent(BaseAgent):
                 tool_id=tool_id,
                 params=params,
                 timeout=None,  # 无超时限制，直到用户手动停止
+                owner_id=getattr(self, "_owner_id", None),
             )
         except Exception as e:
             return {"status": "failed", "message": f"工具执行异常: {str(e)[:300]}"}

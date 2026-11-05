@@ -15,11 +15,62 @@ import binascii
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from app.api.deps import get_auth_context
+from core.auth.context import AuthContext
+from core.auth.ownership import can_write_resource
 from core.migration import agent_bundle, tool_bundle
+from core.user_context import resolve_owner_id
+
+_PRIVILEGED_TENANT_ROLES = ("owner", "admin")
+
+
+def _is_admin(ctx: AuthContext) -> bool:
+    """租户 Owner/Admin（可看全部迁移包、可兜底覆盖）。"""
+    return getattr(ctx, "tenant_role", None) in _PRIVILEGED_TENANT_ROLES
+
+
+def _load_tool_entry(tool_id: str):
+    from core.resource.registry.tool_registry import ToolRegistry
+
+    return ToolRegistry()
+
+
+def _load_agent_entry(agent_id: str):
+    from core.resource.registry.agent_registry import AgentRegistry
+
+    return AgentRegistry()
+
+
+def _bundle_owner(bundle_path, *, kind: str) -> str | None:
+    """读迁移包 manifest 里的 exported_by（读不到返回 None）。"""
+    import json as _json
+    import zipfile as _zip
+
+    try:
+        with _zip.ZipFile(bundle_path) as zf:
+            manifest = _json.loads(zf.read("manifest.json").decode("utf-8"))
+        return manifest.get("exported_by")
+    except Exception:
+        return None
+
+
+def _assert_bundle_visible(ctx: AuthContext, bundle_path, *, kind: str) -> None:
+    """迁移包可见性：本人或租户管理员；旧包无字段则仅管理员可见。"""
+    if _is_admin(ctx):
+        return
+    owner = _bundle_owner(bundle_path, kind=kind)
+    if not owner or owner != resolve_owner_id(ctx):
+        raise HTTPException(404, "迁移包不存在")
+
+
+def _assert_can_export(ctx: AuthContext, entry: dict | None, *, kind: str) -> None:
+    """导出要求对资源有写权限（D2）：否则可把别人私有工具源码打包带走。"""
+    if entry is None or not can_write_resource(ctx, entry):
+        raise HTTPException(404, f"{kind}不存在")
 
 router = APIRouter()
 
@@ -49,7 +100,9 @@ def _deps_report(tool_id: str) -> dict:
                 "error": str(e)}
 
 
-def _ensure_in_workspace(tool_id: str, name: str, tags: list[str] | None) -> None:
+def _ensure_in_workspace(
+    tool_id: str, name: str, tags: list[str] | None, owner_id: str | None = None
+) -> None:
     """把导入的工具直接放进「工具空间」。
 
     工具空间（左侧列表）展示的是 storage/workspace_tools.json 里的**已加载清单**，
@@ -58,7 +111,7 @@ def _ensure_in_workspace(tool_id: str, name: str, tags: list[str] | None) -> Non
     """
     try:
         from app.api.routes.tool_routes import _read_workspace, _write_workspace
-        items = _read_workspace()
+        items = _read_workspace(owner_id)
         if any(t.get("id") == tool_id for t in items):
             return
         items.append({
@@ -67,7 +120,7 @@ def _ensure_in_workspace(tool_id: str, name: str, tags: list[str] | None) -> Non
             "tags": tags or [],
             "loadedAt": datetime.now().isoformat(),
         })
-        _write_workspace(items)
+        _write_workspace(items, owner_id)
     except Exception:
         # 工具空间清单写失败不影响导入本身（可从工具仓库手动加载）
         pass
@@ -103,8 +156,12 @@ async def migrate_info():
 
 
 @router.post("/tool/export")
-async def export_tool(req: ExportToolRequest):
-    """把工具打成一个迁移包。"""
+async def export_tool(
+    req: ExportToolRequest, ctx: AuthContext = Depends(get_auth_context)
+):
+    """把工具打成一个迁移包（需对该工具写权限）。"""
+    entry = await _load_tool_entry(req.tool_id).get(req.tool_id)
+    _assert_can_export(ctx, entry, kind="工具")
     try:
         result = await asyncio.to_thread(
             tool_bundle.export_tool,
@@ -112,6 +169,8 @@ async def export_tool(req: ExportToolRequest):
             None,
             req.include_tests,
             req.include_assets,
+            exported_by=resolve_owner_id(ctx),
+            allow_other=_is_admin(ctx),
         )
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
@@ -121,25 +180,39 @@ async def export_tool(req: ExportToolRequest):
 
 
 @router.get("/bundles")
-async def list_bundles():
-    """列出导出目录下的迁移包。"""
-    items = await asyncio.to_thread(tool_bundle.list_bundles)
+async def list_bundles(ctx: AuthContext = Depends(get_auth_context)):
+    """列出导出目录下的迁移包（默认只看自己导出的；管理员看全部）。"""
+    items = await asyncio.to_thread(
+        tool_bundle.list_bundles,
+        None,
+        user_id=resolve_owner_id(ctx),
+        include_all=_is_admin(ctx),
+    )
     return {"export_dir": str(tool_bundle.export_dir()), "bundles": items, "total": len(items)}
 
 
 @router.get("/bundles/{name}")
-async def download_bundle(name: str):
-    """下载某个迁移包。"""
+async def download_bundle(name: str, ctx: AuthContext = Depends(get_auth_context)):
+    """下载某个迁移包（仅本人导出或租户管理员）。"""
     try:
         p = tool_bundle.resolve_bundle(name)
     except ValueError as e:
         raise HTTPException(404, str(e)) from e
+    _assert_bundle_visible(ctx, p, kind="tool")
     return FileResponse(str(p), filename=p.name, media_type="application/zip")
 
 
 @router.post("/tool/import")
-async def import_tool(req: ImportToolRequest):
-    """从本机路径 / 导出目录文件名 / base64 内容导入工具。"""
+async def import_tool(
+    req: ImportToolRequest, ctx: AuthContext = Depends(get_auth_context)
+):
+    """从本机路径 / 导出目录文件名 / base64 内容导入工具。
+
+    导入后的 registry owner = **导入者 UUID**；``overwrite`` 默认只允许覆盖自己的
+    工具（租户管理员可兜底）。
+    """
+    owner = resolve_owner_id(ctx)
+    allow_overwrite = _is_admin(ctx)
     try:
         if req.bundle_base64:
             try:
@@ -147,16 +220,31 @@ async def import_tool(req: ImportToolRequest):
             except (binascii.Error, ValueError) as e:
                 raise HTTPException(400, f"bundle_base64 解码失败: {e}") from e
             result = await asyncio.to_thread(
-                tool_bundle.import_tool, None, raw, req.overwrite
+                tool_bundle.import_tool, None, raw, req.overwrite,
+                owner_id=owner, allow_overwrite=allow_overwrite,
             )
         elif req.bundle_name:
             p = tool_bundle.resolve_bundle(req.bundle_name)
+            _assert_bundle_visible(ctx, p, kind="tool")
             result = await asyncio.to_thread(
-                tool_bundle.import_tool, p, None, req.overwrite
+                tool_bundle.import_tool, p, None, req.overwrite,
+                owner_id=owner, allow_overwrite=allow_overwrite,
             )
         elif req.bundle_path:
+            from core.file_guard import PathAccessError, resolve_checked_path
+
+            try:
+                # 归属校验：不得读取他人上传目录里的包（与 bundle_name 分支同口径）
+                bundle_path = resolve_checked_path(
+                    req.bundle_path, must_exist=True, owner_id=owner
+                )
+            except PathAccessError as e:
+                raise HTTPException(400, f"bundle_path 不合法: {e}") from e
+            # 可见性校验：bundle_name 分支有，本机路径分支此前漏了（v3 评审）
+            _assert_bundle_visible(ctx, bundle_path, kind="tool")
             result = await asyncio.to_thread(
-                tool_bundle.import_tool, Path(req.bundle_path), None, req.overwrite
+                tool_bundle.import_tool, bundle_path, None, req.overwrite,
+                owner_id=owner, allow_overwrite=allow_overwrite,
             )
         else:
             raise HTTPException(400, "必须提供 bundle_path / bundle_name / bundle_base64 之一")
@@ -166,7 +254,7 @@ async def import_tool(req: ImportToolRequest):
         raise
     except Exception as e:
         raise HTTPException(500, f"导入失败: {e}") from e
-    _ensure_in_workspace(result["tool_id"], result["name"], result.get("tags"))
+    _ensure_in_workspace(result["tool_id"], result["name"], result.get("tags"), owner)
     deps = await asyncio.to_thread(_deps_report, result["tool_id"])
     return {"status": "success", "added_to_workspace": True, "deps": deps, **result}
 
@@ -175,20 +263,23 @@ async def import_tool(req: ImportToolRequest):
 async def import_tool_upload(
     file: UploadFile = File(...),
     overwrite: bool = Form(False),
+    ctx: AuthContext = Depends(get_auth_context),
 ):
     """上传 `.sotatool.zip` 直接导入（跨机器搬运最常见的方式）。"""
+    owner = resolve_owner_id(ctx)
     raw = await file.read()
     if not raw:
         raise HTTPException(400, "上传内容为空")
     try:
         result = await asyncio.to_thread(
-            tool_bundle.import_tool, None, raw, overwrite
+            tool_bundle.import_tool, None, raw, overwrite,
+            owner_id=owner, allow_overwrite=_is_admin(ctx),
         )
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     except Exception as e:
         raise HTTPException(500, f"导入失败: {e}") from e
-    _ensure_in_workspace(result["tool_id"], result["name"], result.get("tags"))
+    _ensure_in_workspace(result["tool_id"], result["name"], result.get("tags"), owner)
     deps = await asyncio.to_thread(_deps_report, result["tool_id"])
     return {"status": "success", "added_to_workspace": True, "deps": deps, **result}
 
@@ -228,11 +319,19 @@ def _agent_deps_report(agent_id: str) -> dict:
 
 
 @router.post("/agent/export")
-async def export_agent(req: ExportAgentRequest):
-    """把 Agent 打成一个迁移包。"""
+async def export_agent(
+    req: ExportAgentRequest, ctx: AuthContext = Depends(get_auth_context)
+):
+    """把 Agent 打成一个迁移包（需对该 Agent 写权限）。"""
+    entry = await _load_agent_entry(req.agent_id).get(req.agent_id)
+    _assert_can_export(ctx, entry, kind="Agent")
     try:
         result = await asyncio.to_thread(
-            agent_bundle.export_agent, req.agent_id, None, req.include_assets
+            agent_bundle.export_agent,
+            req.agent_id,
+            None,
+            req.include_assets,
+            exported_by=resolve_owner_id(ctx),
         )
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
@@ -242,23 +341,39 @@ async def export_agent(req: ExportAgentRequest):
 
 
 @router.get("/agent/bundles")
-async def list_agent_bundles():
-    items = await asyncio.to_thread(agent_bundle.list_agent_bundles)
+async def list_agent_bundles(ctx: AuthContext = Depends(get_auth_context)):
+    """列出 Agent 迁移包（默认只看自己导出的；管理员看全部）。"""
+    items = await asyncio.to_thread(
+        agent_bundle.list_agent_bundles,
+        None,
+        user_id=resolve_owner_id(ctx),
+        include_all=_is_admin(ctx),
+    )
     return {"export_dir": str(agent_bundle.export_dir()), "bundles": items, "total": len(items)}
 
 
 @router.get("/agent/bundles/{name}")
-async def download_agent_bundle(name: str):
+async def download_agent_bundle(name: str, ctx: AuthContext = Depends(get_auth_context)):
+    """下载 Agent 迁移包（仅本人导出或租户管理员）。"""
     try:
         p = agent_bundle.resolve_agent_bundle(name)
     except ValueError as e:
         raise HTTPException(404, str(e)) from e
+    _assert_bundle_visible(ctx, p, kind="agent")
     return FileResponse(str(p), filename=p.name, media_type="application/zip")
 
 
 @router.post("/agent/import")
-async def import_agent(req: ImportAgentRequest):
-    """从本机路径 / 导出目录文件名 / base64 内容导入 Agent。"""
+async def import_agent(
+    req: ImportAgentRequest, ctx: AuthContext = Depends(get_auth_context)
+):
+    """从本机路径 / 导出目录文件名 / base64 内容导入 Agent。
+
+    导入后的 registry owner = **导入者 UUID**；``overwrite`` 默认只允许覆盖自己的
+    Agent（租户管理员可兜底）。
+    """
+    owner = resolve_owner_id(ctx)
+    allow_overwrite = _is_admin(ctx)
     try:
         if req.bundle_base64:
             try:
@@ -266,16 +381,31 @@ async def import_agent(req: ImportAgentRequest):
             except (binascii.Error, ValueError) as e:
                 raise HTTPException(400, f"bundle_base64 解码失败: {e}") from e
             result = await asyncio.to_thread(
-                agent_bundle.import_agent, None, raw, req.overwrite
+                agent_bundle.import_agent, None, raw, req.overwrite,
+                owner_id=owner, allow_overwrite=allow_overwrite,
             )
         elif req.bundle_name:
             p = agent_bundle.resolve_agent_bundle(req.bundle_name)
+            _assert_bundle_visible(ctx, p, kind="agent")
             result = await asyncio.to_thread(
-                agent_bundle.import_agent, p, None, req.overwrite
+                agent_bundle.import_agent, p, None, req.overwrite,
+                owner_id=owner, allow_overwrite=allow_overwrite,
             )
         elif req.bundle_path:
+            from core.file_guard import PathAccessError, resolve_checked_path
+
+            try:
+                # 归属校验：不得读取他人上传目录里的包（与 bundle_name 分支同口径）
+                bundle_path = resolve_checked_path(
+                    req.bundle_path, must_exist=True, owner_id=owner
+                )
+            except PathAccessError as e:
+                raise HTTPException(400, f"bundle_path 不合法: {e}") from e
+            # 可见性校验：bundle_name 分支有，本机路径分支此前漏了（v3 评审）
+            _assert_bundle_visible(ctx, bundle_path, kind="agent")
             result = await asyncio.to_thread(
-                agent_bundle.import_agent, Path(req.bundle_path), None, req.overwrite
+                agent_bundle.import_agent, bundle_path, None, req.overwrite,
+                owner_id=owner, allow_overwrite=allow_overwrite,
             )
         else:
             raise HTTPException(400, "必须提供 bundle_path / bundle_name / bundle_base64 之一")
@@ -290,12 +420,17 @@ async def import_agent(req: ImportAgentRequest):
 
 
 @router.post("/agent/{agent_id}/install-deps")
-async def install_agent_deps(agent_id: str, req: dict):
-    """把 Agent 的 Python 依赖装进它的执行环境（项目 venv）。
+async def install_agent_deps(
+    agent_id: str, req: dict, ctx: AuthContext = Depends(get_auth_context)
+):
+    """把 Agent 的 Python 依赖装进它的执行环境（项目 venv；需写权限）。
 
     Agent 没有独立 venv 概念，复用工具那套安装器即可：
     `_get_exec_python(agent_id)` 找不到 agent 专属 venv 时会回退项目 venv。
     """
+    entry = await _load_agent_entry(agent_id).get(agent_id)
+    if entry is None or not can_write_resource(ctx, entry):
+        raise HTTPException(404, f"Agent '{agent_id}' not found")
     dependencies = req.get("dependencies", [])
     if not dependencies:
         raise HTTPException(400, "dependencies 不能为空")
@@ -311,6 +446,7 @@ async def install_agent_deps(agent_id: str, req: dict):
 async def import_agent_upload(
     file: UploadFile = File(...),
     overwrite: bool = Form(False),
+    ctx: AuthContext = Depends(get_auth_context),
 ):
     """上传 `.sotaagent.zip` 直接导入。"""
     raw = await file.read()
@@ -318,7 +454,8 @@ async def import_agent_upload(
         raise HTTPException(400, "上传内容为空")
     try:
         result = await asyncio.to_thread(
-            agent_bundle.import_agent, None, raw, overwrite
+            agent_bundle.import_agent, None, raw, overwrite,
+            owner_id=resolve_owner_id(ctx), allow_overwrite=_is_admin(ctx),
         )
     except ValueError as e:
         raise HTTPException(400, str(e)) from e

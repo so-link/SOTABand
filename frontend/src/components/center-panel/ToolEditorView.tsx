@@ -24,6 +24,7 @@ import { SpecOutlineView } from './SpecOutlineView'
 import { TableEditView } from './TableEditView'
 import type { SpecOutline, SpecTable } from '@/types/spec-outline'
 
+import { apiFetchRaw } from '@/services/api/client'
 // ── 可拖拽分割面板 ──
 
 function ResizeHandle({ onResize }: { onResize: (delta: number) => void }) {
@@ -169,7 +170,6 @@ export function ToolEditorView() {
 function Step1() {
   const { description, setDescription, referenceCode, setReferenceCode, generateSpec, isGenerating, error } = useToolEditorStore()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const BASE = ''
   // 参考代码是 Python，用 4 空格缩进
   const onRefTabIndent = useTabIndent('    ')
 
@@ -204,7 +204,7 @@ function Step1() {
                        onFail: (reason: string) => void) => {
       const ctrl = new AbortController()
       const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS)
-      fetch(url, { signal: ctrl.signal })
+      apiFetchRaw(url, { signal: ctrl.signal })
         .then(r => {
           if (!r.ok) throw { kind: 'http', status: r.status }
           return r.json()
@@ -213,13 +213,13 @@ function Step1() {
         .catch(e => { clearTimeout(timer); onFail(e?.kind === 'http' ? `http:${e.status}` : 'network') })
     }
 
-    fetchList(`${BASE}/api/apis/list`, (d) => {
+    fetchList(`/api/apis/list`, (d) => {
       const items = ((d.apis||[]) as Array<Record<string,unknown>>).map((a:Record<string,unknown>) => ({name:(a.name as string)||(a.id as string)||'', id:(a.id as string)||''}))
       setApiItems(items)
       setApiState('ready')
     }, (reason) => { setApiFailReason(reason); setApiState('failed') })
 
-    fetchList(`${BASE}/api/tool/list`, (d) => {
+    fetchList(`/api/tool/list`, (d) => {
       const items = (((d as Record<string,unknown>).tools||[]) as Array<Record<string,unknown>>).map((t:Record<string,unknown>) => ({name:(t.name as string)||(t.id as string)||'', id:(t.id as string)||''}))
       setToolItems(items)
       setToolState('ready')

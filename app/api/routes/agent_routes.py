@@ -3,8 +3,9 @@
 import asyncio
 import re
 import time
+import uuid
 from pathlib import Path
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -18,6 +19,17 @@ from core.llm.client import create_llm_client
 from core.resource.builder.agent_builder import AgentCodeBuilder
 from core.resource.registry.agent_registry import AgentRegistry
 from core.resource.registry.registry_base import bump_patch_version
+from app.api.deps import get_auth_context, get_optional_auth
+from core.auth.ownership import can_write_resource
+from core.auth.audit_actions import (
+    ACTION_RESOURCE_CODE_CHANGED, ACTION_RESOURCE_DELETED, ACTION_RESOURCE_SPEC_CHANGED,
+    record_resource_change,
+)
+from core.auth.context import AuthContext
+from core.db.session import get_db_session
+from sqlalchemy.ext.asyncio import AsyncSession
+from core.sharing.service import revoke_publications_for_release
+from core.user_context import resolve_owner_id
 from core.agent.factory import agent_factory
 
 router = APIRouter()
@@ -332,7 +344,10 @@ async def generate_code(req: GenerateCodeRequest):
 
 
 @router.post("/register")
-async def register_agent(req: RegisterAgentRequest):
+async def register_agent(
+    req: RegisterAgentRequest,
+    ctx: AuthContext = Depends(get_auth_context),
+):
     """注册 Agent；已存在时原地更新（编辑已发布 Agent 后重新生成走这里）。
 
     身份取自 ``baseAgentId``（前端编辑态的原 Agent id），而不是 MD 正文。
@@ -350,6 +365,9 @@ async def register_agent(req: RegisterAgentRequest):
     spec_md = builder.normalize_tool_refs(req.spec_md)
 
     existing = await registry.get(target_id)
+    if existing is not None and not can_write_resource(ctx, existing):
+        # 覆写 = 改别人的代码（可植入后门），按 404 处理不泄露存在性
+        raise HTTPException(404, f"Agent '{target_id}' 不存在")
     updated = existing is not None
 
     # 版本：显式指定 > 更新时 patch+1 > 新建 0.1.0
@@ -388,7 +406,7 @@ async def register_agent(req: RegisterAgentRequest):
         "tags": tags,
     }
 
-    registered_id = await registry.register(resource)
+    registered_id = await registry.register(resource, owner=resolve_owner_id(ctx))
     entry = await registry.get(registered_id)
 
     # 保存生成的代码到 implementations 目录
@@ -473,14 +491,23 @@ def _maybe_generate_api_doc(agent_id: str) -> None:
 
 
 @router.get("/list")
-async def list_agents():
-    """列出所有已注册的 Agent"""
+async def list_agents(ctx: AuthContext = Depends(get_auth_context)):
+    """列出所有已注册的 Agent（附带当前用户可编辑标记）"""
     agents = await registry.list_all()
+    me = resolve_owner_id(ctx)
+    for a in agents:
+        owner = str(a.get("owner") or "")
+        a["is_owner"] = bool(owner) and owner == me
+        # 与写守卫同口径（can_write_resource）：owner 本人 或 租户 Owner/Admin
+        # （内置无 owner 资产 → 仅租户管理员）。旧写法漏了租户 admin，UI 会显示只读。
+        a["can_edit"] = can_write_resource(ctx, a)
     return {"agents": agents}
 
 
 @router.get("/{agent_id}")
-async def get_agent(agent_id: str):
+async def get_agent(
+    agent_id: str, ctx: AuthContext = Depends(get_auth_context)
+):
     """Agent 详情（含 MD spec + 源代码 + 需求描述）"""
     entry = await registry.get(agent_id)
     if not entry:
@@ -506,7 +533,18 @@ async def get_agent(agent_id: str):
     has_demand = demand_path is not None
     demand_md = demand_path.read_text(encoding="utf-8") if has_demand else ""
 
-    return {**entry, "spec_md": spec_md, "code": code, "has_demand": has_demand, "demand_md": demand_md}
+    me = resolve_owner_id(ctx)
+    owner = str(entry.get("owner") or "")
+    return {
+        **entry,
+        "is_owner": bool(owner) and owner == me,
+        # 与写守卫同口径（见 list_agents 的说明）
+        "can_edit": can_write_resource(ctx, entry),
+        "spec_md": spec_md,
+        "code": code,
+        "has_demand": has_demand,
+        "demand_md": demand_md,
+    }
 
 
 class SaveSpecRequest(BaseModel):
@@ -515,7 +553,12 @@ class SaveSpecRequest(BaseModel):
 
 
 @router.post("/{agent_id}/save-spec")
-async def save_agent_spec(agent_id: str, req: SaveSpecRequest):
+async def save_agent_spec(
+    agent_id: str,
+    req: SaveSpecRequest,
+    ctx: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_db_session),
+):
     """保存手工编辑后的 MD 规范文档"""
     entry = await registry.get(agent_id)
     if not entry:
@@ -543,7 +586,12 @@ class SaveCodeRequest(BaseModel):
 
 
 @router.post("/{agent_id}/save-code")
-async def save_agent_code(agent_id: str, req: SaveCodeRequest):
+async def save_agent_code(
+    agent_id: str,
+    req: SaveCodeRequest,
+    ctx: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_db_session),
+):
     """保存手工微调后的 Agent 代码"""
     entry = await registry.get(agent_id)
     if not entry:
@@ -555,6 +603,10 @@ async def save_agent_code(agent_id: str, req: SaveCodeRequest):
     impl_dir = _locate_agent_impl_dir(agent_id) or (registry._get_impl_dir() / agent_id)
     impl_dir.mkdir(parents=True, exist_ok=True)
     (impl_dir / "agent.py").write_text(req.code, encoding="utf-8")
+    await record_resource_change(
+        session, ctx,
+        action=ACTION_RESOURCE_CODE_CHANGED, target_type="agent", target_id=agent_id,
+    )
     return {"saved": agent_id}
 
 
@@ -684,12 +736,21 @@ async def start_agent(agent_id: str):
 
 
 @router.post("/{agent_id}/execute")
-async def execute_agent(agent_id: str, req: AgentExecuteRequest):
+async def execute_agent(
+    agent_id: str,
+    req: AgentExecuteRequest,
+    ctx: AuthContext = Depends(get_auth_context),
+):
     """向 Agent 子进程发送输入，SSE 流式返回输出"""
     if not agent_factory.is_running(agent_id):
         raise HTTPException(400, f"Agent '{agent_id}' 未启动，请先启动")
 
     import json as _json
+
+    # 发起方身份：随执行上下文下传给 Agent 子进程，工具调用按「人」隔离数据集
+    # （管理员评审意见 1 的修复点：本入口原先不传 context → user_id="default"）
+    owner_id = resolve_owner_id(ctx)
+    session_id = getattr(req, "session_id", None) or getattr(req, "sessionId", None) or "default"
 
     # 透传调用方提供的全部参数（task 的启动参数名各不相同，不能只取 content）。
     # extra="allow" 已在 schema 中开启，这里只滤掉空值，保证「显式传空」与「没传」等价。
@@ -704,7 +765,11 @@ async def execute_agent(agent_id: str, req: AgentExecuteRequest):
     async def event_gen():
         seen_done = False
         try:
-            async for event in agent_factory.execute_stream(agent_id, params=params):
+            async for event in agent_factory.execute_stream(
+                agent_id,
+                params=params,
+                context={"session_id": session_id, "user_id": owner_id},
+            ):
                 ev_type = event.get("event", "content")
                 if ev_type == "done":
                     seen_done = True
@@ -742,7 +807,11 @@ async def restart_agent(agent_id: str):
 
 
 @router.delete("/{agent_id}")
-async def delete_agent(agent_id: str):
+async def delete_agent(
+    agent_id: str,
+    ctx: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_db_session),
+):
     """删除 Agent（registry + code + 停止进程）"""
     entry = await registry.get(agent_id)
     if not entry:
@@ -759,7 +828,22 @@ async def delete_agent(agent_id: str):
     if spec_path.exists():
         spec_path.unlink()
     await registry.unregister(agent_id)
-    return {"deleted": agent_id}
+
+    # 资源本体没了 → 它的 active 发布必须一起下架（避免目录悬空 / release_id 被接管）
+    revoked = await revoke_publications_for_release(
+        session,
+        "agent",
+        agent_id,
+        actor_id=uuid.UUID(str(ctx.user_id)),
+        tenant_id=uuid.UUID(str(ctx.tenant_id)) if ctx.tenant_id else None,
+        request_id=getattr(ctx, "request_id", "") or "agent.delete",
+    )
+
+    await record_resource_change(
+        session, ctx,
+        action=ACTION_RESOURCE_DELETED, target_type="agent", target_id=agent_id,
+    )
+    return {"deleted": agent_id, "revoked_publications": revoked}
 
 # ══════════════════════════════════════════════════════════════════════
 #  Web 服务式 Agent 支持（见 docs/agent-types-design.md）
@@ -814,7 +898,11 @@ class TestApiRequest(BaseModel):
 
 
 @router.post("/{agent_id}/test-api")
-async def test_agent_api(agent_id: str, req: TestApiRequest):
+async def test_agent_api(
+    agent_id: str,
+    req: TestApiRequest,
+    ctx: AuthContext = Depends(get_auth_context),
+):
     """API 测试：由后端内部代理请求到该 Agent 的 HTTP 服务，返回响应结果。
 
     走本机回环（127.0.0.1），避免前端跨域与外部网络问题。
@@ -861,12 +949,26 @@ async def test_agent_api(agent_id: str, req: TestApiRequest):
     method = api_def.get("method", "POST").upper()
     url = f"http://{host}:{port}{path}"
 
+    # Agent Web 服务要求引擎共享令牌（P1-13）；后端代理是唯一合法调用方。
+    # 同时透传「发起者身份」签名头：Web 服务进程据此以该用户身份执行工具，
+    # 否则工具会以共享机器身份落库（数据集归属错）。
+    from core.agent.web_server import owner_headers
+
+    token = agent_factory.get_http_token(agent_id)
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    headers.update(owner_headers(token, resolve_owner_id(ctx)))
+
     try:
-        async with httpx.AsyncClient(timeout=120) as client:
-            if method == "GET":
-                resp = await client.get(url, params=req.params)
-            else:
-                resp = await client.request(method, url, json=req.params)
+        # 与 stdin 执行互斥：同一 Agent 子进程的 stdin/stdout 只能有一个使用者，
+        # 否则 HTTP 与 stdin 并发会互相覆盖进程级身份/串流。
+        async with agent_factory.execution_lock(agent_id):
+            async with httpx.AsyncClient(timeout=120) as client:
+                if method == "GET":
+                    resp = await client.get(url, params=req.params, headers=headers)
+                else:
+                    resp = await client.request(
+                        method, url, json=req.params, headers=headers
+                    )
         try:
             body = resp.json()
         except Exception:

@@ -28,7 +28,7 @@ import json
 import re
 import time
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from core.resource import paths
 from core.resource.registry.tool_registry import ToolRegistry
@@ -163,6 +163,9 @@ def export_tool(
     out_dir: Path | str | None = None,
     include_tests: bool = True,
     include_assets: bool = True,
+    *,
+    exported_by: str | None = None,
+    allow_other: bool = False,
 ) -> dict:
     """把工具打成迁移包，返回包信息。
 
@@ -182,6 +185,14 @@ def export_tool(
     entry, origin = _find_entry(tool_id)
     if entry is None:
         raise ValueError(f"工具不存在: {tool_id}")
+
+    # 归属校验（与写权限同口径）：不能把别人的私有工具打包带走。
+    # 内置共享资产（无 owner）允许导出；租户管理员通过 allow_other 兜底。
+    owner = str(entry.get("owner") or "")
+    if owner and not allow_other:
+        exporter = str(exported_by or _current_user())
+        if owner != exporter:
+            raise ValueError("该工具属于其他用户，无权导出")
 
     reg = _registry()
     def_file = reg.find_def_file(tool_id)
@@ -217,6 +228,9 @@ def export_tool(
         "format": BUNDLE_FORMAT,
         "format_version": BUNDLE_VERSION,
         "exported_at": _now_iso(),
+        # 导出者身份（UUID）：仅用于「迁移包可见性」与溯源，不承载权限。
+        # 导入到目标环境时，registry 的 owner 一律取**导入者**（见 import_tool）。
+        "exported_by": exported_by or _current_user(),
         "source": {
             "project": paths.PROJECT_ROOT.name,
             "origin": "private" if origin == paths.PRIVATE_ROOT else "builtin",
@@ -274,6 +288,33 @@ def export_tool(
 
 # ── 导入 ──────────────────────────────────────────────────────
 
+def _validate_member_rel(rel: str, original: str) -> str:
+    """校验包内成员相对路径（zip slip，含 Windows 盘符绝对路径）。
+
+    ⚠️ 只挡 ``..`` / ``\\`` / 前导 ``/`` 是不够的：``E:/Learn/x.py`` 在
+    ``PurePosixPath`` 里是普通相对路径，但 ``pathlib.Path`` 在 Windows 上会把
+    ``E:`` 识别成驱动器并**重置根目录** —— 写 ``impl_dir / "E:/..."`` 会落到
+    ``E:\\...``。因此必须用 ``PureWindowsPath`` 额外拒绝 drive，并在真正写盘前
+    用 ``resolve().relative_to(base)`` 做第二次校验（双保险）。
+    """
+    if not rel:
+        raise ValueError(f"包内存在非法路径: {original!r}")
+    if "\x00" in rel or "\\" in rel or rel.startswith("/"):
+        raise ValueError(f"包内存在非法路径: {original!r}")
+
+    posix = PurePosixPath(rel)
+    if posix.is_absolute() or posix.drive:
+        raise ValueError(f"包内存在非法路径: {original!r}")
+    if any(part in ("", ".", "..") for part in rel.split("/")):
+        raise ValueError(f"包内存在非法路径: {original!r}")
+
+    # Windows 盘符（``E:`` / ``C:``）与 UNC/设备路径前缀
+    win = PureWindowsPath(rel)
+    if win.drive or win.root:
+        raise ValueError(f"包内存在非法路径: {original!r}")
+    return rel
+
+
 def _safe_member_path(name: str, tool_id: str) -> str | None:
     """校验 zip 成员名，返回允许的相对路径（在 implementations/<id>/ 下）或 None。"""
     if not name or name.endswith("/"):
@@ -282,19 +323,35 @@ def _safe_member_path(name: str, tool_id: str) -> str | None:
         raise ValueError(f"包内存在非法路径: {name!r}")
     if name in {"manifest.json", "registry_entry.json"}:
         return None
+    if PureWindowsPath(name).drive:
+        raise ValueError(f"包内存在非法路径: {name!r}")
     prefix = f"implementations/{tool_id}/"
     if name.startswith(prefix):
-        rel = name[len(prefix):]
-        return rel or None
+        return _validate_member_rel(name[len(prefix):], name)
     if name == f"definitions/{tool_id}.md":
         return None  # 单独处理
     raise ValueError(f"包内存在非预期路径: {name!r}")
+
+
+def _safe_write_target(base: Path, rel: str, original: str) -> Path:
+    """把相对路径拼到 base 下，并二次校验解析后仍在 base 内。"""
+    target = (base / rel).resolve()
+    try:
+        target.relative_to(base.resolve())
+    except ValueError:
+        raise ValueError(f"包内存在非法路径: {original!r}") from None
+    if target == base.resolve():
+        raise ValueError(f"包内存在非法路径: {original!r}")
+    return target
 
 
 def import_tool(
     bundle_path: Path | str | None = None,
     bundle_bytes: bytes | None = None,
     overwrite: bool = False,
+    *,
+    owner_id: str | None = None,
+    allow_overwrite: bool = False,
 ) -> dict:
     """把迁移包导入当前环境的私有工具空间。
 
@@ -378,6 +435,13 @@ def import_tool(
                 f"工具 {tool_id} 已存在；如需覆盖请传 overwrite=true"
                 f"（旧文件会备份为 .bak.<时间戳>）"
             )
+        if existing and overwrite and not allow_overwrite:
+            # 覆盖 = 改别人的代码（可植入后门）。只允许覆盖自己的工具；
+            # 租户 Owner/Admin 的兜底由路由层传 allow_overwrite=True。
+            existing_owner = str((existing_entry or {}).get("owner") or "")
+            importer = str(owner_id or _current_user())
+            if existing_owner and existing_owner != importer:
+                raise ValueError("该工具已存在且属于其他用户，无权覆盖")
 
         # 先整体校验成员再落盘，避免半途失败留下残缺目录
         plan: list[tuple[str, bytes]] = []
@@ -418,8 +482,12 @@ def import_tool(
 
         written: list[str] = []
         impl_dir.mkdir(parents=True, exist_ok=True)
+        # 写盘前再解析一次目标路径，确保不会因盘符 / 符号链接跳出私有资源根
+        impl_dir_resolved = impl_dir.resolve()
         for rel, data in plan:
-            target = impl_dir / rel
+            target = _safe_write_target(
+                impl_dir_resolved, rel, f"implementations/{tool_id}/{rel}"
+            )
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
             written.append(f"implementations/{tool_id}/{rel}")
@@ -443,7 +511,7 @@ def import_tool(
         "param_meta": entry.get("param_meta", tool_meta.get("param_meta", [])),
         "input_schema": entry.get("input_schema", tool_meta.get("input_schema", {})),
         "output_schema": entry.get("output_schema", tool_meta.get("output_schema", {})),
-        "owner": _current_user(),
+        "owner": owner_id or _current_user(),
         "visibility": entry.get("visibility") or "public",
         "imported_at": _now_iso(),
     })
@@ -485,8 +553,19 @@ def import_tool(
 
 # ── 包列表 / 查找 ─────────────────────────────────────────────
 
-def list_bundles(directory: Path | str | None = None) -> list[dict]:
-    """列出导出目录下的迁移包（读 manifest 摘要，损坏的包跳过）。"""
+def list_bundles(
+    directory: Path | str | None = None,
+    *,
+    user_id: str | None = None,
+    include_all: bool = False,
+) -> list[dict]:
+    """列出导出目录下的迁移包（读 manifest 摘要，损坏的包跳过）。
+
+    **可见性**（管理员评审意见 2 同类问题：包内含工具源码）：
+    - 本人导出的包；
+    - 租户 Owner/Admin（``include_all=True``）可见全部；
+    - 旧包没有 ``exported_by`` 字段 → fail-closed，仅 ``include_all`` 可见。
+    """
     d = Path(directory) if directory else export_dir()
     if not d.is_dir():
         return []
@@ -507,9 +586,15 @@ def list_bundles(directory: Path | str | None = None) -> list[dict]:
                     "name": t.get("name"),
                     "version": t.get("version"),
                     "dependencies": m.get("dependencies") or [],
+                    "exported_by": m.get("exported_by"),
                 })
         except Exception:
             item["error"] = "manifest 读取失败"
+
+        if not include_all:
+            owner = item.get("exported_by")
+            if not user_id or owner != user_id:
+                continue
         out.append(item)
     return out
 

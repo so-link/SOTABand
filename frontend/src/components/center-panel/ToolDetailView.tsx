@@ -16,8 +16,7 @@ import { toolApi } from '@/services/api/tool'
 import type { ToolReferences } from '@/services/api/tool'
 import type { ToolResource } from '@/types/resources'
 import { clearToolDraft, loadToolDraft, saveToolDraft, type ToolDetailDraft } from '@/lib/tool-detail-draft'
-
-const BASE_URL = ''
+import { apiFetchRaw, apiGet, apiPost, assertOk } from '@/services/api/client'
 
 interface InputField { name: string; type: string; required: boolean; default: string | null; desc: string }
 
@@ -116,8 +115,7 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
     if (!id) return
     const sameTool = loadedToolIdRef.current === id
 
-    fetch(`${BASE_URL}/api/tool/${id}`)
-      .then(r => r.json())
+    apiGet<any>(`/api/tool/${id}`)
       .then(data => {
         const md = data.spec_md || ''
         const c = data.code || ''
@@ -203,19 +201,21 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
     )
   }
 
+  // 只读态：`canEdit === false` 才是只读（后端 `can_write_resource`：owner 本人或
+  // 租户 Owner/Admin；内置资产仅租户管理员）。字段缺失时按有权限渲染 ——
+  // 后端写权限守卫 403/404 兜底，前端只做体验层，不得反向默认成只读。
+  const readOnly = tool.canEdit === false
+
   const inputs = parseInputs(specMd)
 
   // ── 导出为迁移包（.sotatool.zip）：可在另一套部署里导入 ──
   const handleExport = async () => {
     setExporting(true)
     try {
-      const res = await fetch(`${BASE_URL}/api/migrate/tool/export`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tool_id: tool.id }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.detail || `导出失败 (${res.status})`)
+      const data = await apiPost<{ file_name: string; bundle_path: string; size: number }>(
+        '/api/migrate/tool/export',
+        { tool_id: tool.id }
+      )
       setExportInfo({ name: data.file_name, path: data.bundle_path, size: data.size })
     } catch (e) {
       window.alert(`导出失败：${(e as Error).message}`)
@@ -275,12 +275,7 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
           try { params[f.name] = JSON.parse(val) } catch { params[f.name] = val.split(',').map(s => s.trim()) }
         } else params[f.name] = val
       })
-      const res = await fetch(`${BASE_URL}/api/tool/${tool.id}/execute`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ params }),
-      })
-      if (!res.ok) throw new Error((await res.json()).detail || `HTTP ${res.status}`)
-      const data = await res.json()
+      const data = await apiPost<any>(`/api/tool/${tool.id}/execute`, { params })
       setTestResults({ passed: [JSON.stringify(data, null, 2)], failed: data.status === 'failed' ? [data.result?.message || '执行失败'] : [] })
     } catch (e) { setError(String(e)) }
     setIsTesting(false)
@@ -291,11 +286,7 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
     setIsUpdating(true)
     setError(null)
     try {
-      const res = await fetch(`${BASE_URL}/api/tool/${tool.id}/save-code`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: editedCode }),
-      })
-      if (!res.ok) throw new Error((await res.json()).detail || `HTTP ${res.status}`)
+      await apiPost(`/api/tool/${tool.id}/save-code`, { code: editedCode })
       setCode(editedCode)
       setCodeModified(false)
       setTestResults(null)
@@ -325,9 +316,8 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
     abortRef.current = controller
 
     try {
-      const res = await fetch(`${BASE_URL}/api/tool/${tool.id}/modify-and-debug`, {
+      const res = await apiFetchRaw(`/api/tool/${tool.id}/modify-and-debug`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           current_code: editedCode,
           request: req,
@@ -338,6 +328,9 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
         }),
         signal: controller.signal,
       })
+      // SSE 流必须先校验 HTTP 状态：否则 4xx/5xx 的 JSON 错误体会被当成 SSE 解析，
+      // 最终只报一句"没有结果"，排查时看不出真实原因
+      await assertOk(res)
 
       const reader = res.body?.getReader()
       if (!reader) throw new Error('No response body')
@@ -391,14 +384,9 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
                     // 调试通过后自动保存代码到文件
                     const finalCode = payload.code
                     try {
-                      const saveRes = await fetch(`${BASE_URL}/api/tool/${tool.id}/save-code`, {
-                        method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ code: finalCode, toolId: tool.id }),
-                      })
-                      if (saveRes.ok) {
-                        setCodeModified(false)
-                        setTestResults(null)
-                      }
+                      await apiPost(`/api/tool/${tool.id}/save-code`, { code: finalCode })
+                      setCodeModified(false)
+                      setTestResults(null)
                     } catch { /* ignore */ }
                   } else {
                     if (payload.code) { setEditedCode(payload.code); setCodeModified(true) }
@@ -437,10 +425,7 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
     abortRef.current?.abort()
     setIsDebugging(false)
     // 通知后端停止
-    fetch(`${BASE_URL}/api/tool/auto-debug/stop`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tool_id: tool?.id }),
-    }).catch(() => {})
+    apiPost('/api/tool/auto-debug/stop', { tool_id: tool?.id }).catch(() => {})
   }
 
   return (
@@ -502,7 +487,7 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
           </button>
           <button
             onClick={handleExport}
-            disabled={exporting}
+            disabled={exporting || readOnly}
             className="flex items-center gap-1 text-[11px] text-emerald-500 hover:underline ml-2 disabled:opacity-50"
             title="导出为 .sotatool.zip，可在其它环境导入"
           >
@@ -512,6 +497,12 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
         </div>
       </div>
 
+      {readOnly && (
+        <div className="px-4 py-1.5 text-[11px] border-b border-maia-border bg-amber-500/10 text-amber-600 shrink-0">
+          只读：该工具属于其他用户或为内置资产，你只能查看与运行，不能编辑/删除。
+        </div>
+      )}
+
       {exportInfo && (
         <div className="flex items-center gap-2 px-4 py-1.5 text-[11px] border-b border-maia-border bg-emerald-500/10 shrink-0">
           <span className="text-emerald-600 shrink-0">
@@ -519,7 +510,7 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
           </span>
           <a
             className="text-maia-accent underline truncate"
-            href={`${BASE_URL}/api/migrate/bundles/${encodeURIComponent(exportInfo.name)}`}
+            href={`/api/migrate/bundles/${encodeURIComponent(exportInfo.name)}`}
             download
             title={exportInfo.path}
           >
@@ -576,7 +567,7 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
                   <div className="flex items-center gap-2 mt-3 shrink-0">
                     <Button size="sm" variant="outline" onClick={runTests} disabled={isTesting || !editedCode.trim()}>
                       {isTesting ? <><Loader2 className="h-3 w-3 animate-spin" />测试中</> : <><Play className="h-3 w-3" />沙箱测试</>}</Button>
-                    <Button size="sm" onClick={updateCode} disabled={isUpdating || !codeModified || failed.length > 0}>
+                    <Button size="sm" onClick={updateCode} disabled={readOnly || isUpdating || !codeModified || failed.length > 0}>
                       {isUpdating ? <><Loader2 className="h-3 w-3 animate-spin" />更新中</> : <><Save className="h-3 w-3" />更新代码</>}</Button>
                   </div>
                   {testResults && (<div className="mt-2 space-y-1 shrink-0">
@@ -687,7 +678,7 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
                       <Square className="h-3 w-3" />停止调试
                     </Button>
                   ) : (
-                    <Button size="sm" className="bg-purple-500 hover:bg-purple-600 text-white h-7 text-[11px] w-full" onClick={handleModify} disabled={!modifyRequest.trim()}>
+                    <Button size="sm" className="bg-purple-500 hover:bg-purple-600 text-white h-7 text-[11px] w-full" onClick={handleModify} disabled={readOnly || !modifyRequest.trim()}>
                       修改
                     </Button>
                   )}
@@ -863,9 +854,7 @@ function WorkspaceFilePicker({ paramName, currentValue, onClose, onSelect }: {
   const loadDatasets = async () => {
     setLoadingList(true); setLoadError('')
     try {
-      const res = await fetch(`/api/data/repository`)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json()
+      const data = await apiGet<{ datasets: PickableDataset[] }>('/api/data/repository')
       setDatasets(Array.isArray(data.datasets) ? data.datasets : [])
     } catch (e) { setLoadError(String((e as Error).message || e)) }
     setLoadingList(false)
@@ -888,16 +877,17 @@ function WorkspaceFilePicker({ paramName, currentValue, onClose, onSelect }: {
     try {
       let root = dataRoot(ds)
       if (!root) {
-        const detailRes = await fetch(`/api/data/${ds.id}`)
-        const detail = detailRes.ok ? await detailRes.json() : {}
-        root = (detail && detail.data_path) || ''
+        // 详情拿不到时不阻断文件列表（根目录只用于拼完整路径）
+        try {
+          const detail = await apiGet<{ data_path?: string }>(`/api/data/${ds.id}`)
+          root = (detail && detail.data_path) || ''
+        } catch {
+          root = ''
+        }
       }
-      const res = await fetch(`/api/data/${ds.id}/files`)
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err.detail || `HTTP ${res.status}`)
-      }
-      const data = await res.json()
+      const data = await apiGet<{ files: { name: string; path: string; size?: number }[] }>(
+        `/api/data/${ds.id}/files`
+      )
       const files = (data.files || []).map((f: { name: string; path: string; size?: number }) => ({
         ...f,
         // 后端返回相对路径；拼上数据集根目录得到可执行用的完整路径
@@ -1082,10 +1072,7 @@ function ToolTagsEditor({ toolId, tags: initialTags }: { toolId: string; tags: s
   const saveTags = async (updated: string[]) => {
     setSaving(true)
     try {
-      await fetch(`/api/tool/${toolId}/tags`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tags: updated }),
-      })
+      await apiPost(`/api/tool/${toolId}/tags`, { tags: updated })
       setTags(updated)
     } catch { /* ignore */ }
     setSaving(false)

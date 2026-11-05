@@ -57,6 +57,8 @@ CODE = "def run(**kwargs):\n    return {'status': 'success'}\n"
 def isolated(tmp_path, monkeypatch):
     """私有根指向 tmp，避免污染真实 resources-private。"""
     monkeypatch.setattr(paths, "PRIVATE_ROOT", tmp_path / "resources-private")
+    # 本文件只测「重新注册的更新语义」；写权限由专用测试覆盖。
+    monkeypatch.setattr(agent_routes, "can_write_resource", lambda ctx, entry: True)
     return agent_routes.registry
 
 

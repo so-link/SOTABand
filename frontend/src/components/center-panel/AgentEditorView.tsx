@@ -12,6 +12,7 @@ import { useAgentEditorStore, AGENT_ROLE_OPTIONS } from '@/stores/agent-editor-s
 import { useTabIndent } from '@/hooks/use-tab-indent'
 import { useSaveShortcut } from '@/hooks/use-save-shortcut'
 
+import { apiFetchRaw } from '@/services/api/client'
 /** Agent 保存状态指示器 + 保存按钮（手动保存，支持 Ctrl/Cmd+S） */
 function AgentSaveIndicator() {
   const { saveState, saveError, flushSave } = useAgentEditorStore()
@@ -168,7 +169,6 @@ function Step1Description() {
 
   // ═══ Fetch data on mount ═══
   useEffect(() => {
-    const BASE = ''
     const TIMEOUT_MS = 10000
     // 统一的列表拉取：带超时与非 2xx 判定，失败走 onFail 而不是只 console.warn。
     // 后端未启动（代理 ECONNREFUSED）、返回 404/HTML、挂起超时，统一归为 failed。
@@ -179,7 +179,7 @@ function Step1Description() {
     ) => {
       const ctrl = new AbortController()
       const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS)
-      fetch(url, { signal: ctrl.signal })
+      apiFetchRaw(url, { signal: ctrl.signal })
         .then((r) => {
           if (!r.ok) throw { kind: 'http', status: r.status }
           return r.json()
@@ -195,7 +195,7 @@ function Step1Description() {
     }
 
     fetchList(
-      `${BASE}/api/apis/list`,
+      `/api/apis/list`,
       (d) => {
         const items = ((d.apis || []) as Array<Record<string, unknown>>).map(
           (a: Record<string, unknown>) => ({
@@ -213,7 +213,7 @@ function Step1Description() {
     )
 
     fetchList(
-      `${BASE}/api/tool/list`,
+      `/api/tool/list`,
       (d) => {
         const items = (
           ((d as Record<string, unknown>).tools as Array<Record<string, unknown>>) || []

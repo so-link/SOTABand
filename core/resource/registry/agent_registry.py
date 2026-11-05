@@ -101,7 +101,7 @@ class AgentRegistry(BaseRegistry):
         """写入私有 registry。"""
         _write_json(self._private_registry_file(), data)
 
-    async def register(self, resource: dict) -> str:
+    async def register(self, resource: dict, *, owner: str | None = None) -> str:
         agent_id = resource.get("id") or f"agent-{int(time.time())}"
         entry = {
             "id": agent_id,
@@ -118,7 +118,7 @@ class AgentRegistry(BaseRegistry):
             # 归属与可见性：Agent 默认共享（public），owner 记录创建者。
             # 未来若要支持「私有 Agent / 公共池」，改 visibility 即可，
             # 判定逻辑已预置在 is_visible() 中。
-            "owner": get_current_user_id(),
+            "owner": owner or get_current_user_id(),
             "visibility": VISIBILITY_PUBLIC,
         }
 

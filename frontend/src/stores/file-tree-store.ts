@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import type { FileTreeNode } from '@/types/workspace'
 
+import { apiFetch, apiGet, apiUpload } from '@/services/api/client'
+
 const STORAGE_KEY = 'maia-workspace-tree'
 
 // localStorage 仅作降级缓存。真实状态源是后端 storage/workspace_tree.json：
@@ -23,9 +25,8 @@ function persistTree(tree: FileTreeNode) {
 
 /** 同步写入后端；失败不阻塞本地（下次 loadTree 会重新对齐）。 */
 function persistTreeToBackend(tree: FileTreeNode) {
-  fetch('/api/file/workspace/tree', {
+  apiFetch('/api/file/workspace/tree', {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ root: tree }),
   }).catch(() => { /* 后端不可达时保留 localStorage 数据 */ })
 }
@@ -58,8 +59,6 @@ async function refreshDirectories(
   tree: FileTreeNode,
   onDone: (newRoot: FileTreeNode) => void,
 ): Promise<void> {
-  const BASE_URL = ''
-
   const refreshIn = async (n: FileTreeNode): Promise<FileTreeNode> => {
     if (!n.children) return n
     // 先递归刷新子节点
@@ -71,13 +70,12 @@ async function refreshDirectories(
     // 当前节点是真实目录 → 重新扫描
     if (isRealDir(n)) {
       try {
-        const res = await fetch(`${BASE_URL}/api/file/scan-directory?path=${encodeURIComponent(n.path)}`)
-        if (res.ok) {
-          const data = await res.json()
-          const scannedRoot = data.root as FileTreeNode
-          // 用扫描结果替换 children，保留原节点的 name/id/expanded 等元信息
-          return { ...n, children: scannedRoot?.children ?? [], expanded: n.expanded ?? true }
-        }
+        const data = await apiGet<{ root: FileTreeNode }>(
+          `/api/file/scan-directory?path=${encodeURIComponent(n.path)}`
+        )
+        const scannedRoot = data.root as FileTreeNode
+        // 用扫描结果替换 children，保留原节点的 name/id/expanded 等元信息
+        return { ...n, children: scannedRoot?.children ?? [], expanded: n.expanded ?? true }
       } catch { /* 目录不存在或不可访问，保留原数据 */ }
     }
     return { ...n, children: refreshedChildren }
@@ -122,19 +120,19 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => ({
     // 1. 先以后端为准：后端保存了工作现场（服务重启 / 换浏览器都能恢复）
     let persisted: FileTreeNode | null = null
     try {
-      const res = await fetch('/api/file/workspace/tree')
-      if (res.ok) {
-        const data = await res.json()
-        if (data && data.root) {
-          persisted = data.root as FileTreeNode
-        } else {
-          // 后端为空，而本地 localStorage 有数据（升级前只存 localStorage）：
-          // 一次性迁移——把本地工作区上传到后端，避免用户已有的工作现场丢失。
-          const local = loadPersisted()
-          if (local) {
-            persistTreeToBackend(local)
-            persisted = local
-          }
+      // 后端为空时返回 {root: null}，属于正常路径而不是错误 → 不能用会抛错的写法
+      const data = await apiGet<{ root: FileTreeNode | null } | null>(
+        '/api/file/workspace/tree'
+      )
+      if (data && data.root) {
+        persisted = data.root as FileTreeNode
+      } else {
+        // 后端为空，而本地 localStorage 有数据（升级前只存 localStorage）：
+        // 一次性迁移——把本地工作区上传到后端，避免用户已有的工作现场丢失。
+        const local = loadPersisted()
+        if (local) {
+          persistTreeToBackend(local)
+          persisted = local
         }
       }
     } catch { /* 后端不可达：回落到 localStorage */ }
@@ -176,7 +174,6 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => ({
   },
 
   uploadFiles: async (files: FileList | File[]) => {
-    const BASE_URL = ''
     let { root } = get()
     if (!root) root = emptyTree()
     const uploadSubdir = `batch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -185,16 +182,21 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => ({
       try {
         const formData = new FormData()
         formData.append('file', file)
+        // 同一批文件放进同一个时间戳子目录：上游 #11 为避免同名文件互相覆盖
         formData.append('subdir', uploadSubdir)
-        const res = await fetch(`${BASE_URL}/api/file/upload`, { method: 'POST', body: formData })
-        if (!res.ok) continue
-        const uploaded = await res.json()
+        const uploaded = await apiUpload<{
+          id: string
+          fileName: string
+          filePath: string
+          format: string
+          fileSize: number
+        }>('/api/file/upload', formData)
         const newNode: FileTreeNode = {
           id: uploaded.id, name: uploaded.fileName, type: 'file', category: 'unknown',
           path: uploaded.filePath, format: uploaded.format, size: uploaded.fileSize,
         }
         root = { ...root, children: [...(root.children || []), newNode] }
-      } catch { /* ignore */ }
+      } catch { /* 单个文件失败不影响其余文件 */ }
     }
     set({ root })
     persistEverywhere(root)

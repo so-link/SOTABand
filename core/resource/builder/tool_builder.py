@@ -196,9 +196,9 @@ class ToolCodeBuilder(BaseBuilder):
     def __init__(self, llm_client=None):
         self.llm = llm_client or create_llm_client()
 
-    async def dry_run(self, code: str) -> dict:
+    async def dry_run(self, code: str, owner_id: str | None = None) -> dict:
         """兼容 BaseBuilder 抽象方法"""
-        return await self.sandbox_execute(code, {})
+        return await self.sandbox_execute(code, {}, owner_id=owner_id)
 
     # ── 参数解析 ──
 
@@ -678,10 +678,18 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
             return {"installed": [], "failed": [], "message": "无第三方依赖"}
         return await self.install_deps(tool_id, deps)
 
-    async def sandbox_execute(self, code: str, test_input: dict, tool_id: str = None, exec_timeout: float = None) -> dict:
+    async def sandbox_execute(
+        self,
+        code: str,
+        test_input: dict,
+        tool_id: str = None,
+        exec_timeout: float = None,
+        owner_id: str | None = None,
+    ) -> dict:
         """沙箱执行：通过 ToolExecutor 统一执行。
         注意：依赖安装由 _auto_debug_loop 统一管理（带日志），此处不再重复安装。
         exec_timeout=None 表示无超时限制（工具可能运行较长时间）。
+        owner_id：发起方身份，注入子进程环境供工具内按人隔离数据集。
         """
         import asyncio
 
@@ -695,6 +703,7 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
                 params=test_input,
                 code=code,
                 timeout=exec_timeout,
+                owner_id=owner_id,
             )
             if exec_timeout is None:
                 result = await exec_coro
@@ -1129,10 +1138,11 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
 
     # ── 自动调试 ──
 
-    async def auto_debug_stream(self, spec_md: str, code: str, test_input: dict, tool_id: str, max_rounds: int = 50, stop_event=None):
+    async def auto_debug_stream(self, spec_md: str, code: str, test_input: dict, tool_id: str, max_rounds: int = 50, stop_event=None, owner_id: str | None = None):
         """自动调试生成器：执行→LLM分析→改代码→再执行。
         stop_event: asyncio.Event，设置时中断调试。
         CancelledError: producer_task.cancel() 时抛出，立即退出。
+        owner_id: 发起方身份，透传到每次沙箱执行。
         """
         import asyncio
 
@@ -1142,7 +1152,8 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
         try:
             try:
                 async for event in self._auto_debug_loop(
-                    spec_md, current_code, test_input, tool_id, max_rounds, stop_event
+                    spec_md, current_code, test_input, tool_id, max_rounds, stop_event,
+                    owner_id=owner_id,
                 ):
                     yield event
             except asyncio.CancelledError:
@@ -1152,7 +1163,7 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
         finally:
             set_debug_stopped(tool_id)
 
-    async def _auto_debug_loop(self, spec_md: str, code: str, test_input: dict, tool_id: str, max_rounds: int, stop_event):
+    async def _auto_debug_loop(self, spec_md: str, code: str, test_input: dict, tool_id: str, max_rounds: int, stop_event, owner_id: str | None = None):
         """自动调试主循环
         
         流程: 执行 → 系统自动处理依赖安装 → LLM 根据结果修复代码
@@ -1311,7 +1322,7 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
                 }
             else:
                 exec_task = asyncio.create_task(
-                    self.sandbox_execute(current_code, test_input, tool_id)
+                    self.sandbox_execute(current_code, test_input, tool_id, owner_id=owner_id)
                 )
                 exec_done = False
                 exec_result = None

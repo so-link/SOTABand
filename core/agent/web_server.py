@@ -12,22 +12,92 @@
 """
 
 import asyncio
+import hashlib
+import hmac
 import json
+import os
+import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from core.agent.base import BaseAgent, AgentContext
+    from core.agent.base import AgentContext, BaseAgent
+
+
+# ── 发起者身份头（可选，引擎代理使用）─────────────────────────────────
+# 端口本身只认「引擎共享令牌」；身份头在此之上再声明「这次调用代表哪个用户」，
+# 用 HMAC 签名防止拿到令牌之外的伪造（虽然令牌只有引擎知道，但纵深防御）。
+OWNER_HEADER = "x-sotaband-owner"
+OWNER_SIG_HEADER = "x-sotaband-owner-sig"
+
+_OWNER_MAX_LEN = 128
+_OWNER_RE = re.compile(r"^[A-Za-z0-9._@:-]+$")
+
+
+def sign_owner(engine_token: str, owner: str) -> str:
+    """计算发起者身份签名：``hex(hmac_sha256(engine_token, "sotaband-owner:"+owner))``。
+
+    引擎代理（``/api/agent/{id}/test-api``）在转发时把 ``owner`` 与签名放进
+    ``X-Sotaband-Owner`` / ``X-Sotaband-Owner-Sig``，Web 服务据此以该用户身份
+    执行 Agent（工具落库、数据集归属都按人隔离），而不是永远用机器身份。
+    """
+    if not engine_token or not owner:
+        return ""
+    message = f"sotaband-owner:{owner}".encode("utf-8")
+    return hmac.new(engine_token.encode("utf-8"), message, hashlib.sha256).hexdigest()
+
+
+def owner_headers(engine_token: str, owner: str | None) -> dict[str, str]:
+    """构造发起者身份请求头；``owner`` / ``engine_token`` 为空时返回空 dict。"""
+    if not engine_token or not owner:
+        return {}
+    return {
+        OWNER_HEADER: str(owner),
+        OWNER_SIG_HEADER: sign_owner(engine_token, str(owner)),
+    }
+
+
+def verify_owner(engine_token: str, owner: str, signature: str) -> bool:
+    """校验发起者身份头；token / owner / 签名任一缺失或不合法都返回 False。"""
+    if not engine_token or not owner or not signature:
+        return False
+    owner = str(owner)
+    if len(owner) > _OWNER_MAX_LEN or not _OWNER_RE.match(owner):
+        return False
+    return hmac.compare_digest(sign_owner(engine_token, owner), str(signature))
 
 
 class WebServiceHost:
-    """在 Agent 子进程内运行 HTTP 服务，把请求分派给 Agent.execute。"""
+    """在 Agent 子进程内运行 HTTP 服务，把请求分派给 Agent.execute。
 
-    def __init__(self, agent: "BaseAgent", host: str = "127.0.0.1", port: int = 0):
+    ## 安全约束（2026-11-04 起）
+
+    - **强制监听 127.0.0.1**：忽略 agent spec 里可被用户编辑的 ``server.host``，
+      否则任何用户都能把 Agent 端口暴露到 0.0.0.0，绕过引擎的登录鉴权直接
+      执行 Agent 流程（P1-13）。
+    - **引擎共享令牌**：除 ``/_health`` 外，所有 API 请求必须带
+      ``Authorization: Bearer <SOTABAND_AGENT_HTTP_TOKEN>``。令牌由引擎在 spawn
+      时注入，后端代理（``/api/agent/{id}/test-api``）携带；外部无法得知。
+    - 需要对外提供 API 的部署应另加网关（不在本期范围）。
+    """
+
+    def __init__(
+        self,
+        agent: "BaseAgent",
+        host: str = "127.0.0.1",
+        port: int = 0,
+        token: str | None = None,
+    ):
         self.agent = agent
-        self.host = host
+        # 忽略外部传入的 host（防 0.0.0.0 暴露）；如需对外请走网关
+        self.host = "127.0.0.1"
         self.port = port
+        self.token = token or ""
         self._server = None
         self.actual_port = None
+        # HTTP 请求之间串行执行：Agent 实例与其进程级 env 都是共享状态。
+        # 与 stdin 任务的互斥由引擎侧 AgentFactory.execution_lock 保证
+        # （/test-api 代理必须持锁调用本服务）。
+        self._exec_lock = asyncio.Lock()
 
     async def start(self):
         """启动 HTTP 服务（asyncio 原生实现，避免额外依赖）。"""
@@ -78,9 +148,20 @@ class WebServiceHost:
             if content_length > 0:
                 body = await reader.readexactly(content_length)
 
-            # 健康检查
+            # 健康检查（免令牌：仅用于引擎探测服务就绪，不执行 Agent 逻辑）
             if path == "/_health":
                 await self._respond(writer, 200, {"status": "ok", "service": self.agent.agent_id})
+                return
+
+            # 引擎共享令牌校验（P1-13：端口是本机第二个入口，不能裸奔）
+            # fail-closed：没有令牌的 Host 一律拒绝（只有引擎会带令牌启动它）
+            if not self.token:
+                await self._respond(writer, 401, {"error": "missing engine token"})
+                return
+            presented = headers.get("authorization", "")
+            expected = f"Bearer {self.token}"
+            if not hmac.compare_digest(presented, expected):
+                await self._respond(writer, 401, {"error": "unauthorized"})
                 return
 
             # 匹配 API 路由（忽略 query string）
@@ -107,18 +188,87 @@ class WebServiceHost:
                 for k, v in parse_qs(path.split("?", 1)[1]).items():
                     params.setdefault(k, v[0] if len(v) == 1 else v)
 
-            # 调用 Agent 执行该 API 的流程
-            from core.agent.base import AgentContext
+            # 发起者身份（可选）：令牌之外再带 HMAC 签名头，声明「这次调用代表
+            # 哪个用户」。无头 / 校验失败 → 保持机器身份（旧行为），不因缺头
+            # 而拒绝请求（令牌已经证明了调用方是引擎）。
+            owner = ""
+            presented_owner = headers.get(OWNER_HEADER, "")
+            if presented_owner and verify_owner(
+                self.token, presented_owner, headers.get(OWNER_SIG_HEADER, "")
+            ):
+                owner = presented_owner
 
-            ctx = AgentContext(agent_id=self.agent.agent_id, session_id="http", user_id="http")
             response = None
-            async for event in self.agent.execute(ctx, api_name=api.get("name"), params=params):
-                if event.get("event") == "result":
-                    response = event.get("data", {}).get("response")
-                elif event.get("event") == "error":
-                    await self._respond(writer, 500, {"error": event.get("data", {}).get("message", "error")})
-                    return
+            error_message = ""
+            # 串行化执行：Agent 实例与其**进程级 env**（SOTABAND_USER_ID）都是
+            # 共享状态，并发 HTTP（以及并发的 stdin 任务）会互相覆盖身份，导致
+            # 工具以别人的身份落库。与 stdin 任务的互斥由引擎侧
+            # AgentFactory.execution_lock 保证（/test-api 代理必须持锁）。
+            async with self._exec_lock:
+                previous_owner = os.environ.get("SOTABAND_USER_ID")
+                try:
+                    if owner:
+                        os.environ["SOTABAND_USER_ID"] = owner
+                    else:
+                        os.environ.pop("SOTABAND_USER_ID", None)
+                    try:
+                        from core.user_context import reset_cache
 
+                        reset_cache()
+                    except Exception:
+                        pass
+
+                    from core.agent.base import AgentContext
+                    from core.user_context import use_owner
+
+                    # 显式身份优先于 env：即使 env 被并发任务短暂覆盖，
+                    # 进程内 current_owner_id() 仍然拿到本次请求的发起者。
+                    ctx = AgentContext(
+                        agent_id=self.agent.agent_id,
+                        session_id="http",
+                        user_id=owner or "http",
+                    )
+                    stream = None
+                    try:
+                        with use_owner(owner or None):
+                            stream = self.agent.execute(
+                                ctx, api_name=api.get("name"), params=params
+                            )
+                            async for event in stream:
+                                if event.get("event") == "result":
+                                    response = event.get("data", {}).get("response")
+                                elif event.get("event") == "error":
+                                    error_message = (
+                                        event.get("data", {}).get("message") or "error"
+                                    )
+                                    break
+                    finally:
+                        # 显式关闭 Agent 执行流，避免提前 break 后残留生成器
+                        close = getattr(stream, "aclose", None)
+                        if close is not None:
+                            try:
+                                await close()
+                            except Exception:
+                                pass
+                except Exception as e:
+                    error_message = str(e)
+                finally:
+                    # 恢复执行前的 env：既不让本次身份留给后续请求，也不粗暴
+                    # 清掉并发 stdin 任务已设置的身份（身份由锁 + 显式上下文保证）。
+                    if previous_owner is None:
+                        os.environ.pop("SOTABAND_USER_ID", None)
+                    else:
+                        os.environ["SOTABAND_USER_ID"] = previous_owner
+                    try:
+                        from core.user_context import reset_cache
+
+                        reset_cache()
+                    except Exception:
+                        pass
+
+            if error_message:
+                await self._respond(writer, 500, {"error": error_message})
+                return
             await self._respond(writer, 200, response if response is not None else {"status": "ok"})
         except Exception as e:
             try:
@@ -134,7 +284,7 @@ class WebServiceHost:
 
     async def _respond(self, writer: asyncio.StreamWriter, status: int, payload: dict):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        reason = {200: "OK", 400: "Bad Request", 404: "Not Found", 500: "Internal Server Error"}.get(status, "OK")
+        reason = {200: "OK", 400: "Bad Request", 401: "Unauthorized", 404: "Not Found", 500: "Internal Server Error"}.get(status, "OK")
         header = (
             f"HTTP/1.1 {status} {reason}\r\n"
             f"Content-Type: application/json; charset=utf-8\r\n"

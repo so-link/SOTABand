@@ -6,7 +6,7 @@ import { useWorkspaceDatasetStore } from '@/stores/workspace-dataset-store'
 import { ArrowLeft, Search, Trash2, Plus, Package, ChevronLeft, ChevronRight, ChevronDown, Loader2, AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
-const BASE_URL = ''
+import { apiDelete } from '@/services/api/client'
 
 function getDatasetIcon(formats: string[]): string {
   const has = (ext: string) => formats.some(f => f.toLowerCase().includes(ext))
@@ -41,7 +41,7 @@ export function DatasetRepositoryView() {
     if (!confirm(`确定要删除数据集 "${id}" 吗？此操作不可逆，将清除所有关联文件。`)) return
     setDeleting(id)
     try {
-      await fetch(`${BASE_URL}/api/data/${id}`, { method: 'DELETE' })
+      await apiDelete(`/api/data/${id}`)
       removeDataset(id)
       await store.fetchDatasets()
     } catch { alert('删除失败') }
@@ -270,12 +270,14 @@ export function DatasetRepositoryView() {
                         <Plus className="h-3 w-3" />添加
                       </Button>
                     )}
-                    <Button size="sm" variant="ghost"
-                      onClick={() => handleDelete(ds.id)} disabled={isDeleting}
-                      className="h-7 w-7 p-0 text-maia-text-muted hover:text-maia-danger hover:bg-maia-danger/10 transition-colors"
-                      title="删除数据集">
-                      {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                    </Button>
+                    {ds.isOwner !== false && (
+                      <Button size="sm" variant="ghost"
+                        onClick={() => handleDelete(ds.id)} disabled={isDeleting}
+                        className="h-7 w-7 p-0 text-maia-text-muted hover:text-maia-danger hover:bg-maia-danger/10 transition-colors"
+                        title="删除数据集">
+                        {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                      </Button>
+                    )}
                   </div>
                 </div>
               )

@@ -8,7 +8,7 @@ import { CsvTablePreview } from './CsvTablePreview'
 import { MarkdownPreview } from './MarkdownPreview'
 import type { DataResource } from '@/types/resources'
 
-const BASE_URL = ''
+import { apiGet, apiUrl } from '@/services/api/client'
 const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'tiff', 'tif', 'ico'])
 const PAGE_SIZE_OPTIONS = [8, 16, 24, 32, 48]
 
@@ -31,7 +31,7 @@ export function DataPreviewView() {
     if (!dataset) return
     setPage(1)
     setLoading(true)
-    fetch(`${BASE_URL}/api/data/${dataset.id}/preview`)
+    apiGet<any>(`/api/data/${dataset.id}/preview`)
       .then(r => r.json())
       .then(d => { setDetail(d); setLoading(false) })
       .catch(() => setLoading(false))
@@ -69,8 +69,8 @@ export function DataPreviewView() {
     if (!filePath) return ''
     const isImg = isImageFile(f)
     return isImg
-      ? `${BASE_URL}/api/file/image?path=${encodeURIComponent(filePath)}`
-      : `${BASE_URL}/api/file/download?path=${encodeURIComponent(filePath)}`
+      ? `${apiUrl(`/api/file/image?path=${encodeURIComponent(filePath)}`)}`
+      : `${apiUrl(`/api/file/download?path=${encodeURIComponent(filePath)}`)}`
   }
 
   // 分页
@@ -149,7 +149,7 @@ export function DataPreviewView() {
               <div className="grid grid-cols-4 gap-2">
                 {pageImages.map((img, i) => {
                   const imgPath = datasetPath ? `${datasetPath}/${img.name}` : ''
-                  const imgUrl = imgPath ? `${BASE_URL}/api/file/image?path=${encodeURIComponent(imgPath)}` : ''
+                  const imgUrl = imgPath ? `${apiUrl(`/api/file/image?path=${encodeURIComponent(imgPath)}`)}` : ''
                   return (
                     <div
                       key={i}

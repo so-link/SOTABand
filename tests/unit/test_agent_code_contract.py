@@ -1,4 +1,4 @@
-"""Agent 代码生成的角色契约测试。
+﻿"""Agent 代码生成的角色契约测试。
 
 覆盖历史 bug：web-service 类型的 Agent 被按 task 模板生成，代码读
 ``kwargs["content"]``，而 HTTP 宿主只传 ``api_name`` / ``params``，
@@ -300,7 +300,7 @@ async def test_web_service_md_with_display_name_end_to_end(tmp_path, monkeypatch
 
     captured: list[str] = []
 
-    async def _fake_execute(tool_id, params, timeout=None, code=None):
+    async def _fake_execute(tool_id, params, timeout=None, code=None, owner_id=None):
         captured.append(tool_id)
         # MD 的 response 声明取 {{step1.data.text}}，这里按该字段返回
         who = params.get("name") or params.get("command")
@@ -324,3 +324,4 @@ async def test_web_service_md_with_display_name_end_to_end(tmp_path, monkeypatch
     assert captured == ["greet-tool"]
     results = [e for e in events if e["event"] == "result"]
     assert results and results[0]["data"]["response"] == {"greeting": "hello, 张三"}
+

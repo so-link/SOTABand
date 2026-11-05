@@ -13,8 +13,9 @@ import { ToolDetailView } from './ToolDetailView'
 import { DatasetEditorView } from './DatasetEditorView'
 import { RepositoryView } from './RepositoryView'
 import { DatasetRepositoryView } from './DatasetRepositoryView'
+import { NetworksView } from './NetworksView'
 import { SettingsView } from './SettingsView'
-import { MessageSquare, BarChart3, Search, GitBranch, Radio, Bot, X, Package, Settings } from 'lucide-react'
+import { MessageSquare, BarChart3, Search, GitBranch, Radio, Bot, X, Package, Settings, Network } from 'lucide-react'
 
 const TAB_CONFIG: Record<ActiveView, { label: string; icon: typeof MessageSquare }> = {
   chat:            { label: '对话',    icon: MessageSquare },
@@ -30,6 +31,7 @@ const TAB_CONFIG: Record<ActiveView, { label: string; icon: typeof MessageSquare
   'dataset-editor':{ label: '数据集',  icon: BarChart3 },
   'dataset-repository': { label: '数据集仓库', icon: Package },
   'repository':    { label: '工具仓库',    icon: Package },
+  networks:        { label: '协作网络',  icon: Network },
   settings:        { label: '设置',    icon: Settings },
 }
 
@@ -117,6 +119,7 @@ function ViewRouter({ view }: { view: ActiveView }) {
     case 'dataset-editor': return <DatasetEditorView />
     case 'dataset-repository': return <DatasetRepositoryView />
     case 'repository': return <RepositoryView />
+    case 'networks': return <NetworksView />
     case 'settings': return <SettingsView />
   }
 }

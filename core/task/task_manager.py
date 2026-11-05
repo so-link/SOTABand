@@ -21,6 +21,19 @@ from core.resource.registry.json_store import update_json_list
 from core.runtime.paths import TASK_REGISTRY_FILE as REGISTRY_FILE
 from core.runtime.paths import TASK_RUNS_DIR as RUNS_DIR
 from core.runtime.paths import TASKS_DIR as TASK_DIR
+from core.user_context import current_owner_id
+
+
+def _owned_by(task: dict[str, Any], owner: str | None) -> bool:
+    """归属过滤：``owner=None`` 表示内部调用（worker / workflow，不过滤）。
+
+    8.1 之前提交的历史任务没有 ``owner`` 字段，无法判定归属：按 fail-closed
+    处理 —— HTTP 用户看不到（避免把 command / cwd / log_path 泄露给任意登录
+    用户），内部调用（worker、workflow、脚本）仍能按 id 访问。
+    """
+    if owner is None:
+        return True
+    return str(task.get("owner") or "") == str(owner)
 
 
 class TaskManager:
@@ -68,6 +81,7 @@ class TaskManager:
         kind: str = "tool",
         metadata: dict[str, Any] | None = None,
         cwd: str | None = None,
+        owner: str | None = None,
     ) -> dict[str, Any]:
         if not command:
             raise ValueError("task command cannot be empty")
@@ -76,10 +90,14 @@ class TaskManager:
         task_dir = RUNS_DIR / task_id
         task_dir.mkdir(parents=True, exist_ok=False)
         log_path = task_dir / "task.log"
+        # 归属：优先显式传入（HTTP 入口用 ctx.user_id），否则取当前执行身份
+        # （Agent 子进程里由 entrypoint 注入的 SOTABAND_USER_ID）。
+        owner_id = str(owner or "").strip() or current_owner_id()
         task = {
             "id": task_id,
             "name": name,
             "kind": kind,
+            "owner": owner_id,
             "status": "queued",
             "progress": 0,
             "message": "任务已提交，等待启动",
@@ -130,18 +148,21 @@ class TaskManager:
             return None
         return update_json_list(REGISTRY_FILE, change)
 
-    def get(self, task_id: str) -> dict[str, Any] | None:
+    def get(self, task_id: str, *, owner: str | None = None) -> dict[str, Any] | None:
+        """读取任务；``owner`` 非空时只返回该 owner 的任务（他人 → None/404）。"""
         task = next((item for item in self._read() if item.get("id") == task_id), None)
-        if task is None:
+        if task is None or not _owned_by(task, owner):
             return None
         return self._with_live_progress(task)
 
-    def list_all(self, limit: int = 100) -> list[dict[str, Any]]:
-        tasks = self._read()
+    def list_all(self, limit: int = 100, *, owner: str | None = None) -> list[dict[str, Any]]:
+        """列出任务；``owner`` 非空时只返回该 owner 的任务。"""
+        tasks = [item for item in self._read() if _owned_by(item, owner)]
         return [self._with_live_progress(task) for task in tasks[-limit:]][::-1]
 
-    def cancel(self, task_id: str) -> dict[str, Any] | None:
-        task = self.get(task_id)
+    def cancel(self, task_id: str, *, owner: str | None = None) -> dict[str, Any] | None:
+        """取消任务；``owner`` 非空时只能取消自己的任务（他人 → None/404）。"""
+        task = self.get(task_id, owner=owner)
         if task is None:
             return None
         if task.get("status") not in {"queued", "running"}:

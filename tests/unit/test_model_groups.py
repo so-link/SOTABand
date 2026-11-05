@@ -22,12 +22,16 @@ def isolated_registry(tmp_path, monkeypatch):
     monkeypatch.setattr(model_registry, "REGISTRY_FILE", registry_file)
     monkeypatch.setattr(model_registry, "RUNTIME_MODEL_DIR", tmp_path / "models")
     monkeypatch.setattr(model_registry, "model_groups_path", lambda: groups_file)
+    # D2：model_path 必须落在允许根内；测试把 tmp_path 临时加入允许根
+    import core.file_guard as file_guard
+
+    monkeypatch.setattr(file_guard, "_extra_roots", lambda: [tmp_path.resolve()])
     registry = model_registry.ModelRegistry()
     monkeypatch.setattr(model_routes, "registry", registry)
     return registry
 
 
-def test_groups_are_scoped_persistent_and_deletable(tmp_path, monkeypatch):
+def test_groups_are_scoped_persistent_and_deletable(tmp_path, monkeypatch, override_auth):
     isolated_registry(tmp_path, monkeypatch)
     with TestClient(app) as client:
         legacy = client.get("/api/model/groups").json()["groups"]
@@ -54,7 +58,7 @@ def test_groups_are_scoped_persistent_and_deletable(tmp_path, monkeypatch):
         assert client.delete("/api/model/groups/trained:other").status_code == 409
 
 
-def test_trained_category_requires_artifacts_and_group_updates_stay_scoped(tmp_path, monkeypatch):
+def test_trained_category_requires_artifacts_and_group_updates_stay_scoped(tmp_path, monkeypatch, override_auth):
     registry = isolated_registry(tmp_path, monkeypatch)
     with TestClient(app) as client:
         client.post("/api/model/groups", json={"name": "配置组", "category": "architecture"})
@@ -63,7 +67,7 @@ def test_trained_category_requires_artifacts_and_group_updates_stay_scoped(tmp_p
             "id": "test-model", "name": "test-model", "model_path": "",
             "associated_tool_id": "timeseries-classification-runner",
             "runtime_status": "configured", "group_path": "配置组",
-        }))
+        }, owner=override_auth.user_id))
         assert client.get(f"/api/model/{model_id}").json()["model"]["model_category"] == "architecture"
         assert client.patch(f"/api/model/{model_id}", json={"group_path": "结果组"}).status_code == 400
         architecture_group = next(g for g in client.get("/api/model/groups").json()["groups"] if g["name"] == "配置组")
@@ -86,3 +90,5 @@ def test_trained_category_requires_artifacts_and_group_updates_stay_scoped(tmp_p
         assert trained["artifact_available"] is True
         assert client.patch(f"/api/model/{model_id}", json={"group_path": "结果组"}).status_code == 200
         assert client.get(f"/api/model/{model_id}").json()["model"]["group_path"] == "结果组"
+
+

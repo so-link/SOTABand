@@ -7,6 +7,7 @@ import argparse
 import asyncio
 import importlib.util
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -154,13 +155,19 @@ async def main():
             from core.agent.web_server import WebServiceHost
 
             srv_cfg = agent.spec.server or {}
-            host = srv_cfg.get("host", "127.0.0.1")
             port = int(srv_cfg.get("port") or 0)
-            _web_host = WebServiceHost(agent, host=host, port=port)
+            # 强制 loopback + 引擎共享令牌（P1-13）：spec 里的 host 不再生效，
+            # 防止用户把 Agent 端口暴露到 0.0.0.0 绕过引擎登录鉴权。
+            _web_host = WebServiceHost(
+                agent,
+                host="127.0.0.1",
+                port=port,
+                token=os.environ.get("SOTABAND_AGENT_HTTP_TOKEN", ""),
+            )
             actual_port = await _web_host.start()
             await send_event({
                 "event": "service_ready",
-                "data": {"host": host, "port": actual_port, "apis": [a.get("name") for a in (agent.spec.apis or [])]},
+                "data": {"host": "127.0.0.1", "port": actual_port, "apis": [a.get("name") for a in (agent.spec.apis or [])]},
             })
 
             # 常驻化本 Agent 依赖的工具（一次性预热：import 重型库 + 加载模型），
@@ -203,6 +210,20 @@ async def main():
                         user_id=ctx_data.get("user_id", "default"),
                         metadata=ctx_data.get("metadata", {}) or {},
                     )
+                    # 把发起方身份注入进程环境：工具子进程 / 常驻 Worker 继承后，
+                    # current_owner_id() 会读到该 UUID，从而按「人」隔离数据集。
+                    # "default"/"http" 是哨兵值（未认证 / Web 服务直连），不注入，
+                    # 让 current_owner_id() 回退到机器身份。
+                    if ctx.user_id and ctx.user_id not in ("default", "http"):
+                        os.environ["SOTABAND_USER_ID"] = ctx.user_id
+                    else:
+                        os.environ.pop("SOTABAND_USER_ID", None)
+                    # 环境变量层已改为每次现取（不缓存），这里清一次兜底缓存仅作保险
+                    try:
+                        from core.user_context import reset_cache
+                        reset_cache()
+                    except Exception:
+                        pass
                     params = task.get("params", {})
 
                     try:
@@ -210,6 +231,15 @@ async def main():
                             await send_event(event)
                     except Exception as e:
                         await send_event({"event": "error", "data": {"message": str(e)}})
+                    finally:
+                        # 任务结束即清除身份，避免后续 HTTP 调用/下一个任务继承
+                        os.environ.pop("SOTABAND_USER_ID", None)
+                        try:
+                            from core.user_context import reset_cache
+
+                            reset_cache()
+                        except Exception:
+                            pass
 
                 elif task.get("action") == "ping":
                     # 健康探测

@@ -222,7 +222,7 @@ class ToolRegistry(BaseRegistry):
         except Exception:
             return ""
 
-    async def register(self, resource: dict) -> str:
+    async def register(self, resource: dict, *, owner: str | None = None) -> str:
         tool_id = resource.get("id") or f"tool-{int(time.time())}"
         entry = {
             "id": tool_id,
@@ -248,7 +248,7 @@ class ToolRegistry(BaseRegistry):
             # 归属与可见性：工具默认共享（public），owner 记录创建者。
             # 未来若要支持「私有工具 / 公共池」，改 visibility 即可，
             # 判定逻辑已预置在 is_visible() 中。
-            "owner": get_current_user_id(),
+            "owner": owner or get_current_user_id(),
             "visibility": VISIBILITY_PUBLIC,
         }
 

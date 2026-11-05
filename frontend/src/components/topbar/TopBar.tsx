@@ -2,7 +2,7 @@ import { PanelLeft, PanelRight, Bell, Settings, Activity, Cpu, Sun, Moon } from 
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip } from '@/components/ui/tooltip'
-import { Avatar } from '@/components/ui/avatar'
+import { UserMenu } from '@/components/topbar/UserMenu'
 import { useUIStore } from '@/stores/ui-store'
 
 export function TopBar() {
@@ -61,7 +61,7 @@ export function TopBar() {
             <PanelRight className="h-3.5 w-3.5" />
           </Button>
         </Tooltip>
-        <div className="ml-1.5"><Avatar fallback="J" className="h-6 w-6 text-[10px] tracking-wider" /></div>
+        <div className="ml-1.5"><UserMenu /></div>
       </div>
     </header>
   )

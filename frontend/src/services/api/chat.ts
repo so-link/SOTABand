@@ -2,26 +2,40 @@
 
 import type { IChatService } from '@/services/types'
 import type { Message, CreateMessageInput, InlineCard } from '@/types/chat'
+import { apiFetchRaw, apiPost, assertOk } from './client'
 
-const BASE_URL = ''
+const SESSION_STORAGE_KEY = 'sotaband_chat_session_id'
+
+/** 浏览器级对话 session id：同一安装下不同用户不再共享 'default' 的历史。 */
+function browserSessionId(): string {
+  try {
+    const existing = localStorage.getItem(SESSION_STORAGE_KEY)
+    if (existing) return existing
+    const generated =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `session-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+    localStorage.setItem(SESSION_STORAGE_KEY, generated)
+    return generated
+  } catch {
+    return 'default'
+  }
+}
 
 export class ApiChatService implements IChatService {
-  private baseUrl: string
   private currentAbortController: AbortController | null = null
-  private currentSessionId: string = 'default'
-
-  constructor(baseUrl?: string) {
-    this.baseUrl = baseUrl || BASE_URL
-  }
+  private currentSessionId: string = browserSessionId()
 
   async *sendMessage(input: CreateMessageInput): AsyncGenerator<Message> {
     // 创建新的 AbortController
     this.currentAbortController = new AbortController()
-    this.currentSessionId = input.sessionId || 'default'
+    this.currentSessionId = input.sessionId || browserSessionId()
 
-    const response = await fetch(`${this.baseUrl}/api/chat/send`, {
+    // SSE：必须用 apiFetchRaw 拿原始 body 的 reader（不能先解析 JSON）。
+    // 但也必须 assertOk —— 否则错误响应会被当成事件流解析，最后报一句
+    // 毫无信息量的"没有收到结束事件"。
+    const response = await apiFetchRaw('/api/chat/send', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         content: input.content,
         attachments: input.attachments || [],
@@ -32,10 +46,7 @@ export class ApiChatService implements IChatService {
       signal: this.currentAbortController.signal,
     })
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
-      throw new Error(errorData.detail || errorData.error || `API error: ${response.status} ${response.statusText}`)
-    }
+    await assertOk(response)
 
     const reader = response.body?.getReader()
     if (!reader) throw new Error('No response body')
@@ -148,13 +159,9 @@ export class ApiChatService implements IChatService {
     }
     // 调用后端 stop 端点
     try {
-      await fetch(`${this.baseUrl}/api/chat/stop`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: sid }),
-      })
+      await apiPost('/api/chat/stop', { session_id: sid })
     } catch {
-      // 忽略网络错误
+      // 忽略网络错误 / 已停止
     }
   }
 }

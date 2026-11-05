@@ -16,6 +16,7 @@ export type ActiveView =
   | 'dataset-editor'
   | 'repository'
   | 'dataset-repository'
+  | 'networks'
   | 'settings'
   // 每个 Agent 独立的详情视图：形如 "agent-detail:{agentId}"
   // 使不同 Agent 各自拥有独立的标签页与界面，互不共享/覆盖。
@@ -57,6 +58,13 @@ interface UIState {
   closeView: (view: ActiveView) => void
   setLeftPanelTab: (tab: 'files' | 'resources') => void
   toggleTheme: () => void
+  /**
+   * 回到默认工作区（关掉所有页签，回到对话）。
+   *
+   * 登出 / 会话过期时调用：页签标题里带着上一个账号的资源名，留着就会串号。
+   * 只重置「工作区」，不动主题与面板开关（那是本机偏好，不是账号数据）。
+   */
+  resetWorkspace: () => void
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -94,6 +102,17 @@ export const useUIStore = create<UIState>((set) => ({
     }),
 
   setLeftPanelTab: (tab) => set({ leftPanelTab: tab }),
+
+  resetWorkspace: () =>
+    set((s) => {
+      // 关掉的工具详情页签要顺带丢弃草稿 —— 草稿按 toolId 存在 localStorage，
+      // 不清理的话下一个人在同一个工具里会看到上一个人未保存的参数/代码。
+      for (const view of s.openViews) {
+        const toolId = parseToolDetailView(String(view))
+        if (toolId) clearToolDraft(toolId)
+      }
+      return { activeView: 'chat', openViews: ['chat'], leftPanelTab: 'files' }
+    }),
 
   toggleTheme: () =>
     set((s) => {

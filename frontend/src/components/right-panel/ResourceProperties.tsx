@@ -4,6 +4,7 @@ import type { Resource, DataResource, ToolResource, ModelResource, AgentResource
 import { useResourceStore } from '@/stores/resource-store'
 import { Star, Activity } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { apiPatch } from '@/services/api/client'
 
 interface ResourcePropertiesProps {
   resource: Resource
@@ -140,12 +141,10 @@ function ModelFields({ resource }: { resource: ModelResource }) {
 
   const updateGroup = async (value: string) => {
     setGroup(value)
-    const response = await fetch(`/api/model/${encodeURIComponent(resource.id)}`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ group_path: value }),
-    })
-    if (response.ok) await useResourceStore.getState().fetchModelsFromApi()
-    else {
+    try {
+      await apiPatch(`/api/model/${encodeURIComponent(resource.id)}`, { group_path: value })
+      await useResourceStore.getState().fetchModelsFromApi()
+    } catch {
       setGroup(resource.groupPath || '其它模型')
       window.alert('模型分组更新失败')
     }

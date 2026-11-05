@@ -10,6 +10,7 @@ from core.resource.registry.registry_base import BaseRegistry
 from core.resource import paths
 from core.runtime.paths import MODEL_DIR as RUNTIME_MODEL_DIR
 from core.runtime.paths import model_groups_path, model_registry_path
+from core.user_context import get_current_user_id
 
 MODEL_DIR = Path(__file__).resolve().parent.parent.parent.parent / "resources" / "models"
 REGISTRY_FILE = model_registry_path()
@@ -110,7 +111,9 @@ class ModelRegistry(BaseRegistry):
             "artifact_available": category == "trained",
         }
 
-    async def register(self, resource: dict | None = None, **kwargs) -> str:
+    async def register(
+        self, resource: dict | None = None, *, owner: str | None = None, **kwargs
+    ) -> str:
         if resource is None:
             resource = kwargs
         model_id = resource.get("id", f"model-{int(time.time())}")
@@ -122,6 +125,9 @@ class ModelRegistry(BaseRegistry):
             "version": resource.get("version", "0.1.0"),
             "type": "model",
             "status": "registered",
+            # 归属：D2 口径下模型写/删按 owner 判定（读写分离，见 model_routes）
+            "owner": owner or get_current_user_id(),
+            "visibility": "public",
             "spec_path": str(self._get_def_dir() / f"{model_id}.md"),
             "framework": resource.get("framework", ""),
             "model_path": resource.get("model_path", f"models/{model_id}/"),
@@ -160,6 +166,10 @@ class ModelRegistry(BaseRegistry):
             if existing is None:
                 data.append(entry)
             else:
+                old = data[existing]
+                for key in ("owner", "created_at"):
+                    if old.get(key) not in (None, ""):
+                        entry[key] = old[key]
                 data[existing] = entry
 
         update_json_list(REGISTRY_FILE, upsert)

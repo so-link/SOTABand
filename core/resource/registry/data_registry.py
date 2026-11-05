@@ -37,14 +37,12 @@ class DataRegistry(BaseRegistry):
         data_registry_path()
         if not REGISTRY_FILE.exists():
             _write_json(REGISTRY_FILE, [])
-        # 一次性迁移：把早期没有 owner 字段、但本机确实有数据的条目
-        # 认领给当前用户。之后列表走精确的归属匹配，不再依赖
-        # "本机是否有数据"的启发式判断。
-        # 只认领本机真实存在的条目，因此不会误认他人环境的数据。
-        try:
-            self.claim_local_orphans()
-        except (OSError, ValueError):
-            pass  # 迁移失败不影响正常使用，退化为运行时启发式判断
+        # ⚠️ 不在构造期做一次性 claim：
+        # engine 启动即实例化 registry，此时没有任何请求上下文，claim 会把
+        # 无主历史数据集全部挂到机器身份 local-xxxx 名下 —— 之后管理员
+        # 再调 /api/data/claim-local 也认领不到（owner 已非空）。
+        # 认领改为显式操作（管理员接口），运行期靠 belongs_to 的
+        # 「本机有数据视为本人」启发式保证可用性。
 
     def _private_registry_file(self) -> Path:
         f = REGISTRY_FILE
@@ -172,6 +170,21 @@ class DataRegistry(BaseRegistry):
         except (OSError, PermissionError):
             return False
 
+    @staticmethod
+    def is_machine_owner(owner: str | None) -> bool:
+        """是否是 8.1 之前的机器身份（``local-xxxx``）。
+
+        历史单机部署注册的数据集 owner 是机器身份；升级到多用户后这些条目
+        对 UUID 用户不可见、也无法认领。把机器身份视为"未认领"的历史条目，
+        沿用「本机有数据视为可用」的迁移启发式（与无 owner 条目同口径）。
+        """
+        value = str(owner or "")
+        return value.startswith("local-") or value == get_current_user_id()
+
+    def is_unclaimed(self, entry: dict) -> bool:
+        """无 owner 或机器身份 owner → 未认领的历史条目。"""
+        return (not entry.get("owner")) or self.is_machine_owner(entry.get("owner"))
+
     def belongs_to(self, entry: dict, user_id: str) -> bool:
         """判断数据集是否属于指定用户。
 
@@ -182,8 +195,9 @@ class DataRegistry(BaseRegistry):
         新注册的条目一律带 owner，直接按 owner 精确匹配。
         """
         owner = entry.get("owner")
-        if owner:
+        if owner and not self.is_machine_owner(owner):
             return owner == user_id
+        # 无 owner / 机器身份历史条目：本机有数据视为可用（升级兼容）
         return self.is_present_locally(entry)
 
     def is_visible(self, entry: dict, user_id: str) -> bool:
@@ -200,7 +214,7 @@ class DataRegistry(BaseRegistry):
             return True
         # private 且 owner 不匹配时，仍要保留历史启发式：
         # 无 owner 且本机有数据的历史条目应视为自己的。
-        if not entry.get("owner"):
+        if self.is_unclaimed(entry):
             return self.is_present_locally(entry)
         return False
 
@@ -221,14 +235,16 @@ class DataRegistry(BaseRegistry):
                     entry["visibility"] = VISIBILITY_PRIVATE
                 if not entry.get("storage"):
                     entry["storage"] = detect_storage(entry.get("data_path", ""))
-                if not entry.get("owner") and self.is_present_locally(entry):
+                if self.is_unclaimed(entry) and self.is_present_locally(entry):
                     entry["owner"] = uid
                     claimed += 1
 
         update_json_list(REGISTRY_FILE, claim)
         return claimed
 
-    async def register(self, resource: dict | None = None, **kwargs) -> str:
+    async def register(
+        self, resource: dict | None = None, *, owner: str | None = None, **kwargs
+    ) -> str:
         if resource is None:
             resource = kwargs
         ds_id = resource.get("id", f"dataset-{int(time.time())}")
@@ -246,9 +262,9 @@ class DataRegistry(BaseRegistry):
             "tags": resource.get("tags", []),
             "quality_score": resource.get("quality_score"),
             "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            # 归属：数据集是「谁的」资源。不接受调用方传入，一律取当前用户，
-            # 避免伪造 owner 看到别人的数据。
-            "owner": get_current_user_id(),
+            # 归属：数据集是「谁的」资源。owner 由服务端从认证上下文解析后传入
+            # （未认证时回退机器身份），不信任客户端提交的任何 owner 字段。
+            "owner": owner or get_current_user_id(),
             # 可见性：数据集默认私有（数据在本机，他人本就访问不到）。
             # 未来数据集上云后，可设为 public 让所有人访问。
             "visibility": VISIBILITY_PRIVATE,
@@ -264,6 +280,13 @@ class DataRegistry(BaseRegistry):
             if existing is None:
                 data.append(entry)
             else:
+                old = data[existing]
+                # 更新语义：内容以新值为准，但「首次创建的事实」（owner /
+                # created_at）必须沿用旧值 —— 否则任何人 register 同 id
+                # 就能接管他人的数据集条目。
+                for key in ("owner", "created_at", "visibility"):
+                    if old.get(key) not in (None, ""):
+                        entry[key] = old[key]
                 data[existing] = entry
 
         update_json_list(REGISTRY_FILE, upsert)

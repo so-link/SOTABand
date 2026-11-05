@@ -5,11 +5,13 @@ import json as _json
 import os as _os
 import re
 import shutil
+import tempfile
 import time as _time
+import uuid
 from datetime import datetime
 from pathlib import Path as _Path
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -24,6 +26,17 @@ from core.resource.spec_outline import (
     parse_table, update_table_cell, replace_table_in_node,
 )
 from core.resource.registry.tool_registry import ToolRegistry, bump_patch_version
+from app.api.deps import get_auth_context, get_optional_auth
+from core.auth.ownership import can_write_resource
+from core.sharing.service import revoke_publications_for_release
+from core.auth.audit_actions import (
+    ACTION_RESOURCE_CODE_CHANGED, ACTION_RESOURCE_DELETED, ACTION_RESOURCE_SPEC_CHANGED,
+    record_resource_change,
+)
+from core.auth.context import AuthContext
+from core.db.session import get_db_session
+from sqlalchemy.ext.asyncio import AsyncSession
+from core.user_context import resolve_owner_id
 from core.resource.spec_param_meta import (
     preserve_manual_required,
     set_param_required as set_md_param_required,
@@ -150,8 +163,51 @@ created: {日期}
 6. 除非用户明确写了标记，否则不添加系统API或工具引用
 7. 多模式工具的每个模式参数「必填」列必须明确写「是」或「否」，禁止使用「条件（模式X）」「仅模式X」等模糊表述"""
 
-UPLOAD_DIR = _Path("/tmp/sotaband-uploads")
+UPLOAD_DIR = _Path(tempfile.gettempdir()) / "sotaband-uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+
+async def _assert_form_tool_write_access(ctx: AuthContext, tool_id: str) -> None:
+    """表单里的 ``tool_id`` 也要过写权限校验（路由级守卫按 URL 路径解析，取不到它）。
+
+    ``POST /api/tool/auto-debug`` 的 tool_id 在 Form 里，因此 ``require_tool_write_access``
+    看不到它 —— 普通成员可以对**别人的**工具跑自动调试，而调试循环里的
+    ``install_deps_stream`` 会把 pip 依赖装进该工具的 ``.venv``（= 改他人工具）。
+
+    草稿（尚未 register 的 tool_id）放行：新建流程本来就还没注册。
+    已存在但无权写 → 404（不确认"存在但不属于你"）。
+    """
+    if not tool_id:
+        return
+    entry = await registry.get(tool_id)
+    if entry is not None and not can_write_resource(ctx, entry):
+        raise HTTPException(404, f"Tool '{tool_id}' not found")
+
+
+def _sanitize_filename(raw: str | None) -> str:
+    """取纯文件名，防路径穿越（CWE-22）。"""
+    name = _Path(str(raw or "")).name
+    if not name or name in (".", ".."):
+        raise HTTPException(400, "文件名非法")
+    return name
+
+
+async def _save_uploaded(file: UploadFile) -> _Path:
+    """把上传的测试文件安全落盘（文件名净化 + 大小上限）。"""
+    from config.settings import settings
+
+    safe = _sanitize_filename(file.filename)
+    dest = UPLOAD_DIR / safe
+    if dest.exists():
+        dest = UPLOAD_DIR / f"{dest.stem}-{int(_time.time())}{dest.suffix}"
+    max_bytes = max(1, settings.file_access.upload_max_mb) * 1024 * 1024
+    data = await file.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise HTTPException(
+            413, f"文件超过上限（{settings.file_access.upload_max_mb} MB）"
+        )
+    dest.write_bytes(data)
+    return dest
 
 
 # ── 规格生成 & 代码生成 ──
@@ -236,17 +292,24 @@ async def test_tool(
     code: str = Form(""),
     test_input_json: str = Form("{}"),
     files: list[UploadFile] = File([]),
+    ctx: AuthContext = Depends(get_auth_context),
 ):
     """沙箱测试：SSE 流式返回执行过程，支持客户端断开时强行终止子进程"""
     import asyncio as _asyncio
+
+    # 发起方身份：工具子进程按「人」隔离数据集（管理员评审意见 1 的修复点）
+    owner_id = resolve_owner_id(ctx)
+
+    # 子进程工作目录包含 TOOL_DIR：若允许测试他人/内置的已有工具，
+    # 等于给了「覆写他人 tool.py / 装依赖」的写原语，因此同样要过写权限。
+    # 草稿（尚未注册的 tool_id）放行。
+    await _assert_form_tool_write_access(ctx, tool_id)
 
     # 处理上传文件
     test_input = _json.loads(test_input_json)
     for f in files:
         if f.filename:
-            save_path = UPLOAD_DIR / f.filename
-            content = await f.read()
-            save_path.write_bytes(content)
+            save_path = await _save_uploaded(f)
             for key in test_input:
                 if key == f.filename or test_input[key] == f.filename or not test_input.get(key):
                     test_input[key] = str(save_path)
@@ -289,6 +352,7 @@ async def test_tool(
                 params=test_input,
                 code=code,
                 timeout=None,
+                owner_id=owner_id,
             )
             await queue.put({
                 "exit_code": 0 if result.get("status") == "success" else 1,
@@ -326,9 +390,7 @@ async def test_tool(
 @router.post("/upload-test-file")
 async def upload_test_file(file: UploadFile = File(...)):
     """上传测试文件，返回临时路径"""
-    save_path = UPLOAD_DIR / file.filename
-    content = await file.read()
-    save_path.write_bytes(content)
+    save_path = await _save_uploaded(file)
     return {"file_path": str(save_path), "file_name": file.filename}
 
 
@@ -381,18 +443,22 @@ async def auto_debug(
     code: str = Form(""),
     test_input_json: str = Form("{}"),
     files: list[UploadFile] = File([]),
+    ctx: AuthContext = Depends(get_auth_context),
 ):
     """v2 自动调试：SSE 流式返回每轮执行结果和 LLM 分析。
     用户关闭 SSE 连接（前端 AbortController.abort()）时自动停止。
     """
     import asyncio
 
+    # 先做写权限校验（tool_id 在 Form 里，路由级守卫看不到 —— 见 helper 文档）
+    await _assert_form_tool_write_access(ctx, tool_id.strip())
+
+    owner_id = resolve_owner_id(ctx)
+
     test_input = _json.loads(test_input_json)
     for f in files:
         if f.filename:
-            save_path = UPLOAD_DIR / f.filename
-            content = await f.read()
-            save_path.write_bytes(content)
+            save_path = await _save_uploaded(f)
             for key in list(test_input.keys()):
                 if not test_input.get(key) or test_input[key] == f.filename:
                     test_input[key] = str(save_path)
@@ -408,7 +474,7 @@ async def auto_debug(
 
     async def _producer():
         try:
-            async for event in builder.auto_debug_stream(spec_md, code, test_input, tool_id, stop_event=stop_event):
+            async for event in builder.auto_debug_stream(spec_md, code, test_input, tool_id, stop_event=stop_event, owner_id=owner_id):
                 await queue.put(event)
         except _asyncio.CancelledError:
             stop_event.set()
@@ -440,14 +506,19 @@ async def auto_debug(
 # ── 停止自动调试 ──
 
 @router.post("/auto-debug/stop")
-async def stop_auto_debug(req: dict):
-    """停止指定工具的自动调试。
+async def stop_auto_debug(
+    req: dict, ctx: AuthContext = Depends(get_auth_context)
+):
+    """停止指定工具的自动调试（需对该工具有写权限，防止停他人调试）。
     前端点击停止按钮、页面关闭、网络断开时都应调用此端点。
     即使 SSE 连接已断开，此端点也能通过全局标志可靠地停止后台调试。
     """
     tool_id = req.get("tool_id", "")
     if not tool_id:
         raise HTTPException(status_code=400, detail="缺少 tool_id")
+    entry = await registry.get(tool_id)
+    if entry is not None and not can_write_resource(ctx, entry):
+        raise HTTPException(404, f"Tool '{tool_id}' not found")
     stop_debug(tool_id)
     return {"status": "ok", "message": f"已请求停止工具 {tool_id} 的调试"}
 
@@ -455,7 +526,10 @@ async def stop_auto_debug(req: dict):
 # ── 注册 v2 — 不再强制沙箱测试 ──
 
 @router.post("/register")
-async def register_tool(req: RegisterToolRequest):
+async def register_tool(
+    req: RegisterToolRequest,
+    ctx: AuthContext = Depends(get_auth_context),
+):
     """注册工具；已存在时原地更新（编辑已发布工具后重新生成走这里）。
 
     身份取自 ``baseToolId``（前端编辑态的原工具 id），而不是 MD 正文。
@@ -467,6 +541,9 @@ async def register_tool(req: RegisterToolRequest):
         raise HTTPException(400, f"工具 ID 非法: {target_id!r}")
 
     existing = await registry.get(target_id)
+    if existing is not None and not can_write_resource(ctx, existing):
+        # 覆写 = 改别人的代码（可植入后门），按 404 处理不泄露存在性
+        raise HTTPException(404, f"工具 '{target_id}' 不存在")
     updated = existing is not None
 
     # 版本：显式指定 > 更新时 patch+1 > 新建 0.1.0
@@ -524,7 +601,7 @@ async def register_tool(req: RegisterToolRequest):
         "param_meta": param_meta,
         "modes": modes,
     }
-    tool_id = await registry.register(resource)
+    tool_id = await registry.register(resource, owner=resolve_owner_id(ctx))
 
     if req.demand_desc:
         (registry._get_def_dir() / f"{tool_id}-demand.md").write_text(req.demand_desc, encoding="utf-8")
@@ -635,12 +712,16 @@ def _extract_tags_json(text: str) -> list[str] | None:
     return None
 
 
-# ── 工具空间（已加载清单）—— 后端持久化 ──
+# ── 工具空间（已加载清单）—— 后端**按用户**持久化 ──
 # "工具空间"显示哪些工具属于引擎状态而非浏览器状态：以前清单只存前端
 # localStorage，换浏览器 / 无痕窗口 / 清缓存后工作空间就全空了。
-# 现在状态源是 storage/workspace_tools.json，localStorage 仅作降级缓存。
+# 现在状态源是 storage/workspace_tools/{user_id}.json，localStorage 仅作降级缓存。
+#
+# 多用户共用一台服务器时，全局清单会让 A/B 互相增删对方的工具空间；
+# 因此按 user_id 命名空间存储。历史全局文件仅作只读迁移来源。
 _PROJECT_ROOT = _Path(__file__).resolve().parent.parent.parent.parent
-_WORKSPACE_FILE = _PROJECT_ROOT / "storage" / "workspace_tools.json"
+_WORKSPACE_DIR = _PROJECT_ROOT / "storage" / "workspace_tools"
+_LEGACY_WORKSPACE_FILE = _PROJECT_ROOT / "storage" / "workspace_tools.json"
 
 
 class WorkspaceToolItem(BaseModel):
@@ -649,30 +730,54 @@ class WorkspaceToolItem(BaseModel):
     tags: list[str] = []
 
 
-def _read_workspace() -> list[dict]:
+def _workspace_file(owner_id: str) -> _Path:
+    safe = str(owner_id or "anonymous").replace("/", "_").replace("\\", "_")
+    return _WORKSPACE_DIR / f"{safe}.json"
+
+
+def _read_workspace(owner_id: str | None = None) -> list[dict]:
+    owner = str(owner_id or resolve_owner_id(None))
     try:
-        if _WORKSPACE_FILE.exists():
-            return _json.loads(_WORKSPACE_FILE.read_text(encoding="utf-8"))
+        path = _workspace_file(owner)
+        if path.exists():
+            data = _json.loads(path.read_text(encoding="utf-8"))
+            return data if isinstance(data, list) else []
+        # 兼容迁移：旧全局清单只迁移给**第一个**读取它的用户，随后删除全局文件。
+        # 不能每个用户都复制一份 —— 那会把 A 的工具空间泄漏给之后登录的 B。
+        if _LEGACY_WORKSPACE_FILE.exists():
+            data = _json.loads(_LEGACY_WORKSPACE_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, list) and data:
+                _write_workspace(data, owner)
+                try:
+                    _LEGACY_WORKSPACE_FILE.unlink()
+                except OSError:
+                    pass  # 删除失败仅意味着下次仍会迁移一次，不影响隔离
+                return data
     except Exception:
         pass
     return []
 
 
-def _write_workspace(items: list[dict]) -> None:
-    _WORKSPACE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    _WORKSPACE_FILE.write_text(
+def _write_workspace(items: list[dict], owner_id: str | None = None) -> None:
+    owner = str(owner_id or resolve_owner_id(None))
+    path = _workspace_file(owner)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
         _json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
 
 @router.get("/workspace")
-async def get_workspace():
-    return {"tools": _read_workspace()}
+async def get_workspace(ctx: AuthContext = Depends(get_auth_context)):
+    return {"tools": _read_workspace(resolve_owner_id(ctx))}
 
 
 @router.post("/workspace")
-async def add_workspace_tool(item: WorkspaceToolItem):
-    items = _read_workspace()
+async def add_workspace_tool(
+    item: WorkspaceToolItem, ctx: AuthContext = Depends(get_auth_context)
+):
+    owner = resolve_owner_id(ctx)
+    items = _read_workspace(owner)
     if not any(t.get("id") == item.id for t in items):
         items.append({
             "id": item.id,
@@ -680,37 +785,51 @@ async def add_workspace_tool(item: WorkspaceToolItem):
             "tags": item.tags,
             "loadedAt": datetime.now().isoformat(),
         })
-        _write_workspace(items)
+        _write_workspace(items, owner)
     return {"ok": True, "tools": items}
 
 
 @router.delete("/workspace/{tool_id}")
-async def remove_workspace_tool(tool_id: str):
-    items = [t for t in _read_workspace() if t.get("id") != tool_id]
-    _write_workspace(items)
+async def remove_workspace_tool(
+    tool_id: str, ctx: AuthContext = Depends(get_auth_context)
+):
+    owner = resolve_owner_id(ctx)
+    items = [t for t in _read_workspace(owner) if t.get("id") != tool_id]
+    _write_workspace(items, owner)
     return {"ok": True, "tools": items}
 
 
 # ── 列表 / 详情 / 调用 / 搜索 / 删除 ──
 
 @router.get("/list")
-async def list_tools():
+async def list_tools(ctx: AuthContext = Depends(get_auth_context)):
     tools = await registry.list_all()
-    # is_user_generated：是否为使用者在本地生成的工具。
-    # registry 中的内置示例工具没有 owner 字段；用户通过编辑器生成/注册的
-    # 工具会带 owner（注册时由 user_context 注入）。前端据此显示
-    # 「⭐ 用户本地工具」标记，而不是把所有工具都当作本地工具。
-    from core.user_context import get_current_user_id
-    me = get_current_user_id()
+    # is_user_generated / is_owner / can_edit：前端据此显示「我的工具」标记，
+    # 并决定是否展示编辑/删除入口（后端仍有写权限守卫，前端只做体验层门控）。
+    #
+    # can_edit 必须与写守卫同口径（``can_write_resource``）：owner 本人 或
+    # 租户 Owner/Admin（内置无 owner 资产 → 仅租户管理员）。之前写成
+    # ``(owner == me) if owner else privileged`` 漏掉了"租户 admin 对他人资源
+    # 也有写权限"，UI 把 admin 显示成只读，与实际能否保存不一致。
+    me = resolve_owner_id(ctx)
     for t in tools:
-        t["is_user_generated"] = bool(t.get("owner"))
+        owner = str(t.get("owner") or "")
+        t["is_user_generated"] = bool(owner)
+        t["is_owner"] = bool(owner) and owner == me
+        t["can_edit"] = can_write_resource(ctx, t)
     return {"tools": tools, "current_user": me}
 
 
 @router.get("/repository")
-async def repository():
-    """工具仓库 — 返回所有工具及其标签统计"""
+async def repository(ctx: AuthContext = Depends(get_auth_context)):
+    """工具仓库 — 返回所有工具及其标签统计（附带当前用户可编辑标记）"""
     tools = await registry.list_all()
+    me = resolve_owner_id(ctx)
+    for t in tools:
+        owner = str(t.get("owner") or "")
+        t["is_owner"] = bool(owner) and owner == me
+        # 与写守卫同口径（见 list_tools 的说明）
+        t["can_edit"] = can_write_resource(ctx, t)
     # 聚合标签统计
     tag_stats: dict[str, int] = {}
     for t in tools:
@@ -736,7 +855,9 @@ async def update_tool_tags(tool_id: str, req: dict):
 
 
 @router.get("/{tool_id}")
-async def get_tool(tool_id: str):
+async def get_tool(
+    tool_id: str, ctx: AuthContext = Depends(get_auth_context)
+):
     entry = await registry.get(tool_id)
     if not entry: raise HTTPException(404, f"Tool '{tool_id}' not found")
     # 内置工具（resources/）与私有工具（resources-private/）的内容都要能读到，
@@ -745,7 +866,20 @@ async def get_tool(tool_id: str):
     code = registry.read_code_text(tool_id)
     demand_md, has_demand = registry.read_def_text(tool_id, "-demand.md")
     reference_code, has_reference = registry.read_def_text(tool_id, "-reference.md")
-    return {**entry, "spec_md": spec_md, "code": code, "has_demand": has_demand, "demand_md": demand_md, "has_reference": has_reference, "reference_code": reference_code}
+    me = resolve_owner_id(ctx)
+    owner = str(entry.get("owner") or "")
+    return {
+        **entry,
+        "is_owner": bool(owner) and owner == me,
+        # 与写守卫同口径（见 list_tools 的说明）
+        "can_edit": can_write_resource(ctx, entry),
+        "spec_md": spec_md,
+        "code": code,
+        "has_demand": has_demand,
+        "demand_md": demand_md,
+        "has_reference": has_reference,
+        "reference_code": reference_code,
+    }
 
 
 class SpecOutlineRequest(BaseModel):
@@ -1491,11 +1625,17 @@ Modified code:"""
 
 
 @router.post("/{tool_id}/modify-and-debug")
-async def modify_and_debug(tool_id: str, req: "ModifyAndDebugRequest"):
+async def modify_and_debug(
+    tool_id: str,
+    req: "ModifyAndDebugRequest",
+    ctx: AuthContext = Depends(get_auth_context),
+):
     """AI 辅助修改 + 自动调试（SSE 流式）"""
     from app.api.schemas.tool_schemas import ModifyAndDebugRequest
     from sse_starlette.sse import EventSourceResponse
     from core.executor.tool_executor import ToolExecutor
+
+    owner_id = resolve_owner_id(ctx)
 
     entry = await registry.get(tool_id)
     if not entry:
@@ -1630,7 +1770,7 @@ async def modify_and_debug(tool_id: str, req: "ModifyAndDebugRequest"):
 
             # 沙箱执行
             try:
-                result = await builder.sandbox_execute(code, test_params, tool_id, exec_timeout=30)
+                result = await builder.sandbox_execute(code, test_params, tool_id, exec_timeout=30, owner_id=owner_id)
                 stdout = result.get("stdout", "")
                 stderr = result.get("stderr", "")
                 exit_code = result.get("exit_code", -1)
@@ -1918,7 +2058,12 @@ async def refine_spec_node_stream(tool_id: str, req: RefineSpecNodeRequest):
 
 
 @router.post("/{tool_id}/save-code")
-async def save_code(tool_id: str, req: dict):
+async def save_code(
+    tool_id: str,
+    req: dict,
+    ctx: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_db_session),
+):
     """保存工具代码到文件系统"""
     entry = await registry.get(tool_id)
     if not entry: raise HTTPException(404, f"Tool '{tool_id}' not found")
@@ -1928,6 +2073,10 @@ async def save_code(tool_id: str, req: dict):
     impl_dir = registry._get_impl_dir() / tool_id
     impl_dir.mkdir(parents=True, exist_ok=True)
     (impl_dir / "tool.py").write_text(code, encoding="utf-8")
+    await record_resource_change(
+        session, ctx,
+        action=ACTION_RESOURCE_CODE_CHANGED, target_type="tool", target_id=tool_id,
+    )
     return {"saved": tool_id}
 
 
@@ -1937,7 +2086,12 @@ class SaveSpecRequest(BaseModel):
 
 
 @router.post("/{tool_id}/save-spec")
-async def save_spec(tool_id: str, req: SaveSpecRequest):
+async def save_spec(
+    tool_id: str,
+    req: SaveSpecRequest,
+    ctx: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_db_session),
+):
     """保存手工编辑后的 MD 规范文档"""
     entry = await registry.get(tool_id)
     if not entry:
@@ -1952,6 +2106,10 @@ async def save_spec(tool_id: str, req: SaveSpecRequest):
         spec_path.write_text(req.spec_md, encoding="utf-8")
     except Exception:
         pass
+    await record_resource_change(
+        session, ctx,
+        action=ACTION_RESOURCE_SPEC_CHANGED, target_type="tool", target_id=tool_id,
+    )
     return {"saved": tool_id}
 
 
@@ -2056,7 +2214,11 @@ async def sync_spec_from_code(tool_id: str, req: SyncSpecRequest):
 
 
 @router.post("/{tool_id}/execute")
-async def execute_tool(tool_id: str, req: ExecuteToolRequest):
+async def execute_tool(
+    tool_id: str,
+    req: ExecuteToolRequest,
+    ctx: AuthContext = Depends(get_auth_context),
+):
     entry = await registry.get(tool_id)
     if not entry: raise HTTPException(404, f"Tool '{tool_id}' not found")
 
@@ -2065,6 +2227,7 @@ async def execute_tool(tool_id: str, req: ExecuteToolRequest):
         tool_id=tool_id,
         params=req.params,
         timeout=None,
+        owner_id=resolve_owner_id(ctx),
     )
     return {"status": "success", "result": result}
 
@@ -2077,7 +2240,11 @@ async def search_tools(q: str = "", tags: str = ""):
 
 
 @router.delete("/{tool_id}")
-async def delete_tool(tool_id: str):
+async def delete_tool(
+    tool_id: str,
+    ctx: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_db_session),
+):
     entry = await registry.get(tool_id)
     if not entry: raise HTTPException(404, f"Tool '{tool_id}' not found")
     def_dir = registry._get_def_dir()
@@ -2095,4 +2262,21 @@ async def delete_tool(tool_id: str):
 
     # 从 registry 中移除
     await registry.unregister(tool_id)
-    return {"deleted": tool_id}
+
+    # 资源本体没了 → 它所有的 active 发布必须一起下架，否则目录里会留下悬空条目：
+    # install / credential / invoke 仍会成功，release_id 还会被别人的同名注册"接管"。
+    revoked = await revoke_publications_for_release(
+        session,
+        "tool",
+        tool_id,
+        actor_id=uuid.UUID(str(ctx.user_id)),
+        tenant_id=uuid.UUID(str(ctx.tenant_id)) if ctx.tenant_id else None,
+        request_id=getattr(ctx, "request_id", "") or "tool.delete",
+    )
+
+    await record_resource_change(
+        session, ctx,
+        action=ACTION_RESOURCE_DELETED, target_type="tool", target_id=tool_id,
+    )
+    return {"deleted": tool_id, "revoked_publications": revoked}
+

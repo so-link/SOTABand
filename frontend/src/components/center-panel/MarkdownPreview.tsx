@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Loader2, FileText, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Card, CardBody } from '@/components/ui/card'
 
-const BASE_URL = ''
+import { apiText } from '@/services/api/client'
 
 /** 轻量 Markdown → HTML 渲染器（零依赖） */
 function renderMarkdown(md: string): string {
@@ -112,8 +112,7 @@ export function MarkdownPreview({ datasetPath, mdFiles }: MarkdownPreviewProps) 
     if (!file) return
     const filePath = datasetPath ? `${datasetPath}/${file.name}` : ''
     if (!filePath) { setLoading(false); return }
-    fetch(`${BASE_URL}/api/file/download?path=${encodeURIComponent(filePath)}`)
-      .then(r => r.text())
+    apiText(`/api/file/download?path=${encodeURIComponent(filePath)}`)
       .then(text => { setHtml(renderMarkdown(text)); setLoading(false) })
       .catch(() => setLoading(false))
   }

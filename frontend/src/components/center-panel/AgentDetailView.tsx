@@ -12,10 +12,9 @@ import { agentApi } from '@/services/api/agent'
 import { useTabIndent } from '@/hooks/use-tab-indent'
 import type { AgentResource } from '@/types/resources'
 import type { InlineCard as InlineCardType } from '@/types/chat'
+import { apiFetchRaw, apiGet, apiPost, assertOk } from '@/services/api/client'
 import { InlineCard } from './InlineCard'
 import { WorkspaceFilePicker } from './WorkspaceFilePicker'
-
-const BASE_URL = ''
 
 export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   const selectedResource = useResourceStore((s) => s.selectedResource)
@@ -75,14 +74,16 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   const [exportInfo, setExportInfo] = useState<{ name: string; path: string; size: number } | null>(null)
 
   const setActiveView = useUIStore((s) => s.setActiveView)
+  // 只读态：只有 `canEdit === false` 才只读（字段缺失 = 旧响应/请求失败 → 按有权限
+  // 渲染，由后端写权限守卫 403/404 兜底）。不要写成 `!canEdit`，那会把"未知"当只读。
+  const readOnly = agent?.canEdit === false
 
   const bottomRef = useRef<HTMLDivElement>(null)
 
   // Fetch agent details on mount / agent change
   useEffect(() => {
     if (!agent) return
-    fetch(`${BASE_URL}/api/agent/${agent.id}`)
-      .then((r) => r.json())
+    apiGet<any>(`/api/agent/${agent.id}`)
       .then((data) => {
         setSpecMd(data.spec_md || '')
         setCode(data.code || '')
@@ -112,15 +113,13 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
 
     const tick = async () => {
       try {
-        const r = await fetch(`${BASE_URL}/api/agent/${agentId}/status`)
-        const d = await r.json()
+        const d = await apiGet<any>(`/api/agent/${agentId}/status`)
         if (!alive) return
         setRunning(!!d.running)
         // web-service：端口可能比进程晚就绪，或已在别处重启，顺带同步服务信息
         if (isWebService) {
-          const rs = await fetch(`${BASE_URL}/api/agent/${agentId}/service`)
-          if (rs.ok && alive) {
-            const svc = await rs.json()
+          const svc = await apiGet<any>(`/api/agent/${agentId}/service`)
+          if (alive) {
             setServiceInfo((prev) => ({ ...prev, ...svc }))
           }
         }
@@ -148,17 +147,14 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   const loadServiceInfo = async () => {
     if (!agent || !isWebService) return
     try {
-      const res = await fetch(`${BASE_URL}/api/agent/${agent.id}/service`)
-      if (res.ok) {
-        const data = await res.json()
-        setServiceInfo(data)
-        // 默认选中第一个 API
-        const apis = data.apis || []
-        if (apis.length && !apis.some((a: { name: string }) => a.name === testApi)) {
-          setTestApi(apis[0].name)
-        }
+      const data = await apiGet<any>(`/api/agent/${agent.id}/service`)
+      setServiceInfo(data)
+      // 默认选中第一个 API
+      const apis = data.apis || []
+      if (apis.length && !apis.some((a: { name: string }) => a.name === testApi)) {
+        setTestApi(apis[0].name)
       }
-    } catch { /* ignore */ }
+    } catch { /* 服务信息拉不到时保持原状态 */ }
   }
 
   // 发起 API 测试（走后端代理）
@@ -170,12 +166,10 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
     }
     setTesting(true); setTestResult('')
     try {
-      const res = await fetch(`${BASE_URL}/api/agent/${agent.id}/test-api`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ api_name: testApi, params: testParams }),
+      const data = await apiPost<any>(`/api/agent/${agent.id}/test-api`, {
+        api_name: testApi,
+        params: testParams,
       })
-      const data = await res.json()
       setTestResult(JSON.stringify(data, null, 2))
     } catch (e) {
       setTestResult(`请求失败: ${String(e)}`)
@@ -254,13 +248,10 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
     if (!agent) return
     setExporting(true)
     try {
-      const res = await fetch(`${BASE_URL}/api/migrate/agent/export`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agent_id: agent.id }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.detail || `导出失败 (${res.status})`)
+      const data = await apiPost<{ file_name: string; bundle_path: string; size: number }>(
+        '/api/migrate/agent/export',
+        { agent_id: agent.id }
+      )
       setExportInfo({ name: data.file_name, path: data.bundle_path, size: data.size })
     } catch (e) {
       window.alert(`导出失败：${(e as Error).message}`)
@@ -285,13 +276,12 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   const start = async () => {
     setLoading(true)
     try {
-      const res = await fetch(`${BASE_URL}/api/agent/${agent.id}/start`, { method: 'POST' })
-      const data = await res.json().catch(() => ({} as Record<string, unknown>))
+      const data = await apiPost<any>(`/api/agent/${agent.id}/start`)
       // 后端在「代码错误 / 端口被占 / 加载 spec 失败」时会返回 status=failed，
       // 旧实现无条件 setRunning(true)，用户只能看到"看起来启动了但用不了"。
-      if (!res.ok || data.status === 'failed') {
+      if (data.status === 'failed') {
         setRunning(false)
-        setMessages([{ role: 'system', content: `⚠️ 启动失败：${data.error || data.detail || `HTTP ${res.status}`}` }])
+        setMessages([{ role: 'system', content: `⚠️ 启动失败：${data.error || data.detail || '未知错误'}` }])
       } else {
         setRunning(true)
         setMessages([])
@@ -309,7 +299,7 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   const stop = async () => {
     setLoading(true)
     try {
-      await fetch(`${BASE_URL}/api/agent/${agent.id}/stop`, { method: 'POST' })
+      await apiPost(`/api/agent/${agent.id}/stop`)
       setRunning(false)
       if (isWebService) setServiceInfo((s) => ({ ...s, running: false, port: undefined }))
     } catch { /* ignore */ }
@@ -319,10 +309,13 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   const restart = async () => {
     setLoading(true)
     try {
-      const res = await fetch(`${BASE_URL}/api/agent/${agent.id}/restart`, { method: 'POST' })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok || data.status === 'failed') {
-        throw new Error(data.error || data.detail || `HTTP ${res.status}`)
+      // 统一 client：非 2xx 会抛 ApiError；额外校验 200 + status=failed
+      // （上游 #11 的语义：重启失败要显式提示，不能静默当作成功）
+      const data = await apiPost<{ status?: string; error?: string; detail?: string }>(
+        `/api/agent/${agent.id}/restart`
+      )
+      if (data && data.status === 'failed') {
+        throw new Error(data.error || data.detail || 'restart failed')
       }
       setRunning(true)
       setMessages([])
@@ -351,13 +344,12 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
     const localCards: InlineCardType[] = []
 
     try {
-      const res = await fetch(`${BASE_URL}/api/agent/${agent.id}/execute`, {
+      const res = await apiFetchRaw(`/api/agent/${agent.id}/execute`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params),
         signal: controller.signal,
       })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      await assertOk(res)
 
       const reader = res.body!.getReader()
       const decoder = new TextDecoder()
@@ -534,7 +526,7 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
           </span>
           <a
             className="text-maia-accent underline truncate"
-            href={`${BASE_URL}/api/migrate/agent/bundles/${encodeURIComponent(exportInfo.name)}`}
+            href={`/api/migrate/agent/bundles/${encodeURIComponent(exportInfo.name)}`}
             download
             title={exportInfo.path}
           >
@@ -600,13 +592,14 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => { if (isEditingCode) { setDraftCode(code); setIsEditingCode(false) } else { setDraftCode(code); setIsEditingCode(true) } }}
-                      className="flex items-center gap-1 text-[10px] text-maia-text-muted hover:text-maia-accent px-1.5 py-0.5 rounded border border-maia-border"
+                      disabled={readOnly}
+                      className="flex items-center gap-1 text-[10px] text-maia-text-muted hover:text-maia-accent px-1.5 py-0.5 rounded border border-maia-border disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       <Pencil className="h-2.5 w-2.5" />{isEditingCode ? '取消' : '手工微调'}
                     </button>
                     <button
                       onClick={handleSaveCode}
-                      disabled={!codeDirty || isSaving}
+                      disabled={readOnly || !codeDirty || isSaving}
                       className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border border-maia-border text-maia-accent hover:bg-maia-accent/10 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       {isSaving ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Save className="h-2.5 w-2.5" />}
@@ -686,8 +679,7 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                         <button
                           onClick={async () => {
                             try {
-                              const r = await fetch(`${BASE_URL}/api/agent/${agent!.id}/api-doc`)
-                              const d = await r.json()
+                              const d = await apiGet<any>(`/api/agent/${agent!.id}/api-doc`)
                               // 在新窗口以 Markdown 原文展示（可复制/另存）
                               const w = window.open('', '_blank')
                               if (w) {
@@ -703,7 +695,7 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                           查看 API 文档
                         </button>
                         <a
-                          href={`${BASE_URL}/api/agent/${agent!.id}/api-doc/download`}
+                          href={`/api/agent/${agent!.id}/api-doc/download`}
                           className="text-[11px] text-maia-accent hover:underline"
                           download
                         >
