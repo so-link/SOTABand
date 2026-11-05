@@ -17,8 +17,17 @@ Owner 成员"这种多步操作才是原子的。
 
 ## 并发
 
-角色变更用 ``version`` 做 compare-and-set（contract §3.9）。SQLite 没有行级锁，
-**这些并发守卫必须在 PostgreSQL 上复验**（ADR-08-02）。
+角色变更用 ``version`` 做 compare-and-set（contract §3.9），并且所有成员变更前
+都会调用 :func:`core.auth.authorize.lock_network`：
+
+- PostgreSQL：``SELECT … FOR UPDATE`` 串行化；
+- SQLite：pysqlite 默认在第一条 DML 前不发 BEGIN，``FOR UPDATE`` 又是空操作 ——
+  所以在 ``lock_network`` 里先跑一条空写 UPDATE 提前取到库级写锁，等效于
+  ``BEGIN IMMEDIATE`` 但只作用于成员变更路径（全局 ``BEGIN IMMEDIATE`` 会把
+  每个已认证请求都变成写事务，见该函数的说明）。
+
+``tests/unit/test_network_invariant_sqlite.py`` 用两个独立 session 复验
+「最后一位 Owner」不变量在 SQLite 上也成立。
 """
 
 from __future__ import annotations
@@ -219,7 +228,14 @@ async def create_network(
     cleaned = _validate_name(name)
     merged_policy = default_policy()
     if policy:
-        merged_policy.update({k: bool(v) for k, v in policy.items() if k in merged_policy})
+        # None = 本次没有显式提供（NetworkPolicy 字段可空，见 schema 说明）
+        merged_policy.update(
+            {
+                k: bool(v)
+                for k, v in policy.items()
+                if k in merged_policy and v is not None
+            }
+        )
 
     network = Network(
         tenant_id=_tid(ctx),
@@ -284,10 +300,14 @@ async def update_network(
                 raise ConflictError("同一租户下已存在同名网络") from exc
 
     if policy is not None:
+        # **局部合并**：只更新本次显式提供的键。
+        # 之前对两个键都 ``bool(policy.get(key))`` —— 只传 allowMemberPublish 时
+        # allowViewerInvoke 取到 None → False，把一个开关悄悄关掉了。
         merged = dict(network.policy or {})
         for key in ("allowMemberPublish", "allowViewerInvoke"):
-            if key in policy:
-                merged[key] = bool(policy[key])
+            value = policy.get(key)
+            if value is not None:
+                merged[key] = bool(value)
         network.policy = merged
 
     network.gmt_modified = utcnow()
@@ -331,9 +351,20 @@ async def change_network_status(
             f"网络状态不能从「{network.status}」变为「{target_status}」"
         )
 
-    network.status = target_status
-    network.gmt_modified = utcnow()
+    # CAS：authorize() 读到的 status 只是"判定时"的快照。两个并发请求可能都读到
+    # active，一个暂停、另一个归档 —— 后写者会覆盖前者的迁移，状态机就不再成立。
+    # 把读到的状态放进 UPDATE 的 WHERE，影响 0 行即"状态已被别人改过" → 409。
+    # （这同时让两个请求的"迁移表校验"与"写入"成为同一个判定，不存在中间窗口。）
+    expected_status = network.status
+    result = await session.execute(
+        update(Network)
+        .where(Network.id == network_id, Network.status == expected_status)
+        .values(status=target_status, gmt_modified=utcnow())
+    )
+    if result.rowcount == 0:
+        raise ConflictError("网络状态已被其他操作修改，请刷新后重试")
     await session.flush()
+    await session.refresh(network)
 
     _audit(
         session,
@@ -500,6 +531,16 @@ async def remove_member(
     target.gmt_modified = utcnow()
     await session.flush()
 
+    # 未使用的 pending 邀请必须一起吊销 —— 否则被移除者能用旧令牌重新进来
+    target_user = await session.get(User, target_user_id)
+    await _revoke_pending_invitations_for_email(
+        session,
+        network_id=network_id,
+        email=target_user.email if target_user else None,
+        ctx=ctx,
+        request_id=request_id,
+    )
+
     _audit(
         session,
         action=ACTION_MEMBER_REMOVE,
@@ -555,6 +596,19 @@ async def leave_network(
     membership.gmt_modified = utcnow()
     await session.flush()
 
+    # 退出后旧邀请同样不能让他再进来（邮箱优先取会话上下文，缺失再查库）
+    email = ctx.email
+    if not email:
+        user = await session.get(User, _uid(ctx))
+        email = user.email if user else None
+    await _revoke_pending_invitations_for_email(
+        session,
+        network_id=network_id,
+        email=email,
+        ctx=ctx,
+        request_id=request_id,
+    )
+
     _audit(
         session,
         action=ACTION_MEMBER_LEAVE,
@@ -567,6 +621,62 @@ async def leave_network(
 
 
 # ── 邀请 ──────────────────────────────────────────────────────────────
+
+
+async def _revoke_pending_invitations_for_email(
+    session: AsyncSession,
+    *,
+    network_id: uuid.UUID,
+    email: str | None,
+    ctx: AuthContext,
+    request_id: str,
+) -> int:
+    """把某个邮箱在该网络的 pending 邀请全部置为 revoked，返回撤销条数。
+
+    ## 为什么「移除成员 / 退出网络」时必须做
+
+    邀请令牌是**一次性**的，但 pending 邀请在成员被移除后仍然有效：管理员把人踢了，
+    被邀者却能拿之前收到的旧令牌重新加入 —— 移除操作因此没有真正生效。
+    同理，成员自己退出后，旧邀请也能让他再次进来。
+
+    邀请只存 token hash，无法"按人"关联，只能按**邮箱**收口（创建邀请时邮箱已规范化）。
+    """
+    if not email:
+        return 0
+    normalized = _normalize_email(email)
+    if not normalized:
+        return 0
+
+    result = await session.execute(
+        select(NetworkInvitation.id).where(
+            NetworkInvitation.network_id == network_id,
+            NetworkInvitation.email == normalized,
+            NetworkInvitation.status == INVITATION_PENDING,
+        )
+    )
+    invitation_ids = list(result.scalars())
+    if not invitation_ids:
+        return 0
+
+    now = utcnow()
+    update_result = await session.execute(
+        update(NetworkInvitation)
+        .where(NetworkInvitation.id.in_(invitation_ids))
+        .values(status=INVITATION_REVOKED, gmt_modified=now)
+    )
+    # 逐条审计：事后要能查到"这条邀请是被成员移除操作连带撤销的"
+    for invitation_id in invitation_ids:
+        _audit(
+            session,
+            action=ACTION_INVITATION_REVOKE,
+            ctx=ctx,
+            request_id=request_id,
+            network_id=network_id,
+            target_type="invitation",
+            target_id=str(invitation_id),
+        )
+    await session.flush()
+    return int(update_result.rowcount or len(invitation_ids))
 
 
 async def create_invitation(
@@ -661,16 +771,18 @@ async def revoke_invitation(
         invitation.status = INVITATION_REVOKED
         invitation.gmt_modified = utcnow()
         await session.flush()
-
-    _audit(
-        session,
-        action=ACTION_INVITATION_REVOKE,
-        ctx=ctx,
-        request_id=request_id,
-        network_id=network_id,
-        target_type="invitation",
-        target_id=str(invitation_id),
-    )
+        # **只在状态真的迁移时写审计**：对已 accepted / expired / revoked 的邀请
+        # 再点一次"撤销"是空操作，写 success revoke 会让审计与事实不一致
+        # （审计是事后追责的唯一依据，谎报比缺失更糟）。
+        _audit(
+            session,
+            action=ACTION_INVITATION_REVOKE,
+            ctx=ctx,
+            request_id=request_id,
+            network_id=network_id,
+            target_type="invitation",
+            target_id=str(invitation_id),
+        )
 
 
 async def accept_invitation(
@@ -710,6 +822,11 @@ async def accept_invitation(
         invitation.status = INVITATION_EXPIRED
         invitation.gmt_modified = utcnow()
         await session.flush()
+        # ⚠️ 必须**先提交**再抛 GoneError：
+        # 路由层/依赖层会在异常时回滚整个事务，不提交的话"置为 expired"永远
+        # 落不了库 —— 邀请会一直显示 pending，每次都走一遍过期分支。
+        # 这里是一次独立的状态迁移（没有其它业务写入），提交是安全的。
+        await session.commit()
         raise GoneError("邀请已过期")
 
     network = await get_network(session, invitation.network_id)

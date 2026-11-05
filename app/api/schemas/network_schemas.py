@@ -13,10 +13,23 @@ NetworkStatusLiteral = Literal["active", "suspended", "archived"]
 
 
 class NetworkPolicy(BaseModel):
-    """网络策略开关（契约 §2.3）。"""
+    """网络策略开关（契约 §2.3）。
 
-    allow_member_publish: bool = Field(default=False, alias="allowMemberPublish")
-    allow_viewer_invoke: bool = Field(default=False, alias="allowViewerInvoke")
+    ## 为什么字段是 ``bool | None`` 而不是带默认值的 ``bool``
+
+    契约把「修改信息 / 暂停 / 归档」合成一个 ``PATCH``，``policy`` 因此是**局部更新**
+    语义：只传 ``{"allowMemberPublish": true}`` 时，``allowViewerInvoke`` 必须保持
+    原值，不能被默认值覆盖。
+
+    路由层目前是把模型 ``model_dump()`` 成完整 dict 再交给 service（``exclude_unset``
+    在路由层用不上）。若字段默认 ``False``，dump 出来的两个键永远存在，service 只能
+    全量覆盖 —— 实测「只传 allowMemberPublish」会把 allowViewerInvoke 悄悄改回 false。
+    把默认值改成 ``None`` 表示"本次没有显式提供"，service 跳过 ``None`` 即等价于
+    ``exclude_unset=True`` 的局部合并，且不需要路由层配合。
+    """
+
+    allow_member_publish: bool | None = Field(default=None, alias="allowMemberPublish")
+    allow_viewer_invoke: bool | None = Field(default=None, alias="allowViewerInvoke")
 
     model_config = ConfigDict(populate_by_name=True)
 

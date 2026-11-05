@@ -65,6 +65,19 @@ def _install_sqlite_pragmas(engine: AsyncEngine) -> None:
       WAL 允许读写并发。
     - ``busy_timeout`` —— SQLite 是**单写者**。没有超时设置时，并发写会立即
       抛 "database is locked" 而不是等待。5 秒足够覆盖本项目的事务长度。
+
+    ## 为什么这里**不**安装全局 ``BEGIN IMMEDIATE``
+
+    SQLAlchemy 官方给 SQLite 的配方（connect 事件 ``isolation_level=None`` +
+    begin 事件 ``BEGIN IMMEDIATE``）能让"读-判断-写"原子化，代价是**每条连接
+    从第一条 SQL 起就持写锁**。本项目每个已认证请求都会在 ``get_auth_context``
+    里开事务并持有到响应结束（含 LLM / SSE 长请求）—— 实测第二个并发请求的
+    普通 SELECT 会在 busy_timeout 后被 ``OperationalError: database is locked``
+    打死，等于把整个服务串行化。
+
+    因此写锁只加在真正需要临界区的路径上：``core.auth.authorize.lock_network``
+    在成员变更前用一条空写 UPDATE 提前取得库级写锁（等效 BEGIN IMMEDIATE，
+    但读请求保持并发）。新增"读-判断-写"型并发守卫时，请复用该函数的设计。
     """
 
     @event.listens_for(engine.sync_engine, "connect")

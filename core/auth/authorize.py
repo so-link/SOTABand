@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.context import AuthContext
@@ -68,21 +68,45 @@ async def lock_network(session: AsyncSession, network_id: uuid.UUID) -> Network 
     T2: UPDATE 移除 Alice → 0           ← 网络变成无主孤儿
     ```
 
-    在 SQLite 上**永远看不到**这个竞态：库级写锁让 T2 根本进不来。这就是为什么
-    ADR-08-02 要求并发用例必须在 PostgreSQL 上复验 —— 实测确实复现了
-    （``tests/integration/test_network_concurrency.py``）。
-
-    ## 方言行为
+    ## 方言行为（实测定论）
 
     - PostgreSQL：``SELECT … FOR UPDATE`` 让第二个事务排队，等到 T1 提交后重读；
-    - SQLite：方言不支持，SQLAlchemy 会**忽略**该子句 —— 但 SQLite 本来就是
-      库级写锁，行为等价。
+    - SQLite：``FOR UPDATE`` 被方言忽略，而 **pysqlite 在第一条 DML 之前不发
+      BEGIN**（默认 ``isolation_level=""``）—— 所以"先读后写"的两条事务之间
+      根本没有任何互斥，上面的竞态在 SQLite 上同样存在（不是"库级写锁自动
+      serialize"：读阶段全程 autocommit，压根没进事务）。
+
+      修复方式是在**读之前**先取得 SQLite 写锁：跑一条空写 UPDATE
+      （``SET status = status``）。它会立刻开启写事务并拿到 RESERVED 锁，
+      后到的事务在 busy_timeout 内等待；等它拿到锁时，事务的读视图已经包含
+      先者提交的结果 —— 即"先锁后读"，与 PostgreSQL 的 ``FOR UPDATE`` 等效。
+
+    ## 为什么不用全局 ``BEGIN IMMEDIATE``
+
+    SQLAlchemy 的官方配方（connect 事件 `isolation_level=None` + begin 事件
+    `BEGIN IMMEDIATE`）会让**每条**连接的事务一开就持写锁。本项目每个已认证请求
+    都会在 ``get_auth_context`` 里开启事务并持有到响应结束（含 LLM / SSE 长请求），
+    实测第二个并发请求的普通 ``SELECT`` 会在 busy_timeout 后被
+    ``OperationalError: database is locked`` 拒绝 —— 相当于把整个服务串行化。
+    因此只把写锁加在真正需要临界区的成员变更路径上（本函数），
+    读请求保持并发。
 
     ## 只用于写路径
 
     读接口（``GET /networks/{id}`` 等）**不要**加锁 —— 那会把只读请求也串行化，
     毫无必要地牺牲并发。
     """
+    bind = session.get_bind()
+    dialect = getattr(bind, "dialect", None)
+    if dialect is not None and dialect.name == "sqlite":
+        # 空写：值不变，但 SQLite 仍会开启写事务并取得写锁（见上）。
+        await session.execute(
+            update(Network)
+            .where(Network.id == network_id)
+            .values(status=Network.status)
+            .execution_options(synchronize_session=False)
+        )
+
     result = await session.execute(
         select(Network)
         .where(Network.id == network_id)
@@ -187,8 +211,9 @@ async def count_active_owners(session: AsyncSession, *, network_id: uuid.UUID) -
     """统计网络当前的 active Owner 数量 —— "最后一位 Owner"守卫的依据。
 
     ⚠️ 必须与角色变更在**同一事务内**调用，否则并发下会读到过期数字。
-    SQLite 上没有行级锁，这个守卫依赖"事务内重新统计 + version 条件更新"，
-    **并发用例必须在 PostgreSQL 上复验**（ADR-08-02）。
+    调用方还必须先用 :func:`lock_network` 把成员变更串行化（SQLite 上是"空写"
+    提前取写锁，PostgreSQL 上是 ``FOR UPDATE``）—— 只统计不加锁仍是
+    check-then-act，两个请求会同时读到同一个数字。
     """
     from sqlalchemy import func
 
