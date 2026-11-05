@@ -101,6 +101,43 @@ def _seed_superuser_row(users: list[dict]) -> dict:
     return row
 
 
+def _downgrade_legacy_admins(users: list[dict]) -> None:
+    """表内 role=admin 的普通行降级为 user——原地修改，由调用方落盘。
+
+    唯一 admin 是 .env 超管（id=0）：老库首用户 role=admin 的历史遗留若
+    不清除，升级后仍会保留全部超管权限，与「仅 .env 超管可管理用户/内置
+    资源」的设计冲突。显示字段（username/display_name）不动。
+    """
+    changed = False
+    for u in users:
+        if isinstance(u, dict) and str(u.get("id")) != SUPERUSER_UID and u.get("role") == "admin":
+            u["role"] = "user"
+            changed = True
+    if changed:
+        _save_users(users)
+
+
+def downgrade_table_admins() -> None:
+    """启动时调用：清除表内遗留的 admin 角色（见 ``_downgrade_legacy_admins``）。"""
+    users = _raw_load_users()
+    _downgrade_legacy_admins(users)
+
+
+def is_superuser_uid(uid: str) -> bool:
+    """uid 是否属于 .env 超管——全系统唯一的 admin 判定口径（角色收口用）。"""
+    return str(uid) == SUPERUSER_UID
+
+
+def known_uids() -> set[str]:
+    """用户表中存在的 uid 集合。
+
+    删号/令牌回查与 cron 调度都要以用户表为准判定「这个 uid 还是不是用户」——
+    超管行恒在表中（``_load_users`` 保证），因此单用户模式下 ``{"0"}`` 始终
+    有效，匿名超管的 cron 不会被误停。
+    """
+    return {str(u.get("id")) for u in _load_users() if isinstance(u, dict)}
+
+
 def superuser() -> dict:
     """超级用户行（普通用户形状的公开视图，缺行时先种入）。
 
@@ -137,12 +174,13 @@ def _raw_load_users() -> list[dict]:
 
 
 def _load_users() -> list[dict]:
-    """读用户表，并保证超管行（id=0）存在（首次自动种入）。
+    """读用户表：清除遗留 admin 角色，并保证超管行（id=0）存在（首次自动种入）。
 
     超管行是表里的普通一行（无密码散列），因此所有读写路径天然覆盖它；
     种入动作放在这里而不是各调用点，避免遗漏。
     """
     users = _raw_load_users()
+    _downgrade_legacy_admins(users)  # 唯一 admin = .env 超管；原地改，仅变化时落盘
     if not any(str(u.get("id")) == SUPERUSER_UID for u in users if isinstance(u, dict)):
         _seed_superuser_row(users)  # 原地 insert(0) 并落盘
     return users
@@ -341,6 +379,8 @@ def set_password(uid: str, new_password: str, *, allow_superuser: bool = False) 
     salt_hex, digest, iters = _hash_password(new_password)
     target["password"] = {"algo": _PBKDF2_HASH, "salt": salt_hex, "hash": digest, "iterations": iters}
     target["password_updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    # 凭据代次 +1：改密/重置后，旧代次签发的令牌在 verify_token 回查时全部失效
+    target["pwd_version"] = int(target.get("pwd_version", 0)) + 1
     _save_users(users)
 
 
