@@ -409,6 +409,29 @@ class SecurityConfig:
     audit_log_enabled: bool = True
     max_code_size: int = 1024 * 1024  # 1MB
 
+    # ── 代码安全审查（core/security/review.py，移植自上游 a7b2db0）──
+    # enforce: 静态违规阻止注册/执行，运行时违规强制失败
+    # audit:   只记录违规，不拦截（首版默认，灰度观察误报率）
+    # off:     完全关闭
+    # 注意：静态名单比 code_scan.py 严（subprocess.run/os.mkdir 等均 block），
+    # enforce 切换前需先清零内置工具命中，否则重注册会被拒。
+    review_mode: str = "audit"
+    # 运行时文件写入白名单（绝对路径或相对项目根）。
+    # 用户目录 <USER_HOME>/<uid>/ 与系统临时目录由执行器自动追加，
+    # 不必在此声明（本地工具产物按多用户模型必须落用户目录）。
+    allowed_write_paths: list = field(default_factory=lambda: ["data", "logs", "output"])
+    # 运行时网络访问白名单（主机名）；空列表 = 网络不拦截，仅记录
+    allowed_network_hosts: list = field(default_factory=list)
+    runtime_enforce_network: bool = False
+    # 子进程资源限制（**0 = 不限制**，与超时体系「0=不限制」约定一致）。
+    # 默认全关：RLIMIT_AS 按虚拟内存计会误杀 torch/CUDA 类工具；
+    # RLIMIT_NPROC 按 uid 全局计数，本机服务同 uid 运行时会掐断
+    # _call_tool 派生。超时兜底走唯一入口 TOOL_EXEC_TIMEOUT，不用这里。
+    max_cpu_seconds: int = 0
+    max_memory_mb: int = 0
+    max_file_size_mb: int = 0
+    max_processes: int = 0
+
 
 @dataclass
 class ObservabilityConfig:

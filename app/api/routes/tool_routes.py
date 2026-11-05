@@ -350,6 +350,29 @@ async def test_tool(
         spec = {"raw_md": spec_md, "id": tool_id, "name": tool_name}
         code = await builder.build(spec)
 
+    # ── 静态安全审查门禁 ──
+    # core API 约束线（core/security/review.py），与 code_scan 底线闸门并存；
+    # review_mode=audit 时只记录不拦截，enforce 才阻止代码进沙箱。
+    from core.security.review import review_code as _review, block_violations as _blocks
+    from config.settings import settings as _settings
+
+    _violations = _review(code) if _settings.security.review_mode != "off" else []
+    _blocks_found = _blocks(_violations)
+    if _blocks_found and _settings.security.review_mode == "enforce":
+        async def _denied_stream():
+            yield {
+                "event": "security_violation",
+                "data": _json.dumps({
+                    "violations": [v.to_dict() for v in _blocks_found],
+                    "message": f"安全审查未通过（{len(_blocks_found)} 项 block 级违规），已阻止执行",
+                }, ensure_ascii=False),
+            }
+            yield {"event": "error", "data": _json.dumps({
+                "message": "安全审查未通过，代码未执行",
+                "violations": [v.to_dict() for v in _blocks_found],
+            }, ensure_ascii=False)}
+        return EventSourceResponse(_denied_stream())
+
     from core.executor.tool_executor import ToolExecutor
     from core.resource.builder.tool_builder import _debug_exec_timeout
 
@@ -591,6 +614,21 @@ async def register_tool(req: RegisterToolRequest):
     if not scan.ok:
         raise HTTPException(400, "静态安全审查未通过：\n" + "\n".join(scan.errors))
 
+    # ── 静态安全审查门禁（core API 约束线，见 core/security/review.py）──
+    # code_scan 是破坏性底线，这里是对 core API 的约束线；enforce 才拦截，
+    # audit 模式下 warn 级违规随注册结果返回。
+    from core.security.review import review_code as _review, block_violations as _blocks
+    from config.settings import settings as _settings
+
+    _violations = _review(code) if _settings.security.review_mode != "off" else []
+    _blocks_found = _blocks(_violations)
+    if _blocks_found and _settings.security.review_mode == "enforce":
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=400, content={
+            "detail": f"安全审查未通过：{len(_blocks_found)} 项 block 级违规，注册被拒绝",
+            "violations": [v.to_dict() for v in _blocks_found],
+        })
+
     param_meta = []
     try:
         param_meta = await builder.extract_param_metadata(req.spec_md)
@@ -633,7 +671,12 @@ async def register_tool(req: RegisterToolRequest):
         import asyncio
         asyncio.create_task(_auto_generate_tags(tool_id, req.tool_name, req.spec_md))
 
-    return {"tool_id": tool_id, "entry": entry}
+    response = {"tool_id": tool_id, "entry": entry}
+    # warn 级违规随注册结果返回（block 级已在上方拦截）
+    _warns = [v for v in _violations if v.severity == "warn"]
+    if _warns:
+        response["security_warnings"] = [v.to_dict() for v in _warns]
+    return response
 
 
 async def _auto_generate_tags(tool_id: str, name: str, spec_md: str):

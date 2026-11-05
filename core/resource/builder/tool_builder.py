@@ -1244,6 +1244,27 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
         # 调试开始：立即通知前端
         yield {"event": "debug_start", "message": "自动调试启动", "max_rounds": max_rounds}
 
+        # ── 静态安全审查（初始代码）──
+        # block 级违规：不执行，直接要求 LLM 修复后再跑
+        from core.security.review import review_code as _review, block_violations as _blocks
+
+        security_feedback = ""
+        skip_exec_for_security = False
+        _init_violations = _review(current_code)
+        _init_blocks = _blocks(_init_violations)
+        if _init_blocks:
+            yield {
+                "event": "security_violation", "round": 0,
+                "violations": [v.to_dict() for v in _init_blocks],
+                "message": f"初始代码存在 {len(_init_blocks)} 项安全违规，跳过执行",
+            }
+            security_feedback = (
+                "\n[安全审查] 代码违反安全策略，必须修复以下违规后才能执行"
+                "（本地文件操作/系统调用只能通过 core API 完成）:\n"
+                + "\n".join(f"- {v.message}（第 {v.line} 行）" for v in _init_blocks)
+            )
+            skip_exec_for_security = True
+
         # 初始依赖安装（系统自动，LLM 不参与）
         deps = self._extract_imports(current_code)
         if deps:
@@ -1264,32 +1285,44 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
 
             yield {"event": "round_start", "round": round_num, "max": max_rounds}
 
-            # ── ① 执行 ──
+            # ── ① 执行（安全审查未通过时跳过，用合成失败结果驱动 LLM 修复）──
             # 事件驱动等待：exec 完成与 stop_event 同时挂起，谁先到听谁的。
             # 旧实现每 0.1s 忙轮询一次，长执行下白耗调度且停止延迟固定。
-            exec_task = asyncio.create_task(
-                self.sandbox_execute(current_code, test_input, tool_id, exec_timeout=_debug_exec_timeout())
-            )
-            stop_waiters = set()
-            if stop_event:
-                _sw = asyncio.create_task(stop_event.wait())
-                stop_waiters.add(_sw)
-            done, pending = await asyncio.wait(
-                {exec_task} | stop_waiters, timeout=None,
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            if exec_task in done:
-                for w in stop_waiters:
-                    w.cancel()
-                exec_result = exec_task.result()
+            if skip_exec_for_security:
+                exec_result = {
+                    "exit_code": 1,
+                    "stdout": json.dumps({
+                        "status": "failed",
+                        "message": "安全审查未通过，已跳过执行",
+                        "error": "SecurityViolation",
+                    }, ensure_ascii=False),
+                    "stderr": "安全审查未通过，已跳过执行，请修复违规代码",
+                    "success": False,
+                }
             else:
-                exec_task.cancel()
-                try:
-                    await asyncio.wait_for(exec_task, timeout=2.0)
-                except (asyncio.TimeoutError, asyncio.CancelledError):
-                    pass
-                yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试（执行已中断）"}
-                return
+                exec_task = asyncio.create_task(
+                    self.sandbox_execute(current_code, test_input, tool_id, exec_timeout=_debug_exec_timeout())
+                )
+                stop_waiters = set()
+                if stop_event:
+                    _sw = asyncio.create_task(stop_event.wait())
+                    stop_waiters.add(_sw)
+                done, pending = await asyncio.wait(
+                    {exec_task} | stop_waiters, timeout=None,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if exec_task in done:
+                    for w in stop_waiters:
+                        w.cancel()
+                    exec_result = exec_task.result()
+                else:
+                    exec_task.cancel()
+                    try:
+                        await asyncio.wait_for(exec_task, timeout=2.0)
+                    except (asyncio.TimeoutError, asyncio.CancelledError):
+                        pass
+                    yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试（执行已中断）"}
+                    return
 
             if stop_event and stop_event.is_set():
                 yield {"event": "stopped", "round": round_num, "message": "用户手动停止调试"}
@@ -1318,6 +1351,18 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
                     success = True
 
             yield {"event": "exec_result", "round": round_num, "stdout": exec_result["stdout"], "stderr": exec_result["stderr"], "success": success}
+
+            # ── ②b 运行时安全事件上报 ──
+            if isinstance(output_data, dict) and output_data.get("_security_violations"):
+                _rt = output_data["_security_violations"]
+                yield {
+                    "event": "security_violation", "round": round_num, "runtime": True,
+                    "violations": [
+                        {"rule": "RUNTIME", "severity": "warn", "message": str(m), "line": 0, "snippet": ""}
+                        for m in _rt
+                    ],
+                    "message": f"运行时记录到 {len(_rt)} 项安全事件",
+                }
 
             if success:
                 yield {"event": "done", "round": round_num, "success": True, "code": current_code, "message": f"调试成功 (第{round_num}轮)"}
@@ -1390,7 +1435,7 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
 stdout: {_safe_stdout}
 stderr: {_safe_stderr}
 === END RESULT ===
-{dep_feedback}
+{dep_feedback}{security_feedback}
 
 仍按 <analysis>/<code> 格式输出。要求：<code> 内是完整 Python 文件（含模板头部），保留已正确的部分；调用大模型时 max_tokens=100000（或更大）。"""
             else:
@@ -1408,7 +1453,7 @@ stderr: {_safe_stderr}
 stdout: {_safe_stdout}
 stderr: {_safe_stderr}
 === END RESULT ===
-{dep_feedback}
+{dep_feedback}{security_feedback}
 
 请分两部分输出，严格使用以下格式：
 
@@ -1593,6 +1638,28 @@ stderr: {_safe_stderr}
                     "message": f"LLM 返回代码过短（{len(code_text)} 字符），跳过本轮。LLM 实际返回: {llm_raw}",
                 }
                 continue
+
+            # ── ⑤b 静态安全审查（LLM 新代码）──
+            # block 级违规：不采纳这段代码（也不写入跨轮对话历史，避免 LLM
+            # 误以为它被接受），把违规反馈给 LLM 下一轮重新生成
+            _new_violations = _review(code_text)
+            _new_blocks = _blocks(_new_violations)
+            if _new_blocks:
+                yield {
+                    "event": "security_violation", "round": round_num,
+                    "violations": [v.to_dict() for v in _new_blocks],
+                    "message": f"LLM 生成代码存在 {len(_new_blocks)} 项安全违规，已驳回",
+                }
+                security_feedback = (
+                    "\n[安全审查] 上次修改后的代码仍违反安全策略，必须修复以下违规"
+                    "（本地文件操作/系统调用只能通过 core API 完成）:\n"
+                    + "\n".join(f"- {v.message}（第 {v.line} 行）" for v in _new_blocks)
+                )
+                continue  # 不更新 current_code，下一轮继续修
+
+            # 通过审查：清除安全反馈，恢复正常执行
+            security_feedback = ""
+            skip_exec_for_security = False
 
             current_code = code_text
             debug_messages.append({"role": "user", "content": fix_prompt})
