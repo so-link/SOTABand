@@ -15,7 +15,9 @@ Agent 在磁盘上同样是「三元组」：
     definitions/<id>.md
     implementations/<id>/**
 
-安全策略与工具迁移一致：拒绝 zip slip、限制大小与成员数、只写私有资源根。
+安全策略与工具迁移一致：拒绝 zip slip、限制大小与成员数、落盘前过静态
+安全审查；落盘根默认私有资源根，仅超管导入 public 条目时落共享根（与
+AgentRegistry.register 同规则）。
 """
 
 from __future__ import annotations
@@ -34,10 +36,12 @@ from core.migration.tool_bundle import (
     MAX_TOTAL_MB,
     _collect_impl_files,
     _current_user,
+    _import_visibility,
     _now_iso,
     _sha256,
     _stamp,
     _parse_dependencies,
+    export_dir,
 )
 from core.resource import paths
 from core.resource.registry.agent_registry import AgentRegistry
@@ -56,7 +60,9 @@ def _registry() -> AgentRegistry:
 def _find_entry(agent_id: str) -> tuple[dict | None, Path | None]:
     """按「私有覆盖内置」的优先级找注册条目，返回 (条目, 来源根)。"""
     reg = _registry()
-    for root in reversed(paths.resource_roots()):
+    # resource_roots() 已是「私有 > 共享 > 内置」的优先序（2026-11-04 定），
+    # 直接按序命中即可，不能再 reversed()——那会翻回内置优先，导出时混版。
+    for root in paths.resource_roots():
         for e in reg.read_from(root):
             if isinstance(e, dict) and e.get("id") == agent_id:
                 return e, root
@@ -89,10 +95,7 @@ def _agent_python() -> str:
     return sys.executable
 
 
-def export_dir() -> Path:
-    d = paths.PROJECT_ROOT / "data" / "exports"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+# export_dir 复用 tool_bundle 的实现（按用户隔离到 <USER_HOME>/<uid>/exports）
 
 
 # ── 导出 ──────────────────────────────────────────────────────
@@ -152,7 +155,8 @@ def export_agent(
         "exported_at": _now_iso(),
         "source": {
             "project": paths.PROJECT_ROOT.name,
-            "origin": "private" if origin == paths.PRIVATE_ROOT else "builtin",
+            "origin": ("private" if origin == paths.private_root()
+                       else "shared" if origin == paths.shared_root() else "builtin"),
         },
         "agent": {
             "id": agent_id,
@@ -267,27 +271,28 @@ def import_agent(
         if not re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$", agent_id):
             raise ValueError(f"包内 Agent id 非法: {agent_id!r}")
 
-        private_agents = paths.ensure_private_dirs("agents")
-        def_dir = private_agents / "definitions"
-        impl_root = private_agents / "implementations"
-        def_dir.mkdir(parents=True, exist_ok=True)
-        impl_root.mkdir(parents=True, exist_ok=True)
-        def_path = def_dir / f"{agent_id}.md"
-        impl_dir = impl_root / agent_id
-
         reg_entry = None
         try:
             reg_entry = json.loads(zf.read("registry_entry.json").decode("utf-8"))
         except Exception:
             reg_entry = None
 
+        # 落盘根按可见性路由（与 AgentRegistry.register 同规则）：
+        # 仅超管可发布 public（落共享根、全员可用），其余一律私有根。
+        visibility = _import_visibility(
+            reg_entry.get("visibility") if isinstance(reg_entry, dict) else None)
+        write_root = _registry().write_root(visibility)
+        def_dir = write_root / "agents" / "definitions"
+        impl_root = write_root / "agents" / "implementations"
+        def_dir.mkdir(parents=True, exist_ok=True)
+        impl_root.mkdir(parents=True, exist_ok=True)
+        def_path = def_dir / f"{agent_id}.md"
+        impl_dir = impl_root / agent_id
+
         existing_entry, existing_origin = _find_entry(agent_id)
-        if existing_entry is not None and existing_origin == paths.BUILTIN_ROOT:
-            raise ValueError(
-                f"内置 Agent 空间已有同 id 的 {agent_id}，导入到私有根不会生效"
-                f"（运行时按内置优先）。请给迁移包换一个 id，"
-                f"或先从内置 resources/agents 移除该 Agent。"
-            )
+        # 内置同 id 允许导入：resource_roots() 私有优先，私有副本遮蔽内置，
+        # 与工具迁移 / tool_routes /import 的 overrode_builtin 先例一致。
+        overrode_builtin = existing_origin == paths.BUILTIN_ROOT
 
         existing = def_path.exists() or impl_dir.exists() or existing_entry is not None
         if existing and not overwrite:
@@ -320,6 +325,23 @@ def import_agent(
             if total > MAX_TOTAL_MB * 1024 * 1024:
                 raise ValueError(f"解压后总量超过 {MAX_TOTAL_MB}MB 上限")
             plan.append((rel, data))
+
+        # 落盘前静态安全审查：与 /api/tool/import 同一闸门，被阻断的代码不落盘。
+        from core.security.code_scan import check_undeclared_imports, scan_code
+
+        _req_text = "\n".join(str(d) for d in (manifest.get("dependencies") or []))
+        import_warnings: list[str] = []
+        for rel, data in plan:
+            if not rel.endswith(".py"):
+                continue
+            _code = data.decode("utf-8", errors="replace")
+            _scan = scan_code(_code)
+            if not _scan.ok:
+                raise ValueError(
+                    f"迁移包 {rel} 静态安全审查未通过：\n" + "\n".join(_scan.errors)
+                )
+            for _mod in check_undeclared_imports(_code, _req_text or None):
+                import_warnings.append(f"{rel}: import {_mod} 未在依赖清单声明")
 
         stamp = _stamp()
         backups: list[str] = []
@@ -356,23 +378,19 @@ def import_agent(
         "tags": entry.get("tags", agent_meta.get("tags", [])),
         "health": entry.get("health", "healthy"),
         "owner": _current_user(),
-        "visibility": entry.get("visibility") or "public",
+        "visibility": visibility,
         "imported_at": _now_iso(),
     })
     entry.setdefault("created_at", _now_iso())
 
-    registry_file = private_agents / "registry.json"
-    data: list[dict] = []
-    if registry_file.is_file():
-        try:
-            loaded = json.loads(registry_file.read_text(encoding="utf-8"))
-            if isinstance(loaded, list):
-                data = [e for e in loaded if isinstance(e, dict)]
-        except Exception:
-            data = []
-    data = [e for e in data if e.get("id") != agent_id]
-    data.append(entry)
-    registry_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    # 读-改-写走 AgentRegistry 的写锁 + 分层原子写：裸 write_text 会与
+    # register/unregister 的并发读-改-写互相覆盖丢条目
+    from core.resource.registry.agent_registry import _WRITE_LOCK
+    reg = _registry()
+    with _WRITE_LOCK:
+        data = [e for e in reg._read_scope(visibility) if e.get("id") != agent_id]
+        data.append(entry)
+        reg._write_scope(data, visibility)
 
     # 依赖工具体检：目标环境缺了它就跑不起来
     required_tools = [t for t in (entry.get("tools") or []) if isinstance(t, str)]
@@ -389,6 +407,8 @@ def import_agent(
         "files": written,
         "file_count": len(written),
         "overwritten": existing,
+        "overrode_builtin": overrode_builtin,
+        "import_warnings": import_warnings,
         "backups": backups,
         "dependencies": deps,
         "required_tools": required_tools,

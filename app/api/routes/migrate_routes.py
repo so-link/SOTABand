@@ -3,8 +3,9 @@
 对应 UI：工具空间的「导出」「导入」入口，以及内置工具 `tool-transfer`
 （Agent 在对话里也能直接调它完成搬运）。
 
-导出产物是 `.sotatool.zip`，默认落在 `<项目根>/data/exports/`，
-可通过 `GET /api/migrate/bundles` 列出、`GET /api/migrate/bundles/{name}` 下载。
+导出产物是 `.sotatool.zip`，默认落在**当前用户**的导出目录
+（``<USER_HOME>/<uid>/exports/``），可通过 `GET /api/migrate/bundles`
+列出、`GET /api/migrate/bundles/{name}` 下载——两者都只能在本人目录内解析。
 """
 
 from __future__ import annotations
@@ -12,16 +13,38 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import re
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from app.api.deps import require_superuser
 from core.migration import agent_bundle, tool_bundle
 
 router = APIRouter()
+
+
+def _confine_to_export_dir(raw: str) -> Path:
+    """把请求里的 bundle_path 收进**当前用户**的导出目录。
+
+    导出目录含各用户迁移包（实现代码 + 元数据），按 uid 隔离；不加限制的话
+    任何登录用户都能用绝对路径读别人的包、甚至读服务器上的任意 zip。
+    允许两种写法：裸文件名（在本人导出目录内解析）或本人目录内的绝对路径。
+    """
+    p = Path(raw)
+    allowed = tool_bundle.export_dir().resolve()
+    if p.is_absolute():
+        try:
+            resolved = p.resolve()
+        except OSError as e:
+            raise HTTPException(400, f"非法的包路径: {e}") from e
+        if allowed not in resolved.parents or not resolved.is_file():
+            raise HTTPException(400, "bundle_path 只能指向本人导出目录下的迁移包")
+        return resolved
+    return tool_bundle.resolve_bundle(p.name)
 
 
 def _deps_report(tool_id: str) -> dict:
@@ -159,8 +182,9 @@ async def import_tool(req: ImportToolRequest):
                 tool_bundle.import_tool, p, None, req.overwrite
             )
         elif req.bundle_path:
+            p = _confine_to_export_dir(req.bundle_path)
             result = await asyncio.to_thread(
-                tool_bundle.import_tool, Path(req.bundle_path), None, req.overwrite
+                tool_bundle.import_tool, p, None, req.overwrite
             )
         else:
             raise HTTPException(400, "必须提供 bundle_path / bundle_name / bundle_base64 之一")
@@ -278,8 +302,9 @@ async def import_agent(req: ImportAgentRequest):
                 agent_bundle.import_agent, p, None, req.overwrite
             )
         elif req.bundle_path:
+            p = _confine_to_export_dir(req.bundle_path)
             result = await asyncio.to_thread(
-                agent_bundle.import_agent, Path(req.bundle_path), None, req.overwrite
+                agent_bundle.import_agent, p, None, req.overwrite
             )
         else:
             raise HTTPException(400, "必须提供 bundle_path / bundle_name / bundle_base64 之一")
@@ -293,19 +318,39 @@ async def import_agent(req: ImportAgentRequest):
     return {"status": "success", "deps": deps, **result}
 
 
+# 依赖规格白名单：包名 + 可选 extras + 版本约束，仅此而已。
+# 明确拒绝：以 - 开头（会被 uv 解析成选项，如 --index-url 换源、
+# --config-settings 注入构建参数）、file:/path:/URL 规格、环境标记
+# （`;` 段）、以及一切空格/引号/分号等分隔字符——安装目标是**共享
+# 项目 venv**，一条恶意规格会影响全体用户的运行环境。
+_DEP_SPEC_RE = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9._-]*"                  # 包名
+    r"(\[[A-Za-z0-9._,\-]+\])?"                     # 可选 extras
+    r"((===|==|!=|<=|>=|~=|<|>)[A-Za-z0-9*.+!_\-]+)*$"  # 版本约束
+)
+
+
 @router.post("/agent/{agent_id}/install-deps")
-async def install_agent_deps(agent_id: str, req: dict):
-    """把 Agent 的 Python 依赖装进它的执行环境（项目 venv）。
+async def install_agent_deps(agent_id: str, req: dict,
+                             _su=Depends(require_superuser)):
+    """把 Agent 的 Python 依赖装进它的执行环境（项目 venv）。限超管。
 
     不能复用工具安装器：ToolCodeBuilder.install_deps 会把 agent_id 当成
     工具 id 去 tools/implementations/ 下找实现目录，找不到就在私有根凭空
     创建一个工具 .venv——装进去的包 Agent 运行时根本看不到。Agent 没有
     独立 venv，执行解释器是项目 venv（agent_bundle._agent_python），
     所以用 uv 直接 `uv pip install --python <项目 venv>` 安装。
+
+    安装目标是全体用户共享的项目 venv，因此限超管（与 config/llm 等平台
+    资产同级），并逐条通过 _DEP_SPEC_RE 白名单后才进 argv。
     """
     dependencies = req.get("dependencies", [])
     if not dependencies:
         raise HTTPException(400, "dependencies 不能为空")
+    cleaned = [str(d).strip() for d in dependencies if str(d).strip()]
+    for d in cleaned:
+        if not _DEP_SPEC_RE.match(d):
+            raise HTTPException(400, f"依赖规格不被允许: {d!r}（仅支持「包名[extras] + 版本约束」）")
 
     from core.migration.agent_bundle import _agent_python
     from core.resource.deps import uv_bin, uv_pip_install_argv
@@ -342,8 +387,7 @@ async def install_agent_deps(agent_id: str, req: dict):
         tail = (proc.stdout or "") + (proc.stderr or "")
         return {"dep": dep, "success": False, "reason": tail[-2000:]}
 
-    results = [await asyncio.to_thread(_install_one, d)
-               for d in dependencies if str(d).strip()]
+    results = [await asyncio.to_thread(_install_one, d) for d in cleaned]
     return {"python": python_exe, "env": "project_venv", "results": results}
 
 

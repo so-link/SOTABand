@@ -17,7 +17,10 @@
 安全：
   * 拒绝 `..`、绝对路径、反斜杠、符号链接（zip slip）；
   * 限制包大小 / 解压总量 / 单文件 / 成员数；
-  * 目标目录固定为私有资源根，永不写内置资源（内置随包分发、只读）。
+  * 目标目录固定为私有资源根，永不写内置资源（内置随包分发、只读）；
+  * 落盘前过静态安全审查（与 /api/tool/import 同一闸门），被阻断的代码不落盘；
+  * 导出目录按用户隔离（<USER_HOME>/<uid>/exports），包是用户资产，
+    list / 下载 / bundle_path 一律只能在当前用户自己的目录内解析。
 """
 
 from __future__ import annotations
@@ -66,9 +69,16 @@ def _registry() -> ToolRegistry:
     return ToolRegistry()
 
 
-def export_dir() -> Path:
-    """导出包默认目录（随项目分发之外，git 已忽略）。"""
-    d = paths.PROJECT_ROOT / "data" / "exports"
+def export_dir(uid: str | None = None) -> Path:
+    """当前用户的导出包目录：<USER_HOME>/<uid>/exports。
+
+    迁移包里含实现代码与注册元数据，属于用户资产；放在项目共享目录会让
+    任何登录用户都能 list/下载到别人的包。按用户目录隔离后，与私有资源根
+    同一套身份解析（core.user_paths），单用户模式下仍固定在 0 号目录。
+    """
+    from core.user_paths import user_home
+
+    d = user_home(uid) / "exports"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -85,10 +95,28 @@ def _current_user() -> str:
         return "unknown"
 
 
+def _import_visibility(declared: object) -> str:
+    """导入条目的可见性：仅超管可保留 public，其余一律 private。
+
+    与 agent_routes 注册路径（current_role() 判定）保持一致：导入不是
+    发布通道，普通用户不应经由迁移包把资源标成全员可见。
+    """
+    if str(declared or "") == "public":
+        try:
+            from app.api.deps import current_role
+            if current_role() == "admin":
+                return "public"
+        except Exception:
+            pass
+    return "private"
+
+
 def _find_entry(tool_id: str) -> tuple[dict | None, Path | None]:
     """按「私有覆盖内置」的优先级找注册条目，并返回它来自哪个根。"""
     reg = _registry()
-    for root in reversed(paths.resource_roots()):
+    # resource_roots() 已是「私有 > 共享 > 内置」的优先序（2026-11-04 定），
+    # 直接按序命中即可，不能再 reversed()——那会翻回内置优先，导出时混版。
+    for root in paths.resource_roots():
         for e in reg.read_from(root):
             if isinstance(e, dict) and e.get("id") == tool_id:
                 return e, root
@@ -168,7 +196,7 @@ def export_tool(
 
     Args:
         tool_id: 工具 id
-        out_dir: 输出目录，默认 data/exports
+        out_dir: 输出目录，默认本人导出目录 <USER_HOME>/<uid>/exports
         include_tests: 是否带上 implementations/<id>/tests
         include_assets: 是否带上常见二进制资产（.xml/.onnx/.pt …）
 
@@ -219,7 +247,8 @@ def export_tool(
         "exported_at": _now_iso(),
         "source": {
             "project": paths.PROJECT_ROOT.name,
-            "origin": "private" if origin == paths.PRIVATE_ROOT else "builtin",
+            "origin": ("private" if origin == paths.private_root()
+                       else "shared" if origin == paths.shared_root() else "builtin"),
         },
         "tool": {
             "id": tool_id,
@@ -363,14 +392,10 @@ def import_tool(
             reg_entry = None
 
         existing_entry, existing_origin = _find_entry(tool_id)
-        # 内置同 id 不能覆盖：ToolExecutor 定位实现时「内置优先」，
-        # 写入私有根会被内置版本遮蔽 —— 看起来导入成功，跑的却是内置代码。
-        if existing_entry is not None and existing_origin == paths.BUILTIN_ROOT:
-            raise ValueError(
-                f"内置工具空间已有同 id 工具 {tool_id}，导入到私有根不会生效"
-                f"（执行时内置实现优先）。请给迁移包换一个 id，"
-                f"或先从内置 resources/tools 移除该工具。"
-            )
+        # 内置同 id 允许导入：resource_roots() 私有优先，私有副本遮蔽内置，
+        # 与「复制为我的副本」同一覆盖层语义（见 tool_routes /import 的
+        # overrode_builtin 先例）。响应里带 overrode_builtin=true 由 UI 警示。
+        overrode_builtin = existing_origin == paths.BUILTIN_ROOT
 
         existing = def_path.exists() or impl_dir.exists() or existing_entry is not None
         if existing and not overwrite:
@@ -405,6 +430,23 @@ def import_tool(
                 raise ValueError(f"解压后总量超过 {MAX_TOTAL_MB}MB 上限")
             plan.append((rel, data))
 
+        # 落盘前静态安全审查：与 /api/tool/import 同一闸门，被阻断的代码不落盘。
+        from core.security.code_scan import check_undeclared_imports, scan_code
+
+        _req_text = "\n".join(str(d) for d in (manifest.get("dependencies") or []))
+        import_warnings: list[str] = []
+        for rel, data in plan:
+            if not rel.endswith(".py"):
+                continue
+            _code = data.decode("utf-8", errors="replace")
+            _scan = scan_code(_code)
+            if not _scan.ok:
+                raise ValueError(
+                    f"迁移包 {rel} 静态安全审查未通过：\n" + "\n".join(_scan.errors)
+                )
+            for _mod in check_undeclared_imports(_code, _req_text or None):
+                import_warnings.append(f"{rel}: import {_mod} 未在依赖清单声明")
+
         stamp = _stamp()
         backups: list[str] = []
         if impl_dir.exists():
@@ -429,6 +471,7 @@ def import_tool(
 
     # ── registry：合并进私有 registry.json ──
     entry: dict = dict(reg_entry) if isinstance(reg_entry, dict) else {}
+    owner = _current_user()
     entry.update({
         "id": tool_id,
         "name": entry.get("name") or tool_meta.get("name") or tool_id,
@@ -443,25 +486,22 @@ def import_tool(
         "param_meta": entry.get("param_meta", tool_meta.get("param_meta", [])),
         "input_schema": entry.get("input_schema", tool_meta.get("input_schema", {})),
         "output_schema": entry.get("output_schema", tool_meta.get("output_schema", {})),
-        "owner": _current_user(),
-        "visibility": entry.get("visibility") or "public",
+        "owner": owner,
+        # 与 agent_routes 注册路径同规则：仅超管可发布 public，普通用户导入即私有
+        "visibility": _import_visibility(entry.get("visibility")),
         "imported_at": _now_iso(),
     })
     entry.setdefault("created_at", _now_iso())
     entry.setdefault("usage_count", 0)
 
-    registry_file = private_tools / "registry.json"
-    data: list[dict] = []
-    if registry_file.is_file():
-        try:
-            loaded = json.loads(registry_file.read_text(encoding="utf-8"))
-            if isinstance(loaded, list):
-                data = [e for e in loaded if isinstance(e, dict)]
-        except Exception:
-            data = []
-    data = [e for e in data if e.get("id") != tool_id]
-    data.append(entry)
-    registry_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    # 读-改-写走 ToolRegistry 的写锁 + 原子写：裸 write_text 会与
+    # register/update 的并发读-改-写互相覆盖丢条目（tool_registry._WRITE_LOCK）
+    from core.resource.registry.tool_registry import _WRITE_LOCK
+    reg = _registry()
+    with _WRITE_LOCK:
+        data = [e for e in reg._read_private() if e.get("id") != tool_id]
+        data.append(entry)
+        reg._write(data)
 
     deps = manifest.get("dependencies") or []
     return {
@@ -472,6 +512,8 @@ def import_tool(
         "files": written,
         "file_count": len(written),
         "overwritten": existing,
+        "overrode_builtin": overrode_builtin,
+        "import_warnings": import_warnings,
         "backups": backups,
         "dependencies": deps,
         "def_path": str(def_path),
