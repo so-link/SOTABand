@@ -272,18 +272,39 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
 
   const codeDirty = draftCode.trim() !== code.trim()
 
-  // 任务式 Agent：从 MD 规范文档的「## 输入」段落解析启动参数名
-  // 支持 "## 输入" / "## 参数" 段落下的 "- name: ..." 列表
+  // 任务式 Agent：从 MD 规范文档的输入段解析启动参数名。
+  // 与后端 AgentCodeBuilder._parse_spec_inputs 保持一致，支持：
+  //   - 标题："## 输入" / "## 3. 输入规范" / "### 参数"
+  //   - 列表："- name: 说明（string，必填）"
+  //   - 表格："| name | string | 是 | 说明 |"
+  // 解析不到参数名时，启动面板会显示「无启动参数」，Agent 便只能收到空参数。
   const taskInputNames: string[] = (() => {
     if (!isTask || !specMd) return []
-    const m = specMd.match(/^##+\s*(输入|参数|启动参数)\s*$([\s\S]*?)(^##+\s|\Z)/m)
-    if (!m) return []
-    const body = m[2] || ''
+    const lines = specMd.split('\n')
+    const headRe = /^#{2,3}\s*(?:[\d一二三四五六七八九十]+[.、)．]?\s*)?(输入|输入规范|参数|启动参数)\s*$/
     const names: string[] = []
-    const re = /^\s*[-*]\s*([A-Za-z_][\w-]*)\s*[:：]/gm
-    let mm: RegExpExecArray | null
-    while ((mm = re.exec(body)) !== null) names.push(mm[1])
-    return names
+    let inSection = false
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim()
+      if (!inSection) {
+        if (headRe.test(line)) inSection = true
+        continue
+      }
+      // 遇到同级或更高级标题即结束
+      if (/^#{1,3}\s+\S/.test(line)) break
+      if (!line) continue
+      const lm = line.match(/^[-*]\s*`?([A-Za-z_][\w-]*)`?\s*[:：]/)
+      if (lm) { names.push(lm[1]); continue }
+      if (line.startsWith('|')) {
+        const cells = line.replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim())
+        if (!cells[0] || /^[-:\s]+$/.test(cells[0])) continue          // 分隔行
+        const next = lines.slice(i + 1).map((l) => l.trim()).find(Boolean) || ''
+        if (/^\|[\s:|-]+\|?$/.test(next)) continue                     // 表头行
+        const cm = cells[0].replace(/`/g, '').match(/^[A-Za-z_][\w-]*$/)
+        if (cm) names.push(cm[0])
+      }
+    }
+    return Array.from(new Set(names))
   })()
 
   /** 内置资源不可直接写：保存前先确保有我的副本（就地复制到私有），返回可否继续 */

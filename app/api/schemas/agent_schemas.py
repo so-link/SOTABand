@@ -39,12 +39,23 @@ class RegisterAgentRequest(BaseModel):
 
 
 class AgentExecuteRequest(BaseModel):
-    """向 Agent 发送输入"""
+    """向 Agent 发送输入。
+
+    三类 Agent 的入口参数不同：
+      - interactive：content
+      - task：MD「## 输入」声明的启动参数（如 name / city ...）
+      - web-service：由 /test-api 走 HTTP，不经此路由
+
+    因此不能只声明 content —— 多余字段必须放行，否则任务式 Agent 的
+    启动参数会被静默丢弃，表现为「参数明明填了却报缺少必填参数」。
+    """
 
     content: str = ""
     # Agent 空间对话落库的会话 ID（同一 Agent 一个会话，前端生成后固定传递；
     # 不传则不落库，兼容脚本直接调用）
     session_id: str = ""
+
+    model_config = {"extra": "allow"}
 
 
 class AgentStatusResponse(BaseModel):

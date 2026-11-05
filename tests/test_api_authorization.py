@@ -220,26 +220,33 @@ def test_chat_send_ignores_client_user_id(client, tokens, monkeypatch):
 
 
 def test_agent_execute_uses_login_identity(client, tokens, monkeypatch):
-    """/api/agent/{id}/execute 同样按登录用户执行，不落 default 目录。"""
+    """/api/agent/{id}/execute 同样按登录用户执行，不落 default 目录。
+
+    同时验证启动参数透传：task 式 Agent 的自定义参数必须原样传到子进程，
+    session_id 除外（它是落库用的路由字段，不是 Agent 入参）。
+    """
     import app.api.routes.agent_routes as ar
 
     captured: dict = {}
 
-    async def fake_execute(agent_id, content, context=None):
+    async def fake_execute_stream(agent_id, params=None, context=None):
         captured["context"] = context
+        captured["params"] = params
         yield {"event": "done", "data": {}}
 
     async def fake_get(agent_id):
         return {"id": agent_id, "name": "x"}
 
     monkeypatch.setattr(ar.agent_factory, "is_running", lambda _aid: True)
-    monkeypatch.setattr(ar.agent_factory, "execute", fake_execute)
+    monkeypatch.setattr(ar.agent_factory, "execute_stream", fake_execute_stream)
     monkeypatch.setattr(ar.registry, "get", fake_get)
 
     r = client.post("/api/agent/some-agent/execute", headers=_bearer(tokens["alice"]),
-                    json={"content": "hi"})
+                    json={"name": "北京", "session_id": "agent-chat-x"})
     assert r.status_code == 200, r.text
     assert captured["context"]["user_id"] == "1000"
+    # 自定义启动参数透传，session_id 被剔除
+    assert captured["params"] == {"name": "北京"}
 
 
 def test_get_current_user_id_does_not_cache(monkeypatch):

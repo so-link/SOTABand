@@ -297,7 +297,12 @@ async def generate_spec(req: GenerateSpecRequest):
                     full += token
                     yield {"event": "delta", "data": json.dumps({"token": token}, ensure_ascii=False)}
 
-            yield {"event": "done", "data": json.dumps({"spec_md": full.strip()}, ensure_ascii=False)}
+            # 边界归一化：把 flow/apis 里可能出现的「工具显示名」改写成真实工具 id，
+            # 让落库的规范文档从一开始就是 id（历史问题：私有用具查不到 → 显示名入 MD）。
+            # 注意：done 事件下发的是归一化后的全文，与前面 delta 增量可能不一致——
+            # 前端以 done 的 spec_md 为准整体覆盖。
+            spec_md = builder.normalize_tool_refs(full.strip())
+            yield {"event": "done", "data": json.dumps({"spec_md": spec_md}, ensure_ascii=False)}
 
         except Exception as exc:
             if isinstance(exc, HTTPException):
@@ -329,7 +334,9 @@ _ROLE_SPEC_GUIDANCE = {
         "]\n"
         "```\n"
         "- 参数引用语法：`{{input.xxx}}` 引用启动参数；`{{stepN.data.xxx}}` 引用第 N 步输出。\n"
-        "- tool 的值必须是真实存在的工具 id（参考上文工具信息）。"
+        "- tool 的值必须是**上文工具信息里给出的 tool_id**（英文标识）；"
+        "**禁止**写中文显示名（如【【问候程序】】里的 \"问候程序\"），"
+        "显示名只用于正文描述，执行层只认 id。"
     ),
     "web-service": (
         "- role 字段必须为 `web-service`。\n"
@@ -347,7 +354,9 @@ _ROLE_SPEC_GUIDANCE = {
         "]\n"
         "```\n"
         "- 参数引用语法：`{{param.xxx}}` 引用请求参数；`{{stepN.data.xxx}}` 引用第 N 步输出。\n"
-        "- tool 的值必须是真实存在的工具 id（参考上文工具信息）。"
+        "- flow 里 tool 的值必须是**上文工具信息里给出的 tool_id**（英文标识）；"
+        "**禁止**写中文显示名（如【【问候程序】】里的 \"问候程序\"），"
+        "显示名只用于正文描述，执行层只认 id。"
     ),
 }
 
@@ -405,8 +414,11 @@ async def generate_code(req: GenerateCodeRequest):
 
             code = await build_task
 
-            # 沙箱测试
-            sandbox = await builder.dry_run(code, role=req.role or "task")
+            # 沙箱测试（role 与 build 实际采用的一致：MD frontmatter 优先，
+            # 其次请求传值，保证契约校验对上的正是生成时用的角色）
+            sandbox = await builder.dry_run(
+                code, role=builder._normalize_role(builder._extract_role(req.spec_md) or req.role),
+            )
 
             yield {"event": "done", "data": json.dumps({"code": code, "sandbox_results": sandbox}, ensure_ascii=False, default=str)}
 
@@ -583,8 +595,12 @@ async def register_agent(req: RegisterAgentRequest):
 
     agent_id = req.agent_id or "custom-agent"
 
+    # 落库前归一化：flow/apis 里的工具显示名 → 真实工具 id，
+    # 之后所有引用一律基于归一化后的 spec_md 落库
+    spec_md = AgentCodeBuilder.normalize_tool_refs(req.spec_md)
+
     # 从 MD 中提取 agent-id
-    for line in req.spec_md.split("\n"):
+    for line in spec_md.split("\n"):
         if line.startswith("id:") and "---" not in line:
             agent_id = line.split(":", 1)[1].strip()
             break
@@ -605,7 +621,7 @@ async def register_agent(req: RegisterAgentRequest):
     # 都显示为「通用任务」（tools 恒为空）。
     tool_ids: list[str] = []
     try:
-        for tr in AgentCodeBuilder._extract_tool_refs(req.spec_md):
+        for tr in AgentCodeBuilder._extract_tool_refs(spec_md):
             if tr.get("id") and tr["id"] not in tool_ids:
                 tool_ids.append(tr["id"])
     except Exception:
@@ -622,7 +638,7 @@ async def register_agent(req: RegisterAgentRequest):
         "name": req.agent_name,
         "version": req.version,
         "role": req.role,
-        "raw_md": req.spec_md,
+        "raw_md": spec_md,
         "tags": req.tags,
         "required_tools": tool_ids,
         "visibility": visibility,
@@ -637,7 +653,7 @@ async def register_agent(req: RegisterAgentRequest):
         impl_dir = registry._get_impl_dir(visibility) / registered_id
         impl_dir.mkdir(parents=True, exist_ok=True)
         (impl_dir / "agent.py").write_text(req.code, encoding="utf-8")
-        (impl_dir / "spec.md").write_text(req.spec_md, encoding="utf-8")
+        (impl_dir / "spec.md").write_text(spec_md, encoding="utf-8")
         (impl_dir / "config.yaml").write_text(
             f"# {req.agent_name} 运行时配置\n"
             f"role: {req.role}\n"
@@ -1049,6 +1065,17 @@ async def execute_agent(agent_id: str, req: AgentExecuteRequest):
     if persist_sid and user_text:
         chat_store.append_message(persist_sid, agent_id, "user", user_text)
 
+    # 透传调用方提供的全部参数（task 的启动参数名各不相同，不能只取 content）。
+    # extra="allow" 已在 schema 中开启，这里只滤掉空值与 session_id（落库用，
+    # 不属于 Agent 入参），保证「显式传空」与「没传」等价。
+    params = {
+        k: v for k, v in req.model_dump(exclude_unset=True).items()
+        if v not in (None, "") and k != "session_id"
+    }
+    if not params:
+        # 无参数时给一个空的 content，让 Agent 走自己的「未提供输入」提示分支
+        params = {"content": ""}
+
     async def event_gen():
         nonlocal task_finished
         seen_done = False
@@ -1073,8 +1100,8 @@ async def execute_agent(agent_id: str, req: AgentExecuteRequest):
         try:
             # 执行身份取当前登录用户：子进程据此设 SOTABAND_USER_ID，
             # 决定工具产物与文件读写落在哪个用户目录（见 entrypoint）。
-            async for event in agent_factory.execute(
-                agent_id, req.content,
+            async for event in agent_factory.execute_stream(
+                agent_id, params=params,
                 context={"user_id": get_current_user_id()},
             ):
                 ev_type = event.get("event", "content")
