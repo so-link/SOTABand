@@ -152,13 +152,14 @@ async def check_target(kind: str, target_id: str,
                        owner: str | None = None) -> tuple[bool, str]:
     """校验任务目标存在且可用。返回 (ok, 错误信息)。
 
-    ``owner`` 传入时一并校验 Agent 可见性：普通用户创建的私有 Agent
+    ``owner`` 传入时一并校验 Agent/工具可见性：普通用户创建的私有资源
     不能挂到别人的定时任务上。
     """
     if kind == "tool":
         from core.resource.registry.tool_registry import ToolRegistry
-        entry = await ToolRegistry().get(target_id)
-        if not entry:
+        reg = ToolRegistry()
+        entry = await reg.get(target_id)
+        if not entry or (owner and not reg.is_visible(entry, owner)):
             return False, f"工具不存在: {target_id}"
         if entry.get("status") and entry["status"] != "active":
             return False, f"工具状态不可用: {entry['status']}"

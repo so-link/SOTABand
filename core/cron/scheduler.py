@@ -37,6 +37,16 @@ def _uid_or_current(uid: str | None) -> str:
     """路由层调用总是带 uid（当前登录用户）；缺省时回退当前身份。"""
     return uid if uid is not None else current_uid()
 
+
+def _alive_uids() -> set[str]:
+    """用户表中存在的 uid——删号用户（目录残留）的任务不再触发。
+
+    超管行恒在表中，单用户模式下匿名超管（uid=0）的任务不受影响。
+    """
+    from core.auth import known_uids
+
+    return known_uids()
+
 # sleep 单段上限（秒）：即便 cancel 传播异常，也能周期性重读任务配置自愈
 MAX_SLEEP_SLICE = 300.0
 
@@ -60,7 +70,10 @@ class CronScheduler:
         if self._started:
             return
         self._started = True
+        alive = _alive_uids()
         for uid, job in store.iter_jobs(include_disabled=False):
+            if uid not in alive:  # 用户已删号（目录残留但不在用户表）：不再调度
+                continue
             try:
                 self._spawn(uid, job["id"])
             except Exception as exc:  # 单任务隔离：坏任务不影响其它任务与启动
@@ -154,6 +167,8 @@ class CronScheduler:
                 raise
 
     async def _fire_guarded(self, uid: str, job: dict[str, Any], trigger: str) -> None:
+        if uid not in _alive_uids():  # 删号用户在循环睡眠期间被删：不再触发
+            return
         key = _key(uid, job["id"])
         if key in self._running:  # max_instances=1 + coalesce
             run_id = store.run_start(job["id"], trigger, uid=uid)

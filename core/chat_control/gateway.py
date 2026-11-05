@@ -56,18 +56,15 @@ def resolve_owner(raw: str | None = None) -> str:
 
 
 def _role_of(uid: str) -> str:
-    """网关内按 owner 查真实角色（注入 AuthUser 用）。
+    """网关内按 owner 判定角色（注入 AuthUser 用）。
 
-    网关是进程内路径，没有 HTTP 依赖注入；此前恒以 role="user" 注入，
-    超级用户在对话里也删不掉内置资源。角色必须回用户表查，超管 uid=0
-    恒为 admin。
+    唯一 admin = .env 超管（uid=0），按 uid 判定、不回用户表查 role：
+    表内遗留的 role=admin（老库首用户）不再授予任何权限——与
+    app.api.deps.require_superuser / current_role 同一口径。
     """
-    from core.auth import SUPERUSER_UID, get_user_by_id
+    from core.auth import is_superuser_uid
 
-    if str(uid) == SUPERUSER_UID:
-        return "admin"
-    row = get_user_by_id(str(uid)) or {}
-    return "admin" if row.get("role") == "admin" else "user"
+    return "admin" if is_superuser_uid(uid) else "user"
 
 
 def _cfg() -> Any:

@@ -307,6 +307,151 @@ def test_prefs_isolated_per_user(superuser_env):
     reset_current_user(t)
 
 
+# ── 令牌吊销（删号/改密后旧令牌立即失效） ──
+
+def test_token_invalidated_after_password_change(superuser_env):
+    u = create_user("alice", "alice-password")
+    token = issue_token(authenticate("alice", "alice-password"))
+    assert verify_token(token) is not None
+    change_own_password(u["id"], "alice-password", "new-password-1")
+    assert verify_token(token) is None
+    # 改密后重新登录拿到的新令牌可用
+    assert verify_token(issue_token(authenticate("alice", "new-password-1"))) is not None
+
+
+def test_token_invalidated_after_admin_reset(superuser_env):
+    u = create_user("alice", "alice-password")
+    token = issue_token(authenticate("alice", "alice-password"))
+    set_password(u["id"], "reset-by-admin")
+    assert verify_token(token) is None
+
+
+def test_token_invalidated_after_delete_user(superuser_env):
+    u = create_user("alice", "alice-password")
+    token = issue_token(authenticate("alice", "alice-password"))
+    delete_user(u["id"])
+    assert verify_token(token) is None
+
+
+def test_superuser_token_unaffected_by_recheck(superuser_env):
+    """.env 超管通道：行恒在表里、pwd_version 恒缺省，令牌照常有效。"""
+    token = issue_token(authenticate("root", "sup3r-secret-pw"))
+    payload = verify_token(token)
+    assert payload is not None
+    assert payload["uid"] == "0" and payload["role"] == "admin"
+
+
+def test_forged_or_stale_admin_role_in_token_is_rewritten(superuser_env):
+    """签名有效但 role=admin 烙在 payload 里的普通用户令牌：回表后角色降为 user。
+
+    模拟老库首用户升级前签发的旧令牌（HMAC 仍有效、exp 未到）。
+    """
+    import hashlib
+    import hmac
+    import time as _time
+
+    from core.auth import _b64e, _get_secret
+
+    create_user("alice", "alice-password")
+    payload = {"uid": "1000", "username": "alice", "role": "admin",
+               "pwd": 0, "exp": int(_time.time()) + 60}
+    body = _b64e(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+    sig = hmac.new(_get_secret(), body.encode("ascii"), hashlib.sha256).digest()
+    checked = verify_token(f"{body}.{_b64e(sig)}")
+    assert checked is not None and checked["role"] == "user"
+
+
+# ── 唯一 admin：表内遗留 role=admin 不再是权限依据 ──
+
+def test_legacy_admin_row_is_demoted_on_load(superuser_env):
+    from core.auth import USERS_FILE
+
+    create_user("alice", "alice-password")
+    raw = json.loads(USERS_FILE.read_text(encoding="utf-8"))
+    next(u for u in raw if str(u["id"]) == "1000")["role"] = "admin"
+    USERS_FILE.write_text(json.dumps(raw), encoding="utf-8")
+
+    assert get_user_by_id("1000")["role"] == "user"  # 回表即降级
+    raw_after = json.loads(USERS_FILE.read_text(encoding="utf-8"))
+    assert next(u for u in raw_after if str(u["id"]) == "1000")["role"] == "user"
+
+
+def test_require_superuser_rejects_admin_role_identity():
+    """uid≠0 的 AuthUser 即使 role=admin 也被 require_superuser 拒绝。"""
+    from fastapi import HTTPException
+
+    from app.api.deps import require_superuser
+    from core.auth.session import AuthUser, reset_current_user, set_current_user
+
+    token = set_current_user(AuthUser(id="1000", username="alice", role="admin"))
+    try:
+        with pytest.raises(HTTPException) as ei:
+            require_superuser()
+        assert ei.value.status_code == 403
+    finally:
+        reset_current_user(token)
+
+
+# ── cron：删号用户任务不再触发 ──
+
+def test_delete_user_clears_their_cron_jobs(superuser_env):
+    from core.cron import store as cron_store
+
+    alice = create_user("alice", "alice-password")
+    cron_store.create({"name": "j", "kind": "tool", "target_id": "t",
+                       "cron": "0 * * * *", "owner": alice["id"]}, uid=alice["id"])
+    assert cron_store.list_jobs(uid=alice["id"])
+    delete_user(alice["id"])
+    assert cron_store.list_jobs(uid=alice["id"]) == []
+    # 只删任务定义：用户目录与库文件保留（数据删除留给手工）
+    assert user_paths.user_home(alice["id"]).is_dir()
+
+
+def test_scheduler_start_skips_deleted_users(superuser_env, monkeypatch):
+    """调度循环恢复任务时跳过用户表里不存在的 uid；超管任务不受影响。"""
+    import asyncio
+
+    from core.cron import scheduler as sched_mod
+    from core.cron import store as cron_store
+
+    alice = create_user("alice", "alice-password")
+    su_job = cron_store.create({"name": "su", "kind": "tool", "target_id": "t",
+                                "cron": "0 * * * *", "owner": "0"}, uid="0")
+    delete_user(alice["id"])
+    # 模拟残留库（如其它机器拷来的旧 platform.db）：删号后库里仍有任务
+    cron_store.create({"name": "ghost", "kind": "tool", "target_id": "t",
+                       "cron": "0 * * * *", "owner": alice["id"]}, uid=alice["id"])
+
+    spawned: list[tuple[str, str]] = []
+    sched = sched_mod.CronScheduler()
+    monkeypatch.setattr(sched, "_spawn", lambda uid, job_id: spawned.append((uid, job_id)))
+    asyncio.run(sched.start())
+
+    assert spawned == [("0", su_job["id"])]
+
+
+def test_check_target_tool_visibility(superuser_env, monkeypatch):
+    """kind=tool 也要按 owner 过 is_visible——私有工具不能挂别人的定时任务。"""
+    import asyncio
+
+    import core.resource.registry.tool_registry as tr_mod
+    from core.cron import runner
+
+    class FakeReg:
+        async def get(self, tid):
+            return {"id": tid, "status": "active", "visibility": "private", "owner": "1000"}
+
+        def is_visible(self, entry, uid):
+            return entry.get("owner") == uid
+
+    monkeypatch.setattr(tr_mod, "ToolRegistry", FakeReg)
+    assert asyncio.run(runner.check_target("tool", "t1", owner="1000"))[0] is True
+    ok, msg = asyncio.run(runner.check_target("tool", "t1", owner="1001"))
+    assert ok is False and "t1" in msg
+    # owner 缺省（历史数据）保持原行为
+    assert asyncio.run(runner.check_target("tool", "t1"))[0] is True
+
+
 def test_prefs_rejects_oversized_value(superuser_env):
     from core import user_prefs
     from core.auth.session import AuthUser, reset_current_user, set_current_user

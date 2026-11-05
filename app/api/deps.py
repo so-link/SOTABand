@@ -28,7 +28,11 @@ def require_login() -> AuthUser:
 
 def require_superuser() -> AuthUser:
     user = require_login()
-    if not user.is_admin:
+    from core.auth import is_superuser_uid
+
+    # 唯一 admin = .env 超管（uid=0）。不看令牌/表里的 role：老库首用户
+    # role=admin 的历史遗留与旧令牌里烙下的 role 都不再是权限依据。
+    if not is_superuser_uid(user.id):
         raise HTTPException(status_code=403, detail="仅超级用户可以执行该操作")
     return user
 
@@ -36,18 +40,15 @@ def require_superuser() -> AuthUser:
 def current_role() -> str:
     """当前请求角色；匿名（单用户模式已在中间件注入超管）按 admin 处理。
 
-    网关等没有 HTTP 依赖注入的进程内路径用它取角色：那里 set_current_user
-    注入的是会话归属人，角色必须回用户表查，不能像中间件那样默认。
+    唯一 admin = .env 超管（uid=0）：按 uid 判定，不回用户表查 role——
+    表内遗留的 role=admin（老库首用户）不再授予任何权限。
     """
+    from core.auth import is_superuser_uid
+
     u = get_current_user()
     if u is None:
         return "admin"
-    if u.is_admin:
-        return "admin"
-    from core.auth import get_user_by_id
-
-    row = get_user_by_id(u.id) or {}
-    return "admin" if row.get("role") == "admin" else "user"
+    return "admin" if is_superuser_uid(u.id) else "user"
 
 
 def ensure_can_touch_builtin(layer_hit: str | None, *, action: str = "修改") -> None:

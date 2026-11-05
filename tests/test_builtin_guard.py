@@ -3,7 +3,7 @@
 覆盖 app.api.deps.ensure_can_touch_builtin 与 gateway._role_of 的核心语义：
 - 命中私有层（个人定制版）→ 任何身份放行
 - 命中内置层 → 超管放行、普通用户 403、匿名按单用户模式视为超管放行
-- 网关注入身份的角色回用户表查（超管 uid=0 恒为 admin）
+- 网关注入身份的角色按 uid 判定（唯一 admin = .env 超管 uid=0）
 """
 
 import pytest
@@ -74,10 +74,11 @@ def test_gateway_role_of_regular_user_falls_back(monkeypatch):
                         lambda uid: {"id": uid, "role": "user"})
     assert gw._role_of("1000") == "user"
 
-    # 用户表里标了 admin 的普通 uid 也算 admin（表是唯一事实源）
+    # 表内遗留 role=admin 的普通 uid 也是 user：唯一 admin = .env 超管（uid=0），
+    # 角色按 uid 判定，表里的 role 不再是权限依据
     monkeypatch.setattr(auth_mod, "get_user_by_id",
                         lambda uid: {"id": uid, "role": "admin"})
-    assert gw._role_of("1001") == "admin"
+    assert gw._role_of("1001") == "user"
 
 
 def test_gateway_role_of_unknown_user_is_regular(monkeypatch):

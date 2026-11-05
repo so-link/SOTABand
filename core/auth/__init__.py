@@ -102,7 +102,7 @@ def _seed_superuser_row(users: list[dict]) -> dict:
 
 
 def _downgrade_legacy_admins(users: list[dict]) -> None:
-    """表内 role=admin 的普通行降级为 user——原地修改，由调用方落盘。
+    """表内 role=admin 的普通行降级为 user——原地修改，仅变化时落盘。
 
     唯一 admin 是 .env 超管（id=0）：老库首用户 role=admin 的历史遗留若
     不清除，升级后仍会保留全部超管权限，与「仅 .env 超管可管理用户/内置
@@ -117,12 +117,6 @@ def _downgrade_legacy_admins(users: list[dict]) -> None:
         _save_users(users)
 
 
-def downgrade_table_admins() -> None:
-    """启动时调用：清除表内遗留的 admin 角色（见 ``_downgrade_legacy_admins``）。"""
-    users = _raw_load_users()
-    _downgrade_legacy_admins(users)
-
-
 def is_superuser_uid(uid: str) -> bool:
     """uid 是否属于 .env 超管——全系统唯一的 admin 判定口径（角色收口用）。"""
     return str(uid) == SUPERUSER_UID
@@ -131,9 +125,9 @@ def is_superuser_uid(uid: str) -> bool:
 def known_uids() -> set[str]:
     """用户表中存在的 uid 集合。
 
-    删号/令牌回查与 cron 调度都要以用户表为准判定「这个 uid 还是不是用户」——
-    超管行恒在表中（``_load_users`` 保证），因此单用户模式下 ``{"0"}`` 始终
-    有效，匿名超管的 cron 不会被误停。
+    令牌回查与 cron 调度都以用户表为准判定「这个 uid 还是不是用户」——
+    超管行恒在表中（``_load_users`` 保证），因此单用户模式下 ``{"0"}``
+    始终有效，匿名超管的 cron 不会被误停。
     """
     return {str(u.get("id")) for u in _load_users() if isinstance(u, dict)}
 
@@ -405,6 +399,11 @@ def delete_user(uid: str) -> dict:
     if len(remain) == len(users):
         raise AuthError(f"用户不存在: {uid}", 404)
     _save_users(remain)
+    # 顺手清空该用户的 cron 任务记录（只删任务定义，不碰用户目录）：
+    # 否则调度器重启后仍会从他的 platform.db 里把任务捞起来永动执行。
+    from core.cron import store as cron_store
+
+    cron_store.delete_all(uid)
     return {"id": str(uid), "home_kept": str(user_home(str(uid)))}
 
 
@@ -451,10 +450,15 @@ def _b64d(s: str) -> bytes:
 
 
 def issue_token(user: dict, ttl: int | None = None) -> str:
+    # 凭据代次 pwd：签发时取表内 pwd_version（改密/重置时 +1）。超管行恒无
+    # pwd_version（散列不在表里、set_password 拒绝写超管行）→ 恒为 0，
+    # .env 超管通道的令牌天然不受回查影响（改 .env 密码须重启，语义不变）。
+    pwd = int((_raw_by_id(str(user["id"])) or {}).get("pwd_version", 0))
     payload = {
         "uid": user["id"],
         "username": user["username"],
         "role": user.get("role", "user"),
+        "pwd": pwd,
         "exp": int(time.time()) + (ttl if ttl is not None else TOKEN_TTL_SECONDS),
     }
     body = _b64e(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
@@ -463,7 +467,14 @@ def issue_token(user: dict, ttl: int | None = None) -> str:
 
 
 def verify_token(token: str) -> dict | None:
-    """校验令牌，有效返回 payload dict，无效/过期返回 None。"""
+    """校验令牌，有效返回 payload dict，无效/过期返回 None。
+
+    HMAC + exp 之外还要回查用户表（users.json 单文件原子读，足够轻量）：
+    - 查无此人（删号）→ 拒绝；
+    - payload 的 pwd 与表内 pwd_version 不一致（改密/重置）→ 拒绝。
+    堵住「删号/改密后旧令牌最长 7 天仍有效」的窗口。超管行恒在表里且
+    pwd_version 恒缺省 0，等效于按现有逻辑单独放行，不受影响。
+    """
     if not isinstance(token, str) or "." not in token:
         return None
     body, _, sig = token.partition(".")
@@ -482,4 +493,10 @@ def verify_token(token: str) -> dict | None:
         return None
     if int(payload.get("exp", 0)) < int(time.time()):
         return None
+    row = _raw_by_id(str(payload["uid"]))
+    if row is None or int(row.get("pwd_version", 0)) != int(payload.get("pwd", 0)):
+        return None
+    # 角色以 uid 为准重写：唯一 admin = .env 超管，旧令牌里烙下的 role=admin
+    # （老库首用户）与表内遗留 role 都不再是权限依据
+    payload["role"] = "admin" if str(payload["uid"]) == SUPERUSER_UID else "user"
     return payload

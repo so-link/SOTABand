@@ -210,6 +210,14 @@ def delete(job_id: str, uid: str | None = None) -> bool:
         return cur.rowcount > 0
 
 
+def delete_all(uid: str) -> int:
+    """清空该用户的全部任务定义（删号时调用）。保留执行历史与库文件本身。"""
+    with _lock(uid):
+        cur = _db(uid).execute("DELETE FROM cron_jobs")
+        _db(uid).commit()
+        return cur.rowcount
+
+
 # ── 执行历史 ──
 
 def run_start(job_id: str, trigger: str = "schedule", uid: str | None = None) -> str:
