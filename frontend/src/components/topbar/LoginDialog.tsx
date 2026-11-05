@@ -21,8 +21,8 @@ export function LoginDialog() {
   // 必须挂到 body：TopBar 的 .glass 带 backdrop-filter，会让 header 成为
   // fixed 定位的包含块，导致弹层被限制在顶栏内、遮罩和关闭按钮点不到
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={closeLogin}>
-      <div className="w-[340px] bg-maia-surface rounded-lg border border-maia-border shadow-xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={closeLogin}>
+      <div className="glass w-[340px] rounded-lg shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-maia-border">
           <span className="text-[13px] font-semibold text-maia-text-heading">登录</span>
           <button onClick={closeLogin} className="p-1 rounded hover:bg-maia-sidebar-hover">

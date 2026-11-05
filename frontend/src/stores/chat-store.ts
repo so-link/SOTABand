@@ -45,6 +45,8 @@ interface ChatState {
   stopMessage: () => void
   addMessage: (msg: Message) => void
   clearMessages: () => void
+  /** 登出/换人：清空对话、待发附件与输入框，开一个新会话 */
+  resetForUserSwitch: () => void
   loadMessagesFromApi: () => Promise<void>
   /** 加载指定历史会话的消息并切换为当前会话 */
   switchSession: (sessionId: string) => Promise<void>
@@ -259,6 +261,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
   clearMessages: () => {
     set((s) => ({
       messages: [],
+      sessionId: newSessionId(),
+      sessionsVersion: s.sessionsVersion + 1,
+    }))
+  },
+
+  // 登出/换人：上一个账号的对话与输入草稿一律丢弃
+  resetForUserSwitch: () => {
+    set((s) => ({
+      messages: [],
+      attachedFiles: [],
+      pathRefs: [],
+      inputText: '',
+      isSending: false,
       sessionId: newSessionId(),
       sessionsVersion: s.sessionsVersion + 1,
     }))

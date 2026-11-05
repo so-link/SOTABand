@@ -80,6 +80,8 @@ interface FileTreeState {
   getFilteredTree: () => FileTreeNode | null
   persist: () => void
   clearWorkspace: (deleteFiles?: boolean) => Promise<void>
+  /** 登出/换人：清空树与本地缓存（后端工作区按用户隔离，重新登录后再拉取） */
+  resetForUserSwitch: () => void
 }
 
 export const useFileTreeStore = create<FileTreeState>((set, get) => ({
@@ -207,6 +209,20 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => ({
   persist: () => {
     const { root } = get()
     if (root) persistEverywhere(root)
+  },
+
+  // 登出/换人：树与 localStorage 缓存都要清。
+  // 只清内存不够——后端不可达时 loadTree 会回退 localStorage，而「后端为空 +
+  // 本地有数据」还会触发一次性迁移，把上一账号的文件树写进新账号。
+  resetForUserSwitch: () => {
+    try { localStorage.removeItem(STORAGE_KEY) } catch { /* ignore */ }
+    set({
+      root: emptyTree(),
+      selectedFile: null,
+      previewFile: null,
+      isLoading: false,
+      searchQuery: '',
+    })
   },
 
   // 清空工作区间的唯一入口。

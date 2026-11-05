@@ -31,6 +31,8 @@ interface RepositoryState {
   setSort: (sort: 'name' | 'latest' | 'usage') => void
   setPage: (page: number) => void
   setPageSize: (size: number) => void
+  /** 登出/换人：清空仓库列表与筛选态（私有工具按用户隔离） */
+  resetForUserSwitch: () => void
 }
 
 export const useRepositoryStore = create<RepositoryState>((set, get) => ({
@@ -77,6 +79,15 @@ export const useRepositoryStore = create<RepositoryState>((set, get) => ({
   setSort: (sort) => set({ sortBy: sort, page: 1 }),
   setPage: (page) => set({ page }),
   setPageSize: (size) => set({ pageSize: size, page: 1 }),
+
+  resetForUserSwitch: () => set({
+    tools: [],
+    tagStats: {},
+    selectedTags: [],
+    searchQuery: '',
+    page: 1,
+    loading: false,
+  }),
 }))
 
 /** 获取筛选和排序后的工具列表 */

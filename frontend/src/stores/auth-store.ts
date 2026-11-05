@@ -19,6 +19,70 @@ interface AuthState {
   closeLogin: () => void
 }
 
+/**
+ * 清除所有「按上一个账号」加载的运行时数据。
+ *
+ * 登出/令牌失效时调用：文件树、资源列表、任务历史、工具空间、仓库、
+ * 对话与编辑草稿都带着旧账号的内容，换人后必须丢弃；否则新账号一进门
+ * 就看到了别人的文件与对话。用户偏好（主题/布局）不属于业务数据，不清理。
+ */
+async function clearUserScopedData(): Promise<void> {
+  useUIStore.getState().closeAllViews()
+  try {
+    const [
+      { useChatStore },
+      { useFileTreeStore },
+      { useResourceStore },
+      { useWorkspaceToolStore },
+      { useRepositoryStore },
+      { useDatasetRepositoryStore },
+      { useToolEditorStore },
+      { useDatasetEditorStore },
+      { useAgentEditorStore },
+    ] = await Promise.all([
+      import('@/stores/chat-store'),
+      import('@/stores/file-tree-store'),
+      import('@/stores/resource-store'),
+      import('@/stores/workspace-tool-store'),
+      import('@/stores/repository-store'),
+      import('@/stores/dataset-repository-store'),
+      import('@/stores/tool-editor-store'),
+      import('@/stores/dataset-editor-store'),
+      import('@/stores/agent-editor-store'),
+    ])
+    useChatStore.getState().resetForUserSwitch()
+    useFileTreeStore.getState().resetForUserSwitch()
+    useResourceStore.getState().resetForUserSwitch()
+    useWorkspaceToolStore.getState().resetForUserSwitch()
+    useRepositoryStore.getState().resetForUserSwitch()
+    useDatasetRepositoryStore.getState().resetForUserSwitch()
+    useToolEditorStore.getState().reset()
+    useDatasetEditorStore.getState().reset()
+    useAgentEditorStore.getState().reset()
+  } catch { /* 单个 store 清理失败不阻断登出 */ }
+}
+
+/** 按新账号重新拉取首屏数据（登录成功后调用，此时令牌已是新用户的）。 */
+async function reloadUserScopedData(): Promise<void> {
+  try {
+    const [
+      { useChatStore },
+      { useFileTreeStore },
+      { useResourceStore },
+      { useWorkspaceToolStore },
+    ] = await Promise.all([
+      import('@/stores/chat-store'),
+      import('@/stores/file-tree-store'),
+      import('@/stores/resource-store'),
+      import('@/stores/workspace-tool-store'),
+    ])
+    void useFileTreeStore.getState().loadTree()
+    void useResourceStore.getState().fetchAllResources()
+    void useWorkspaceToolStore.getState().fetchFromApi()
+    void useChatStore.getState().loadMessagesFromApi()
+  } catch { /* 拉取失败时界面保持空态，可手动刷新 */ }
+}
+
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   checked: false,
@@ -40,7 +104,10 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const { token, user } = await authApi.login(username, password)
       setStoredToken(token)
+      // 换人登录：先丢掉上一账号的列表/草稿/对话，再按新身份拉取首屏数据
+      await clearUserScopedData()
       set({ user, busy: false, loginOpen: false })
+      void reloadUserScopedData()
       return true
     } catch (e) {
       set({ busy: false, error: e instanceof Error ? e.message : '登录失败' })
@@ -52,12 +119,10 @@ export const useAuthStore = create<AuthState>((set) => ({
     stopPrefsSync()
     await authApi.logout()
     setStoredToken('')
-    set({ user: null })
-    // 登出即换人：所有已打开的标签（对话上下文、编辑中的资源）都可能属于
-    // 上一个账号，必须全部关闭回到对话页；随后弹出模态登录窗。
-    // 注意顺序——先 stopPrefsSync 再关标签，关闭动作不会作为上一用户的偏好推给服务端。
-    useUIStore.getState().closeAllViews()
-    set({ loginOpen: true, error: '' })
+    // 登出即换人：所有已打开标签与按旧账号加载的数据全部丢弃；
+    // 注意顺序——先 stopPrefsSync 再清理，清理动作不会作为上一用户偏好推给服务端。
+    await clearUserScopedData()
+    set({ user: null, loginOpen: true, error: '' })
   },
 
   async changePassword(oldPw, newPw) {
@@ -109,6 +174,8 @@ setOnUnauthorized(() => {
   stopPrefsSync()
   setStoredToken('')
   syncedUid = null
+  // 与主动登出同口径：先清掉按旧账号加载的数据，再弹登录框
+  void clearUserScopedData()
   useAuthStore.setState({ user: null, loginOpen: true, error: '登录已过期，请重新登录' })
 })
 

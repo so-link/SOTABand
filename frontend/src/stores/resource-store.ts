@@ -59,6 +59,8 @@ interface ResourceState {
   fetchDatasetsFromApi: () => Promise<void>
   fetchModelsFromApi: () => Promise<void>
   fetchTasksFromApi: () => Promise<void>
+  /** 登出/换人：清空所有按旧账号加载的资源列表与预览态 */
+  resetForUserSwitch: () => void
 }
 
 export const useResourceStore = create<ResourceState>((set, get) => ({
@@ -100,6 +102,24 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
     set(state as ResourceState)
   },
   setCachedToolForDetail: (tool) => set({ cachedToolForDetail: tool }),
+
+  resetForUserSwitch: () => set({
+    selectedResource: null,
+    cachedToolForDetail: null,
+    cachedDatasetForDetail: null,
+    dataResources: [],
+    toolResources: [],
+    modelResources: [],
+    agentResources: [],
+    taskResources: [],
+    recentAgentUsage: [],
+    isLoading: false,
+    previewDatasetId: null,
+    previewFiles: [],
+    activeCsvIndex: 0,
+    activeMdIndex: 0,
+    activeTextIndex: 0,
+  }),
 
   fetchResources: async (type) => {
     set({ isLoading: true })

@@ -15,6 +15,8 @@ interface WorkspaceToolState {
   addTool: (tool: WorkspaceTool) => Promise<void>
   removeTool: (id: string) => Promise<void>
   isLoaded: (id: string) => boolean
+  /** 登出/换人：清空工具空间清单 */
+  resetForUserSwitch: () => void
 }
 
 // 后端 storage/workspace_tools.json 是唯一状态源，不做任何 localStorage
@@ -68,6 +70,8 @@ export const useWorkspaceToolStore = create<WorkspaceToolState>((set, get) => ({
   isLoaded: (id) => {
     return get().tools.some(t => t.id === id)
   },
+
+  resetForUserSwitch: () => set({ tools: [], loadError: false }),
 }))
 
 // 清掉历史版本遗留的 localStorage 键（升级前工具空间只存本地）

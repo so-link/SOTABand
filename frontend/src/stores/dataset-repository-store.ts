@@ -32,6 +32,8 @@ interface DatasetRepositoryState {
   setSort: (sort: 'name' | 'latest' | 'files' | 'size') => void
   setPage: (page: number) => void
   setPageSize: (size: number) => void
+  /** 登出/换人：清空仓库列表与筛选态（私有数据集按用户隔离） */
+  resetForUserSwitch: () => void
 }
 
 export const useDatasetRepositoryStore = create<DatasetRepositoryState>((set, get) => ({
@@ -81,6 +83,15 @@ export const useDatasetRepositoryStore = create<DatasetRepositoryState>((set, ge
   setSort: (sort) => set({ sortBy: sort, page: 1 }),
   setPage: (page) => set({ page }),
   setPageSize: (size) => set({ pageSize: size, page: 1 }),
+
+  resetForUserSwitch: () => set({
+    datasets: [],
+    tagStats: {},
+    selectedTags: [],
+    searchQuery: '',
+    page: 1,
+    loading: false,
+  }),
 }))
 
 /** 格式化文件大小 */
