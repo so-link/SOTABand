@@ -522,6 +522,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
         },
       )
 
+      // 自动确认队列：流式进行中 isSending=true，此时直接调 sendDirectMessage /
+      // resolvePlatformOp 会被「忙线」拦掉——auto 模式因此形同虚设，确认卡一直
+      // 停在原地。统一收集到队列，流结束（isSending 归位）后按序执行。
+      const autoConfirmQueue: Array<() => void> = []
+
       for await (const chunk of stream) {
         // 卡片 _action 钩子：平台操作成功后自动刷新对应空间
         if (chunk.cards) {
@@ -540,7 +545,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 get().confirmPolicy === 'auto') {
               const candidate = (cardData.candidates as Array<{ name: string }>)[0]
               if (candidate) {
-                void get().sendDirectMessage(`我选择第1个工具：${candidate.name}`)
+                autoConfirmQueue.push(
+                  () => void get().sendDirectMessage(`我选择第1个工具：${candidate.name}`))
               }
               continue
             }
@@ -562,7 +568,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
                   ),
                 }))
               }
-              void get().resolvePlatformOp(agentMsgId, card.id, 'confirm')
+              autoConfirmQueue.push(
+                () => void get().resolvePlatformOp(agentMsgId, card.id, 'confirm'))
             }
           }
         }
@@ -594,6 +601,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
     } finally {
       set((s) => ({ isSending: false, sessionsVersion: s.sessionsVersion + 1 }))
+      // 忙线解除后再执行自动确认（队列保序，逐条发起新一轮对话/网关确认）
+      for (const run of autoConfirmQueue) run()
       // 标题由后端 LLM 异步总结，稍后再刷一次会话列表让标题显示出来
       setTimeout(() => set((s) => ({ sessionsVersion: s.sessionsVersion + 1 })), 3000)
       // 刷新任务历史与最近使用（后端在 done 事件前已写入 SQLite）

@@ -72,12 +72,16 @@ def _dumps(obj: Any, limit: int) -> str:
 def record(*, op_id: str, session_id: str, owner: str, tool: str,
            args: dict, risk: str, status: str, result: Any = None,
            error: str = "", duration_ms: int | None = None,
-           finished: bool = True) -> None:
-    """写一条审计流水。审计失败不得影响业务，异常在此吞掉并打印。"""
+           finished: bool = True, uid: str | None = None) -> None:
+    """写一条审计流水。审计失败不得影响业务，异常在此吞掉并打印。
+
+    uid：落哪个用户的库。None=当前请求身份（网关路径）；交互 Agent 子进程
+    写工作空间工具生命周期审计时显式传 owner，不依赖环境变量的隐式身份。
+    """
     now = time.time()
     try:
-        with _lock():
-            _db().execute(
+        with _lock(uid):
+            _db(uid).execute(
                 "INSERT INTO chat_ops (op_id, session_id, owner, tool, args_json,"
                 " risk, status, result_json, error, duration_ms, created_at, finished_at)"
                 " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -86,12 +90,12 @@ def record(*, op_id: str, session_id: str, owner: str, tool: str,
                  (error or "")[:2000], duration_ms, now,
                  now if finished else None),
             )
-            _db().execute(
+            _db(uid).execute(
                 "DELETE FROM chat_ops WHERE id NOT IN"
                 " (SELECT id FROM chat_ops ORDER BY created_at DESC LIMIT ?)",
                 (RETENTION,),
             )
-            _db().commit()
+            _db(uid).commit()
     except Exception as e:  # 审计不可用不能阻塞对话
         print(f"[chat_audit] 写入失败: {e}")
 

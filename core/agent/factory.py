@@ -142,6 +142,36 @@ class AgentFactory:
             # 子进程请求平台操作：交给网关（引擎进程内、以会话用户身份执行）。
             # 作为任务运行——网关可能耗时较长（生成类操作），不能阻塞读循环。
             asyncio.ensure_future(self._handle_platform_call(src, frame))
+        elif t == "workspace_audit":
+            # 子进程上报工作空间工具生命周期事件 → 主进程写 chat_ops。
+            # 审计是短 SQL，直接同步落库；失败只打印，绝不影响事件路由。
+            self._handle_workspace_audit(frame)
+
+    def _handle_workspace_audit(self, frame: dict):
+        """把子进程的工作空间工具生命周期事件写入审计表（chat_ops）。
+
+        审计唯一入口在主进程（core.chat_control.audit 模块注释）；落库
+        归属用户取帧内 owner（主进程每轮 execute 注入子进程环境，与
+        platform_call 同一信任模型），uid 显式指定保证落对用户的库。
+        """
+        try:
+            from core.chat_control import audit
+            owner = str(frame.get("owner") or "default")
+            audit.record(
+                op_id=str(frame.get("op_id") or ""),
+                session_id=str(frame.get("session_id") or "default"),
+                owner=owner,
+                tool=str(frame.get("tool") or ""),
+                args=frame.get("args") or {},
+                risk=str(frame.get("risk") or "write"),
+                status=str(frame.get("status") or ""),
+                result=frame.get("result"),
+                error=str(frame.get("error") or ""),
+                duration_ms=frame.get("duration_ms"),
+                uid=owner,
+            )
+        except Exception as e:
+            print(f"[agent_factory] workspace_audit 落库失败: {e}")
 
     async def _handle_platform_call(self, src: str, frame: dict):
         """把子进程的 platform_call 帧交给 core.chat_control 网关并回执结果。

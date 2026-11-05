@@ -88,6 +88,17 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 
       {steps && steps.length > 0 && <StepTimeline steps={steps} />}
 
+      {/* 卡片按事件顺序排在正文之前：后端在「确认执行 → 工具执行 → 结果」
+          阶段先下发卡片，助手的分析文字最后才流式生成。若把卡片渲染在正文
+          下方，用户会先看到分析、后看到它依据的结果卡，因果倒置。 */}
+      {cards && cards.length > 0 && (
+        <div className="flex flex-col gap-2">
+          {cards.map((card) => (
+            <InlineCard key={card.id} card={card} messageId={message.id} />
+          ))}
+        </div>
+      )}
+
       <div
         className={cn(
           'text-[14px] leading-[24px] text-maia-text',
@@ -97,14 +108,6 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         )}
         dangerouslySetInnerHTML={{ __html: formatHtml(renderMarkdown(content)) }}
       />
-
-      {cards && cards.length > 0 && (
-        <div className="flex flex-col gap-2">
-          {cards.map((card) => (
-            <InlineCard key={card.id} card={card} messageId={message.id} />
-          ))}
-        </div>
-      )}
     </div>
   )
 }

@@ -8,9 +8,15 @@ import os
 import subprocess
 import sys
 import tempfile
+import uuid
 
 from core.agent.base import BaseAgent, AgentContext, AgentSpec, AgentRole
 from core.llm.client import create_llm_client, LLMClient
+
+try:  # 工作空间工具确认 TTL 与网关确认协议（core/chat_control/confirm.py）对齐
+    from core.chat_control.confirm import CONFIRM_TTL_SECONDS as _CONFIRM_TTL_SECONDS
+except Exception:  # pragma: no cover - 导入异常时退回同源常量
+    _CONFIRM_TTL_SECONDS = 900
 
 
 SYSTEM_PROMPT = """你是 SOTABand Engine 的交互 Agent，一个多智能体多模态智能处理引擎的对话入口。
@@ -147,6 +153,15 @@ class InteractiveAgent(BaseAgent):
         # 工具是否来自「多候选确认」流程：此时用户回复是选工具而非选模式，
         # 不能拿它去推断模式（见 ② 分支与模式提示处的处理）
         tool_from_confirm = False
+        # 本轮是否已通过统一执行确认门（② 分支解析执行确认时置真）
+        exec_confirmed = False
+        # 本轮执行对应的审计 op_id（确认门签发，贯穿 pending→confirmed→executed）
+        exec_op_id = ""
+
+        # 进入新的用户轮次：先丢弃超时的工作空间工具确认（TTL 与网关 15
+        # 分钟对齐）。旧 pending 不过期的话，其缓存的 LLM 参数可能被很久
+        # 之后一条恰好模糊匹配上的消息触发执行。
+        await self._purge_expired_confirm(session_key, ctx.user_id or "default")
 
         # ⓪ Agent 待确认 / 待重试：上一轮匹配到多个 Agent 让用户选，
         #    或锁定了未运行的 Agent。本轮短回复视为对该请求的回应/补充。
@@ -208,18 +223,57 @@ class InteractiveAgent(BaseAgent):
 
         # ② 正在等待用户确认工具选择
         elif self._pending_confirm.get(session_key):
-            pending_confirm = self._pending_confirm.pop(session_key)
-            selected = self._resolve_tool_selection(content, pending_confirm["candidates"])
-            if selected is None:
-                self._pending_confirm[session_key] = pending_confirm
-                yield {"event": "content", "data": {"text": "请回复编号或工具名称来选择要使用的工具。"}}
-                return
-            matched_tool = selected
-            # function calling 确认：LLM 已给出参数，直接用作 pre_params
-            skip_param_extract = pending_confirm.get("arguments") or {}
-            # 本次回复用于「选择工具」，不可再用作模式提示依据，
-            # 否则用户回复的编号（如 "1"）会被误判为模式编号，导致跳过模式选择。
-            tool_from_confirm = True
+            pending_confirm = self._pending_confirm[session_key]
+            if pending_confirm.get("kind") == "workspace-exec":
+                # 统一执行确认门：带缓存参数的执行确认只接受**显式**的确认/取消
+                # 回复（auto 模式由前端自动发送同格式的确认消息，走同一扇门）。
+                # 不允许模糊命中——否则任何一条恰好含候选名字片段的消息都会
+                # 拿旧 pending 里的 LLM 参数直接执行。
+                candidate = (pending_confirm.get("candidates") or [{}])[0]
+                verdict = self._resolve_exec_confirmation(content)
+                owner = ctx.user_id or "default"
+                cached_args = pending_confirm.get("arguments") or {}
+                if verdict == "confirm":
+                    self._pending_confirm.pop(session_key, None)
+                    exec_op_id = pending_confirm.get("op_id", "")
+                    await self._audit_workspace_op(
+                        op_id=exec_op_id, session_key=session_key, owner=owner,
+                        tool=candidate.get("name", candidate.get("id", "")),
+                        args=cached_args, status="confirmed")
+                    matched_tool = {"id": candidate.get("id", ""),
+                                    "name": candidate.get("name", candidate.get("id", ""))}
+                    # LLM/预匹配阶段已给全参数，确认后直接作为 pre_params 执行
+                    skip_param_extract = cached_args
+                    # 确认时锁定的模式一并恢复，避免下一轮重新追问模式
+                    selected_mode_id = pending_confirm.get("mode")
+                    exec_confirmed = True
+                    # 本次回复用于确认执行，不可再用作模式提示依据
+                    tool_from_confirm = True
+                elif verdict == "cancel":
+                    self._pending_confirm.pop(session_key, None)
+                    await self._audit_workspace_op(
+                        op_id=pending_confirm.get("op_id", ""), session_key=session_key,
+                        owner=owner,
+                        tool=candidate.get("name", candidate.get("id", "")),
+                        args=cached_args, status="cancelled")
+                    yield {"event": "content", "data": {"text": "已取消本次工具执行。还需要我做什么？"}}
+                    return
+                else:
+                    # 保持 pending（TTL 继续倒计时），等待明确的确认/取消
+                    yield {"event": "content", "data": {"text": "请在确认卡上回复「确认」执行，或「取消」放弃。"}}
+                    return
+            else:
+                # 多候选工具选择（无缓存参数，选完仍会走统一确认门后才执行）
+                self._pending_confirm.pop(session_key, None)
+                selected = self._resolve_tool_selection(content, pending_confirm["candidates"])
+                if selected is None:
+                    self._pending_confirm[session_key] = pending_confirm
+                    yield {"event": "content", "data": {"text": "请回复编号或工具名称来选择要使用的工具。"}}
+                    return
+                matched_tool = selected
+                # 本次回复用于「选择工具」，不可再用作模式提示依据，
+                # 否则用户回复的编号（如 "1"）会被误判为模式编号，导致跳过模式选择。
+                tool_from_confirm = True
 
         # ③ 正在收集参数
         elif self._pending_calls.get(session_key):
@@ -452,9 +506,44 @@ class InteractiveAgent(BaseAgent):
             # 多模式：把选定的 mode 合并进参数
             if selected_mode_id:
                 params = {**params, "mode": selected_mode_id}
+
+            # 统一执行确认门：所有工作空间工具执行路径（预匹配直执行、
+            # 候选选择后、参数收集后、LLM function calling）都必须先经
+            # 用户确认才真正执行；auto 模式由前端对本卡自动回发确认消息，
+            # 走同一扇门（确认语义见 ② 分支）。
+            owner = ctx.user_id or "default"
+            if not exec_confirmed:
+                entry = await self._create_workspace_exec_pending(
+                    session_key, owner, matched_tool, params, selected_mode_id)
+                yield self._workspace_exec_card(entry)
+                yield {"event": "step", "data": {"id": "call_tool", "text": f"等待确认执行「{_tool_name}」", "status": "done"}}
+                yield {"event": "content", "data": {"text": f"准备执行 **{matched_tool['name']}**，参数: "
+                                                            f"{json.dumps(params, ensure_ascii=False)[:200]}。"
+                                                            f"回复「确认」执行，「取消」放弃。"}}
+                return
+            if not exec_op_id:
+                # ② 确认轮未携带 op_id（旧格式 pending）→ 补发审计 op，保证执行有流水
+                exec_op_id = self._new_workspace_op_id()
+                await self._audit_workspace_op(op_id=exec_op_id, session_key=session_key,
+                                               owner=owner, tool=_tool_name,
+                                               args=params, status="pending")
+                await self._audit_workspace_op(op_id=exec_op_id, session_key=session_key,
+                                               owner=owner, tool=_tool_name,
+                                               args=params, status="confirmed")
+
             # 执行步骤提示：工具可能耗时较长，用 step 事件告知用户正在执行
             yield {"event": "step", "data": {"id": "call_tool", "text": f"正在执行工具「{_tool_name}」", "status": "running"}}
+            _exec_started = time.time()
             tool_result = await self._execute_tool(matched_tool, content, dataset_paths, params)
+            _exec_ms = int((time.time() - _exec_started) * 1000)
+            await self._audit_workspace_op(
+                op_id=exec_op_id, session_key=session_key, owner=owner,
+                tool=_tool_name, args=params,
+                status="executed" if (tool_result or {}).get("status") == "success" else "failed",
+                result=tool_result,
+                error="" if (tool_result or {}).get("status") == "success"
+                     else str((tool_result or {}).get("message", "execution_failed"))[:500],
+                duration_ms=_exec_ms)
             # 注意：不能用 `if tool_result:` 判断——工具可能返回空 dict {}（未遵循
             # 返回规范或无数据），空 dict 在 Python 中是 falsy，会被误判为"执行失败"
             # 而丢弃真实返回。只要 _execute_tool 没返回 None，就当作有结果返回。
@@ -593,10 +682,12 @@ class InteractiveAgent(BaseAgent):
             full_response = ""
             platform_tools = self._platform_tool_schemas()
             # 工作空间工具并入 function calling：LLM 想调用时能真正发起
-            # tool_call（否则只能写成文本，被当普通回复透传）
-            workspace_tools = self._workspace_tool_schemas(workspace_tool_ids)
+            # tool_call（否则只能写成文本，被当普通回复透传）。
+            # name 已清洗为合法字符集，真实工具 id 经 ws_name_map 反查。
+            ws_name_map: dict[str, str] = {}
+            workspace_tools = self._workspace_tool_schemas(workspace_tool_ids, ws_name_map)
             all_tools = platform_tools + workspace_tools
-            workspace_names = {t["function"]["name"] for t in workspace_tools}
+            workspace_names = set(ws_name_map)
 
             if not all_tools:
                 # 平台控制不可用（熔断/导入失败）→ 纯文本流式，行为与旧版完全一致
@@ -647,10 +738,19 @@ class InteractiveAgent(BaseAgent):
                     for i, tc in enumerate(tool_calls):
                         call_id = tc.get("id") or f"call_{i}"
                         if tc.get("name") in workspace_names:
-                            # 工作空间工具：先发确认卡，等用户确认后再执行
-                            # （manual 等用户点，auto 由前端自动确认）。LLM 已给出
-                            # 参数，确认后直接作为 pre_params 执行。
-                            tool_id = str(tc.get("name") or "")
+                            # 统一执行确认门：先对**本轮全部未配对**的 tool_calls
+                            # 补占位 tool 消息（OpenAI 协议要求 assistant 的
+                            # tool_calls 与 tool 消息严格配对，history 跨轮持久化
+                            # 后缺配对会在下一轮被 API 拒 400），再发确认卡结束
+                            # 本轮。用户在下一轮经 ② 分支显式确认后执行。
+                            for j, tc2 in enumerate(tool_calls[i:], start=i):
+                                history.append({
+                                    "role": "tool",
+                                    "tool_call_id": tc2.get("id") or f"call_{j}",
+                                    "content": "(等待用户确认)",
+                                })
+                            fname = str(tc.get("name") or "")
+                            ws_info = ws_name_map.get(fname) or {"id": fname, "name": fname}
                             args = tc.get("arguments")
                             if isinstance(args, str):
                                 try:
@@ -659,32 +759,25 @@ class InteractiveAgent(BaseAgent):
                                     args = {}
                             if not isinstance(args, dict):
                                 args = {}
-                            entry = next((t for t in workspace_tools
-                                          if t["function"]["name"] == tool_id), None)
-                            tool_name = (entry or {}).get("function", {}).get("description", tool_id)
-                            self._pending_confirm[session_key] = {
-                                "candidates": [{"id": tool_id, "name": tool_name, "index": 1}],
-                                "arguments": args,
-                            }
-                            yield {
-                                "event": "card",
-                                "data": {
-                                    "type": "tool-confirm",
-                                    "title": "请确认执行工具",
-                                    "summary": f"LLM 想调用工具 {tool_name}，参数: "
-                                               f"{json.dumps(args, ensure_ascii=False)[:200]}",
-                                    "data": {
-                                        "candidates": [{"id": tool_id, "name": tool_name, "index": 1}],
-                                        "kind": "workspace-exec",
-                                    },
-                                },
-                            }
+                            entry = await self._create_workspace_exec_pending(
+                                session_key, ctx.user_id or "default",
+                                ws_info, args, None)
+                            yield self._workspace_exec_card(entry)
                             return  # 结束本轮，等用户下一轮确认
                         else:
                             result = await self._run_platform_tool(tc, ctx, session_key)
                         if result.get("status") == "pending" and result.get("confirm"):
                             # 写操作 → 下发确认卡片，本轮结束（不再继续 LLM，
-                            # 避免生成多余的"请确认"回复；结果卡在用户确认后出现）
+                            # 避免生成多余的"请确认"回复；结果卡在用户确认后出现）。
+                            # history 是本会话持久列表的原地引用：结束前必须为
+                            # 本条与其余未处理的 tool_calls 补占位 tool 消息，
+                            # 否则持久化后 tool_calls 缺配对，下一轮 API 报 400。
+                            for j, tc2 in enumerate(tool_calls[i:], start=i):
+                                history.append({
+                                    "role": "tool",
+                                    "tool_call_id": tc2.get("id") or f"call_{j}",
+                                    "content": "(等待用户确认)",
+                                })
                             yield {
                                 "event": "card",
                                 "data": {
@@ -742,6 +835,137 @@ class InteractiveAgent(BaseAgent):
                 "data": {"code": "llm_error", "message": str(e)},
             }
 
+    # ── 工作空间工具统一执行确认门 ──────────────────────────────
+    # 所有工作空间工具执行路径（预匹配直执行、多候选选择后、LLM function
+    # calling）都必须先经确认门拿到用户确认才能执行；auto 模式由前端对本
+    # 确认卡自动回发确认消息（同一扇门、同一协议），语义与设计一致。
+
+    _EXEC_CANCEL_WORDS = ("取消", "取消执行", "算了", "不执行", "不用了", "cancel")
+    _EXEC_CONFIRM_WORDS = ("确认", "确认执行", "确定", "同意", "执行", "confirm", "yes")
+
+    async def _purge_expired_confirm(self, session_key: str, owner: str):
+        """丢弃超时的工作空间工具确认（TTL 与网关 confirm.py 的 15 分钟对齐）。
+
+        旧 pending 不过期的话，其缓存的 LLM 参数可能被很久之后一条恰好
+        模糊匹配上的消息触发执行——对齐网关不变量：超时即作废并落审计。
+        """
+        entry = self._pending_confirm.get(session_key)
+        if not entry:
+            return
+        if time.time() <= entry.get("expires_at", float("inf")):
+            return
+        self._pending_confirm.pop(session_key, None)
+        if entry.get("kind") == "workspace-exec":
+            cand = (entry.get("candidates") or [{}])[0]
+            await self._audit_workspace_op(
+                op_id=entry.get("op_id", ""), session_key=session_key, owner=owner,
+                tool=cand.get("name", cand.get("id", "")),
+                args=entry.get("arguments") or {}, status="expired")
+
+    def _resolve_exec_confirmation(self, answer: str) -> str | None:
+        """判定用户对执行确认卡的回复："confirm" / "cancel" / None。
+
+        只接受**显式**回复：确认/取消关键词，或确认卡的点选消息模板
+        （前端按钮与 auto 模式都发「我选择第N个工具：名称」）。
+        绝不复用 _resolve_tool_selection 的模糊匹配——那会让任意一条含
+        候选名字片段的消息拿旧参数直接执行。
+        """
+        a = (answer or "").strip()
+        if not a:
+            return None
+        al = a.lower()
+        if a in self._EXEC_CANCEL_WORDS or al in self._EXEC_CANCEL_WORDS:
+            return "cancel"
+        # 确认卡按钮 / auto 模式自动回发的模板消息
+        if re.match(r"^我选择第\d+个工具[:：]", a):
+            return "confirm"
+        if a in self._EXEC_CONFIRM_WORDS or al in self._EXEC_CONFIRM_WORDS:
+            return "confirm"
+        # 「确认执行xx」「确认使用xx」明确表态；或极短口头确认（确认吧/执行吧）。
+        # 长句以「确认」开头的不算（如「确认一下这个数据集的详情」是新需求）。
+        if a.startswith(("确认执行", "确认使用")):
+            return "confirm"
+        if len(a) <= 4 and (a.startswith("确认") or a.startswith("执行")):
+            return "confirm"
+        return None
+
+    async def _audit_workspace_op(self, *, op_id: str, session_key: str, owner: str,
+                                  tool: str, args: dict, status: str,
+                                  result: dict | None = None, error: str = "",
+                                  duration_ms: int | None = None) -> None:
+        """工作空间工具生命周期写 chat_ops 审计（pending/confirmed/executed/...）。
+
+        审计唯一入口是主进程的 core.chat_control.audit（见其模块注释）。
+        交互 Agent 是子进程，经总线单向帧交主进程落库（不等回执，帧
+        本身按序写入 stdout）；无总线（进程内测试/调试）时才直接落库
+        （uid 显式指定，保证落对用户的库）。
+        """
+        try:
+            if getattr(self, "_bus", None) is not None:
+                await self._bus.workspace_audit(
+                    op_id=op_id or "", session_id=session_key, owner=owner,
+                    tool=tool, args=args or {}, risk="write", status=status,
+                    result=result, error=error, duration_ms=duration_ms)
+                return
+            from core.chat_control import audit
+            audit.record(op_id=op_id or "", session_id=session_key, owner=owner,
+                         tool=tool, args=args or {}, risk="write", status=status,
+                         result=result, error=error, duration_ms=duration_ms,
+                         uid=owner)
+        except Exception:
+            pass  # 审计失败不得影响对话
+
+    def _new_workspace_op_id(self) -> str:
+        return f"wop_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
+
+    async def _create_workspace_exec_pending(self, session_key: str, owner: str,
+                                             tool_info: dict, params: dict,
+                                             mode: str | None) -> dict:
+        """登记一个待确认的工作空间工具执行（确认门的 pending 状态 + 审计 pending）。"""
+        op_id = self._new_workspace_op_id()
+        name = tool_info.get("name") or tool_info.get("id", "")
+        now = time.time()
+        self._pending_confirm[session_key] = {
+            "kind": "workspace-exec",
+            "candidates": [{"id": tool_info.get("id", ""), "name": name, "index": 1}],
+            "arguments": params,
+            "mode": mode,
+            "op_id": op_id,
+            "created_at": now,
+            "expires_at": now + _CONFIRM_TTL_SECONDS,
+        }
+        await self._audit_workspace_op(op_id=op_id, session_key=session_key, owner=owner,
+                                       tool=name, args=params, status="pending")
+        return self._pending_confirm[session_key]
+
+    def _workspace_exec_card(self, entry: dict) -> dict:
+        """确认门下发的确认卡片事件（前端 auto 模式按 kind 自动确认）。"""
+        cand = entry["candidates"][0]
+        return {
+            "event": "card",
+            "data": {
+                "type": "tool-confirm",
+                "title": "请确认执行工具",
+                "summary": f"即将执行工具 {cand['name']}，参数: "
+                           f"{json.dumps(entry.get('arguments') or {}, ensure_ascii=False)[:200]}。"
+                           f"回复「确认」执行，「取消」放弃（{int(_CONFIRM_TTL_SECONDS // 60)} 分钟内有效）。",
+                "data": {
+                    "candidates": entry["candidates"],
+                    "kind": "workspace-exec",
+                },
+            },
+        }
+
+    @staticmethod
+    def _sanitize_function_name(raw: str) -> str:
+        """工具 id → OpenAI function name 合法字符集（^[a-zA-Z0-9_-]{1,64}$）。
+
+        含点号/中文的 id 直接作 name 会让整个 tools 请求被 OpenAI 兼容 API
+        拒绝（连平台工具一起不能调），必须清洗；真实 id 经映射表反查。
+        """
+        cleaned = re.sub(r"[^a-zA-Z0-9_-]", "_", str(raw or ""))[:64]
+        return cleaned or "tool"
+
     def _platform_tool_schemas(self) -> list[dict]:
         """平台工具声明（function calling）。
 
@@ -754,11 +978,15 @@ class InteractiveAgent(BaseAgent):
         except Exception:
             return []
 
-    def _workspace_tool_schemas(self, workspace_tool_ids: list[str] = None) -> list[dict]:
+    def _workspace_tool_schemas(self, workspace_tool_ids: list[str] = None,
+                                name_map: dict | None = None) -> list[dict]:
         """工作空间工具的 function calling schema（与平台工具并存）。
 
         工具注册只有 param_meta（无 JSON Schema），这里转成 OpenAI function
-        calling 格式；工具 id 作为 name（唯一、稳定，不会被 LLM 改写）。
+        calling 格式。name 必须是 `^[a-zA-Z0-9_-]{1,64}$`——含点号/中文的
+        工具 id 直接作 name 会让整个 tools 请求被 OpenAI 兼容 API 拒绝，
+        因此清洗后作 name，真实 id 经 name_map（name → tool_id）反查；
+        清洗后重名的追加数字后缀保证唯一。
         之前工作空间工具只写在 system prompt 文本里，LLM 想调用只能输出文本
         —— 被当普通回复透传。并入 schema 后才能真正发起 tool_call。
         """
@@ -780,6 +1008,7 @@ class InteractiveAgent(BaseAgent):
                 "dict": "object", "object": "object", "json": "object",
             }
             schemas = []
+            used_names: set[str] = set()
             for t in active:
                 properties = {}
                 required = []
@@ -791,10 +1020,20 @@ class InteractiveAgent(BaseAgent):
                 desc = t.get("description") or t.get("name", "")
                 if t.get("tags"):
                     desc = f"{desc}（标签: {', '.join(t['tags'][:3])}）"
+                fname = self._sanitize_function_name(t["id"])
+                if fname in used_names:
+                    # 清洗后重名（如 "a.b" 与 "a_b"）→ 数字后缀保证唯一
+                    n = 2
+                    while f"{fname}_{n}" in used_names:
+                        n += 1
+                    fname = f"{fname}_{n}"
+                used_names.add(fname)
+                if name_map is not None:
+                    name_map[fname] = {"id": t["id"], "name": t.get("name") or t["id"]}
                 schemas.append({
                     "type": "function",
                     "function": {
-                        "name": t["id"],
+                        "name": fname,
                         "description": desc,
                         "parameters": {
                             "type": "object",
