@@ -17,6 +17,7 @@
 | [design-08-isolation.md](design-08-isolation.md) | **数据隔离设计**：四条隔离边界、四检查点同源、404 vs 403、IDOR、撤权、越权测试矩阵 | 待评审 |
 | [design-08-schema.md](design-08-schema.md) | **数据表设计**：12 张表分 5 批、逐表字段与约束理由、索引、迁移策略、已知限制 | 已落地 11 张（`publication` 属 Step 5） |
 | [design-08-02-network.md](design-08-02-network.md) | **8.2 设计**：网络/邀请状态机、角色、publication 四 scope、Agent 通信授权、撤权 | 待评审 |
+| [user-manual-08-user-space-network.md](user-manual-08-user-space-network.md) | **系统使用手册**：部署、注册登录、管理员账号（租户管理员/平台管理员）、界面导览、网络/发布/安装/调用、资源权限与错误码、运维配置 | ✅ 可直接照着用 |
 | [verify-08-guide.md](verify-08-guide.md) | **验收手册**：五分钟手工验收、双人协作链路、API 越权直打、自动化测试命令 | ✅ 可直接照着做 |
 
 ---
