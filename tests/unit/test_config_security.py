@@ -161,9 +161,39 @@ def test_platform_admin_matches_uuid_case_insensitively(monkeypatch):
     monkeypatch.setattr(
         settings.security, "platform_admins", [f" {admin_id.upper()} ", ""]
     )
-    assert platform_admin_ids() == {admin_id.lower()}
+    # 集合内部统一成 32 位 hex（不带横线），与 SQLite 里 user.id 的形态一致
+    assert platform_admin_ids() == {uuid.UUID(admin_id).hex}
     assert is_platform_admin(_ctx(admin_id.lower())) is True
     assert is_platform_admin(_ctx(str(uuid.uuid4()))) is False
+
+
+def test_platform_admin_accepts_hex_and_dashed_forms(monkeypatch):
+    """配置写 32 位 hex、上下文是带横线 UUID 时也必须匹配。
+
+    这是真实踩过的坑：SQLite 的 ``user.id`` 落盘是不带横线的 hex，运维从
+    数据库抄进 ``SOTABAND_PLATFORM_ADMINS``；而 ``AuthContext.user_id`` /
+    ``/api/v1/me`` 给的是带横线的标准 UUID。只做 ``strip().lower()`` 比较会
+    永远不相等，表现为「名单配好了，界面仍说你不是平台管理员」。
+    """
+    from config.settings import settings
+    from core.auth.platform_admin import is_platform_admin, platform_admin_ids
+
+    uuid_obj = uuid.uuid4()
+    dashed = str(uuid_obj)
+    hex32 = uuid_obj.hex
+
+    # 配置 hex + 上下文 dashed → True（用户实际遇到的组合）
+    monkeypatch.setattr(settings.security, "platform_admins", [hex32])
+    assert platform_admin_ids() == {hex32}
+    assert is_platform_admin(_ctx(dashed)) is True
+
+    # 反过来：配置 dashed（大写）+ 上下文 hex → True
+    monkeypatch.setattr(settings.security, "platform_admins", [dashed.upper()])
+    assert is_platform_admin(_ctx(hex32)) is True
+
+    # 误填邮箱等非 UUID 内容不会被误判
+    monkeypatch.setattr(settings.security, "platform_admins", ["squall887@163.com"])
+    assert is_platform_admin(_ctx(dashed)) is False
 
 
 @pytest.mark.asyncio

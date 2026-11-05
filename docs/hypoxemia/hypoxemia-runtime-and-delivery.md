@@ -133,7 +133,14 @@ npm run build
 npm run dev
 ```
 
-开发页面默认端口 5174，代理后端 8002；端口可由 `SOTABAND_FRONTEND_PORT` / `SOTABAND_API_PORT` 调整。使用预构建前端的最终使用者无需安装 Node.js。当前仓库交付的是源码安装流程，不是 Windows EXE 安装包。
+开发页面默认端口与主流程一致：前端 5173、代理后端 8001；端口可由 `SOTABAND_FRONTEND_PORT` / `SOTABAND_API_PORT` 调整。需要与主实例并行跑第二套时（本目录上文命令即如此）显式指定 5174 / 8002：
+
+```powershell
+$env:SOTABAND_API_PORT = '8002'
+npm run dev -- --host 127.0.0.1 --port 5174 --strictPort
+```
+
+使用预构建前端的最终使用者无需安装 Node.js。当前仓库交付的是源码安装流程，不是 Windows EXE 安装包。
 
 LLM API Key 由使用者在本机配置 `.env`。离线合成验收不使用 LLM；`SOTABAND_LOAD_DOTENV=0` 可阻止验收读取本机 `.env`。不要复制开发者的 `.env`。用户选择外部低氧数据目录时不需要额外设置受信任数据根或重启后端。
 
