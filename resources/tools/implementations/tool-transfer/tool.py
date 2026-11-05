@@ -70,7 +70,7 @@ def execute(**kwargs) -> Dict[str, Any]:
     Args:
         action (str): export | import | list | info
         tool_id (str): 导出时的工具 id
-        bundle_path (str): 导入时的包路径（绝对路径，或 data/exports 下的文件名）
+        bundle_path (str): 导入时的包路径（绝对路径，或本人导出目录下的文件名）
         bundle_base64 (str): 导入时的包内容（base64，便于跨机器粘贴）
         overwrite (bool): 导入时同 id 已存在是否覆盖
         include_tests (bool): 导出时是否带 tests 目录（默认 True）
@@ -151,7 +151,7 @@ def execute(**kwargs) -> Dict[str, Any]:
         elif path:
             p = Path(path)
             if not p.is_absolute():
-                # 相对路径先在 data/exports 下找，再按当前工作目录找
+                # 相对路径先在本人导出目录（<USER_HOME>/<uid>/exports）下找，再按当前工作目录找
                 cand = tool_bundle.export_dir() / path
                 p = cand if cand.is_file() else p
             r = tool_bundle.import_tool(p, None, overwrite)

@@ -146,6 +146,9 @@ export function ResourceBrowser() {
       const missing: string[] = data?.deps?.missing || []
       const install: string[] = data?.deps?.install || []
       const missingTools: string[] = data?.missing_tools || []
+      const overrideNote = data?.overrode_builtin
+        ? '\n注意：已遮蔽同名内置版本（运行时使用本次导入的私有副本）。'
+        : ''
       if (missing.length > 0 || missingTools.length > 0) {
         setDepDialog({
           kind,
@@ -159,7 +162,7 @@ export function ResourceBrowser() {
       } else {
         window.alert(
           `已导入${kind === 'tool' ? '工具' : 'Agent'}：${name}（v${data.version || '?'}）\n` +
-          `依赖齐备，可直接使用。`
+          `依赖齐备，可直接使用。${overrideNote}`
         )
       }
     } catch (e) {

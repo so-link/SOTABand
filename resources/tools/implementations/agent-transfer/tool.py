@@ -59,7 +59,7 @@ def execute(**kwargs) -> Dict[str, Any]:
     Args:
         action (str): export | import | list | info
         agent_id (str): 导出时的 Agent id
-        bundle_path (str): 导入时的包路径（绝对路径，或 data/exports 下的文件名）
+        bundle_path (str): 导入时的包路径（绝对路径，或本人导出目录下的文件名）
         bundle_base64 (str): 导入时的包内容（base64）
         overwrite (bool): 导入时同 id 已存在是否覆盖
         include_assets (bool): 导出时是否带上二进制资产

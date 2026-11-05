@@ -27,7 +27,7 @@ created: 2026-10-29
 |--------|------|------|--------|------|
 | action | string | 是 | 无 | 动作：`export` / `import` / `list` / `info` |
 | tool_id | string | 否 | 无 | `export` 时必填，要导出的工具 id |
-| bundle_path | string | 否 | 无 | `import` 时必填，包路径（绝对路径，或 `data/exports/` 下的文件名） |
+| bundle_path | string | 否 | 无 | `import` 时必填，包路径（绝对路径，或本人导出目录 `<USER_HOME>/<uid>/exports/` 下的文件名） |
 | bundle_base64 | string | 否 | 无 | `import` 时的包内容（base64），适合跨机器粘贴 |
 | overwrite | bool | 否 | false | `import` 时同 id 工具已存在是否覆盖（旧文件会备份为 `.bak.<时间戳>`） |
 | include_tests | bool | 否 | true | `export` 时是否带上实现目录下的 `tests/` |
@@ -52,9 +52,9 @@ created: 2026-10-29
 
 ### 5.1 执行流程
 
-1. `export`：读注册条目 → 定位定义文件与实现目录 → 收集文件（跳过 `__pycache__`、`.venv`、`*.pyc` 等噪声）→ 写 `manifest.json` + `registry_entry.json` + 两类文件 → 落到 `data/exports/`。
+1. `export`：读注册条目 → 定位定义文件与实现目录 → 收集文件（跳过 `__pycache__`、`.venv`、`*.pyc` 等噪声）→ 写 `manifest.json` + `registry_entry.json` + 两类文件 → 落到本人导出目录 `<USER_HOME>/<uid>/exports/`。
 2. `import`：校验格式版本与工具 id → 逐成员校验路径（拒绝 `..`、绝对路径、反斜杠）→ 解到 `resources-private/tools/` → 合并私有 `registry.json`。
-3. `list`：列出 `data/exports/` 下所有迁移包及其工具元数据。
+3. `list`：列出本人导出目录下所有迁移包及其工具元数据。
 4. `info`：返回包格式版本与导出目录，便于其他程序探测。
 
 ### 5.2 性能指标
@@ -94,10 +94,10 @@ created: 2026-10-29
 ```python
 # 1) 在源环境导出
 execute(action="export", tool_id="calculate-circle-area")
-# → data.bundle_path = .../data/exports/tool-calculate-circle-area-0.1.0-20261029-101500.sotatool.zip
+# → data.bundle_path = .../exports/tool-calculate-circle-area-0.1.0-20261029-101500.sotatool.zip
 
 # 2) 把 zip 拷到目标环境后导入
-execute(action="import", bundle_path="/opt/sotaband/data/exports/tool-calculate-circle-area-0.1.0-20261029-101500.sotatool.zip")
+execute(action="import", bundle_path="tool-calculate-circle-area-0.1.0-20261029-101500.sotatool.zip")
 
 # 3) 覆盖导入
 execute(action="import", bundle_path="tool-xxx.sotatool.zip", overwrite=True)

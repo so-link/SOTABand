@@ -29,7 +29,7 @@ Agent 空间看到。与工具迁移的区别：Agent 还依赖**其它工具**�
 |--------|------|------|--------|------|
 | action | string | 是 | 无 | 动作：`export` / `import` / `list` / `info` |
 | agent_id | string | 否 | 无 | `export` 时必填，要导出的 Agent id |
-| bundle_path | string | 否 | 无 | `import` 时必填，包路径（绝对路径，或 `data/exports/` 下的文件名） |
+| bundle_path | string | 否 | 无 | `import` 时必填，包路径（绝对路径，或本人导出目录 `<USER_HOME>/<uid>/exports/` 下的文件名） |
 | bundle_base64 | string | 否 | 无 | `import` 时的包内容（base64） |
 | overwrite | bool | 否 | false | 同 id 已存在时是否覆盖（旧文件备份为 `.bak.<时间戳>`） |
 | include_assets | bool | 否 | true | `export` 时是否带上二进制资产 |
@@ -53,9 +53,9 @@ Agent 空间看到。与工具迁移的区别：Agent 还依赖**其它工具**�
 
 ### 5.1 执行流程
 
-1. `export`：读注册条目 → 定位规范与实现目录 → 收集文件（跳过 `__pycache__`、`.venv`、`*.pyc`）→ 写 `manifest.json`（含 role / 依赖工具 / 依赖包）+ `registry_entry.json` + 两类文件 → 落到 `data/exports/`。
+1. `export`：读注册条目 → 定位规范与实现目录 → 收集文件（跳过 `__pycache__`、`.venv`、`*.pyc`）→ 写 `manifest.json`（含 role / 依赖工具 / 依赖包）+ `registry_entry.json` + 两类文件 → 落到本人导出目录 `<USER_HOME>/<uid>/exports/`。
 2. `import`：校验格式版本与 id → 逐成员校验路径 → 解到 `resources-private/agents/` → 合并私有 `registry.json` → 检查依赖工具是否齐备。
-3. `list`：列出 `data/exports/` 下的 Agent 迁移包。
+3. `list`：列出本人导出目录下的 Agent 迁移包。
 4. `info`：返回包格式与导出目录。
 
 ### 5.2 性能指标
@@ -98,7 +98,7 @@ Agent 空间看到。与工具迁移的区别：Agent 还依赖**其它工具**�
 execute(action="export", agent_id="city-info-query-agent")
 
 # 2) 目标环境导入（先确认它依赖的工具已导入）
-execute(action="import", bundle_path="/opt/sotaband/data/exports/agent-city-info-query-agent-0.1.0-20261029-160000.sotaagent.zip")
+execute(action="import", bundle_path="agent-city-info-query-agent-0.1.0-20261029-160000.sotaagent.zip")
 
 # 3) 覆盖导入
 execute(action="import", bundle_path="agent-xxx.sotaagent.zip", overwrite=True)
