@@ -13,8 +13,16 @@ export function useStickToBottom(ref: RefObject<HTMLElement | null>, dep: unknow
   useEffect(() => {
     const el = ref.current
     if (!el) return
+    // 内容还没撑满一屏时 scrollTop 恒为 0，谈不上「用户上翻」，直接贴底。
+    // 否则日志刚出现（容器刚挂载、scrollTop=0）会被判定为已离开底部，
+    // 之后内容溢出就再也不跟随了。
+    const overflow = el.scrollHeight - el.clientHeight
+    if (overflow <= 0) {
+      el.scrollTop = el.scrollHeight
+      return
+    }
     // 判定「贴底」留 48px 容差：行数按行跳动时不至于因 1-2px 误差失联
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+    const nearBottom = overflow - el.scrollTop < 48
     if (nearBottom) el.scrollTop = el.scrollHeight
   }, [dep])
 }

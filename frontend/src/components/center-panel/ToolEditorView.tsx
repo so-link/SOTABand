@@ -825,8 +825,13 @@ function Step3() {
   }
 
   // 自动调试日志随流式事件增长时贴底跟随（含 debugStream 增量输出）；
-  // 上翻翻看历史时不打扰，滚回底部后自动恢复跟随
-  useStickToBottom(logEndRef, debugRounds.length + debugStream.length)
+  // 上翻翻看历史时不打扰，滚回底部后自动恢复跟随。
+  // 依赖用内容总长度：store 是原地修改 round 元素，仅数组长度不变时
+  // （如 analysis 逐 token 追加）无法触发跟随。
+  const debugLogSize = debugStream.length + debugRounds.reduce(
+    (n, r) => n + (r.stdout?.length || 0) + (r.stderr?.length || 0)
+      + (r.analysis?.length || 0) + (r.code?.length || 0), 0)
+  useStickToBottom(logEndRef, debugLogSize)
 
   const handleFileUpload = (paramName: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]

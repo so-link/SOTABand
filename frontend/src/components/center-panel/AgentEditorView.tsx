@@ -683,9 +683,15 @@ function Step3Verify() {
     () => Boolean(useAgentEditorStore.getState().editingAgentId))
   // 代码区滚动容器：编辑态是 textarea、预览态是高亮包裹 div，二者互斥渲染
   const codeRef = useRef<HTMLDivElement | HTMLTextAreaElement | null>(null)
-  // 自动调试日志容器：日志随流式事件增长时贴底跟随，上翻翻看时不打扰
+  // 自动调试日志容器：日志随流式事件增长时贴底跟随，上翻翻看时不打扰。
+  // 依赖用内容总长度而非 debugRounds.length：thinking_stream 每来一个 token
+  // 都是原地追加到 round.analysis，数组长度不变（连元素引用都不变），
+  // 只用长度做依赖永远不会触发跟随。
   const debugLogRef = useRef<HTMLDivElement>(null)
-  useStickToBottom(debugLogRef, debugRounds.length + debugStream.length)
+  const debugLogSize = debugStream.length + debugRounds.reduce(
+    (n, r) => n + (r.stdout?.length || 0) + (r.stderr?.length || 0)
+      + (r.analysis?.length || 0) + (r.code?.length || 0), 0)
+  useStickToBottom(debugLogRef, debugLogSize)
 
   // 直接读写 store 中的 generatedCode，确保手工微调后的内容
   // 能被 registerAgent 正确提交（此前用局部 state 会导致改动被丢弃）。

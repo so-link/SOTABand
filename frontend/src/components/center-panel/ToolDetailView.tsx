@@ -109,8 +109,12 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
   const loadedToolIdRef = useRef('')
 
   // 自动调试日志随流式事件增长时贴底跟随；上翻翻看历史时不打扰，
-  // 滚回底部后自动恢复跟随（与工具/Agent 编辑器、聊天页行为一致）
-  useStickToBottom(logEndRef, debugRounds.length + debugStream.length)
+  // 滚回底部后自动恢复跟随（与工具/Agent 编辑器、聊天页行为一致）。
+  // 依赖用内容总长度：store 原地修改 round 元素，内容增长时数组长度不变。
+  const debugLogSize = debugStream.length + debugRounds.reduce(
+    (n, r) => n + (r.stdout?.length || 0) + (r.stderr?.length || 0)
+      + (r.analysis?.length || 0) + (r.code?.length || 0), 0)
+  useStickToBottom(logEndRef, debugLogSize)
 
   useEffect(() => {
     const id = tool?.id
