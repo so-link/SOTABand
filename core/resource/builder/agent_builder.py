@@ -462,6 +462,14 @@ class AgentCodeBuilder(BaseBuilder):
         m = re.search(rf'^{field}:\s*(.+)', spec_md, re.MULTILINE)
         return m.group(1).strip() if m else ""
 
+    # 引用的宽松归一：去掉「工具」后缀、空白、大小写差异后再比对
+    @staticmethod
+    def _loose_tool_key(name: str) -> str:
+        s = re.sub(r"\s+", "", name or "").lower()
+        if s.endswith("工具"):
+            s = s[: -len("工具")]
+        return s
+
     @staticmethod
     def _lookup_tool(name: str) -> dict:
         """按「工具显示名」或「工具 id」查工具条目。
@@ -469,10 +477,25 @@ class AgentCodeBuilder(BaseBuilder):
         使用平台权威的 ToolRegistry 解析（内置 + 私有两个资源根，私有优先），
         而不是自己按 name 精确匹配 registry.json —— 历史上这里查不到时
         直接把【【显示名】】当成 id 写进 MD 与生成代码。
+
+        解析不到时再做一次宽松匹配：LLM 写规范时常把工具名改写成
+        「<名称>工具」并顺手去掉空格（如真实名 `ETF 目标价预测` 被写成
+        `ETF目标价预测工具`），精确匹配落空后会把这段假 id 一路带进
+        生成代码与运行时目录拼接，最终报「工具不存在」。
         """
-        from core.resource.registry.tool_registry import find_tool_entry, resolve_tool_id
+        from core.resource.registry.tool_registry import (
+            find_tool_entry, iter_tool_entries, resolve_tool_id,
+        )
 
         entry = find_tool_entry(name)
+        if entry is None:
+            key = AgentCodeBuilder._loose_tool_key(name)
+            if key:
+                for e in iter_tool_entries():
+                    if AgentCodeBuilder._loose_tool_key(
+                            str(e.get("name") or "")) == key:
+                        entry = e
+                        break
         if entry is not None:
             return {"id": str(entry.get("id", "")).strip() or resolve_tool_id(name),
                     "params": entry.get("param_meta", []) or []}
@@ -795,10 +818,11 @@ class AgentCodeBuilder(BaseBuilder):
         LLM 只负责业务步骤；参数从哪来由框架注入，避免它擅自读 content。
         同时删除 LLM 自己写的 `content = kwargs.get("content", "").strip()`，
         防止覆盖框架算好的 content。
-        """
-        if role == "interactive":
-            return body
 
+        interactive 同样必须注入：提示词禁止 LLM 自取 content，若此处直接放行，
+        生成的代码一引用 content 就抛 `name 'content' is not defined`（此前
+        ETF 目标价预测 Agent 首次生成即稳定复现，只能靠自动调试补回）。
+        """
         names = [i["name"] for i in inputs]
 
         # 删除 LLM 自行获取 content 的赋值语句（含括号 / or "" / .strip() 等写法），
@@ -818,6 +842,15 @@ class AgentCodeBuilder(BaseBuilder):
             return (
                 "        # ── 框架注入：入口参数归一化 ──\n"
                 "        _declared = []\n"
+                "        content = str(kwargs.get(\"content\") or \"\").strip()\n"
+            ) + body
+
+        if role == "interactive":
+            # 交互式：只保证 content 有定义并做归一化，空输入交给 LLM 生成的
+            # 业务分支处理（它会给出面向用户的友好提示，如「请输入 ETF 代码」）。
+            # 不能在这里 error+return，否则交互式 Agent 的空输入引导永远走不到。
+            return (
+                "        # ── 框架注入：用户消息（框架保证 content 必有定义）──\n"
                 "        content = str(kwargs.get(\"content\") or \"\").strip()\n"
             ) + body
 
