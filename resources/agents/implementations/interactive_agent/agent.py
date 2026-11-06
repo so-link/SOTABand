@@ -274,6 +274,12 @@ class InteractiveAgent(BaseAgent):
                 # 本次回复用于「选择工具」，不可再用作模式提示依据，
                 # 否则用户回复的编号（如 "1"）会被误判为模式编号，导致跳过模式选择。
                 tool_from_confirm = True
+                # 参数提取必须用**原始用户输入**而非当前这条选择回复（例如
+                # "预测 ETF 510500 的价格" 选完工具后当前 content 变成
+                # "我选择第2个工具：..."，从后者当然提不出 510500）。
+                original_query = pending_confirm.get("original_query")
+                if original_query:
+                    content = original_query
 
         # ③ 正在收集参数
         elif self._pending_calls.get(session_key):
@@ -310,6 +316,8 @@ class InteractiveAgent(BaseAgent):
         matched_tools: list[dict] = []
         repo_tools: list[dict] = []
         if not matched_tool:
+            # Agent 优先匹配：先发 step，让用户看到「正在匹配 Agent」阶段
+            yield {"event": "step", "data": {"id": "match_agent", "text": "正在匹配 Agent", "status": "running"}}
             agent_hit = await self._match_agent(content)
             if agent_hit:
                 candidates = agent_hit if isinstance(agent_hit, list) else [agent_hit]
@@ -317,6 +325,7 @@ class InteractiveAgent(BaseAgent):
                     # 多个 Agent 名称都可能匹配 → 请用户确认，不擅自选一个
                     infos = [{"id": a.get("id", ""), "name": a.get("name", ""), "index": i}
                              for i, a in enumerate(candidates, 1)]
+                    yield {"event": "step", "data": {"id": "match_agent", "text": "找到多个候选 Agent，等待选择", "status": "done"}}
                     yield {
                         "event": "card",
                         "data": {
@@ -326,17 +335,16 @@ class InteractiveAgent(BaseAgent):
                             "data": {"candidates": infos},
                         },
                     }
-                    options = "、".join(f"{i}.{a['name']}" for i, a in enumerate(infos, 1))
-                    yield {
-                        "event": "content",
-                        "data": {"text": f"检测到多个可能匹配的 Agent，请选择：{options}。回复编号或 Agent 名称即可。"},
-                    }
                     self._pending_agents[session_key] = {"candidates": candidates, "request": content}
                     return
+                a_name = candidates[0].get("name", candidates[0].get("id", ""))
+                yield {"event": "step", "data": {"id": "match_agent", "text": f"匹配到 Agent「{a_name}」", "status": "done"}}
                 async for ev in self._dispatch_to_agent(candidates[0], content, session_key,
                                                         ctx.user_id or ""):
                     yield ev
                 return
+            # 未匹配到 Agent → 继续工具匹配
+            yield {"event": "step", "data": {"id": "match_agent", "text": "未匹配到 Agent，继续匹配工具", "status": "done"}}
             yield {"event": "step", "data": {"id": "match_tool", "text": "正在匹配工具", "status": "running"}}
             matched_tools, need_create_tool_desc, repo_tools = await self._pre_match_tool(content, workspace_tool_ids or [])
 
@@ -351,13 +359,13 @@ class InteractiveAgent(BaseAgent):
 
         # 多个候选工具 → 请用户确认选择哪一个
         if not matched_tool and len(matched_tools) > 1:
-            self._pending_confirm[session_key] = {"candidates": matched_tools}
+            self._pending_confirm[session_key] = {"candidates": matched_tools, "original_query": content}
             # 构建候选列表展示
             candidates_info = []
             for i, t in enumerate(matched_tools, 1):
                 name = t.get("name", t.get("id", ""))
                 candidates_info.append({"id": t.get("id", ""), "name": name, "index": i})
-            # 发确认卡片
+            # 发确认卡片（卡片本身已提供候选列表与选择交互，不再额外发重复文本引导）
             yield {
                 "event": "card",
                 "data": {
@@ -366,12 +374,6 @@ class InteractiveAgent(BaseAgent):
                     "summary": f"找到 {len(matched_tools)} 个可能匹配的工具，请选择其中一个",
                     "data": {"candidates": candidates_info},
                 },
-            }
-            # 文本引导
-            options_text = "、".join(f"{i}.{t['name']}" for i, t in enumerate(matched_tools, 1))
-            yield {
-                "event": "content",
-                "data": {"text": f"检测到多个可能匹配的工具，请选择：{options_text}。回复编号或工具名称即可。"},
             }
             yield {"event": "step", "data": {"id": "match_tool", "text": "找到多个候选工具，等待选择", "status": "done"}}
             return
@@ -397,12 +399,6 @@ class InteractiveAgent(BaseAgent):
                     "data": {"candidates": infos, "request": content},
                 },
             }
-            options = "、".join(f"「{t['name']}」" for t in infos)
-            yield {
-                "event": "content",
-                "data": {"text": f"当前工具空间里没有匹配的工具，不过工具仓库里已经有 {options}，"
-                                 f"点上方卡片加入工具空间，我马上就能用它处理。"},
-            }
             yield {"event": "step", "data": {"id": "match_tool", "text": "未匹配到工具，已推荐仓库工具", "status": "done"}}
             return
 
@@ -417,13 +413,13 @@ class InteractiveAgent(BaseAgent):
                     "data": {"description": need_create_tool_desc},
                 },
             }
-            # 同时用自然语言告知用户
-            yield {
-                "event": "content",
-                "data": {"text": f"当前工具空间中没有匹配的工具，我理解你需要创建一个新工具：{need_create_tool_desc}。点击下方卡片即可跳转到工具编辑器。"},
-            }
             yield {"event": "step", "data": {"id": "match_tool", "text": "未匹配到工具，需要新建", "status": "done"}}
             return
+
+        # 兜底：所有工具匹配分支都未命中（matched_tools / repo_tools / need_create_tool_desc 全空）
+        # 必须发 step done，否则前端「正在匹配工具」永远停在 running 状态。
+        if not matched_tool:
+            yield {"event": "step", "data": {"id": "match_tool", "text": "未匹配到工具，进入自由对话", "status": "done"}}
 
         if matched_tool:
             _tool_name = matched_tool.get("name", matched_tool.get("id", ""))
@@ -517,9 +513,6 @@ class InteractiveAgent(BaseAgent):
                     session_key, owner, matched_tool, params, selected_mode_id)
                 yield self._workspace_exec_card(entry)
                 yield {"event": "step", "data": {"id": "call_tool", "text": f"等待确认执行「{_tool_name}」", "status": "done"}}
-                yield {"event": "content", "data": {"text": f"准备执行 **{matched_tool['name']}**，参数: "
-                                                            f"{json.dumps(params, ensure_ascii=False)[:200]}。"
-                                                            f"回复「确认」执行，「取消」放弃。"}}
                 return
             if not exec_op_id:
                 # ② 确认轮未携带 op_id（旧格式 pending）→ 补发审计 op，保证执行有流水
@@ -1136,11 +1129,13 @@ class InteractiveAgent(BaseAgent):
         self._sessions[session_key] = history
 
     async def _match_agent(self, query: str):
-        """判断用户是否明确指定了某个已注册 Agent。
+        """判断用户是否指定了某个已注册 Agent，返回单个条目 / 多候选 list / None。
 
-        返回单个 Agent 条目 dict、多个候选 list，或 None（不是 Agent 派发场景）。
-        仅做名称级强匹配（名称/id 显式出现在句中出现才命中），
-        不做模糊语义匹配——错派 Agent 的代价远高于错配工具。
+        两级匹配：
+        ① 名称级强匹配（名称/id 显式出现在句中出现）—— 精确、无歧义，优先；
+        ② 未命中时做 LLM 语义匹配（用功能概述判断用户需求是否正好由某个
+           Agent 完成，例如「预测 ETF 510500 的价格」→ ETF目标价预测Agent）。
+           语义匹配置信度要求高，宁缺毋滥：错派 Agent 的代价高于回退去匹配工具。
         """
         try:
             from core.resource.registry.agent_registry import AgentRegistry
@@ -1172,11 +1167,91 @@ class InteractiveAgent(BaseAgent):
                     matched = True
             if matched:
                 hits.append(e)
-        if not hits:
+        if hits:
+            return hits[0] if len(hits) == 1 else hits
+
+        # 名称未命中 → 语义匹配（排除自己）
+        candidates = [e for e in entries
+                      if e.get("status") == "active" and e.get("id") != self.spec.id]
+        return await self._llm_semantic_match_agent(q, candidates)
+
+    async def _llm_semantic_match_agent(self, query: str, agents: list[dict]) -> dict | list | None:
+        """用 LLM 判断用户需求是否正好对应某个 Agent（高置信度才命中）。
+
+        返回单个 Agent 条目、多个候选 list，或 None。
+        """
+        try:
+            lines = []
+            for a in agents:
+                overview = self._read_agent_overview(a)
+                info = f"- {a.get('id')}: {a.get('name', '')}"
+                if overview:
+                    info += f" — {overview}"
+                lines.append(info)
+            if not lines:
+                return None
+
+            prompt = f"""你是 Agent 匹配器。判断用户的需求是否正好应由下列某个 Agent 完成。
+
+用户需求：
+"{query}"
+
+可用 Agent 列表：
+{chr(10).join(lines)}
+
+请判断：
+- 只有当某个 Agent 的职责确实就是用户要做的事时，才把它的 id 放进 matched_agent_ids（按匹配度从高到低，最多 3 个）
+- 宁缺毋滥：用户需求与 Agent 职责不完全一致、或只是普通闲聊/咨询时，返回空列表
+- 用户明确要求「新建/创建/开发 Agent」时返回空列表
+- 用户想直接处理数据但列表里没有职责匹配的 Agent 时返回空列表（交给后续工具匹配）
+
+只返回 JSON，格式：{{"matched_agent_ids": ["agent-id1", "agent-id2"]}}
+不要返回其他内容。"""
+            import asyncio
+            response = await asyncio.wait_for(
+                self.llm.chat(
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.0,
+                    max_tokens=300,
+                ),
+                timeout=10,
+            )
+            import json
+            m = re.search(r"\{[^{}]*\}", response.strip())
+            if not m:
+                return None
+            data = json.loads(m.group(0))
+            ids = data.get("matched_agent_ids") or []
+            result = []
+            for aid in ids:
+                for a in agents:
+                    if a.get("id") == aid:
+                        result.append(a)
+                        break
+            if not result:
+                return None
+            # 单个直接派发；多个交给上层弹确认卡片
+            return result[0] if len(result) == 1 else result
+        except Exception:
             return None
-        if len(hits) == 1:
-            return hits[0]
-        return hits
+
+    def _read_agent_overview(self, agent: dict) -> str:
+        """读取 Agent 规范 MD 的「功能概述」章节（对齐工具侧 _read_tool_overview）"""
+        try:
+            spec_path = agent.get("spec_path", "")
+            if not spec_path:
+                return ""
+            from core.resource import paths as _paths
+            for root in _paths.resource_roots():
+                md_file = root / "agents" / spec_path
+                if md_file.exists():
+                    content = md_file.read_text(encoding="utf-8")
+                    m = re.search(r"功能概述\s*\n\s*(.+?)(?=\n##|\Z)", content, re.DOTALL)
+                    if m:
+                        return m.group(1).strip()[:200]
+            return ""
+        except Exception:
+            return ""
 
     def _resolve_agent_selection(self, answer: str, candidates: list[dict]) -> dict | None:
         """识别用户对候选 Agent 的选择（编号或名称），与 _resolve_tool_selection 同构"""
