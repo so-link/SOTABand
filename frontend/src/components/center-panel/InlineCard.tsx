@@ -558,15 +558,15 @@ function ToolConfirmCard({ cardId, title, summary, data, messageId }: {
   const sendDirectMessage = useChatStore((s) => s.sendDirectMessage)
   const markCardSelected = useChatStore((s) => s.markCardSelected)
   const candidates = (data.candidates as Array<{ id: string; name: string; index: number }>) || []
-  const isExecGate = data.kind === 'workspace-exec'
   // 点选即消费：selected 标记落进卡片 data，按钮永久失效——历史会话里重新
   // 打开也禁止再点（重复点击会以旧参数/旧选择重新触发执行，属越权执行）。
   // 快照未带 selected 的旧历史卡按同样规则处理：只要该消息后面还有
   // 任何消息，说明这个选择早已被回答过，同样禁用。
   const answered = typeof data.selected === 'string'
+  // 执行终态由 store 按 target_card_id 回写（markExecCardStatus）。只更新徽标：
+  // 确认卡在时间线上位于用户选择之前，把结果搬上来会让结果卡跑到选择前面、
+  // 选择卡也被改写至不可见，结果一律留在其后轮次的结果卡原位展示。
   const execStatus = String(data.exec_status || '')
-  const execResult = (data.exec_result as Record<string, unknown>) || null
-  const execSummary = String(data.exec_summary || '')
 
   const handleSelect = (candidate: { id: string; name: string; index: number }) => {
     const label = `我选择第${candidate.index}个工具：${candidate.name}`
@@ -581,35 +581,7 @@ function ToolConfirmCard({ cardId, title, summary, data, messageId }: {
     const idx = s.messages.findIndex((m) => m.id === messageId)
     return idx >= 0 && idx < s.messages.length - 1
   })
-  const disabled = answered || (!execStatus && hasLaterMessage)
-
-  // ── 执行确认门（workspace-exec）：回灌结果后转为执行回执卡 ──
-  if (isExecGate && execStatus) {
-    const failed = execStatus === 'failed'
-    return (
-      <Card className={failed ? 'border-maia-danger bg-maia-danger-bg' : 'border-maia-card-green bg-maia-card-green'}>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            {failed
-              ? <XCircle className="h-4 w-4 text-maia-danger" />
-              : <CheckCircle2 className="h-4 w-4 text-emerald-500" />}
-            <span className="text-[13px] font-medium">
-              工具执行{failed ? '失败' : '完成'}：{candidates[0]?.name || ''}
-            </span>
-            <Badge variant={failed ? 'danger' : 'success'}>{failed ? '失败' : '完成'}</Badge>
-          </div>
-        </CardHeader>
-        <CardBody>
-          {execSummary && (
-            <p className={`text-[13px] mb-2 ${failed ? 'text-maia-danger' : 'text-maia-text-secondary'}`}>
-              {execSummary}
-            </p>
-          )}
-          {execResult && Object.keys(execResult).length > 0 && <ResultBody result={execResult} />}
-        </CardBody>
-      </Card>
-    )
-  }
+  const disabled = answered || !!execStatus || hasLaterMessage
 
   return (
     <Card className="border-maia-card-amber bg-maia-card-amber">
@@ -617,9 +589,13 @@ function ToolConfirmCard({ cardId, title, summary, data, messageId }: {
         <div className="flex items-center gap-2">
           <Wrench className="h-4 w-4 text-amber-500" />
           <span className="text-[13px] font-medium">{title}</span>
-          {disabled
-            ? <Badge>{answered && typeof data.selected === 'string' ? `已选择 ${data.selected}` : '已失效'}</Badge>
-            : <Badge variant="default">{candidates.length} 个候选</Badge>}
+          {execStatus
+            ? <Badge variant={execStatus === 'failed' ? 'danger' : 'success'}>
+                {execStatus === 'failed' ? '执行失败' : '已执行'}
+              </Badge>
+            : disabled
+              ? <Badge>{answered && typeof data.selected === 'string' ? `已选择 ${data.selected}` : '已失效'}</Badge>
+              : <Badge variant="default">{candidates.length} 个候选</Badge>}
         </div>
       </CardHeader>
       <CardBody>

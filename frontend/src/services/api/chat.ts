@@ -128,19 +128,31 @@ export class ApiChatService implements IChatService {
                   break
                 }
 
-                case 'card':
-                  pendingCards.push({
+                case 'card': {
+                  const card: InlineCard = {
                     // 后端可下发稳定 card_id（如执行确认卡的 op_id）：结果回灌
                     // 按它定位目标卡，必须原样采用，不能一律重新生成。
                     id: (typeof payload.card_id === 'string' && payload.card_id)
                       ? payload.card_id
-                      : `card-${Date.now()}`,
+                      : `card-${Date.now()}-${pendingCards.length}`,
                     type: payload.type,
                     title: payload.title,
                     summary: payload.summary || '',
                     data: payload.data || {},
-                  })
+                  }
+                  pendingCards.push(card)
+                  // 卡片即时下发：此前卡片攒到 done 才随消息产出，结果卡比
+                  // 分析文字晚出现、再插到文字上方，视觉上时序颠倒。
+                  yield {
+                    id: 'streaming',
+                    role: 'agent',
+                    content: fullContent,
+                    timestamp: new Date().toISOString(),
+                    cards: [...pendingCards],
+                    steps: steps.length > 0 ? [...steps] : undefined,
+                  }
                   break
+                }
 
                 case 'done':
                   if (!fullContent.trim() && pendingCards.length === 0 && steps.length === 0) {
