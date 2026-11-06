@@ -6,7 +6,6 @@ import {
   Bot,
   ChevronRight,
   ChevronDown,
-  Star,
   Plus,
   Minus,
   Package,
@@ -546,13 +545,18 @@ export function ResourceBrowser() {
                     )}
                     {resource.type === 'tool' &&
                       (resource as ToolResource).isUserGenerated && (
-                        <span title="用户本地工具">
-                          <Star className="h-3 w-3 shrink-0 text-maia-accent" />
-                        </span>
+                        <span
+                          className="h-1.5 w-1.5 rounded-full shrink-0 bg-amber-500"
+                          title="用户本地工具"
+                        />
                       )}
-                    {resource.type === 'agent' && (
-                      <span className="h-1.5 w-1.5 rounded-full shrink-0 bg-maia-success" />
-                    )}
+                    {resource.type === 'agent' &&
+                      (resource as AgentResource).source === 'private' && (
+                        <span
+                          className="h-1.5 w-1.5 rounded-full shrink-0 bg-purple-500"
+                          title="我的 Agent（自建或副本）"
+                        />
+                      )}
                     {resource.type === 'task' && (
                       <span
                         className={
