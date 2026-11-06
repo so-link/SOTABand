@@ -185,7 +185,11 @@ def create_tool_venv(tool_dir: Path, specs: list[str] | None = None,
     if requirements:
         req = requirements_file(tool_dir)
         if req.exists():
-            r = _run(["pip", "install", "-r", str(req), "--python", tmp_py])
+            # unsafe-best-match：requirements.txt 可内嵌 --extra-index-url
+            # （如 torch +cpu 索引），uv 默认 first-index 策略会把 certifi 等
+            # 公共包只在第一个命中的索引里找版本而解析失败
+            r = _run(["pip", "install", "-r", str(req), "--python", tmp_py,
+                      "--index-strategy", "unsafe-best-match"])
             if r.returncode != 0:
                 shutil.rmtree(tmp, ignore_errors=True)
                 raise RuntimeError(f"uv pip install -r 失败: {(r.stdout or r.stderr)[-500:]}")
@@ -202,12 +206,23 @@ def create_tool_venv(tool_dir: Path, specs: list[str] | None = None,
 
 
 def uv_pip_install_argv(uv: str, venv_python: str, spec: str) -> list[str]:
-    """构造流式安装单个依赖的 uv 命令（调用方自行 Popen 采集输出）"""
-    return [uv, "pip", "install", spec, "--python", venv_python]
+    """构造流式安装单个依赖的 uv 命令（调用方自行 Popen 采集输出）
+
+    带 pytorch +cpu 索引与 unsafe-best-match：裸 spec（如 torch==2.14.1+cpu，
+    迁移导入/流式安装传来的冻结 spec）在清华主索引上不存在，需要该索引供给；
+    裸名 torch 经 best-match 也会自动选中 local version 更高的 +cpu 构建。
+    """
+    return [uv, "pip", "install", spec, "--python", venv_python,
+            "--extra-index-url", "https://download.pytorch.org/whl/cpu",
+            "--index-strategy", "unsafe-best-match"]
 
 
 def freeze_requirements(tool_dir: Path) -> None:
-    """把工具 .venv 的已安装包精确 pin 写入 requirements.txt"""
+    """把工具 .venv 的已安装包精确 pin 写入 requirements.txt
+
+    原文件中内嵌的索引选项行（--extra-index-url 等，torch +cpu 重建依赖它）
+    原样保留并置顶，否则重新冻结后下次重建会解析不到本地私有索引的包。
+    """
     venv_py = venv_python_path(tool_dir)
     if not venv_py.exists():
         return
@@ -219,6 +234,13 @@ def freeze_requirements(tool_dir: Path) -> None:
             env=uv_env(), timeout=60,
         )
         if r.returncode == 0 and r.stdout.strip():
-            requirements_file(tool_dir).write_text(r.stdout, encoding="utf-8")
+            req = requirements_file(tool_dir)
+            options = ""
+            if req.exists():
+                opts = [ln + "\n" for ln in req.read_text(encoding="utf-8").splitlines()
+                        if ln.strip().startswith("--")]
+                if opts:
+                    options = "".join(opts) + "\n"
+            req.write_text(options + r.stdout, encoding="utf-8")
     except Exception:
         pass

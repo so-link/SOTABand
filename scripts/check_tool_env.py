@@ -192,7 +192,8 @@ def check_and_install(dry_run: bool = False) -> Dict[str, List[str]]:
                 venv_py = str(_deps.venv_python_path(tool_path))
                 r = subprocess.run(
                     [uv, "pip", "install", "-r", str(_deps.requirements_file(tool_path)),
-                     "--python", venv_py],
+                     "--python", venv_py,
+                     "--index-strategy", "unsafe-best-match"],
                     capture_output=True, text=True, encoding="utf-8", errors="replace",
                     env=_deps.uv_env(), timeout=1800,
                 )
