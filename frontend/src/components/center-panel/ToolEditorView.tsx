@@ -824,7 +824,9 @@ function Step3() {
     notifyEdit()
   }
 
-  useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: 'auto' }) }, [debugRounds])
+  // 自动调试日志随流式事件增长时贴底跟随（含 debugStream 增量输出）；
+  // 上翻翻看历史时不打扰，滚回底部后自动恢复跟随
+  useStickToBottom(logEndRef, debugRounds.length + debugStream.length)
 
   const handleFileUpload = (paramName: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -1041,7 +1043,7 @@ function Step3() {
 
         {/* 下半部分：自动调试日志 */}
         {(isAutoDebugging || debugRounds.length > 0) && (
-          <div className="shrink-0 rounded-lg border border-maia-border bg-maia-bg/50 overflow-auto" style={{ height: logHeight }}>
+          <div ref={logEndRef} className="shrink-0 rounded-lg border border-maia-border bg-maia-bg/50 overflow-auto" style={{ height: logHeight }}>
             <div className="px-3 py-2 text-[12px] font-semibold text-maia-text-secondary border-b border-maia-border sticky top-0 bg-maia-bg/90 z-10">
               🧠 自动调试日志 {isAutoDebugging && <Loader2 className="h-3 w-3 animate-spin inline ml-1" />}
             </div>
@@ -1073,7 +1075,6 @@ function Step3() {
                   )}
                 </div>
               ))}
-              <div ref={logEndRef} />
             </div>
           </div>
         )}

@@ -683,6 +683,9 @@ function Step3Verify() {
     () => Boolean(useAgentEditorStore.getState().editingAgentId))
   // 代码区滚动容器：编辑态是 textarea、预览态是高亮包裹 div，二者互斥渲染
   const codeRef = useRef<HTMLDivElement | HTMLTextAreaElement | null>(null)
+  // 自动调试日志容器：日志随流式事件增长时贴底跟随，上翻翻看时不打扰
+  const debugLogRef = useRef<HTMLDivElement>(null)
+  useStickToBottom(debugLogRef, debugRounds.length + debugStream.length)
 
   // 直接读写 store 中的 generatedCode，确保手工微调后的内容
   // 能被 registerAgent 正确提交（此前用局部 state 会导致改动被丢弃）。
@@ -854,7 +857,7 @@ function Step3Verify() {
 
       {/* 自动调试日志 */}
       {(isAutoDebugging || debugRounds.length > 0) && (
-        <div className="mt-3 rounded-lg border border-maia-border bg-maia-bg/50 max-h-[320px] overflow-auto">
+        <div ref={debugLogRef} className="mt-3 rounded-lg border border-maia-border bg-maia-bg/50 max-h-[320px] overflow-auto">
           <div className="px-3 py-2 text-[12px] font-semibold text-maia-text-secondary border-b border-maia-border sticky top-0 bg-maia-bg/90 z-10">
             🧠 自动调试日志 {isAutoDebugging && <Loader2 className="h-3 w-3 animate-spin inline ml-1" />}
           </div>

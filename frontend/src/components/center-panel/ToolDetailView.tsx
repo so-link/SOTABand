@@ -16,6 +16,7 @@ import { useToolEditorStore } from '@/stores/tool-editor-store'
 import { toolApi } from '@/services/api/tool'
 import { authedUrl } from '@/services/api/auth'
 import { useTabIndent } from '@/hooks/use-tab-indent'
+import { useStickToBottom } from '@/hooks/use-stick-to-bottom'
 import { cn } from '@/lib/utils'
 import type { ToolResource } from '@/types/resources'
 import { clearToolDraft, loadToolDraft, saveToolDraft, type ToolDetailDraft } from '@/lib/tool-detail-draft'
@@ -107,7 +108,9 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
   /** 已按哪个 toolId 初始化过表单（用于区分"换工具"与"同一工具重新拉取"） */
   const loadedToolIdRef = useRef('')
 
-  useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: 'auto' }) }, [debugRounds, debugStream])
+  // 自动调试日志随流式事件增长时贴底跟随；上翻翻看历史时不打扰，
+  // 滚回底部后自动恢复跟随（与工具/Agent 编辑器、聊天页行为一致）
+  useStickToBottom(logEndRef, debugRounds.length + debugStream.length)
 
   useEffect(() => {
     const id = tool?.id
@@ -782,7 +785,7 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
 
               {/* 调试日志 */}
               {showDebugLog && debugRounds.length > 0 && (
-                <div className="rounded-lg border border-maia-border bg-maia-bg/50 overflow-auto" style={{ maxHeight: '200px' }}>
+                <div ref={logEndRef} className="rounded-lg border border-maia-border bg-maia-bg/50 overflow-auto" style={{ maxHeight: '200px' }}>
                   <div className="px-3 py-1.5 text-[12px] font-semibold text-maia-text-secondary border-b border-maia-border sticky top-0 bg-maia-bg/90 z-10 flex items-center justify-between">
                     <span>🐛 调试日志</span>
                     <button onClick={() => { setShowDebugLog(false); setDebugRounds([]); setDebugStream('') }} className="text-maia-text-muted hover:text-maia-text">
@@ -818,7 +821,6 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
                         )}
                       </div>
                     ))}
-                    <div ref={logEndRef} />
                   </div>
                 </div>
               )}
