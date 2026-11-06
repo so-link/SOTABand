@@ -30,11 +30,15 @@ const GETTING_STARTED = [
 
 export function ChatEmptyState() {
   const setInputText = useChatStore((s) => s.setInputText)
+  const initialized = useChatStore((s) => s.initialized)
   const agents = useResourceStore((s) => s.agentResources)
   const tools = useResourceStore((s) => s.toolResources)
   const dataResources = useResourceStore((s) => s.dataResources)
   const modelResources = useResourceStore((s) => s.modelResources)
   const recentAgentUsage = useResourceStore((s) => s.recentAgentUsage)
+  const resourceLoading = useResourceStore((s) => s.isLoading)
+  const authChecked = useAuthStore((s) => s.checked)
+  const authUser = useAuthStore((s) => s.user)
   const uploadFiles = useFileTreeStore((s) => s.uploadFiles)
 
   const fileRef = useRef<HTMLInputElement>(null)
@@ -124,6 +128,23 @@ export function ChatEmptyState() {
       setIsUploading(false)
       if (fileRef.current) fileRef.current.value = ''
     }
+  }
+
+  // ── 首屏加载门：token 检查 → 历史 + 资源加载 全部完成后才决定显示什么 ──
+  // 未登录时无需等待资源/历史，直接显示默认指引。
+  const waitingForAuth = !authChecked
+  const waitingForData = !!authUser && (resourceLoading || !initialized)
+  if (waitingForAuth || waitingForData) {
+    return (
+      <div className="flex flex-col h-full">
+        <div className="flex-1 min-h-0 overflow-y-auto px-6">
+          <div className="min-h-full flex flex-col items-center justify-center py-6 text-center">
+            <Loader2 className="h-5 w-5 animate-spin text-maia-accent mb-3" />
+            <p className="text-[13px] text-maia-text-muted">正在加载…</p>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (

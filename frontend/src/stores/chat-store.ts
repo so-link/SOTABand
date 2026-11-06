@@ -26,6 +26,9 @@ interface ChatState {
   sessionId: string
   /** 会话列表/标题变更计数，右侧「对话历史」据此刷新 */
   sessionsVersion: number
+  /** 首屏初始化完成：历史记录加载（成功/失败/跳过）结束后置 true。
+      用于 ChatEmptyState 判断是否可以渲染最终内容，避免资源+历史加载期间的闪刷。 */
+  initialized: boolean
   /** 拖拽进来的文件/目录路径引用（@文件名 → 完整路径） */
   pathRefs: PathRef[]
   /** 平台操作确认策略：手工（每张确认卡都要用户点）/ 自动（收到即执行） */
@@ -85,49 +88,44 @@ function restoreDatasetRefs(content: string): Message['attachments'] {
 }
 
 /**
- * 工作空间工具「执行结果回灌」：后端把结果卡带 target_card_id（=执行确认卡
- * 的 op_id）下发，前端不单独渲染该结果卡，而是把结果合并进执行卡：
- * 执行卡变终态徽标（已执行/执行失败）并内联展示结果数据。
+ * 执行确认卡终态同步：确认卡所在轮次与工具执行轮次天然分开（确认卡下发后
+ * 本轮即结束，执行发生在确认之后的新消息里），因此**不能**把结果搬到确认卡
+ * 上——那会让执行结果出现在用户选择之前，且选择卡本身被改写得看不见了。
  *
- * 执行确认卡与结果卡分属两轮对话（确认/自动确认后是新的一轮），因此对全量
- * 消息扫描回灌；幂等，运行时流式与历史加载回放共用同一入口。
- * 找不到目标卡时结果卡原样保留、独立展示（不丢结果）。
+ * 这里只按 target_card_id 给确认卡打终态徽标（已执行/执行失败），结果数据留在
+ * 结果卡原位展示（时序正确：确认卡 → 用户选择 → 结果卡 → 助手分析）。
  */
-function backfillExecResults(messages: Message[]): Message[] {
-  const patchByTarget = new Map<string, Record<string, unknown>>()
-  const consumed = new Set<string>()
+function markExecCardStatus(messages: Message[]): Message[] {
+  const statusByTarget = new Map<string, 'executed' | 'failed'>()
   for (const m of messages) {
     for (const c of m.cards || []) {
       const d = c.data as Record<string, unknown>
       if (c.type !== 'result-summary') continue
-      if (!(d?.kind === 'workspace-exec-result' || typeof d?.target_card_id === 'string')) continue
-      const target = String(d.target_card_id || '')
-      if (!target || !messages.some((mm) =>
-        mm.cards?.some((x) => x.id === target && x.type === 'tool-confirm'))) continue
-      consumed.add(c.id)
+      const target = String(d?.target_card_id || '')
+      if (!target) continue
       const res = (d.result as Record<string, unknown>) || null
       const hasError = d.error !== undefined && d.error !== null && d.error !== ''
-      const failed = hasError || (!!res && typeof res.status === 'string' && res.status !== 'success')
-      patchByTarget.set(target, {
-        exec_status: failed ? 'failed' : 'executed',
-        exec_result: res,
-        exec_summary: hasError ? String(d.error) : String(d.summary || ''),
-        registered_dataset_id: d.registered_dataset_id,
-      })
+      statusByTarget.set(target,
+        (hasError || (!!res && typeof res.status === 'string' && res.status !== 'success'))
+          ? 'failed' : 'executed')
     }
   }
-  if (consumed.size === 0) return messages
-  return messages.map((m) => {
-    const had = m.cards?.some((c) => patchByTarget.has(c.id) && c.type === 'tool-confirm')
-    const cards = m.cards
-      ?.filter((c) => !consumed.has(c.id))
-      .map((c) => {
-        const patch = patchByTarget.get(c.id)
-        return patch && c.type === 'tool-confirm' ? { ...c, data: { ...c.data, ...patch } } : c
-      })
-    const next = { ...m, cards: cards && cards.length > 0 ? cards : undefined }
-    return had || m.cards?.some((c) => consumed.has(c.id)) ? next : m
+  if (statusByTarget.size === 0) return messages
+  let changed = false
+  const out = messages.map((m) => {
+    if (!m.cards?.some((c) => statusByTarget.has(c.id))) return m
+    changed = true
+    return {
+      ...m,
+      cards: m.cards.map((c) => {
+        const st = statusByTarget.get(c.id)
+        return st && c.type === 'tool-confirm'
+          ? { ...c, data: { ...c.data, exec_status: st } }
+          : c
+      }),
+    }
   })
+  return changed ? out : messages
 }
 
 /**
@@ -245,6 +243,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   inputText: '',
   sessionId: newSessionId(),
   sessionsVersion: 0,
+  initialized: false,
   pathRefs: [],
   // 确认策略：默认手工，用户可切换并持久化到 localStorage
   confirmPolicy: (typeof localStorage !== 'undefined' &&
@@ -324,12 +323,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
       isSending: false,
       sessionId: newSessionId(),
       sessionsVersion: s.sessionsVersion + 1,
+      initialized: false,
     }))
   },
 
   // 启动时从后端恢复最近一次会话（此前只存 localStorage，换浏览器即丢）
   loadMessagesFromApi: async () => {
-    if (get().messages.length > 0) return
+    if (get().messages.length > 0) {
+      set({ initialized: true })
+      return
+    }
     try {
       const res = await fetch('/api/chat/sessions?limit=1')
       if (!res.ok) return
@@ -337,6 +340,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const latest = (data.sessions || [])[0]
       if (latest?.session_id) await get().switchSession(latest.session_id)
     } catch { /* 后端不可用时保持空对话 */ }
+    finally {
+      set({ initialized: true })
+    }
   },
 
   // 从消息文本里恢复数据集引用（dataset:<id> 拼在文本里，历史回放时补成 chip）
@@ -374,7 +380,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       )
       // 落库的卡片是下发时的 pending 快照：用审计流水把已确认/已执行/已取消的
       // 操作回放成终态，并补上缺失的执行结果卡，刷新后不再看到假「待确认」。
-      set({ messages: backfillExecResults(restored), sessionId, isSending: false })
+      set({ messages: markExecCardStatus(restored), sessionId, isSending: false })
       void replayPlatformCards(sessionId)
     } catch { /* ignore */ }
   },
@@ -650,7 +656,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }
         }
         set((s) => ({
-          messages: backfillExecResults(s.messages.map((m) =>
+          messages: markExecCardStatus(s.messages.map((m) =>
             m.id === agentMsgId
               ? {
                   ...m,
