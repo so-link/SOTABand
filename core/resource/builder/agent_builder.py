@@ -271,7 +271,8 @@ class {cls_name}(BaseAgent):
 ROLE_CONTRACTS = {
     "interactive": (
         "入口：`content = kwargs.get(\"content\", \"\").strip()` —— 用户消息。\n"
-        "出口：`content`（文本）/ `card`（结构化卡片）/ `done` / `error` 事件。"
+        "出口：`delta`（最终回复的逐 token 增量，正文以此流式下发）/ "
+        "`content`（简短固定提示语）/ `card`（结构化卡片）/ `done` / `error` 事件。"
     ),
     "task": (
         "入口：启动参数由调用方以「参数名」直接传入 kwargs（启动面板按 MD 的"
@@ -962,15 +963,24 @@ yield self._step("step_n", "该步骤完成", "done")
 【重要】绝对不要用硬编码字段！禁止 `prev_result["data"]["field"]`！
 【重要】_extract_params_with_llm 只在两种场景调用: (1)首次从 content 提取 (2)从上一步工具输出提取。其他场景都用已提取的变量。
 
-### 模式 C: 用 LLM 生成最终回复（最后一步）
+### 模式 C: 用 LLM 流式生成最终回复（最后一步，必须逐段输出）
 ```python
 yield self._step("reply", "生成回复", "running")
 llm = self._get_llm()
 prompt_text = f"根据结果生成自然语言回复: {{json.dumps(result, ensure_ascii=False)}}"
-response = await llm.chat(messages=[{{"role": "user", "content": prompt_text}}])
+full = ""
+try:
+    async for token in llm.chat_stream(messages=[{{"role": "user", "content": prompt_text}}], max_tokens=100000):
+        full += token
+        yield {{"event": "delta", "data": {{"text": token}}}}
+except Exception:
+    full = json.dumps(result, ensure_ascii=False)
+    yield {{"event": "delta", "data": {{"text": full}}}}
 yield self._step("reply", "回复完成", "done")
-yield {{"event": "content", "data": {{"text": response}}}}
 ```
+【强制】最终回复必须用 `llm.chat_stream(...)` 逐 token 下发 `delta` 事件，让前端实时看到生成过程；
+【禁止】用 `await llm.chat(...)` 阻塞等全文再一次性 yield content——用户会长时间盯着空白等待。
+（`content` 事件仅用于简短的固定提示语，如输入校验提示。）
 
 ## 代码要求
 
@@ -983,7 +993,7 @@ yield {{"event": "content", "data": {{"text": response}}}}
 7. 仅当需要从上一步工具输出中提取数据时，才再次调用 _extract_params_with_llm，输入为 json.dumps(prev_result)
 8. 【禁止】绝对不要硬编码字段: 禁止 result["data"]["xxx"] 或 result.get("data",{{}}).get("xxx") — 始终用 LLM 提取
 9. 调用 `self._call_tool_xxx(...)` 或 `self._call_api_xxx(...)`
-10. 最后一步用 LLM 将结果转化为自然语言回复
+10. 最后一步用 LLM 将结果转化为自然语言回复：必须按模式 C 用 `llm.chat_stream` 流式 yield `delta`，禁止 `await llm.chat` 一次性输出
 11. 错误处理: yield error 事件前先 yield 对应的 _step(..., "error")，再 yield done
 12. **必须是合法 Python 字面量**: 布尔值与空值一律写 `True` / `False` / `None`，禁止写 JSON/JS 风格的 `true` / `false` / `null` / `undefined`。这类写法在运行时直接报 `name 'true' is not defined`，且静态语法检查不会报错，只能靠试运行才发现
 
@@ -1725,7 +1735,8 @@ yield {{"event": "content", "data": {{"text": response}}}}
                 "按 api_name 分派，结果用 yield {\"event\": \"result\", \"data\": {\"response\": {...}}} 返回"
                 if role == "web-service" else
                 "execute(self, ctx: AgentContext, **kwargs) 为异步生成器，"
-                "content = kwargs.get(\"content\", \"\") 取输入，输出用 yield {\"event\": \"content\", \"data\": {\"text\": ...}}"
+                "content = kwargs.get(\"content\", \"\") 取输入，简短提示用 yield {\"event\": \"content\", \"data\": {\"text\": ...}}，"
+                "最终自然语言回复用 async for token in self._get_llm().chat_stream(...) 逐段 yield {\"event\": \"delta\", \"data\": {\"text\": token}}"
             )
 
             if debug_messages:
@@ -1781,7 +1792,8 @@ stderr: {_safe_stderr}
 6. 依赖由项目环境管理：ModuleNotFoundError 时改用标准库或已安装模块，禁止 pip install / subprocess 安装依赖。
 7. 禁止 shell=True、eval、删除类原语（静态安全审查会阻断执行）。
 8. 调用大模型（self._get_llm().chat / _extract_params_with_llm）时 max_tokens 用大值（100000），不要 4096/1024。
-9. 【重要】必须完整保留 self._step(...) 工作流程步骤事件与 self._log_step(...) 执行日志调用（每步 running/done/error 成对），修复不得删减它们。"""
+9. 【重要】必须完整保留 self._step(...) 工作流程步骤事件与 self._log_step(...) 执行日志调用（每步 running/done/error 成对），修复不得删减它们。
+10. 【重要】最终自然语言回复必须保持流式：`async for token in self._get_llm().chat_stream(...)` 内逐 token `yield {{"event": "delta", "data": {{"text": token}}}}`，禁止改回 `await llm.chat(...)` + 一次性 yield content。"""
 
             log_entry = {"round": round_num, "exec_result": exec_summary,
                          "gate_feedback": "", "prompt": fix_prompt, "response": ""}
