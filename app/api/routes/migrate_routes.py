@@ -1,50 +1,25 @@
-"""资源迁移路由 — 工具导出 / 导入。
+"""资源迁移路由 — 导入与依赖安装。
 
-对应 UI：工具空间的「导出」「导入」入口，以及内置工具 `tool-transfer`
-（Agent 在对话里也能直接调它完成搬运）。
+对应 UI：资源空间的「导入 .sotatool.zip / .sotaagent.zip」入口，以及内置
+搬运工具 `tool-transfer` / `agent-transfer`（Agent 在对话里直接进程内调用
+core.migration 完成搬运，不经这里的 HTTP 端点）。
 
-导出产物是 `.sotatool.zip`，默认落在**当前用户**的导出目录
-（``<USER_HOME>/<uid>/exports/``），可通过 `GET /api/migrate/bundles`
-列出、`GET /api/migrate/bundles/{name}` 下载——两者都只能在本人目录内解析。
+导出已统一到资源详情页标题条的直链下载（GET /api/tool/{id}/export、
+GET /api/agent/{id}/export），内存打包、不落服务器磁盘。
 """
 
 from __future__ import annotations
 
 import asyncio
-import base64
-import binascii
 import re
 from datetime import datetime
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
-from pydantic import BaseModel
 
 from app.api.deps import require_superuser
 from core.migration import agent_bundle, tool_bundle
 
 router = APIRouter()
-
-
-def _confine_to_export_dir(raw: str) -> Path:
-    """把请求里的 bundle_path 收进**当前用户**的导出目录。
-
-    导出目录含各用户迁移包（实现代码 + 元数据），按 uid 隔离；不加限制的话
-    任何登录用户都能用绝对路径读别人的包、甚至读服务器上的任意 zip。
-    允许两种写法：裸文件名（在本人导出目录内解析）或本人目录内的绝对路径。
-    """
-    p = Path(raw)
-    allowed = tool_bundle.export_dir().resolve()
-    if p.is_absolute():
-        try:
-            resolved = p.resolve()
-        except OSError as e:
-            raise HTTPException(400, f"非法的包路径: {e}") from e
-        if allowed not in resolved.parents or not resolved.is_file():
-            raise HTTPException(400, "bundle_path 只能指向本人导出目录下的迁移包")
-        return resolved
-    return tool_bundle.resolve_bundle(p.name)
 
 
 def _deps_report(tool_id: str) -> dict:
@@ -100,21 +75,6 @@ def _ensure_in_workspace(tool_id: str, name: str, tags: list[str] | None) -> Non
         pass
 
 
-class ExportToolRequest(BaseModel):
-    tool_id: str
-    include_tests: bool = True
-    include_assets: bool = True
-
-
-class ImportToolRequest(BaseModel):
-    """三种来源三选一：本机路径 / 导出目录里的文件名 / base64 内容。"""
-
-    bundle_path: str | None = None
-    bundle_name: str | None = None
-    bundle_base64: str | None = None
-    overwrite: bool = False
-
-
 @router.get("/info")
 async def migrate_info():
     """迁移能力自述（供前端/Agent 探测）。"""
@@ -127,76 +87,6 @@ async def migrate_info():
         "suffixes": {"tool": tool_bundle.BUNDLE_SUFFIX,
                      "agent": agent_bundle.BUNDLE_SUFFIX},
     }
-
-
-@router.post("/tool/export")
-async def export_tool(req: ExportToolRequest):
-    """把工具打成一个迁移包。"""
-    try:
-        result = await asyncio.to_thread(
-            tool_bundle.export_tool,
-            req.tool_id,
-            None,
-            req.include_tests,
-            req.include_assets,
-        )
-    except ValueError as e:
-        raise HTTPException(400, str(e)) from e
-    except Exception as e:  # 磁盘异常等
-        raise HTTPException(500, f"导出失败: {e}") from e
-    return {"status": "success", **result}
-
-
-@router.get("/bundles")
-async def list_bundles():
-    """列出导出目录下的迁移包。"""
-    items = await asyncio.to_thread(tool_bundle.list_bundles)
-    return {"export_dir": str(tool_bundle.export_dir()), "bundles": items, "total": len(items)}
-
-
-@router.get("/bundles/{name}")
-async def download_bundle(name: str):
-    """下载某个迁移包。"""
-    try:
-        p = tool_bundle.resolve_bundle(name)
-    except ValueError as e:
-        raise HTTPException(404, str(e)) from e
-    return FileResponse(str(p), filename=p.name, media_type="application/zip")
-
-
-@router.post("/tool/import")
-async def import_tool(req: ImportToolRequest):
-    """从本机路径 / 导出目录文件名 / base64 内容导入工具。"""
-    try:
-        if req.bundle_base64:
-            try:
-                raw = base64.b64decode(req.bundle_base64, validate=True)
-            except (binascii.Error, ValueError) as e:
-                raise HTTPException(400, f"bundle_base64 解码失败: {e}") from e
-            result = await asyncio.to_thread(
-                tool_bundle.import_tool, None, raw, req.overwrite
-            )
-        elif req.bundle_name:
-            p = tool_bundle.resolve_bundle(req.bundle_name)
-            result = await asyncio.to_thread(
-                tool_bundle.import_tool, p, None, req.overwrite
-            )
-        elif req.bundle_path:
-            p = _confine_to_export_dir(req.bundle_path)
-            result = await asyncio.to_thread(
-                tool_bundle.import_tool, p, None, req.overwrite
-            )
-        else:
-            raise HTTPException(400, "必须提供 bundle_path / bundle_name / bundle_base64 之一")
-    except ValueError as e:
-        raise HTTPException(400, str(e)) from e
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(500, f"导入失败: {e}") from e
-    _ensure_in_workspace(result["tool_id"], result["name"], result.get("tags"))
-    deps = await asyncio.to_thread(_deps_report, result["tool_id"])
-    return {"status": "success", "added_to_workspace": True, "deps": deps, **result}
 
 
 @router.post("/tool/import-upload")
@@ -225,18 +115,6 @@ async def import_tool_upload(
 #  Agent 迁移（.sotaagent.zip）
 # ══════════════════════════════════════════════════════════════
 
-class ExportAgentRequest(BaseModel):
-    agent_id: str
-    include_assets: bool = True
-
-
-class ImportAgentRequest(BaseModel):
-    bundle_path: str | None = None
-    bundle_name: str | None = None
-    bundle_base64: str | None = None
-    overwrite: bool = False
-
-
 def _agent_deps_report(agent_id: str) -> dict:
     """Agent 的第三方依赖体检（agent.py 的 import + 规范里的依赖表）。"""
     try:
@@ -253,69 +131,6 @@ def _agent_deps_report(agent_id: str) -> dict:
         }
     except Exception as e:
         return {"missing": [], "install": [], "pairs": [], "satisfied": [], "error": str(e)}
-
-
-@router.post("/agent/export")
-async def export_agent(req: ExportAgentRequest):
-    """把 Agent 打成一个迁移包。"""
-    try:
-        result = await asyncio.to_thread(
-            agent_bundle.export_agent, req.agent_id, None, req.include_assets
-        )
-    except ValueError as e:
-        raise HTTPException(400, str(e)) from e
-    except Exception as e:
-        raise HTTPException(500, f"导出失败: {e}") from e
-    return {"status": "success", **result}
-
-
-@router.get("/agent/bundles")
-async def list_agent_bundles():
-    items = await asyncio.to_thread(agent_bundle.list_agent_bundles)
-    return {"export_dir": str(agent_bundle.export_dir()), "bundles": items, "total": len(items)}
-
-
-@router.get("/agent/bundles/{name}")
-async def download_agent_bundle(name: str):
-    try:
-        p = agent_bundle.resolve_agent_bundle(name)
-    except ValueError as e:
-        raise HTTPException(404, str(e)) from e
-    return FileResponse(str(p), filename=p.name, media_type="application/zip")
-
-
-@router.post("/agent/import")
-async def import_agent(req: ImportAgentRequest):
-    """从本机路径 / 导出目录文件名 / base64 内容导入 Agent。"""
-    try:
-        if req.bundle_base64:
-            try:
-                raw = base64.b64decode(req.bundle_base64, validate=True)
-            except (binascii.Error, ValueError) as e:
-                raise HTTPException(400, f"bundle_base64 解码失败: {e}") from e
-            result = await asyncio.to_thread(
-                agent_bundle.import_agent, None, raw, req.overwrite
-            )
-        elif req.bundle_name:
-            p = agent_bundle.resolve_agent_bundle(req.bundle_name)
-            result = await asyncio.to_thread(
-                agent_bundle.import_agent, p, None, req.overwrite
-            )
-        elif req.bundle_path:
-            p = _confine_to_export_dir(req.bundle_path)
-            result = await asyncio.to_thread(
-                agent_bundle.import_agent, p, None, req.overwrite
-            )
-        else:
-            raise HTTPException(400, "必须提供 bundle_path / bundle_name / bundle_base64 之一")
-    except ValueError as e:
-        raise HTTPException(400, str(e)) from e
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(500, f"导入失败: {e}") from e
-    deps = await asyncio.to_thread(_agent_deps_report, result["agent_id"])
-    return {"status": "success", "deps": deps, **result}
 
 
 # 依赖规格白名单：包名 + 可选 extras + 版本约束，仅此而已。

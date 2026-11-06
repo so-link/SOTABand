@@ -100,12 +100,21 @@ def _agent_python() -> str:
 
 # ── 导出 ──────────────────────────────────────────────────────
 
-def export_agent(
+def build_bundle_bytes(agent_id: str, include_assets: bool = True) -> tuple[bytes, str, dict]:
+    """把 Agent 打成迁移包并直接返回内存字节（不落盘），供浏览器直接下载。
+
+    Returns:
+        (zip 字节, 建议文件名, export_agent 同构的摘要 dict)
+    """
+    return _build_bundle(agent_id, include_assets)
+
+
+def _build_bundle(
     agent_id: str,
-    out_dir: Path | str | None = None,
     include_assets: bool = True,
-) -> dict:
-    """把 Agent 打成迁移包，返回包信息。"""
+    out_path: Path | None = None,
+) -> tuple[bytes, str, dict]:
+    """构建迁移包字节；out_path 非空时同时写盘。返回 (字节, 文件名, 摘要)。"""
     import re
     agent_id = (agent_id or "").strip()
     if not re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$", agent_id):
@@ -171,11 +180,8 @@ def export_agent(
         "files": file_manifest,
     }
 
-    out = Path(out_dir) if out_dir else export_dir()
-    out.mkdir(parents=True, exist_ok=True)
     version = str(entry.get("version", "0.1.0")).replace("/", "_")
     file_name = f"agent-{agent_id}-{version}-{_stamp()}{BUNDLE_SUFFIX}"
-    bundle_path = out / file_name
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
@@ -188,12 +194,13 @@ def export_agent(
             zf.writestr(info, data)
 
     raw = buf.getvalue()
-    bundle_path.write_bytes(raw)
+    if out_path is not None:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(raw)
 
-    return {
+    info = {
         "agent_id": agent_id,
         "name": entry.get("name", agent_id),
-        "bundle_path": str(bundle_path),
         "file_name": file_name,
         "size": len(raw),
         "sha256": _sha256(raw),
@@ -202,6 +209,22 @@ def export_agent(
         "dependencies": deps,
         "tools": entry.get("tools", []),
     }
+    return raw, file_name, info
+
+
+def export_agent(
+    agent_id: str,
+    out_dir: Path | str | None = None,
+    include_assets: bool = True,
+) -> dict:
+    """把 Agent 打成迁移包，返回包信息。"""
+    out = Path(out_dir) if out_dir else export_dir()
+    raw, file_name, info = _build_bundle(agent_id, include_assets)
+    out.mkdir(parents=True, exist_ok=True)
+    bundle_path = out / file_name
+    bundle_path.write_bytes(raw)
+    info["bundle_path"] = str(bundle_path)
+    return info
 
 
 # ── 导入 ──────────────────────────────────────────────────────

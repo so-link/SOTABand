@@ -2340,131 +2340,60 @@ async def delete_tool(tool_id: str):
 
 @router.get("/{tool_id}/export")
 async def export_tool(tool_id: str):
-    """导出工具为可移植 zip 归档（内置/私有均可；内置为只读打包）。
+    """导出工具为 .sotatool.zip 迁移包（内置/私有均可；内置只读打包）。
 
-    归档含注册表精选字段、定义 MD（含 demand/reference）、实现目录
-    （tool.py/spec.md/requirements.txt/tests/资产），排除 .venv 与 __pycache__。
+    统一使用迁移包格式（core.migration.tool_bundle），含依赖清单、文件校验和、
+    来源信息，可在其它环境用「导入工具包」直接还原。直接在内存打包并经浏览器
+    下载，不写入服务器磁盘。
     """
-    import tempfile
-    from fastapi.responses import FileResponse
-    from starlette.background import BackgroundTask
-    from core.resource import tool_package
-
-    entry = await registry.get(tool_id)
-    if not entry:
-        raise HTTPException(404, f"Tool '{tool_id}' not found")
-    def_file = registry.find_def_file(tool_id)
-    impl_dir = registry.find_impl_dir(tool_id)
-    if not def_file or not impl_dir:
-        raise HTTPException(404, f"Tool '{tool_id}' 定义或实现文件缺失，无法导出")
+    import asyncio
+    from fastapi.responses import Response
+    from core.migration import tool_bundle
 
     try:
-        data = tool_package.build_package(tool_id, entry, def_file.parent, impl_dir)
-    except tool_package.PackageError as e:
+        raw, file_name, _info = await asyncio.to_thread(
+            tool_bundle.build_bundle_bytes, tool_id
+        )
+    except ValueError as e:
         raise HTTPException(400, str(e))
 
-    fd, tmp_path = tempfile.mkstemp(prefix=f"sotaband-export-{tool_id}-", suffix=".zip")
-    with _os.fdopen(fd, "wb") as f:
-        f.write(data)
-    return FileResponse(
-        tmp_path,
+    return Response(
+        content=raw,
         media_type="application/zip",
-        filename=f"{tool_id}.zip",
-        content_disposition_type="attachment",
-        background=BackgroundTask(_Path(tmp_path).unlink, missing_ok=True),
+        headers={
+            "Content-Disposition": f'attachment; filename="{file_name}"',
+        },
     )
 
 
 @router.post("/import")
 async def import_tool(file: UploadFile = File(...), overwrite: bool = Form(False)):
-    """导入工具 zip 归档到私有资源根。
+    """导入 .sotatool.zip 迁移包到私有资源根。
 
-    同名冲突（内置或私有）未带 overwrite → 409；内置同名导入合法，私有副本
-    将遮蔽内置（响应 overrode_builtin=true，由 UI 警示）。依赖不自动安装，
-    与注册工具一致，由 check-deps / install-deps 懒安装接管。
+    统一走迁移包导入逻辑（core.migration.tool_bundle）：落盘前做静态安全审查，
+    同名冲突未带 overwrite → 409（内置同名合法，私有副本遮蔽内置，响应带
+    overrode_builtin=true 由 UI 警示）。依赖不自动安装，由 check-deps 懒安装。
     """
-    from core.resource import tool_package
-    from core.resource import paths
+    import asyncio
+    from core.migration import tool_bundle
 
     raw_name = _Path(file.filename or "tool.zip").name
     if not raw_name.lower().endswith(".zip"):
         raise HTTPException(400, "请上传 .zip 工具包")
     data = await file.read()
-    if len(data) > tool_package.MAX_UNCOMPRESSED_BYTES:
-        raise HTTPException(413, "工具包超过 200MB 上限")
 
     try:
-        pkg = tool_package.parse_package(data)
-    except tool_package.PackageError as e:
-        raise HTTPException(400, str(e))
-
-    # 落盘前静态安全审查：与 /register 同一闸门，被阻断的代码不落盘。
-    from core.security.code_scan import scan_code as _scan_code
-    from core.security.code_scan import check_undeclared_imports
-    _req_raw = pkg["impl_files"].get("requirements.txt")
-    _req_text = _req_raw.decode("utf-8", errors="replace") if _req_raw else None
-    import_warnings: list[str] = []
-    for rel, raw in pkg["impl_files"].items():
-        if not rel.endswith(".py"):
-            continue
-        _code = raw.decode("utf-8", errors="replace")
-        _scan = _scan_code(_code)
-        if not _scan.ok:
-            raise HTTPException(
-                400,
-                f"工具包 {rel} 静态安全审查未通过：\n" + "\n".join(_scan.errors),
-            )
-        for _mod in check_undeclared_imports(_code, _req_text):
-            import_warnings.append(f"{rel}: import {_mod} 未在 requirements.txt 声明")
-
-    tool_id = pkg["tool_id"]
-    existed = await registry.get(tool_id)
-    if existed and not overwrite:
-        raise HTTPException(409, f"工具 '{tool_id}' 已存在，是否覆盖？")
-    overrode_builtin = any(
-        e.get("id") == tool_id for e in registry.read_from(paths.BUILTIN_ROOT)
-    )
-
-    entry = pkg["entry"]
-    resource = {
-        "id": tool_id,
-        "name": entry.get("name") or tool_id,
-        "version": entry.get("version", "0.1.0"),
-        "type": entry.get("type", "function"),
-        "language": entry.get("language", "python"),
-        "raw_md": pkg["def_files"][f"{tool_id}.md"],
-        "code": pkg["impl_files"]["tool.py"].decode("utf-8"),
-        "tags": entry.get("tags", []),
-        "param_meta": entry.get("param_meta", []),
-        "modes": entry.get("modes", []),
-        "input_schema": entry.get("input_schema", {}),
-        "output_schema": entry.get("output_schema", {}),
-        "test_data": pkg["test_data"],
-    }
-    await registry.register(resource)
-
-    # register() 不认识的文件成员补写到私有根
-    def_dir = registry._get_def_dir()
-    for fname, text in pkg["def_files"].items():
-        if fname.endswith(("-demand.md", "-reference.md")):
-            (def_dir / fname).write_text(text, encoding="utf-8")
-
-    impl_dir = registry._get_impl_dir() / tool_id
-    impl_dir.mkdir(parents=True, exist_ok=True)
-    _register_handled = {"tool.py", "spec.md"}
-    for rel, raw in pkg["impl_files"].items():
-        if rel in _register_handled or rel.startswith("tests/"):
-            continue
-        target = (impl_dir / rel).resolve()
-        if not str(target).startswith(str(impl_dir.resolve())):
-            continue  # 防御性：绝不写出实现目录之外
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(raw)
+        result = await asyncio.to_thread(tool_bundle.import_tool, None, data, overwrite)
+    except ValueError as e:
+        msg = str(e)
+        if "已存在" in msg and not overwrite:
+            raise HTTPException(409, msg)
+        raise HTTPException(400, msg)
 
     return {
-        "imported": tool_id,
-        "overwrote": bool(existed),
-        "overrode_builtin": overrode_builtin,
+        "imported": result["tool_id"],
+        "overwrote": bool(result.get("overwritten")),
+        "overrode_builtin": bool(result.get("overrode_builtin")),
         "deps_installed": False,
-        "import_warnings": import_warnings,
+        "import_warnings": result.get("import_warnings", []),
     }

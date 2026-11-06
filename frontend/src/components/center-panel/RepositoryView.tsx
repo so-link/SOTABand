@@ -366,8 +366,7 @@ export function RepositoryView() {
                       <div className="flex items-center gap-1 shrink-0 border-t border-maia-border/40 pt-2 mt-0.5">
                         <a
                           href={toolApi.exportUrl(tool.id)}
-                          download={`${tool.id}.zip`}
-                          title="导出为 zip 工具包（含代码、文档、依赖清单，不含虚拟环境）"
+                          title="导出为 .sotatool.zip 迁移包（含代码、文档、依赖清单，可在其它环境导入）"
                           onClick={(e) => e.stopPropagation()}
                           className="flex-1 inline-flex items-center justify-center gap-1.5 h-7 rounded text-[12px] whitespace-nowrap text-maia-text-muted hover:text-maia-accent hover:bg-maia-sidebar-hover transition-colors">
                           <Download className="h-3 w-3 shrink-0" />导出

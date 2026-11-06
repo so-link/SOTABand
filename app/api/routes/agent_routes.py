@@ -1446,3 +1446,28 @@ async def download_agent_api_doc(agent_id: str):
         media_type="text/markdown; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/{agent_id}/export")
+async def export_agent(agent_id: str):
+    """导出 Agent 为 .sotaagent.zip 迁移包（浏览器直接下载）。
+
+    与工具导出同一套模式：内存打包不落服务器盘，含依赖清单、文件校验和与
+    来源信息，可在其它环境用「导入」还原。
+    """
+    from fastapi.responses import Response
+    from core.migration import agent_bundle
+
+    await _visible_agent(agent_id)
+    try:
+        raw, file_name, _info = await asyncio.to_thread(
+            agent_bundle.build_bundle_bytes, agent_id
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    return Response(
+        content=raw,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{file_name}"'},
+    )

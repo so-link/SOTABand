@@ -173,8 +173,7 @@ _QUERY_TOKEN_GET_PATTERNS = (
     re.compile(r"^/api/data/[^/]+/preview$"),        # 数据集预览
     re.compile(r"^/api/data/[^/]+/archive$"),        # 数据集打包下载
     re.compile(r"^/api/tool/[^/]+/export$"),         # 工具 zip 导出（<a download> 直链）
-    re.compile(r"^/api/migrate/bundles/[^/]+$"),     # 工具迁移包下载（<a download> 直链）
-    re.compile(r"^/api/migrate/agent/bundles/[^/]+$"),  # Agent 迁移包下载
+    re.compile(r"^/api/agent/[^/]+/export$"),        # Agent zip 导出（<a download> 直链）
 )
 
 

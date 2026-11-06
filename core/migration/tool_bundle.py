@@ -186,23 +186,27 @@ def _parse_dependencies(spec_md: str) -> list[str]:
 
 # ── 导出 ──────────────────────────────────────────────────────
 
-def export_tool(
+def build_bundle_bytes(
     tool_id: str,
-    out_dir: Path | str | None = None,
     include_tests: bool = True,
     include_assets: bool = True,
-) -> dict:
-    """把工具打成迁移包，返回包信息。
-
-    Args:
-        tool_id: 工具 id
-        out_dir: 输出目录，默认本人导出目录 <USER_HOME>/<uid>/exports
-        include_tests: 是否带上 implementations/<id>/tests
-        include_assets: 是否带上常见二进制资产（.xml/.onnx/.pt …）
+) -> tuple[bytes, str, dict]:
+    """把工具打成迁移包并直接返回内存字节（不落盘），供浏览器直接下载。
 
     Returns:
-        {"bundle_path", "file_name", "size", "sha256", "tool_id", "file_count", "skipped"}
+        (zip 字节, 建议文件名, export_tool 同构的摘要 dict)
     """
+    raw, file_name, info = _build_bundle(tool_id, include_tests, include_assets)
+    return raw, file_name, info
+
+
+def _build_bundle(
+    tool_id: str,
+    include_tests: bool,
+    include_assets: bool,
+    out_path: Path | None = None,
+) -> tuple[bytes, str, dict]:
+    """构建迁移包字节；out_path 非空时同时写盘。返回 (字节, 文件名, 摘要)。"""
     tool_id = (tool_id or "").strip()
     if not _ID_RE.match(tool_id):
         raise ValueError(f"非法的工具 id: {tool_id!r}")
@@ -269,11 +273,8 @@ def export_tool(
         "files": file_manifest,
     }
 
-    out = Path(out_dir) if out_dir else export_dir()
-    out.mkdir(parents=True, exist_ok=True)
     version = str(entry.get("version", "0.1.0")).replace("/", "_")
     file_name = f"tool-{tool_id}-{version}-{_stamp()}{BUNDLE_SUFFIX}"
-    bundle_path = out / file_name
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
@@ -286,12 +287,13 @@ def export_tool(
             zf.writestr(info, data)
 
     raw = buf.getvalue()
-    bundle_path.write_bytes(raw)
+    if out_path is not None:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(raw)
 
-    return {
+    info = {
         "tool_id": tool_id,
         "name": entry.get("name", tool_id),
-        "bundle_path": str(bundle_path),
         "file_name": file_name,
         "size": len(raw),
         "sha256": _sha256(raw),
@@ -299,6 +301,34 @@ def export_tool(
         "skipped": skipped,
         "dependencies": manifest["dependencies"],
     }
+    return raw, file_name, info
+
+
+def export_tool(
+    tool_id: str,
+    out_dir: Path | str | None = None,
+    include_tests: bool = True,
+    include_assets: bool = True,
+) -> dict:
+    """把工具打成迁移包，返回包信息。
+
+    Args:
+        tool_id: 工具 id
+        out_dir: 输出目录，默认本人导出目录 <USER_HOME>/<uid>/exports
+        include_tests: 是否带上 implementations/<id>/tests
+        include_assets: 是否带上常见二进制资产（.xml/.onnx/.pt …）
+
+    Returns:
+        {"bundle_path", "file_name", "size", "sha256", "tool_id", "file_count", "skipped"}
+    """
+    out = Path(out_dir) if out_dir else export_dir()
+    raw, file_name, info = _build_bundle(
+        tool_id, include_tests, include_assets, out_path=None)
+    out.mkdir(parents=True, exist_ok=True)
+    bundle_path = out / file_name
+    bundle_path.write_bytes(raw)
+    info["bundle_path"] = str(bundle_path)
+    return info
 
 
 # ── 导入 ──────────────────────────────────────────────────────
@@ -571,6 +601,7 @@ __all__ = [
     "BUNDLE_VERSION",
     "BUNDLE_SUFFIX",
     "export_dir",
+    "build_bundle_bytes",
     "export_tool",
     "import_tool",
     "list_bundles",
