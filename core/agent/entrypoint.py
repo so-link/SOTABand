@@ -215,6 +215,11 @@ async def main():
                     result = event.get("data")
                 elif et == "content":
                     contents.append(event.get("data", {}).get("text", ""))
+                elif et == "delta":
+                    # 流式增量同样属于回复正文：Agent 里只要用了 delta（如
+                    # InteractiveAgentBase 的对话/整理结果路径），这里不收集
+                    # 就会把整段回复丢掉，调用方只剩「未返回文本结果」。
+                    contents.append(event.get("data", {}).get("text", ""))
         except Exception as e:
             return {"ok": False, "error": f"{type(e).__name__}: {e}"}
         if err is not None:

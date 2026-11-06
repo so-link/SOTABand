@@ -3,6 +3,7 @@
 import json
 import re
 import time
+import asyncio
 from typing import AsyncGenerator
 import os
 import subprocess
@@ -181,10 +182,16 @@ class InteractiveAgent(BaseAgent):
                     yield ev
                 return
             if len(content) <= 60:
-                merged = (
-                    content if self._resolve_agent_selection(content, [pending_agent["agent"]])
-                    else f"{pending_agent['request']}，{content}"
-                )
+                # 短回复（「继续」/用户补充说明）合并到原请求上重投；
+                # 但若这条回复本身就是原请求（例如前端在启动确认成功后
+                # 自动重发原话），不能拼成「问题，问题」重复一遍。
+                if content.strip() == str(pending_agent["request"]).strip():
+                    merged = content
+                else:
+                    merged = (
+                        content if self._resolve_agent_selection(content, [pending_agent["agent"]])
+                        else f"{pending_agent['request']}，{content}"
+                    )
                 async for ev in self._dispatch_to_agent(pending_agent["agent"], merged, session_key,
                                                         ctx.user_id or ""):
                     yield ev
@@ -1273,6 +1280,26 @@ class InteractiveAgent(BaseAgent):
                 return t
         return None
 
+    async def _retry_agent_after_start(self, aid: str, request: str,
+                                       wait_s: float = 60.0) -> dict:
+        """Agent 启动后重试原请求：进程拉起需要时间，先轮询到可执行再提交。
+
+        返回最后一次 call_agent 的响应（成功或失败都由调用方统一处理）。
+        """
+        deadline = time.monotonic() + wait_s
+        last: dict = {"error": "启动超时"}
+        delay = 1.0
+        while time.monotonic() < deadline:
+            await asyncio.sleep(delay)
+            delay = min(delay * 1.5, 5.0)
+            resp = await self._bus.call_agent(aid, "execute", {"content": request}, timeout=300)
+            last = resp if isinstance(resp, dict) else {"error": str(resp)}
+            err = str(last.get("error", ""))
+            # 只有「未运行/正在启动」这类可恢复状态才继续等，其他失败立刻返回
+            if not err or ("未运行" not in err and "启动中" not in err and "未就绪" not in err):
+                return last
+        return last
+
     async def _dispatch_to_agent(self, agent_entry: dict, request: str, session_key: str,
                                  user_id: str = ""):
         """把用户请求转发给指定 Agent（经主进程 RPC），聚合结果后返回。
@@ -1296,31 +1323,54 @@ class InteractiveAgent(BaseAgent):
         resp = await self._bus.call_agent(aid, "execute", {"content": request}, timeout=300)
 
         if isinstance(resp, dict) and "未运行" in str(resp.get("error", "")):
-            # 锁定该 Agent：用户下一条短回复会补全请求后自动重试
-            self._pending_agents[session_key] = {"agent": agent_entry, "request": request}
-            # 直接经平台网关发起 start_agent（写操作 → 确认卡片），
-            # 用户在卡片上确认即可由系统拉起，无需去 Agent 空间手动启动。
-            if self._bus is not None:
-                r = await self._bus.platform_call(
-                    "start_agent", {"agent_id": aid},
-                    session_id=session_key, user_id=user_id or "default")
-                if isinstance(r, dict) and r.get("status") == "pending" and r.get("confirm"):
-                    yield {
-                        "event": "card",
-                        "data": {
-                            "type": "platform-confirm",
-                            "title": "请确认平台操作",
-                            "summary": r["confirm"].get("summary", ""),
-                            "data": r["confirm"],
-                        },
-                    }
-                    yield {"event": "content",
-                           "data": {"text": f"**{name}** 当前未运行。在上方卡片点「确认执行」我就启动它；"
-                                             "启动后回复「继续」，我会重新提交任务。"}}
-                    return
-            yield {"event": "content",
-                   "data": {"text": f"**{name}** 当前未运行。请到 Agent 空间启动它；启动后直接回复我（如「继续」），我会重新提交任务。"}}
-            return
+            # Agent 未运行 → 自动拉起后重试原请求。
+            # 此前只发起 start_agent、提示用户「回复继续」就 return，导致
+            # 「匹配到 Agent → 启动 → 原始提问被丢弃」，用户必须再问一遍。
+            if self._bus is None:
+                yield {"event": "content",
+                       "data": {"text": f"**{name}** 当前未运行。请到 Agent 空间启动它；启动后直接回复我（如「继续」），我会重新提交任务。"}}
+                return
+
+            yield {"event": "step",
+                   "data": {"id": "start_agent", "text": f"「{name}」未运行，正在启动", "status": "running"}}
+            r = await self._bus.platform_call(
+                "start_agent", {"agent_id": aid},
+                session_id=session_key, user_id=user_id or "default")
+            if isinstance(r, dict) and r.get("status") == "pending" and r.get("confirm"):
+                # 启动是写操作，仍需用户确认；保留原请求以便下一条短回复补提交
+                self._pending_agents[session_key] = {"agent": agent_entry, "request": request}
+                yield {"event": "step",
+                       "data": {"id": "start_agent", "text": "等待确认启动", "status": "done"}}
+                confirm_data = dict(r["confirm"])
+                # 原请求随卡片下发：确认执行在前端异步完成，确认成功后前端要
+                # 用它自动续跑，否则启动完成时已没有上下文知道用户问了什么。
+                confirm_data["request"] = request
+                yield {
+                    "event": "card",
+                    "data": {
+                        "type": "platform-confirm",
+                        "title": "请确认平台操作",
+                        "summary": r["confirm"].get("summary", ""),
+                        "data": confirm_data,
+                    },
+                }
+                yield {"event": "content",
+                       "data": {"text": f"**{name}** 当前未运行。请在上方卡片点「确认执行」启动它；"
+                                         "启动后直接回复我一句（如「继续」），我会立刻用原请求继续处理。"}}
+                return
+
+            # 已直接启动 → 等进程就绪后自动重试，无需用户回「继续」
+            yield {"event": "step",
+                   "data": {"id": "start_agent", "text": f"「{name}」已启动，等待就绪", "status": "done"}}
+            resp = await self._retry_agent_after_start(aid, request)
+            if isinstance(resp, dict) and "未运行" in str(resp.get("error", "")):
+                self._pending_agents[session_key] = {"agent": agent_entry, "request": request}
+                yield {"event": "content",
+                       "data": {"text": f"**{name}** 启动后仍不可用（{str(resp.get('error'))[:120]}）。"
+                                         "请到 Agent 空间检查，启动后回复「继续」我会重新提交任务。"}}
+                return
+            yield {"event": "step",
+                   "data": {"id": "agent_ready", "text": f"「{name}」已就绪，开始处理", "status": "done"}}
 
         session = self._sessions.setdefault(session_key, [])
         if not session:

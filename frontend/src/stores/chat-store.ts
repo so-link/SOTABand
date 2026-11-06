@@ -55,8 +55,11 @@ interface ChatState {
   switchSession: (sessionId: string) => Promise<void>
   /** 删除一个历史会话 */
   deleteSession: (sessionId: string) => Promise<void>
-  /** 平台确认卡：确认/取消待执行操作，结果卡追加到同一消息 */
-  resolvePlatformOp: (messageId: string, cardId: string, action: 'confirm' | 'cancel') => Promise<void>
+  /** 平台确认卡：确认/取消待执行操作，结果卡追加到同一消息。
+   *  auto=true 表示由「自动确认」策略触发（收卡即执行），用于区分同一
+   *  点击路径下的后续行为（如 start_agent 成功后自动续跑原请求）。 */
+  resolvePlatformOp: (messageId: string, cardId: string, action: 'confirm' | 'cancel',
+    auto?: boolean) => Promise<void>
   /** 工具选择/执行确认卡：点选后回写 selected 标记，按钮即刻失效防止重复选择 */
   markCardSelected: (messageId: string, cardId: string, label: string) => void
 }
@@ -404,7 +407,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   // 平台确认卡的确认/取消：直连网关端点（不经 LLM），网关回执以结果卡呈现。
-  resolvePlatformOp: async (messageId, cardId, action) => {
+  resolvePlatformOp: async (messageId, cardId, action, auto) => {
     const msg = get().messages.find((m) => m.id === messageId)
     const card = msg?.cards?.find((c) => c.id === cardId)
     if (!msg || !card || card.type !== 'platform-confirm') return
@@ -480,8 +483,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
       },
     })
     if (ok) await refreshSpacesForAction(tool)
+    // start_agent 确认成功 → 自动续跑原请求。
+    // 后端 _dispatch_to_agent 遇到「Agent 未运行」只发起启动，并把原请求
+    // 存进 _pending_agents 后 return；启动经确认卡异步完成，若没人再触发
+    // 一轮对话，用户的原始提问（如「广州明天天气怎么样？」）就被丢弃。
+    // 这里补发原话（confirm_data.request 由后端随卡下发），让后端把待办
+    // 请求重投给刚启动的 Agent。
+    // 仅限自动策略：手工点「确认执行」时用户正看着卡片，由下面的回执解读
+    // 自然衔接，不额外补一轮。续跑必须排在解读之前——解读会置 isSending，
+    // 一旦它先跑，续跑会被忙线拦掉；反过来续跑忙线时解读自行跳过。
+    if (auto && ok && tool === 'start_agent') {
+      const original = String(d.request || '').trim()
+      if (original) void get().sendDirectMessage(original)
+    }
     // 把网关回执交回助手，用自然语言解读进对话（隐藏轮次）。
-    // 助手繁忙时跳过——结果卡本身已完整展示，不影响功能。
+    // 助手繁忙（含上面的自动续跑）时跳过——结果卡本身已完整展示。
     void get().explainPlatformReceipt({
       tool,
       status: ok ? 'ok' : 'error',
@@ -651,7 +667,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 }))
               }
               autoConfirmQueue.push(
-                () => void get().resolvePlatformOp(agentMsgId, card.id, 'confirm'))
+                () => void get().resolvePlatformOp(agentMsgId, card.id, 'confirm', true))
             }
           }
         }
