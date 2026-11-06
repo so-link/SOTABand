@@ -13,6 +13,11 @@ import json
 
 import pytest
 
+from tests.conftest import run_coro
+
+pytestmark = pytest.mark.unit
+
+
 from core.resource import fork, paths
 
 
@@ -66,7 +71,7 @@ def test_fork_copy_and_overlay_reads(roots):
     (private / "tools" / "implementations" / "demo" / "tool.py").write_text(
         "def execute(**kw):\n    return {'v': 'mine'}\n", encoding="utf-8")
     import asyncio
-    asyncio.run(reg.update("demo", {"name": "我的副本"}))  # 生产 fork 后端点即如此落条目
+    run_coro(reg.update("demo", {"name": "我的副本"}))  # 生产 fork 后端点即如此落条目
     entry = next(e for e in reg._read() if e["id"] == "demo")
     assert entry["source"] == "private" and entry["name"] == "我的副本"
     assert fork.content_hash(private, "tools", "demo") != fork.content_hash(builtin, "tools", "demo")
@@ -115,7 +120,7 @@ def test_update_strips_derived_source(roots):
 
     reg = ToolRegistry()
     import asyncio
-    asyncio.run(reg.update("demo", {"tags": ["x"]}))
+    run_coro(reg.update("demo", {"tags": ["x"]}))
     raw = json.loads((roots[1] / "tools" / "registry.json").read_text(encoding="utf-8"))
     assert "source" not in raw[0]
     assert raw[0]["tags"] == ["x"]
@@ -130,17 +135,17 @@ def test_unregister_scopes_keep_layers_independent(roots):
     builtin, private = roots
     reg = ToolRegistry()
     fork.fork_copy("tools", "demo")
-    asyncio.run(reg.update("demo", {"name": "我的副本"}))
+    run_coro(reg.update("demo", {"name": "我的副本"}))
 
     # 删除个人层（我的副本）：内置条目必须原样保留
-    asyncio.run(reg.unregister("demo", scope="private"))
+    run_coro(reg.unregister("demo", scope="private"))
     entries = [e for e in reg._read() if e["id"] == "demo"]
     assert len(entries) == 1 and entries[0]["source"] == "builtin"
 
     # 重新 fork 后删除内置层：个人条目必须原样保留
     fork.fork_copy("tools", "demo")
-    asyncio.run(reg.update("demo", {"name": "我的副本"}))
-    asyncio.run(reg.unregister("demo", scope="builtin"))
+    run_coro(reg.update("demo", {"name": "我的副本"}))
+    run_coro(reg.unregister("demo", scope="builtin"))
     raw_builtin = json.loads((builtin / "tools" / "registry.json").read_text(encoding="utf-8"))
     assert raw_builtin == []
     entries = [e for e in reg._read() if e["id"] == "demo"]
@@ -148,5 +153,5 @@ def test_unregister_scopes_keep_layers_independent(roots):
     assert fork.exists_in_private("tools", "demo")
 
     # scope=all：两层全清（彻底清除 id 的场景）
-    asyncio.run(reg.unregister("demo", scope="all"))
+    run_coro(reg.unregister("demo", scope="all"))
     assert [e for e in reg._read() if e["id"] == "demo"] == []

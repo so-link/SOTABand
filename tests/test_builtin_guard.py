@@ -7,6 +7,9 @@
 """
 
 import pytest
+
+pytestmark = pytest.mark.unit
+
 from fastapi import HTTPException
 
 from app.api.deps import ensure_can_touch_builtin

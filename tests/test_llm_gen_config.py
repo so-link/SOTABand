@@ -11,6 +11,11 @@ import os
 
 import pytest
 
+from tests.conftest import run_coro
+
+pytestmark = pytest.mark.unit
+
+
 from config.settings import LLMConfig, Settings, resolve_gen_llm_config, settings
 from core.llm.client import create_gen_llm_client
 
@@ -135,7 +140,7 @@ def test_update_route_enable_then_disable(tmp_path, monkeypatch):
         monkeypatch.setenv(k, v)
 
     # 启用独立生成模型
-    asyncio.run(cr.update_llm_config(cr.LLMConfigUpdate(
+    run_coro(cr.update_llm_config(cr.LLMConfigUpdate(
         model="deepseek:deepseek-v4-pro",
         gen_model="mimo:mimo-v2.5-pro",
         gen_api_key="tp-gen-key",
@@ -144,7 +149,7 @@ def test_update_route_enable_then_disable(tmp_path, monkeypatch):
     assert resolve_gen_llm_config().provider == "mimo"
 
     # 关闭 → 磁盘与内存都不得残留，且回退到对话模型
-    asyncio.run(cr.update_llm_config(cr.LLMConfigUpdate(
+    run_coro(cr.update_llm_config(cr.LLMConfigUpdate(
         model="deepseek:deepseek-v4-pro", gen_model="",
     )))
     assert "LLM_GEN_" not in env_file.read_text(encoding="utf-8")

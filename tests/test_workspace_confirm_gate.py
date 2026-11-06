@@ -15,6 +15,11 @@ import types
 
 import pytest
 
+from tests.conftest import run_coro
+
+pytestmark = pytest.mark.unit
+
+
 agent_mod = pytest.importorskip(
     "resources.agents.implementations.interactive_agent.agent")
 InteractiveAgent = agent_mod.InteractiveAgent
@@ -100,7 +105,7 @@ def test_exec_pending_ttl_expiry(monkeypatch):
         await agent._purge_expired_confirm("s1", "0")
         assert "s1" not in agent._pending_confirm
 
-    asyncio.run(run())
+    run_coro(run())
     statuses = [a["status"] for a in audited]
     assert statuses[0] == "pending"
     assert "expired" in statuses
@@ -184,7 +189,7 @@ def test_audit_helper_uses_bus_when_present():
             op_id="wop_9", session_key="s", owner="7", tool="t",
             args={}, status="confirmed")
 
-    asyncio.run(run())
+    run_coro(run())
     assert sent and sent[0]["op_id"] == "wop_9" and sent[0]["status"] == "confirmed"
 
 
@@ -273,7 +278,7 @@ def test_direct_match_requires_confirmation(monkeypatch):
             events.append(ev)
         return events
 
-    events = asyncio.run(run1())
+    events = run_coro(run1())
     assert executed == []
     cards = [e for e in events if e.get("event") == "card"
              and e["data"].get("type") == "tool-confirm"
@@ -292,7 +297,7 @@ def test_direct_match_requires_confirmation(monkeypatch):
             events.append(ev)
         return events
 
-    asyncio.run(run_vague())
+    run_coro(run_vague())
     assert executed == []
     assert "s1" in agent._pending_confirm  # 保持等待
 
@@ -303,7 +308,7 @@ def test_direct_match_requires_confirmation(monkeypatch):
             events.append(ev)
         return events
 
-    asyncio.run(run2())
+    run_coro(run2())
     assert executed and executed[-1]["id"] == "t-weather"
     assert "s1" not in agent._pending_confirm
 
@@ -343,7 +348,7 @@ def test_exec_cancel_flow(monkeypatch):
             events.append(ev)
         return events
 
-    events = asyncio.run(run())
+    events = run_coro(run())
     assert executed == []
     assert "s9" not in agent._pending_confirm
     assert any(e.get("event") == "content" and "取消" in e["data"]["text"]

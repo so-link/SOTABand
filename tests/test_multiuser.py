@@ -9,6 +9,11 @@ import json
 
 import pytest
 
+from tests.conftest import run_coro
+
+pytestmark = pytest.mark.unit
+
+
 from core import user_paths
 from core.auth import (
     AuthError,
@@ -425,7 +430,7 @@ def test_scheduler_start_skips_deleted_users(superuser_env, monkeypatch):
     spawned: list[tuple[str, str]] = []
     sched = sched_mod.CronScheduler()
     monkeypatch.setattr(sched, "_spawn", lambda uid, job_id: spawned.append((uid, job_id)))
-    asyncio.run(sched.start())
+    run_coro(sched.start())
 
     assert spawned == [("0", su_job["id"])]
 
@@ -445,11 +450,11 @@ def test_check_target_tool_visibility(superuser_env, monkeypatch):
             return entry.get("owner") == uid
 
     monkeypatch.setattr(tr_mod, "ToolRegistry", FakeReg)
-    assert asyncio.run(runner.check_target("tool", "t1", owner="1000"))[0] is True
-    ok, msg = asyncio.run(runner.check_target("tool", "t1", owner="1001"))
+    assert run_coro(runner.check_target("tool", "t1", owner="1000"))[0] is True
+    ok, msg = run_coro(runner.check_target("tool", "t1", owner="1001"))
     assert ok is False and "t1" in msg
     # owner 缺省（历史数据）保持原行为
-    assert asyncio.run(runner.check_target("tool", "t1"))[0] is True
+    assert run_coro(runner.check_target("tool", "t1"))[0] is True
 
 
 def test_prefs_rejects_oversized_value(superuser_env):

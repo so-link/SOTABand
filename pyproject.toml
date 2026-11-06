@@ -32,6 +32,10 @@ dev = [
     "mypy",
     "pre-commit",
 ]
+# 浏览器端到端测试（tests/e2e）：装完后还需 ./venv/bin/playwright install chromium
+e2e = [
+    "playwright>=1.40",
+]
 
 [tool.setuptools.packages.find]
 include = ["app*", "core*", "resources*", "storage*", "config*"]
@@ -43,3 +47,10 @@ target-version = "py311"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# 分层 marker：unit（纯逻辑）/ api（真实 HTTP）/ e2e（真实浏览器）。
+# 不加 -m 时三层都会收集，但 e2e 需要 --run-e2e 才实际执行（见 tests/e2e/conftest.py）。
+markers = [
+    "unit: 纯逻辑用例，不依赖网络与服务",
+    "api: 调用真实后端 HTTP 接口（8201 需已启动）",
+    "e2e: 真实浏览器端到端（需前端 5173、后端 8201 与登录密码）",
+]

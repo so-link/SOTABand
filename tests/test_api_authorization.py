@@ -13,6 +13,11 @@
 """
 
 import pytest
+
+from tests.conftest import run_coro
+
+pytestmark = pytest.mark.unit
+
 from fastapi.testclient import TestClient
 
 from core import user_paths
@@ -394,7 +399,7 @@ def test_dataset_endpoints_enforce_ownership(client, tokens):
     def _register(uid: str, username: str, ds_id: str) -> None:
         token = set_current_user(AuthUser(id=uid, username=username, role="user"))
         try:
-            asyncio.run(reg.register({"id": ds_id, "name": ds_id, "data_path": ""}))
+            run_coro(reg.register({"id": ds_id, "name": ds_id, "data_path": ""}))
         finally:
             reset_current_user(token)
 
@@ -490,7 +495,7 @@ def test_preview_table_rejects_sibling_dir_prefix(client, tokens):
 
     token = set_current_user(AuthUser(id="1000", username="alice", role="user"))
     try:
-        asyncio.run(DataRegistry().register(
+        run_coro(DataRegistry().register(
             {"id": "ds-prefix", "name": "ds-prefix", "data_path": str(home / "ds")}))
     finally:
         reset_current_user(token)

@@ -22,17 +22,23 @@ install:  ## Install dependencies (delegates to serve.py setup: venv + uv + tool
 dev-install:  ## Install with dev dependencies (delegates to serve.py setup)
 	python scripts/serve.py setup
 
-test:  ## Run all tests
-	pytest -v
+test:  ## 跑 unit + api 两层（默认，快；需 8201 已启动，否则 api 自动 skip）
+	./venv/bin/python -m pytest -q
 
-test-unit:  ## Run unit tests only
-	pytest -v tests/unit/
+test-unit:  ## 只跑 unit 层（纯逻辑，无服务依赖）
+	./venv/bin/python -m pytest -q -m unit
 
-test-integration:  ## Run integration tests only
-	pytest -v tests/integration/
+test-api:  ## 只跑 api 层（真实 HTTP，需 8201 已启动）
+	./venv/bin/python -m pytest -q -m api
 
-test-cov:  ## Run tests with coverage report
-	pytest --cov=. --cov-report=term --cov-report=html
+test-e2e:  ## 只跑浏览器层（需前后端已启动 + SOTABAND_E2E_PASSWORD，单独一次运行）
+	./venv/bin/python -m pytest tests/e2e -q --run-e2e
+
+test-integration:  ## 兼容旧入口：agent 派发等集成用例
+	./venv/bin/python -m pytest -q tests/integration
+
+test-cov:  ## 跑测试并生成覆盖率报告（unit + api）
+	./venv/bin/python -m pytest -q --cov=. --cov-report=term --cov-report=html
 
 lint:  ## Run linter
 	ruff check .

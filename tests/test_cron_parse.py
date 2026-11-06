@@ -3,6 +3,9 @@
 from datetime import datetime
 
 import pytest
+
+pytestmark = pytest.mark.unit
+
 from zoneinfo import ZoneInfo
 
 from core.cron.cron_parse import CronError, next_run_at, validate_cron, validate_timezone

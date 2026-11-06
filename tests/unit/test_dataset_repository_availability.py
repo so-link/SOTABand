@@ -8,6 +8,11 @@
 
 import pytest
 
+from tests.conftest import run_coro  # noqa: F401
+
+pytestmark = pytest.mark.unit
+
+
 from app.api.routes import data_routes as dr
 
 

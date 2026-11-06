@@ -9,6 +9,11 @@ import time
 
 import pytest
 
+from tests.conftest import run_coro
+
+pytestmark = pytest.mark.unit
+
+
 from core.chat_control import audit, confirm, gateway
 from core.chat_control import registry as reg
 from core.chat_control.registry import RISK_READ, RISK_WRITE, StrictArgs
@@ -160,7 +165,7 @@ def test_schemas_shape_is_openai_function_format():
 def test_unknown_tool_rejected_by_gateway():
     """LLM 幻觉出的工具名必须被白名单挡下（不执行、落审计）。"""
     import asyncio
-    r = asyncio.run(gateway.platform_call(
+    r = run_coro(gateway.platform_call(
         "totally_made_up_tool", {}, owner="alice", session_id="u"))
     assert r["status"] == "error" and "未知平台工具" in r["error"]
     assert any(o["status"] == "rejected_unknown_tool" for o in audit.recent(owner="alice"))
@@ -181,11 +186,11 @@ def test_read_tool_never_creates_pending():
         return {"ok": True}
 
     import asyncio
-    r1 = asyncio.run(gateway.platform_call(
+    r1 = run_coro(gateway.platform_call(
         "_t_read_demo", {"name": "r"}, owner="alice", session_id="u2"))
     assert r1["status"] == "ok" and calls == ["r"]
 
-    r2 = asyncio.run(gateway.platform_call(
+    r2 = run_coro(gateway.platform_call(
         "_t_write_demo", {"name": "w"}, owner="alice", session_id="u2"))
     assert r2["status"] == "pending"
     assert r2["confirm"]["risk"] == "write"

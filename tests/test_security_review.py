@@ -15,6 +15,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+import pytest
+
+pytestmark = pytest.mark.unit
+
 from core.security.review import review_code, block_violations, StaticReviewer, TEMPLATE_MARKER
 from core.executor.tool_executor import ToolExecutor
 from config.settings import settings

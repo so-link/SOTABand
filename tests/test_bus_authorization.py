@@ -14,6 +14,11 @@ import sys
 from pathlib import Path
 
 import pytest
+
+from tests.conftest import run_coro  # noqa: F401
+
+pytestmark = pytest.mark.unit
+
 from fastapi.testclient import TestClient
 
 from core import user_paths

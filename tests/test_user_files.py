@@ -8,6 +8,9 @@
 
 import pytest
 
+pytestmark = pytest.mark.unit
+
+
 from pathlib import Path
 
 from core import user_paths

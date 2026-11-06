@@ -24,6 +24,12 @@ import importlib.util
 import types
 from pathlib import Path
 
+import pytest
+
+from tests.conftest import run_coro
+
+pytestmark = pytest.mark.unit
+
 AGENT_PY = (Path(__file__).resolve().parents[2]
             / "resources/agents/implementations/interactive_agent/agent.py")
 
@@ -94,11 +100,18 @@ def _make_agent(module, bus):
 
 
 def _collect(agent, session="s-test"):
+    """同步收集派发事件。
+
+    这里不用 ``asyncio.run``：它要求「当前线程没有事件循环在跑」，而同一次
+    测试运行里一旦有浏览器用例（Playwright 同步 API 常驻内部事件循环），就
+    会报 cannot be called from a running event loop。改为在新线程里自建事件
+    循环，与本进程其它用例完全隔离。
+    """
     async def run():
         return [ev async for ev in
                 agent._dispatch_to_agent(AGENT_ENTRY, USER_REQUEST, session, "u-test")]
 
-    return asyncio.run(run())
+    return run_coro(run())
 
 
 def _texts(events):
@@ -216,3 +229,4 @@ def test_case_uses_fresh_session_and_does_not_leak_to_previous():
     other = _make_agent(module, bus2)
     _collect(other, session="s-other")
     assert set(other._pending_agents) == set()
+    assert "s-new" in agent._pending_agents, "别的会话把 s-new 的待办请求消费掉了"
