@@ -55,11 +55,8 @@ interface ChatState {
   switchSession: (sessionId: string) => Promise<void>
   /** 删除一个历史会话 */
   deleteSession: (sessionId: string) => Promise<void>
-  /** 平台确认卡：确认/取消待执行操作，结果卡追加到同一消息。
-   *  auto=true 表示由「自动确认」策略触发（收卡即执行），用于区分同一
-   *  点击路径下的后续行为（如 start_agent 成功后自动续跑原请求）。 */
-  resolvePlatformOp: (messageId: string, cardId: string, action: 'confirm' | 'cancel',
-    auto?: boolean) => Promise<void>
+  /** 平台确认卡：确认/取消待执行操作，结果卡追加到同一消息 */
+  resolvePlatformOp: (messageId: string, cardId: string, action: 'confirm' | 'cancel') => Promise<void>
   /** 工具选择/执行确认卡：点选后回写 selected 标记，按钮即刻失效防止重复选择 */
   markCardSelected: (messageId: string, cardId: string, label: string) => void
 }
@@ -313,6 +310,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       messages: [],
       sessionId: newSessionId(),
       sessionsVersion: s.sessionsVersion + 1,
+      // 新会话的 empty-state 指引不依赖历史加载：不置 true 会一直停在
+      // 「加载中」占位（加载副作用只在首屏跑一次，不会再触发）。
+      initialized: true,
     }))
   },
 
@@ -407,7 +407,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   // 平台确认卡的确认/取消：直连网关端点（不经 LLM），网关回执以结果卡呈现。
-  resolvePlatformOp: async (messageId, cardId, action, auto) => {
+  resolvePlatformOp: async (messageId, cardId, action) => {
     const msg = get().messages.find((m) => m.id === messageId)
     const card = msg?.cards?.find((c) => c.id === cardId)
     if (!msg || !card || card.type !== 'platform-confirm') return
@@ -489,10 +489,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // 一轮对话，用户的原始提问（如「广州明天天气怎么样？」）就被丢弃。
     // 这里补发原话（confirm_data.request 由后端随卡下发），让后端把待办
     // 请求重投给刚启动的 Agent。
-    // 仅限自动策略：手工点「确认执行」时用户正看着卡片，由下面的回执解读
-    // 自然衔接，不额外补一轮。续跑必须排在解读之前——解读会置 isSending，
-    // 一旦它先跑，续跑会被忙线拦掉；反过来续跑忙线时解读自行跳过。
-    if (auto && ok && tool === 'start_agent') {
+    // 仅 start_agent 续跑：手工确认时用户点了「确认执行」，自动确认时卡片
+    // 由策略直接执行，两种路径都要把原请求接着交给刚启动的 Agent，用户不必
+    // 重新描述。续跑必须排在下面的回执解读之前——解读会置 isSending，一旦
+    // 它先跑，续跑会被忙线拦掉；反过来续跑忙线时解读自行跳过。
+    if (ok && tool === 'start_agent') {
       const original = String(d.request || '').trim()
       if (original) void get().sendDirectMessage(original)
     }
@@ -667,7 +668,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 }))
               }
               autoConfirmQueue.push(
-                () => void get().resolvePlatformOp(agentMsgId, card.id, 'confirm', true))
+                () => void get().resolvePlatformOp(agentMsgId, card.id, 'confirm'))
             }
           }
         }

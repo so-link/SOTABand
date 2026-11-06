@@ -1323,24 +1323,27 @@ class InteractiveAgent(BaseAgent):
         resp = await self._bus.call_agent(aid, "execute", {"content": request}, timeout=300)
 
         if isinstance(resp, dict) and "未运行" in str(resp.get("error", "")):
-            # Agent 未运行 → 自动拉起后重试原请求。
-            # 此前只发起 start_agent、提示用户「回复继续」就 return，导致
-            # 「匹配到 Agent → 启动 → 原始提问被丢弃」，用户必须再问一遍。
+            # Agent 未运行 → 启动后重试原请求。
+            # 手工确认策略下网关只下发确认卡（status=pending），此时必须把
+            # 选择权交给用户：保留原请求待用户确认，不要擅自把启动这一步
+            # 说成「已执行」。确认后的续跑由前端在 confirm 成功后补发原话
+            # 触发（_pending_agents 重投），因此这里不要求用户重新提问。
             if self._bus is None:
                 yield {"event": "content",
                        "data": {"text": f"**{name}** 当前未运行。请到 Agent 空间启动它；启动后直接回复我（如「继续」），我会重新提交任务。"}}
                 return
 
             yield {"event": "step",
-                   "data": {"id": "start_agent", "text": f"「{name}」未运行，正在启动", "status": "running"}}
+                   "data": {"id": "start_agent", "text": f"「{name}」未运行，发起启动", "status": "running"}}
             r = await self._bus.platform_call(
                 "start_agent", {"agent_id": aid},
                 session_id=session_key, user_id=user_id or "default")
             if isinstance(r, dict) and r.get("status") == "pending" and r.get("confirm"):
-                # 启动是写操作，仍需用户确认；保留原请求以便下一条短回复补提交
+                # 启动是写操作，仍需用户确认；保留原请求以便确认后补提交
                 self._pending_agents[session_key] = {"agent": agent_entry, "request": request}
                 yield {"event": "step",
-                       "data": {"id": "start_agent", "text": "等待确认启动", "status": "done"}}
+                       "data": {"id": "start_agent",
+                                "text": f"「{name}」未运行，需确认后启动", "status": "done"}}
                 confirm_data = dict(r["confirm"])
                 # 原请求随卡片下发：确认执行在前端异步完成，确认成功后前端要
                 # 用它自动续跑，否则启动完成时已没有上下文知道用户问了什么。
@@ -1355,28 +1358,34 @@ class InteractiveAgent(BaseAgent):
                     },
                 }
                 yield {"event": "content",
-                       "data": {"text": f"**{name}** 当前未运行。请在上方卡片点「确认执行」启动它；"
-                                         "启动后直接回复我一句（如「继续」），我会立刻用原请求继续处理。"}}
+                       "data": {"text": f"**{name}** 当前未运行，需要先启动它才能处理你刚才的问题。\n\n"
+                                         "请在上方卡片点「确认执行」——确认后会自动启动该 Agent，"
+                                         "并接着处理你刚才的提问，不需要重新描述需求。"}}
                 return
 
-            # 已直接启动 → 等进程就绪后自动重试，无需用户回「继续」
+            # 网关直接放行（自动确认策略）→ 界面上把「启动」这一步显式展示出来
             yield {"event": "step",
-                   "data": {"id": "start_agent", "text": f"「{name}」已启动，等待就绪", "status": "done"}}
+                   "data": {"id": "start_agent", "text": f"「{name}」已启动，等待就绪", "status": "running"}}
             resp = await self._retry_agent_after_start(aid, request)
             if isinstance(resp, dict) and "未运行" in str(resp.get("error", "")):
                 self._pending_agents[session_key] = {"agent": agent_entry, "request": request}
+                yield {"event": "step",
+                       "data": {"id": "start_agent", "text": f"「{name}」启动超时", "status": "error"}}
                 yield {"event": "content",
                        "data": {"text": f"**{name}** 启动后仍不可用（{str(resp.get('error'))[:120]}）。"
                                          "请到 Agent 空间检查，启动后回复「继续」我会重新提交任务。"}}
                 return
             yield {"event": "step",
-                   "data": {"id": "agent_ready", "text": f"「{name}」已就绪，开始处理", "status": "done"}}
+                   "data": {"id": "start_agent", "text": f"「{name}」已就绪，开始处理原请求", "status": "done"}}
 
         session = self._sessions.setdefault(session_key, [])
         if not session:
             # 与其他轮次一致：历史首条恒为 system，裁剪逻辑依赖该约定
             session.append({"role": "system", "content": self._build_system_with_context([])})
         if isinstance(resp, dict) and resp.get("ok"):
+            # 本次已拿到 Agent 结果：待办请求（启动后待重投）不再需要，
+            # 否则用户下一条消息会被 pending 逻辑再次重投一遍原提问。
+            self._pending_agents.pop(session_key, None)
             result = resp.get("result") or {}
             text = result.get("text") if isinstance(result, dict) else json.dumps(result, ensure_ascii=False, default=str)
             text = (text or "").strip() or "（该 Agent 未返回文本结果）"

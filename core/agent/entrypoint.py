@@ -206,6 +206,7 @@ async def main():
         invoke_kwargs = dict(params or {})
         invoke_kwargs["bus_method"] = method
         invoke_kwargs["bus_params"] = params or {}
+        card_summary: str | None = None
         try:
             async for event in agent.execute(ctx, **invoke_kwargs):
                 et = event.get("event")
@@ -220,13 +221,23 @@ async def main():
                     # InteractiveAgentBase 的对话/整理结果路径），这里不收集
                     # 就会把整段回复丢掉，调用方只剩「未返回文本结果」。
                     contents.append(event.get("data", {}).get("text", ""))
+                elif et == "card":
+                    # 结果卡是最终答复的载体：InteractiveAgentBase 的工具结果
+                    # 只放在 result-summary 卡里，正文留给 LLM 小结。只收集
+                    # 正文会让「某次小结没提到结论」的轮次整体丢失答案。
+                    d = event.get("data") or {}
+                    if d.get("type") == "result-summary" and d.get("summary"):
+                        card_summary = str(d["summary"])
         except Exception as e:
             return {"ok": False, "error": f"{type(e).__name__}: {e}"}
         if err is not None:
             return {"ok": False, "error": err}
         if result is not None:
             return {"ok": True, "result": result}
-        return {"ok": True, "result": {"text": "".join(contents)}}
+        text = "".join(contents).strip()
+        if card_summary and card_summary not in text:
+            text = f"{text}\n\n{card_summary}" if text else card_summary
+        return {"ok": True, "result": {"text": text}}
 
     bus.add_handler("__call__", _handle_rpc)
 
