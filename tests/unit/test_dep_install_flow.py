@@ -71,14 +71,25 @@ def test_pip_and_import_name_mapping():
 # ── ③ pip 命令拼装 ───────────────────────────────────────
 
 def test_build_pip_argv_plain_dep():
+    # --prefer-binary：优先用 wheel，避免在精简系统/容器里为 Pillow / greenlet
+    # 这类 C 扩展现场编译（缺 gcc、libjpeg 头文件时必然失败）
     assert build_pip_argv(["py", "-m", "pip"], "opencv-python") == [
-        "py", "-m", "pip", "install", "opencv-python",
+        "py", "-m", "pip", "install", "--prefer-binary", "opencv-python",
     ]
 
 
 def test_build_pip_argv_accepts_full_command_from_llm():
     argv = build_pip_argv(["py", "-m", "pip"], "cv2", "pip install opencv-python --no-deps")
-    assert argv == ["py", "-m", "pip", "install", "opencv-python", "--no-deps"]
+    assert argv == [
+        "py", "-m", "pip", "install", "--prefer-binary", "opencv-python", "--no-deps",
+    ]
+
+
+def test_build_pip_argv_respects_explicit_source_build():
+    """LLM 明确要求从源码构建时，不能再强加 --prefer-binary。"""
+    for flag in ("--no-binary :all:", "--only-binary :none:"):
+        argv = build_pip_argv(["py", "-m", "pip"], "x", f"pip install {flag} x")
+        assert "--prefer-binary" not in argv, argv
 
 
 def test_build_pip_argv_with_options_only():
