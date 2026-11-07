@@ -27,9 +27,18 @@ def backend_url() -> str:
     return BACKEND_URL
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def backend_token(backend_url: str) -> str:
-    """登录令牌：测试账号优先，其次超管（.env 的 SOTABAND_ROOT_PASSWORD）。"""
+    """登录令牌：测试账号优先，其次超管（.env 的 SOTABAND_ROOT_PASSWORD）。
+
+    为什么是 function 级而不是 session 级：改密码会让令牌里的 pwd 版本号
+    失效，session 级令牌一旦被某个用例改坏，后续所有用例都会 401（本人踩过）。
+    登录开销很小，每个用例重登一次更稳。
+    """
+    return _login_token(backend_url)
+
+
+def _login_token(backend_url: str) -> str:
     candidates = [
         (os.environ.get("SOTABAND_E2E_USER", "test"),
          os.environ.get("SOTABAND_E2E_PASSWORD", "")),

@@ -427,7 +427,11 @@ def import_tool(
         # overrode_builtin 先例）。响应里带 overrode_builtin=true 由 UI 警示。
         overrode_builtin = existing_origin == paths.BUILTIN_ROOT
 
-        existing = def_path.exists() or impl_dir.exists() or existing_entry is not None
+        # 冲突只看「私有层是否已有同名」：内置同 id 不构成冲突（私有副本会
+        # 遮蔽它，属于正常导入），否则内置工具将永远无法导入，用户也拿不到
+        # 可编辑的副本。-- 此处曾把 existing_entry（含内置命中）一并算作冲突。
+        existing = def_path.exists() or impl_dir.exists() or (
+            existing_entry is not None and not overrode_builtin)
         if existing and not overwrite:
             raise ValueError(
                 f"工具 {tool_id} 已存在；如需覆盖请传 overwrite=true"
