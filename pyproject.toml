@@ -28,6 +28,7 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio",
     "pytest-cov",
+    "httpx",          # FastAPI TestClient 依赖（进程内 SSE / 生成链路用例）
     "ruff",
     "mypy",
     "pre-commit",

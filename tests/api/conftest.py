@@ -59,3 +59,31 @@ def _login_token(backend_url: str) -> str:
         except urllib.error.HTTPError:
             continue
     pytest.skip("没有可用的登录凭据（SOTABAND_E2E_PASSWORD 或 SOTABAND_ROOT_PASSWORD）")
+
+
+# ────────────────────────── 进程内用例（SSE 生成链路） ──────────────────────────
+
+@pytest.fixture
+def client():
+    """进程内应用实例（TestClient）。
+
+    单用户模式下匿名请求按超管执行，因此不需要登录；用于必须替换 LLM 的
+    SSE 生成类用例（真实后端进程里没法注入假客户端）。
+
+    ``base_url`` 必须是回环地址：应用有「仅接受本机 Host」的防护，默认的
+    ``testserver`` 会被 403 挡下。
+    """
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    with TestClient(app, base_url="http://127.0.0.1") as c:
+        yield c
+
+
+@pytest.fixture
+def fake_llm():
+    """固定输出的假 LLM 客户端（见 tests/api/_stream_support.py）。"""
+    from tests.api._stream_support import FakeLLM
+
+    return FakeLLM()
