@@ -4624,5 +4624,306 @@
     "created_at": "2026-09-17T00:00:00Z",
     "always_available": true,
     "visibility": "public"
+  },
+  {
+    "id": "patent-search",
+    "name": "专利关键词检索（需要VPN）",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/patent-search.md",
+    "impl_path": "implementations/patent-search/",
+    "input_schema": {},
+    "output_schema": {},
+    "modes": [],
+    "param_meta": [
+      {
+        "name": "keyword",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "检索关键词，如 固态电池 液冷（覆盖标题+摘要，多个词用空格分隔）",
+        "hints": [
+          "无人机避障",
+          "固态电池 液冷",
+          "关键词"
+        ]
+      },
+      {
+        "name": "ipc",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "分类号 CPC，如 B64U、H01M（输入0表示不限）",
+        "hints": [
+          "B64U",
+          "H01M",
+          "0",
+          "分类号"
+        ]
+      },
+      {
+        "name": "country",
+        "type": "string",
+        "required": true,
+        "default": "CN",
+        "desc": "国别代码，如 CN=中国、US=美国、EP=欧洲、WO=国际（输入0表示不限）",
+        "hints": [
+          "CN",
+          "US",
+          "EP",
+          "WO",
+          "0",
+          "国别",
+          "中国",
+          "美国"
+        ]
+      },
+      {
+        "name": "date_from",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "起始年份，如 2018（输入0表示不限）",
+        "hints": [
+          "2018",
+          "0",
+          "起始年份"
+        ]
+      },
+      {
+        "name": "date_to",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "截止年份，如 2024（输入0表示不限）",
+        "hints": [
+          "2024",
+          "0",
+          "截止年份"
+        ]
+      },
+      {
+        "name": "n",
+        "type": "int",
+        "required": true,
+        "default": 10,
+        "desc": "返回的结果数量（按相关度取前 n 篇，1~50）",
+        "hints": [
+          "10",
+          "20",
+          "50",
+          "结果数量"
+        ]
+      }
+    ],
+    "tags": [
+      "专利检索",
+      "Google Patents",
+      "中文检索",
+      "学术工具箱",
+      "专利"
+    ],
+    "usage_count": 0,
+    "created_at": "2026-09-30T09:00:00Z",
+    "owner": "local-229c8fea",
+    "visibility": "public"
+  },
+  {
+    "id": "patent-candidate-search",
+    "name": "专利相关检索（需要VPN）",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/patent-candidate-search.md",
+    "impl_path": "implementations/patent-candidate-search/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "path",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "待检专利/技术方案文件路径（txt/md/pdf/docx），大模型将自动提取关键词",
+        "hints": [
+          "./data/my.md",
+          "./data/disclosure.docx",
+          "待检文件",
+          "技术方案文件"
+        ]
+      },
+      {
+        "name": "country",
+        "type": "string",
+        "required": true,
+        "default": "CN",
+        "desc": "国别代码，如 CN=中国、US=美国、EP=欧洲、WO=国际（输入0表示不限）",
+        "hints": [
+          "CN",
+          "US",
+          "EP",
+          "WO",
+          "0",
+          "国别",
+          "中国",
+          "美国"
+        ]
+      },
+      {
+        "name": "ipc",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "分类号 CPC，如 B64U、H01M（输入0表示不限）",
+        "hints": [
+          "B64U",
+          "H01M",
+          "0",
+          "分类号"
+        ]
+      },
+      {
+        "name": "date_from",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "起始年份，如 2018（输入0表示不限）",
+        "hints": [
+          "2018",
+          "0",
+          "起始年份"
+        ]
+      },
+      {
+        "name": "date_to",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "截止年份，如 2024（输入0表示不限）",
+        "hints": [
+          "2024",
+          "0",
+          "截止年份"
+        ]
+      },
+      {
+        "name": "n",
+        "type": "int",
+        "required": true,
+        "default": null,
+        "desc": "检索数目，即返回给用户的最相关结果数量（1~50）",
+        "hints": [
+          "10",
+          "20",
+          "5",
+          "检索数目"
+        ]
+      },
+      {
+        "name": "download_dir",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "下载目录：输入0表示不下载（仅返回n个结果展示）；非0填目录路径，则返回结果的同时下载这n篇专利PDF原件到该目录",
+        "hints": [
+          "0",
+          "./data/patent-corpus/xxx",
+          "下载目录"
+        ]
+      },
+      {
+        "name": "max_rounds",
+        "type": "int",
+        "required": false,
+        "default": 5,
+        "desc": "最大迭代轮数（含首轮，2~5）",
+        "hints": [
+          "5",
+          "3",
+          "迭代轮数"
+        ]
+      }
+    ],
+    "tags": [
+      "专利检索",
+      "专利查重",
+      "Google Patents",
+      "中文检索",
+      "自动迭代",
+      "候选池",
+      "大模型检索",
+      "学术工具箱",
+      "专利"
+    ],
+    "usage_count": 0,
+    "created_at": "2026-10-01T09:00:00Z",
+    "owner": "local-229c8fea",
+    "visibility": "public"
+  },
+  {
+    "id": "patent-download-check",
+    "name": "专利本地查重",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/patent-download-check.md",
+    "impl_path": "implementations/patent-download-check/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "tech_doc",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "待申请专利技术方案的本地文件路径（txt/md/pdf/docx）",
+        "hints": [
+          "./data/my_tech.md",
+          "./data/tech.docx",
+          "技术方案文件",
+          "待申请方案"
+        ]
+      },
+      {
+        "name": "patent_db",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "专利数据库的本地目录路径（内含 pdf/txt/md/docx 等现有专利文件）",
+        "hints": [
+          "./data/patent-db",
+          "专利数据库目录",
+          "现有专利目录"
+        ]
+      },
+      {
+        "name": "top",
+        "type": "int",
+        "required": false,
+        "default": 5,
+        "desc": "进入大模型对比分析的候选专利数（1~30，默认 5）",
+        "hints": [
+          "5",
+          "10",
+          "对比候选数"
+        ]
+      }
+    ],
+    "tags": [
+      "专利本地查重",
+      "技术方案对比",
+      "新颖性",
+      "侵权风险",
+      "学术工具箱",
+      "专利"
+    ],
+    "usage_count": 0,
+    "created_at": "2026-09-30T09:05:00Z",
+    "owner": "local-229c8fea",
+    "visibility": "public"
   }
 ]
