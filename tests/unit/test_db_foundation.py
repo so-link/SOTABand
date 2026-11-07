@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime, timedelta
 
@@ -609,6 +610,11 @@ async def test_gmt_fields_are_populated_and_updated(db_session: AsyncSession) ->
     assert user.gmt_create is not None
     assert user.gmt_modified is not None
     created = user.gmt_create
+
+    # 「严格递增」对时序极其敏感：插入与更新若落在**同一微秒**，onupdate 取到的
+    # 时间与 gmt_create 完全相等，断言就会偶发失败（CI 上确实见过）。
+    # 这里显式等待一个可分辨的最小间隔，而不是把断言放宽成 >=（那会失去语义）。
+    await asyncio.sleep(0.01)
 
     user.display_name = "GMT Updated"
     await db_session.commit()

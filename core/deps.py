@@ -145,16 +145,28 @@ def build_pip_argv(pip_base: list[str], dep: str, adjusted: str | None = None) -
     调用方给定的 ``pip_base``（保证装进工具实际使用的那个解释器）。
     """
     base = list(pip_base)
+    # --prefer-binary：优先装预编译 wheel。
+    # 不加的话 pip 会为了「更新的版本」去源码编译 Pillow / greenlet 等 C 扩展，
+    # 而精简系统/容器常缺 gcc 与 libjpeg/zlib 头文件，报错形如
+    #   Failed to build installable wheels for ... ╰─> Pillow
+    # 明明镜像上有可用 wheel，却卡在编译上。
     if not adjusted:
-        return base + ["install", dep]
+        return base + ["install", "--prefer-binary", dep]
 
     parts = _split_command(adjusted)
     if not parts:
-        return base + ["install", dep]
+        return base + ["install", "--prefer-binary", dep]
     if "install" in parts:
-        return base + parts[parts.index("install"):]
-    # 只给了选项/包名（没有 install 关键字）→ 补上子命令
-    return base + ["install"] + parts
+        tail = parts[parts.index("install") + 1:]
+    else:
+        # 只给了选项/包名（没有 install 关键字）→ 补上子命令
+        tail = parts
+    # LLM 给的调整命令也可能漏掉 --prefer-binary；
+    # 除非它显式要求从源码构建（--no-binary / --only-binary），否则补上。
+    if not any(p.startswith(("--no-binary", "--only-binary")) for p in tail) \
+            and "--prefer-binary" not in tail:
+        tail = ["--prefer-binary"] + tail
+    return base + ["install"] + tail
 
 
 def dist_name_for(dep_spec: str) -> str:
