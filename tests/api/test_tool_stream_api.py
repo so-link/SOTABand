@@ -96,24 +96,23 @@ def test_modify_code_rejects_empty_request(client):
 # ────────────────────────── auto-debug ──────────────────────────
 
 def test_auto_debug_rejects_invalid_test_input(client):
-    """非法 test_input_json 不能被当成正常请求跑下去。
+    """非法 test_input_json → 400 且说明原因（此前未捕获异常，500 空响应）。
 
-    现状：路由里的 ``json.loads`` 没有捕获，直接抛异常 → 500 空响应体。
-    这里用 ``raise_server_exceptions=False`` 观察真实返回码，并把 500 记为
-    已知缺陷（xfail strict=False）：一旦修成 400，用例转成正常通过。
+    同时覆盖 /test：两个端点共用同一个解析函数，回归过一次就要一起守住。
     """
-    from fastapi.testclient import TestClient
+    for path in ("/api/tool/auto-debug", "/api/tool/test"):
+        resp = client.post(path,
+                          data={"spec_md": S.TOOL_SPEC_MD, "tool_id": TOOL_ID,
+                                "tool_name": "平方计算器", "code": S.TOOL_CODE,
+                                "test_input_json": "not-json"})
+        assert resp.status_code == 400, f"{path} 未拒绝非法 JSON: {resp.status_code}"
+        assert "test_input_json" in resp.text, resp.text
 
-    from app.main import app
-
-    # TestClient 默认会把服务端异常重新抛出；这里要看真实状态码
-    raw = TestClient(app, base_url="http://127.0.0.1", raise_server_exceptions=False)
-    resp = raw.post("/api/tool/auto-debug",
-                    data={"spec_md": "", "tool_id": "", "tool_name": "",
-                          "code": "", "test_input_json": "not-json"})
-    assert resp.status_code != 200, "坏 JSON 被当成正常请求处理了"
-    if resp.status_code == 500:
-        pytest.xfail("已知缺陷：auto-debug 对非法 test_input_json 未校验，直接 500")
+    resp = client.post("/api/tool/auto-debug",
+                       data={"spec_md": S.TOOL_SPEC_MD, "tool_id": TOOL_ID,
+                             "code": S.TOOL_CODE, "test_input_json": "[1, 2]"})
+    assert resp.status_code == 400, "非对象 JSON 应被拒绝"
+    assert "JSON 对象" in resp.text
 
 
 def test_auto_debug_rejects_bad_tool_id(client):

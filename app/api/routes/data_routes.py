@@ -619,6 +619,8 @@ async def list_files(dataset_id: str):
 @router.post("/match-tools")
 async def match_tools(req: MatchToolsRequest):
     """根据数据集和用户需求，匹配可用工具"""
+    # 传了 dataset_id 就必须是自己可见的数据集，否则 404：此前只取返回值，
+    # 不存在/他人的 id 会一路走到 LLM 并返回 200，等于用平台额度做无效请求。
     entry = await _owned_dataset(req.dataset_id) if req.dataset_id else None
 
     # 收集数据集信息

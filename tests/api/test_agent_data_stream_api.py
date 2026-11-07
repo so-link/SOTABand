@@ -137,18 +137,20 @@ def test_data_generate_spec_streams_done_with_tags(client, monkeypatch, fake_llm
 # ────────────────────────── data match-tools ──────────────────────────
 
 def test_match_tools_unknown_dataset_404(client):
-    """不存在/不属于自己的数据集 → 404。
+    """不存在/不属于自己的数据集 → 404，且不消耗 LLM 匹配。
 
-    当前实现只对 ``_owned_dataset`` 的返回值做 None 判断（存在性校验在
-    ``_owned_dataset`` 内部），实测传任意 id 仍会走完 LLM 匹配并 200；
-    这里断言「必须明确拒绝」，若实现未拦截则记录为已知缺陷。
+    回归：此前只取 ``_owned_dataset`` 的返回值，传任意 id 仍会走完 LLM
+    并返回 200；现在未通过归属校验直接 404。
+
+    注意字段名是 ``datasetId``（schema 用了 alias 且未开 populate_by_name），
+    传 ``dataset_id`` 会被静默忽略、退化成「不带数据集」的请求——这正是
+    这个用例第一次跑出 200 的原因。
     """
     resp = client.post("/api/data/match-tools",
-                       json={"dataset_id": "not-exist-dataset-xyz",
+                       json={"datasetId": "not-exist-dataset-xyz",
                              "request": "找出适合的工具"})
-    if resp.status_code == 200:
-        pytest.xfail("已知缺陷：match-tools 对不存在的数据集未拦截（返回 200 并调用 LLM）")
     assert resp.status_code == 404, resp.text
+    assert "not-exist-dataset-xyz" in resp.text
 
 
 def test_match_tools_returns_structure(client, monkeypatch):

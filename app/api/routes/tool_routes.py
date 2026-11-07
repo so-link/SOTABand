@@ -209,6 +209,23 @@ UPLOAD_DIR = _Path("/tmp/sotaband-uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _parse_test_input(raw: str) -> dict:
+    """解析测试参数 JSON（test / auto-debug 共用）。
+
+    非法 JSON 直接 400 说明原因：此前未捕获，请求会以 500 空响应体结束，
+    前端只能看到「调试失败」而不知道是参数写错了（上传文件场景最容易踩到
+    手工改坏 JSON）。
+    """
+    text = (raw or "").strip() or "{}"
+    try:
+        value = _json.loads(text)
+    except _json.JSONDecodeError as e:
+        raise HTTPException(400, f"test_input_json 不是合法 JSON：{e.msg}（第 {e.lineno} 行）")
+    if not isinstance(value, dict):
+        raise HTTPException(400, "test_input_json 必须是 JSON 对象")
+    return value
+
+
 # ── 规格生成 & 代码生成 ──
 
 @router.post("/generate-spec")
@@ -334,7 +351,7 @@ async def test_tool(
     import asyncio as _asyncio
 
     # 处理上传文件
-    test_input = _json.loads(test_input_json)
+    test_input = _parse_test_input(test_input_json)
     for f in files:
         if f.filename:
             # 只取文件名部分，防止 ../ 穿越出上传目录
@@ -525,7 +542,7 @@ async def auto_debug(
     """
     import asyncio
 
-    test_input = _json.loads(test_input_json)
+    test_input = _parse_test_input(test_input_json)
     from core.resource import paths as _paths
     if tool_id and not _paths.is_valid_resource_id(tool_id):
         raise HTTPException(400, "tool_id 非法：只允许小写字母/数字开头，及小写字母、数字、-、_")
