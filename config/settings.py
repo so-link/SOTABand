@@ -224,42 +224,6 @@ PROVIDER_PRESETS: dict[str, dict] = {
 }
 
 
-# ═══════════════════════════════════════════════════════════════
-# 各服务商 max_tokens（最大输出 token）上限
-# ═══════════════════════════════════════════════════════════════
-# 超出上限时服务商会直接返回 400（如 DashScope:
-# "Range of max_tokens should be [1, 32768]"），因此请求前按服务商钳制。
-# 未登记的服务商不钳制（上限未知或模型差异过大，交由服务商自行校验）。
-# 数值取保守值：宁可触发截断警告，也不触发 400 硬错误。
-PROVIDER_MAX_OUTPUT_TOKENS: dict[str, int] = {
-    "deepseek": 8192,     # deepseek-chat 最大输出 8192
-    "openai": 16384,      # gpt-4o 最大输出 16384（gpt-4.1 为 32768）
-    "moonshot": 8192,     # kimi-k2 保守值
-    "zhipu": 4095,        # glm-4 系列
-    "qwen": 32768,        # DashScope 兼容模式：Range [1, 32768]
-    "siliconflow": 8192,
-    "doubao": 32768,      # 火山方舟 doubao-pro-32k
-}
-
-
-def clamp_max_tokens(provider: str, max_tokens: int | None) -> int | None:
-    """按服务商上限钳制 max_tokens，避免 400 参数错误。
-
-    无该服务商的登记上限或未传值时原样返回；
-    上限本身可通过环境变量 <PROVIDER>_MAX_OUTPUT_TOKENS 覆盖。
-    """
-    if max_tokens is None:
-        return None
-    cap = os.getenv(f"{provider.upper()}_MAX_OUTPUT_TOKENS", "")
-    try:
-        cap = int(cap) if cap else PROVIDER_MAX_OUTPUT_TOKENS.get(provider)
-    except ValueError:
-        cap = PROVIDER_MAX_OUTPUT_TOKENS.get(provider)
-    if cap and max_tokens > cap:
-        return cap
-    return max_tokens
-
-
 def list_endpoint_variants(provider: str) -> list[dict]:
     """列出某服务商的端点变体（不同计费方式 / 套餐 / 站点对应不同端点）。
 

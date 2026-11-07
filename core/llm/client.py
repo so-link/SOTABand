@@ -6,7 +6,7 @@ from typing import AsyncGenerator
 import httpx
 from openai import AsyncOpenAI
 
-from config.settings import LLMConfig, clamp_max_tokens, settings
+from config.settings import LLMConfig, settings
 
 
 def _make_http_client(cfg: LLMConfig) -> httpx.AsyncClient:
@@ -86,9 +86,7 @@ class OpenAICompatibleClient(LLMClient):
             model=cfg.model,
             messages=messages,
             stream=True,
-            max_tokens=clamp_max_tokens(
-                cfg.provider, kwargs.get("max_tokens", cfg.max_tokens)
-            ),
+            max_tokens=kwargs.get("max_tokens", cfg.max_tokens),
             temperature=kwargs.get("temperature", cfg.temperature),
             timeout=cfg.timeout,
             stream_options={"include_usage": True},
@@ -131,9 +129,7 @@ class OpenAICompatibleClient(LLMClient):
             model=cfg.model,
             messages=messages,
             stream=False,
-            max_tokens=clamp_max_tokens(
-                cfg.provider, kwargs.get("max_tokens", cfg.max_tokens)
-            ),
+            max_tokens=kwargs.get("max_tokens", cfg.max_tokens),
             temperature=kwargs.get("temperature", cfg.temperature),
             timeout=kwargs.get("timeout", cfg.timeout),
         )
