@@ -991,7 +991,13 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
                 # 从 queue 读取输出，短超时轮询 + 停止检查
                 retcode = None
                 pip_start = asyncio.get_event_loop().time()
-                PIP_TOTAL_TIMEOUT = 300  # pip 总超时 5 分钟
+                # 大包（torch / ultralytics 动辄数百 MB）5 分钟必然下不完，
+                # 会被这里主动 kill，前端只看到「安装失败」。默认放宽到 15 分钟，
+                # 可用 SOTABAND_PIP_TIMEOUT 覆盖。
+                try:
+                    PIP_TOTAL_TIMEOUT = int(_os.getenv("SOTABAND_PIP_TIMEOUT", "900"))
+                except ValueError:
+                    PIP_TOTAL_TIMEOUT = 900
                 while True:
                     # 只在「确实处于调试上下文且被请求停止」时中断；
                     # 键不存在表示根本不在调试里（仓库加载 / 导入后安装依赖），
@@ -1030,6 +1036,29 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
                 if retcode == 0:
                     yield {"event": "pip_result", "ok": True, "output": all_output[-2000:]}
                     break
+
+                # 「镜像缺 wheel → 现场编译失败」与「索引里根本没有该版本」都是
+                # 明确的环境问题：直接用官方 PyPI 重试一次，比让 LLM 猜更有效。
+                # 典型报错：
+                #   Failed to build installable wheels ... ╰─> Pillow
+                #   No matching distribution found for xxx
+                if attempt == 0 and any(k in all_output for k in (
+                        "Failed building wheel",
+                        "failed-wheel-build-for-install",
+                        "Failed to build installable wheels",
+                        "No matching distribution",
+                        "Could not find a version",
+                )):
+                    adjusted_cmd = (
+                        f"pip install --prefer-binary "
+                        f"--index-url https://pypi.org/simple {current_dep}"
+                    )
+                    yield {
+                        "event": "pip_retry_official",
+                        "dep": current_dep,
+                        "reason": "本地索引缺少匹配当前平台的 wheel，改用官方 PyPI 重试",
+                    }
+                    continue
 
                 if attempt >= max_retries:
                     yield {"event": "pip_result", "ok": False, "output": all_output[-2000:]}

@@ -90,6 +90,9 @@ export function LoginView() {
   const register = useAuthStore((s) => s.register)
   const clearError = useAuthStore((s) => s.clearError)
 
+  // 品牌图标加载失败时回退到 Cpu 图标（与顶栏一致：优先用 /image.png）
+  const [logoFailed, setLogoFailed] = useState(false)
+
   const [mode, setMode] = useState<Mode>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -175,8 +178,27 @@ export function LoginView() {
       <div className="w-full max-w-sm">
         {/* ── 品牌区 ── */}
         <div className="mb-7 flex select-none flex-col items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-maia-accent-border bg-maia-accent-light glow-accent">
-            <Cpu className="h-6 w-6 text-maia-accent" />
+          {/*
+            与主界面左上角同一个图标（public/image.png）。
+            该 png 是**白底不透明**的，所以外层容器用白底 + 细边 + 微光，
+            直接放到深色背景上会是一块突兀的白方块。
+          */}
+          <div
+            className={cn(
+              'flex h-12 w-12 items-center justify-center overflow-hidden rounded-xl border border-maia-accent-border glow-accent',
+              logoFailed ? 'bg-maia-accent-light' : 'bg-white',
+            )}
+          >
+            {logoFailed ? (
+              <Cpu className="h-6 w-6 text-maia-accent" />
+            ) : (
+              <img
+                src="/image.png"
+                alt="SOTABand"
+                className="h-10 w-10 object-contain"
+                onError={() => setLogoFailed(true)}
+              />
+            )}
           </div>
           <div className="text-center">
             <h1 className="text-[15px] font-semibold tracking-wider text-maia-text-heading">

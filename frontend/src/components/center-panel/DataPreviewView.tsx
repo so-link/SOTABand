@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Database, File, Image, Loader2, ChevronLeft, ChevronRight } from 'lucide-react'
+import { AlertCircle, Database, File, Image, Loader2, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardBody } from '@/components/ui/card'
@@ -18,24 +18,50 @@ function isImageFile(file: Record<string, unknown>): boolean {
   return IMAGE_EXTENSIONS.has(fmt) || IMAGE_EXTENSIONS.has(name.split('.').pop() || '')
 }
 
+interface PreviewPayload {
+  dataset?: Record<string, unknown>
+  spec_md?: string
+  files?: Array<Record<string, unknown>>
+  preview_tool?: string | null
+  has_preview_tool?: boolean
+}
+
 export function DataPreviewView() {
   const selectedResource = useResourceStore((s) => s.selectedResource)
   const cachedDataset = useResourceStore((s) => s.cachedDatasetForDetail)
   const dataset = selectedResource?.type === 'data' ? (selectedResource as DataResource) : cachedDataset
   const [loading, setLoading] = useState(false)
-  const [detail, setDetail] = useState<Record<string, unknown> | null>(null)
+  const [detail, setDetail] = useState<PreviewPayload | null>(null)
+  const [error, setError] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(16)
 
   useEffect(() => {
     if (!dataset) return
+    let cancelled = false
     setPage(1)
     setLoading(true)
-    apiGet<any>(`/api/data/${dataset.id}/preview`)
-      .then(r => r.json())
-      .then(d => { setDetail(d); setLoading(false) })
-      .catch(() => setLoading(false))
-  }, [dataset])
+    setError('')
+    // 注意：统一 API 客户端（services/api/client.ts）的 apiGet 返回**已解析的 JSON**，
+    // 早期代码写成 `.then(r => r.json())` 会抛 TypeError（r 不是 Response），
+    // 又被下面的 catch 静默吞掉 —— 表现正是「接口有数据、界面空白、控制台无提示」。
+    apiGet<PreviewPayload>(`/api/data/${dataset.id}/preview`)
+      .then((d) => { if (!cancelled) { setDetail(d); setLoading(false) } })
+      .catch((e: unknown) => {
+        if (cancelled) return
+        const status = (e as { status?: number }).status
+        const detailMsg = (e as { detail?: string }).detail || String(e)
+        setDetail(null)
+        setError(
+          status === 404
+            ? `数据集不存在或无权访问（常见原因：该数据集注册于其他机器，本机没有对应文件）。\n${detailMsg}`
+            : detailMsg,
+        )
+        setLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [dataset, reloadKey])
 
   if (!dataset) {
     return (
@@ -50,6 +76,20 @@ export function DataPreviewView() {
     return (
       <div className="flex items-center justify-center h-full">
         <Loader2 className="h-5 w-5 animate-spin text-maia-text-muted" />
+      </div>
+    )
+  }
+
+  // 预览失败必须显式告知，否则界面只剩空白、看起来像"页面坏了"
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-2 px-6 text-maia-text-muted">
+        <AlertCircle className="h-8 w-8 opacity-50 text-maia-danger" />
+        <p className="text-sm text-maia-text-secondary">无法预览该数据集</p>
+        <p className="max-w-md whitespace-pre-line text-center text-[11px] leading-relaxed">{error}</p>
+        <Button size="sm" variant="outline" onClick={() => setReloadKey((k) => k + 1)}>
+          重试
+        </Button>
       </div>
     )
   }
