@@ -422,6 +422,56 @@ def test_normal_user_cannot_modify_public_agent(client, tokens):
     assert r3.status_code == 200, (r3.status_code, r3.text)
 
 
+def test_register_cannot_shadow_public_tool(client, tokens):
+    """register 撞公共工具 id 必须 403，不得在私有根写影子副本遮蔽公共工具。
+
+    回归切面③验证发现的缺口：旧 register 只在 demand/reference 分支有闸门，
+    主路径直接 registry.register 落私有根，同名公共工具被无声遮蔽。
+    """
+    import json as _json
+
+    from core.resource import paths
+
+    bob = _make_bob()
+    # 直接在系统层 registry 挂一个公共工具条目（等价于系统身份注册过）
+    sys_dir = paths.system_space_dir("tools")
+    sys_dir.mkdir(parents=True, exist_ok=True)
+    (sys_dir / "registry.json").write_text(_json.dumps([
+        {"id": "pub-tool-shadow", "name": "公共", "status": "active",
+         "owner": "100", "visibility": "public"},
+    ]), encoding="utf-8")
+
+    payload = {"toolId": "pub-tool-shadow", "toolName": "影子",
+               "specMd": "# 影子\n", "code": "print(1)"}
+    r = client.post("/api/tool/register", headers=_bearer(bob), json=payload)
+    assert r.status_code == 403, (r.status_code, r.text)
+    r2 = client.post("/api/tool/register", headers=_bearer(tokens["root"]), json=payload)
+    assert r2.status_code == 403, (r2.status_code, r2.text)
+    # 私有根没有落下影子条目
+    priv_reg = paths.private_root("0") / "tools" / "registry.json"
+    if priv_reg.exists():
+        assert "pub-tool-shadow" not in [
+            e["id"] for e in _json.loads(priv_reg.read_text(encoding="utf-8"))
+        ]
+    # 系统身份覆盖公共工具放行（合法更新路径）
+    r3 = client.post("/api/tool/register", headers=_bearer(_system_token()), json=payload)
+    assert r3.status_code == 200, (r3.status_code, r3.text)
+
+
+def test_register_cannot_shadow_public_agent(client, tokens):
+    """register 撞公共 Agent id 同样必须 403（与工具侧同款覆盖闸门）。"""
+    bob = _make_bob()
+    assert _register_agent(client, _system_token(), "agent-shadow-target").status_code == 200
+    payload = {
+        "specMd": "---\nid: agent-shadow-target\nname: 影子\nrole: task\n---\n\n# 影子\n",
+        "agentId": "agent-shadow-target", "agentName": "影子", "role": "task",
+    }
+    r = client.post("/api/agent/register", headers=_bearer(bob), json=payload)
+    assert r.status_code == 403, (r.status_code, r.text)
+    r2 = client.post("/api/agent/register", headers=_bearer(tokens["root"]), json=payload)
+    assert r2.status_code == 403, (r2.status_code, r2.text)
+
+
 # ── 数据集归属隔离 ──
 
 def test_dataset_endpoints_enforce_ownership(client, tokens):

@@ -638,6 +638,13 @@ async def register_agent(req: RegisterAgentRequest):
     if not _paths.is_valid_resource_id(agent_id):
         raise HTTPException(400, "agent_id 非法：只允许小写字母/数字开头，及小写字母、数字、-、_")
 
+    # 覆盖闸门：agent_id 若已命中公共/系统层，非系统身份的 register 会在私有根
+    # 写一份影子副本遮蔽公共 Agent。要改公共 Agent 请先「复制为我的副本」（fork）。
+    _prev = await registry.get(agent_id)
+    if _prev is not None:
+        from app.api.deps import ensure_can_touch_builtin
+        ensure_can_touch_builtin(_prev.get("source"), action="覆盖")
+
     # 从 MD 中的【【工具名】】引用解析依赖工具 ID。
     # 旧实现从未写入 required_tools，导致所有引用工具的 Agent 在界面上
     # 都显示为「通用任务」（tools 恒为空）。

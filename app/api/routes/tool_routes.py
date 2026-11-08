@@ -628,6 +628,14 @@ async def register_tool(req: RegisterToolRequest):
     if not _paths.is_valid_resource_id(req.tool_id):
         raise HTTPException(400, "tool_id 非法：只允许小写字母/数字开头，及小写字母、数字、-、_")
 
+    # 覆盖闸门：tool_id 若已命中公共/系统层，register 会在私有根写一份影子副本
+    # 遮蔽公共工具（详情视图 source 与实际执行代码不一致）。非系统身份不得覆盖
+    # 公共工具——要改请先「复制为我的副本」（fork）。新建或覆盖自己的私有副本放行。
+    _prev = await registry.get(req.tool_id)
+    if _prev is not None:
+        from app.api.deps import ensure_can_touch_builtin
+        ensure_can_touch_builtin(_prev.get("source"), action="覆盖")
+
     spec = {"raw_md": req.spec_md, "id": req.tool_id, "name": req.tool_name}
     code = req.code or (await builder.build(spec))
 
