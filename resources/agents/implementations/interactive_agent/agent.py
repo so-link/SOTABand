@@ -2056,6 +2056,13 @@ class InteractiveAgent(BaseAgent):
         if self._is_path_param(param):
             resolved = self._resolve_path_answer(val)
             if resolved is None:
+                # 用户回答的是数据集名称/ id 而不是路径（工具把数据集目录做成
+                # 路径参数时的常见答法）：按注册表解析成数据集目录
+                ds_id = self._pick_dataset_id(val)
+                if ds_id:
+                    ds_dir = self._dataset_data_path(ds_id)
+                    if ds_dir:
+                        return {name: ds_dir}
                 raise ValueError(
                     f"参数 **{name}** 需要一个文件路径，但在「{val}」里没有找到可用的文件。"
                     f"请提供完整路径或文件名（可先把文件拖入工作区间），或回复「取消」放弃本次执行。"
@@ -2079,25 +2086,63 @@ class InteractiveAgent(BaseAgent):
         return {name: self._pick_scalar_value(val)}
 
     @staticmethod
+    def _dataset_data_path(dataset_id: str) -> str | None:
+        """数据集 id → 注册表里的真实目录（存在才返回，否则 None）。"""
+        from pathlib import Path
+        if not dataset_id:
+            return None
+        try:
+            from core.resource.registry.data_registry import DataRegistry
+            for e in DataRegistry()._read():
+                if str(e.get("id")) == str(dataset_id) and e.get("status") == "active":
+                    dp = str(e.get("data_path") or "")
+                    if dp and Path(dp).is_dir():
+                        return dp
+        except Exception:
+            pass
+        return None
+
+    @staticmethod
     def _pick_dataset_id(text: str) -> str | None:
-        """从回答里挑出真实存在的数据集 id（先精确匹配，再按包含关系）。"""
+        """从回答里挑出真实存在的数据集 id（先按 id 精确匹配，再按名称/id 包含关系）。"""
         s = (text or "").strip().strip("「」“”\"'")
         if not s:
             return None
         try:
             from core.resource.registry.data_registry import DataRegistry
-            ids = [str(e.get("id") or "") for e in DataRegistry()._read() if e.get("id")]
+            entries = DataRegistry()._read()
         except Exception:
-            ids = []
-        if not ids:
+            entries = []
+        entries = [e for e in entries if e.get("id")]
+        if not entries:
             return None
+        ids = [str(e.get("id")) for e in entries]
         low = s.lower()
+        # 1. id 精确匹配
         if low in (i.lower() for i in ids):
             return next(i for i in ids if i.lower() == low)
-        # 包含关系只认较长的 id：ships / L1 这类短 id 会误命中普通单词
-        for i in sorted((i for i in ids if len(i) >= 4), key=len, reverse=True):
-            if i.lower() in low:
-                return i
+        # 2. 数据集名称精确匹配（用户只会说中文名，不会报 id）
+        names = [(str(e.get("name") or ""), str(e.get("id"))) for e in entries if e.get("name")]
+        if names:
+            nl = s.lower()
+            exact = [i for n, i in names if n.lower() == nl]
+            if exact:
+                return exact[0]
+        # 3. 名称/id 的较长片段与回答互为包含（去掉空格与书名号后比较，
+        #    兼容「ETF近90日 日线行情数据集」这类带空格写法）
+        norm = re.sub(r"[\s「」《》“”\"'（）()]", "", s)
+        cands = [i for n, i in names if len(re.sub(r"\s", "", n)) >= 3
+                 and (re.sub(r"\s", "", n).lower() in norm.lower()
+                      or norm.lower() in re.sub(r"\s", "", n).lower())]
+        # id 也纳入包含匹配（长 id 才认，短 id 易误命中普通词）
+        cands += [i for i in ids if len(i) >= 4 and i.lower() in low]
+        cands = list(dict.fromkeys(cands))
+        if len(cands) == 1:
+            return cands[0]
+        if cands:
+            # 多个候选：取名称最长（最具体）的那个
+            best = max(cands, key=lambda i: len(str(next((e.get("name") or "" for e in entries if e.get("id") == i), i))))
+            return best
         return None
 
     @staticmethod
