@@ -160,6 +160,9 @@ def _move_merge(src: Path, dst: Path) -> None:
             shutil.move(str(src), str(dst))
         log(f"上提 {src} → {dst}")
         return
+    if not src.is_dir():
+        log(f"跳过（目标已存在）{src}")
+        return
     for child in sorted(src.iterdir()):
         if child.name == "__pycache__":
             continue
