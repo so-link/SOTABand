@@ -78,10 +78,10 @@ export interface ModelResource extends BaseResource {
 export interface AgentResource extends BaseResource {
   type: 'agent'
   role: 'interactive' | 'task' | 'orchestrator' | 'observer'
-  /** registry 合并视图命中层（后端派生字段）：builtin=内置版、shared=超管
-   *  发布的公共 Agent（两者均仅超管可删/改），private=我的副本/我创建的。
-   *  缺省按内置对待（保守）。 */
-  source?: 'builtin' | 'private' | 'shared'
+  /** registry 合并视图命中层（后端派生字段）：system=公共/系统层（系统用户拥有，
+   *  仅系统身份可改删）、private=我的副本/我创建的。旧值 builtin/shared 仅作兼容
+   *  保留（后端已不再派生）。缺省按公共对待（保守）。 */
+  source?: 'system' | 'private' | 'builtin' | 'shared'
   capabilities: string     // Markdown 能力描述
   requiredTools: string[]  // 依赖工具 ID 列表
   inputFormat: string

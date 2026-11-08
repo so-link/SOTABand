@@ -9,7 +9,7 @@ export interface RepositoryTool {
   tags: string[]
   usage_count: number
   created_at: string
-  /** 命中的资源根（registry 合并时派生）：builtin=内置、private=私有目录 */
+  /** 命中的资源根（registry 合并时派生）：system=公共/系统层、private=私有目录（旧值 builtin/shared 兼容） */
   source?: string
   /** 是否由内置「复制为我的副本」而来（forked_from 落盘在私有条目上） */
   forked?: boolean

@@ -359,11 +359,11 @@ export function RepositoryView() {
                       <div className="flex items-center justify-between text-[12px] text-maia-text-muted mb-1.5 mt-auto shrink-0">
                         <span className="flex items-center gap-1.5 min-w-0">
                           <span className="font-mono">v{tool.version}</span>
-                          {/* 来源徽章：内置不可直接改（编辑时先复制副本），
+                          {/* 来源徽章：公共/系统不可直接改（编辑时先复制副本），
                               我的副本=私有覆盖层，我的工具=纯私有创建 */}
-                          {tool.source === 'builtin' && (
-                            <span title="内置工具（随系统分发）：要修改请先复制为我的副本"
-                              className="inline-flex items-center px-1.5 py-px rounded-full text-[12px] font-semibold border bg-maia-sidebar-active text-maia-text-secondary border-maia-border">内置</span>
+                          {(tool.source === 'system' || tool.source === 'builtin' || tool.source === 'shared') && (
+                            <span title="公共/系统工具（随系统分发）：要修改请先复制为我的副本"
+                              className="inline-flex items-center px-1.5 py-px rounded-full text-[12px] font-semibold border bg-maia-sidebar-active text-maia-text-secondary border-maia-border">公共/系统</span>
                           )}
                           {tool.source === 'private' && tool.forked && (
                             <span title="已复制为私有副本：编辑与执行都用副本，内置版本不受影响"
@@ -384,9 +384,10 @@ export function RepositoryView() {
                           className="flex-1 inline-flex items-center justify-center gap-1.5 h-7 rounded text-[12px] whitespace-nowrap text-maia-text-muted hover:text-maia-accent hover:bg-maia-sidebar-hover transition-colors">
                           <Download className="h-3 w-3 shrink-0" />导出
                         </a>
-                        {/* 内置工具仅超级管理员可删除：普通用户看到的是添加
-                            （用内置）与 fork（改自己的副本），没有删除入口 */}
-                        {!(tool.source === 'builtin' && !isAdmin) && (
+                        {/* 公共/系统工具仅超级管理员可见删除入口（真正删除还需
+                            act-as 领取系统身份，后端 403 兜底）；普通用户看到的是
+                            添加（用公共版）与 fork（改自己的副本），没有删除入口 */}
+                        {!(tool.source !== 'private' && !isAdmin) && (
                         <Button size="sm" variant="ghost" className="flex-1 h-7 px-0 text-[12px] whitespace-nowrap text-maia-danger hover:text-maia-danger hover:bg-maia-danger-bg"
                           onClick={(e) => { e.stopPropagation(); handleDelete(tool) }}>
                           <Trash2 className="h-3 w-3 shrink-0 mr-1" />删除

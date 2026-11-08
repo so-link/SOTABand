@@ -235,8 +235,8 @@ export function ResourceBrowser() {
   // 工具空间：从 workspace store 读取已加载的工具
   const workspaceTools = useWorkspaceToolStore((s) => s.tools)
   const workspaceRemoveTool = useWorkspaceToolStore((s) => s.removeTool)
-  // 内置 Agent（source=builtin）仅超级管理员可删除（后端 403 兜底）；
-  // 单用户模式匿名即以超管身份，不会误伤。
+  // 公共/系统层 Agent（source≠private）仅超级管理员可见删除入口（真正删除还需
+  // act-as 领取系统身份，后端 403 兜底）。
   const isAdmin = useAuthStore((s) => s.user?.role === 'admin')
   const workspaceLoadError = useWorkspaceToolStore((s) => s.loadError)
 
