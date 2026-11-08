@@ -1206,6 +1206,13 @@ async def delete_resource(args: DeleteResourceArgs, ctx: CallContext) -> dict:
         entry = await _models.get(rid)
         if not entry:
             return {"error": f"模型不存在: {rid}"}
+        # 内置模型是随 git 分发的系统资产，删除是全局生效（共享层掩码），
+        # 因此仅超级用户可删——与普通用户可自删的私有模型区分开。
+        private_ids = {e.get("id") for e in _models._read_private()}
+        if rid not in private_ids:
+            from core.chat_control.gateway import _role_of
+            if _role_of(ctx.owner) != "admin":
+                return {"error": f"'{rid}' 是内置模型，仅超级用户可删除"}
         await _models.unregister(rid)
         return {"deleted": rid, "type": "model"}
 

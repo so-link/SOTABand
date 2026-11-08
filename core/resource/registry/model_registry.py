@@ -1,6 +1,7 @@
 """模型注册中心"""
 
 import json
+import shutil
 import threading
 import time
 from pathlib import Path
@@ -48,6 +49,30 @@ class ModelRegistry(BaseRegistry):
         if not f.exists():
             _write_json(f, [])
         return f
+
+    def _shared_registry_file(self) -> Path:
+        d = paths.shared_root() / "models"
+        d.mkdir(parents=True, exist_ok=True)
+        f = d / "registry.json"
+        if not f.exists():
+            _write_json(f, [])
+        return f
+
+    @staticmethod
+    def _registry_file(root: Path) -> Path:
+        return root / "models" / "registry.json"
+
+    @staticmethod
+    def _load(rf: Path) -> list[dict]:
+        try:
+            data = json.loads(rf.read_text(encoding="utf-8"))
+        except Exception:
+            return []
+        return [e for e in data if isinstance(e, dict) and e.get("id")]
+
+    def _writable_roots(self) -> list[Path]:
+        """可写层（私有 + 共享）；内置层随 git 分发、运行期只读。"""
+        return [r for r in paths.resource_roots() if r != paths.BUILTIN_ROOT]
 
     def _read(self) -> list[dict]:
         """合并内置与私有 registry（**私有优先**：同 id 取先命中的私有条目；status=deleted 为删除掩码）。"""
@@ -159,14 +184,54 @@ class ModelRegistry(BaseRegistry):
         return model_id
 
     async def unregister(self, resource_id: str):
+        """彻底删除：可写层删条目 + 删规范文档与产物目录，内置层写全局删除掩码。
+
+        两条历史缺陷（用户反馈「删掉的模型一会儿又出现」的根因）：
+        1. 掩码原先写进**当前用户**的私有层——换身份/换用户/子进程回退
+           uid=0 后掩码不在同一层，内置条目立刻重新出现。与 agent_registry
+           一致改写共享层，删除对全员全局生效。
+        2. 只注销条目、不删文件，`definitions/<id>.md` 与 `models/<id>/`
+           残留成孤儿，看起来像没删干净。
+        """
         with _WRITE_LOCK:
-            data = self._read_private()
-            data = [e for e in data if e["id"] != resource_id]
-            # 内置 registry 只读：若条目存在于内置根，写 status=deleted 掩码使其不再出现
+            for root in self._writable_roots():
+                rf = self._registry_file(root)
+                if rf.exists():
+                    data = self._load(rf)
+                    next_data = [e for e in data if e.get("id") != resource_id]
+                    if len(next_data) != len(data):
+                        _write_json(rf, next_data)
+                # 无条目也要清文件：旧版删除只注销条目，留下过孤儿规范/产物
+                self._purge_files(root, resource_id)
+
+            # 共享层若已有同 id 的真实条目（重新发布的新版本），它不是内置
+            # 「原版」，不应被掩码遮蔽。
+            shared = self._load(self._shared_registry_file())
+            if any(e.get("id") == resource_id and e.get("status") != DELETED for e in shared):
+                return
             builtin_ids = {e.get("id") for e in self.read_from(paths.BUILTIN_ROOT)}
-            if resource_id in builtin_ids and not any(e["id"] == resource_id for e in data):
-                data.append({"id": resource_id, "name": resource_id, "type": "model", "status": DELETED})
-            self._write(data)
+            if resource_id not in builtin_ids:
+                return
+            shared = [e for e in shared if e.get("id") != resource_id]
+            shared.append({"id": resource_id, "name": resource_id,
+                           "type": "model", "status": DELETED})
+            _write_json(self._shared_registry_file(), shared)
+
+    @staticmethod
+    def _purge_files(root: Path, resource_id: str) -> None:
+        """删除某层下该模型的规范文档与产物（幂等，只在资源空间内操作）。"""
+        space = root / "models"
+        ddir = space / "definitions"
+        if ddir.is_dir():
+            for p in ddir.glob(f"{resource_id}*"):
+                if p.is_file():
+                    p.unlink(missing_ok=True)
+        # 产物两种落位：models/<id>/（默认相对路径）与 models/models/<id>/
+        for candidate in (space / resource_id, space / "models" / resource_id):
+            if candidate.is_dir():
+                shutil.rmtree(candidate, ignore_errors=True)
+            elif candidate.is_file():
+                candidate.unlink(missing_ok=True)
 
     async def get(self, resource_id: str) -> dict | None:
         for e in self._read():
@@ -197,3 +262,50 @@ class ModelRegistry(BaseRegistry):
             forked.update(updates)
             data.append(forked)
             self._write(data)
+
+    async def purge_missing(self) -> list[dict]:
+        """清理「注册条目还在、模型文件本机不存在」的僵尸条目。
+
+        历史条目大量指向别人机器上的绝对路径（``/Users/leo/...``），本机从来
+        没有这些文件，界面上却照样列出、点开即报错。逐条走 ``unregister``
+        统一删除路径：可写层删条目与文件，内置层只写全局删除掩码，
+        **内置文件随 git 分发不删**（git pull / 重新部署即恢复）。
+
+        候选取各层条目的并集（跳过删除掩码）而不是合并视图：旧版把掩码写在
+        个人私有层，合并视图里已被遮蔽，若只看合并视图这些条目会漏清，
+        其他用户仍然看得到。
+
+        返回被清理的条目（id / name / model_path），供接口回执。
+        """
+        entries: dict[str, dict] = {}
+        masked: set[str] = set()
+        for root in paths.resource_roots():
+            for e in self._load(self._registry_file(root)):
+                if e.get("status") == DELETED:
+                    masked.add(e["id"])
+                    continue
+                entries.setdefault(e["id"], e)
+        removed = [
+            {"id": e["id"], "name": e.get("name", e["id"]),
+             "model_path": (e.get("model_path") or "").strip()}
+            for e in entries.values()
+            if e["id"] not in masked and not self._artifact_exists(e)
+        ]
+        for e in removed:
+            await self.unregister(e["id"])
+        return removed
+
+    @staticmethod
+    def _artifact_exists(entry: dict) -> bool:
+        """模型产物本机是否可得。相对路径按各资源根下的 models/ 解析。"""
+        model_path = (entry.get("model_path") or "").strip()
+        if model_path:
+            p = Path(model_path)
+            if p.is_absolute():
+                return p.exists()
+            if any((root / "models" / model_path).exists() for root in paths.resource_roots()):
+                return True
+        rid = str(entry.get("id") or "")
+        if not rid or not paths.is_valid_resource_id(rid):
+            return False
+        return any((root / "models" / rid).is_dir() for root in paths.resource_roots())
