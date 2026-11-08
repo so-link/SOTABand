@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 
+import { apiDelete, apiGet, apiPost } from '@/services/api/client'
+
 const STORAGE_KEY = 'sotaband_workspace_tools'
 
 export interface WorkspaceTool {
@@ -30,14 +32,17 @@ function saveToStorage(tools: WorkspaceTool[]) {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(tools)) } catch { /* ignore */ }
 }
 
+interface WorkspaceListResponse {
+  tools: WorkspaceTool[]
+}
+
 export const useWorkspaceToolStore = create<WorkspaceToolState>((set, get) => ({
   tools: loadFromStorage(),
 
   // 启动时以后端为准（无痕窗口 / 换浏览器等 localStorage 为空的场景也能拉到真实清单）
   fetchFromApi: async () => {
     try {
-      const res = await fetch('/api/tool/workspace')
-      const data = await res.json()
+      const data = await apiGet<WorkspaceListResponse>('/api/tool/workspace')
       if (Array.isArray(data.tools) && data.tools.length > 0) {
         set({ tools: data.tools })
         saveToStorage(data.tools)
@@ -48,14 +53,13 @@ export const useWorkspaceToolStore = create<WorkspaceToolState>((set, get) => ({
       const local = loadFromStorage()
       if (local.length > 0) {
         for (const t of local) {
-          await fetch('/api/tool/workspace', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: t.id, name: t.name, tags: t.tags }),
+          await apiPost('/api/tool/workspace', {
+            id: t.id,
+            name: t.name,
+            tags: t.tags,
           }).catch(() => { /* ignore */ })
         }
-        const r2 = await fetch('/api/tool/workspace')
-        const d2 = await r2.json()
+        const d2 = await apiGet<WorkspaceListResponse>('/api/tool/workspace')
         if (Array.isArray(d2.tools) && d2.tools.length > 0) {
           set({ tools: d2.tools })
           saveToStorage(d2.tools)
@@ -71,10 +75,10 @@ export const useWorkspaceToolStore = create<WorkspaceToolState>((set, get) => ({
     set({ tools: updated })
     saveToStorage(updated)
     // 同步到后端；失败不阻塞本地（下次 fetchFromApi 会重新对齐）
-    fetch('/api/tool/workspace', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: tool.id, name: tool.name, tags: tool.tags }),
+    apiPost('/api/tool/workspace', {
+      id: tool.id,
+      name: tool.name,
+      tags: tool.tags,
     }).catch(() => { /* ignore */ })
   },
 
@@ -82,7 +86,7 @@ export const useWorkspaceToolStore = create<WorkspaceToolState>((set, get) => ({
     const updated = get().tools.filter(t => t.id !== id)
     set({ tools: updated })
     saveToStorage(updated)
-    fetch(`/api/tool/workspace/${id}`, { method: 'DELETE' }).catch(() => { /* ignore */ })
+    apiDelete(`/api/tool/workspace/${id}`).catch(() => { /* ignore */ })
   },
 
   isLoaded: (id) => {

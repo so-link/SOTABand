@@ -28,7 +28,24 @@ class FakeMonitor:
 
 
 @pytest.fixture
-def env(monkeypatch):
+def env(monkeypatch, tmp_path):
+    from core.resource import paths
+
+    monkeypatch.setattr(paths, "PRIVATE_ROOT", tmp_path)
+    impl = tmp_path / "agents" / "implementations" / AGENT
+    impl.mkdir(parents=True)
+    (impl / "agent.py").write_text('''
+import json
+import sys
+from pathlib import Path
+from core.agent.base import BaseAgent
+
+class EchoAgent(BaseAgent):
+    async def execute(self, ctx, **kwargs):
+        yield {"event": "content", "data": {"text": kwargs.get("content", "")}}
+''', encoding="utf-8")
+    (impl / "spec.md").write_text(
+        "---\nid: echo-agent\nrole: interactive\n---\n", encoding="utf-8")
     alloc = ResourceAllocator(FakeMonitor(), cpu_count=8)
     monkeypatch.setattr(factory_mod, "get_allocator", lambda: alloc)
     req = {"value": Req(gpu="optional", min_vram_gb=4)}
@@ -51,11 +68,13 @@ async def test_agent_process_runs_on_scheduled_gpu_until_stopped(env):
     factory, alloc, _ = env
     started = await factory.start(AGENT)
     try:
-        assert started["status"] == "started" and started["device"] == "gpu:1"
+        assert started["status"] == "started", started
+        assert started["device"] == "gpu:1"
         [a] = alloc.allocations()
         assert a["owner"] == f"agent:{AGENT}" and a["vram_bytes"] == 4 * GB
         child = _child_env(a["pids"][0])
         assert child["CUDA_VISIBLE_DEVICES"] == "1" and child["SOTABAND_DEVICE"] == "gpu:1"
+        assert child["SOTABAND_AGENT_HTTP_TOKEN"] == factory.get_http_token(AGENT)
         assert factory.device_of(AGENT) == "gpu:1"
     finally:
         await factory.stop(AGENT)

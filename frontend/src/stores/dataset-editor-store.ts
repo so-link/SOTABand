@@ -1,8 +1,7 @@
 // @ts-nocheck - dataset editor under development
 import { create } from 'zustand'
 import { dataApi } from '@/services/api/data'
-
-const BASE_URL = ''
+import { apiPost, apiUpload } from '@/services/api/client'
 
 export type EditorStep = 1 | 2 | 3
 
@@ -62,27 +61,26 @@ export const useDatasetEditorStore = create<DatasetEditorState>((set, get) => ({
     formData.append('subdir', uploadSubdir)
 
     try {
-      const res = await fetch(`${BASE_URL}/api/file/upload`, {
-        method: 'POST', body: formData,
-      })
-      if (!res.ok) return
-      const uploaded = await res.json()
+      const uploaded = await apiUpload<{
+        id: string
+        fileName: string
+        filePath: string
+        fileSize: number
+        format: string
+      }>('/api/file/upload', formData)
       set((state) => ({
         files: [...state.files, {
           id: uploaded.id, fileName: uploaded.fileName, filePath: uploaded.filePath,
           fileSize: uploaded.fileSize, format: uploaded.format, description: '',
         }],
       }))
-    } catch { /* ignore */ }
+    } catch { /* 上传失败不阻塞编辑器 */ }
   },
 
   removeFile: (fileId) => {
     const file = get().files.find(f => f.id === fileId)
     if (file?.filePath) {
-      fetch(`${BASE_URL}/api/file/delete`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: file.filePath }),
-      }).catch(() => {})
+      apiPost('/api/file/delete', { path: file.filePath }).catch(() => {})
     }
     set((state) => ({
       files: state.files.filter(f => f.id !== fileId),

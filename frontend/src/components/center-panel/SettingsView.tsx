@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardHeader, CardBody } from '@/components/ui/card'
 import { configApi, type LLMConfig, type SupportedModel } from '@/services/api/config'
+import { useAuthStore } from '@/stores/auth-store'
 
 export function SettingsView() {
   const [config, setConfig] = useState<LLMConfig | null>(null)
@@ -16,8 +17,18 @@ export function SettingsView() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState('')
+  // 全局 LLM 配置是**平台管理员**专属：`GET/POST /api/config/llm` 的服务端判定
+  // 将改为 `is_platform_admin`，租户 Owner/Admin 也不能看/改。前端按同一字段门控，
+  // 不再用 tenantRole（否则"租户管理员前端放行、后端拒绝"）。
+  // 字段缺失（旧响应）按 false 处理：不显示配置页，也不发 GET。
+  const isPlatformAdmin = useAuthStore((s) => s.user?.isPlatformAdmin === true)
 
   useEffect(() => {
+    // 非平台管理员一个请求都不发 —— 接口是管理员限定的，打过去只会 403。
+    if (!isPlatformAdmin) {
+      setLoading(false)
+      return
+    }
     let cancelled = false
     ;(async () => {
       try {
@@ -34,7 +45,16 @@ export function SettingsView() {
       }
     })()
     return () => { cancelled = true }
-  }, [])
+  }, [isPlatformAdmin])
+
+  if (!isPlatformAdmin) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-2 text-maia-text-muted text-sm">
+        <KeyRound className="h-6 w-6 opacity-60" />
+        <p>只有平台管理员可以修改全局大模型配置。</p>
+      </div>
+    )
+  }
 
   const handleSave = async () => {
     if (!model) { setSaveError('请选择大模型类型'); return }

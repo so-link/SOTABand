@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   Database,
   Wrench,
@@ -11,6 +11,8 @@ import {
   Plus,
   Minus,
   Package,
+  FolderPlus,
+  Upload,
 } from 'lucide-react'
 import { useResourceStore } from '@/stores/resource-store'
 import { useUIStore } from '@/stores/ui-store'
@@ -19,8 +21,9 @@ import { useWorkspaceDatasetStore } from '@/stores/workspace-dataset-store'
 import { useUnsavedMarks } from '@/hooks/use-unsaved-marks'
 import { cn } from '@/lib/utils'
 import { DeviceSection } from '@/components/devices/DeviceSection'
-import type { Resource, ResourceType, ToolResource } from '@/types/resources'
+import type { ModelCategory, ModelResource, Resource, ResourceType, ToolResource } from '@/types/resources'
 
+import { apiDelete, apiPost, apiUpload } from '@/services/api/client'
 interface ResourceSectionDef {
   type: ResourceType
   label: string
@@ -36,11 +39,34 @@ const SECTIONS: ResourceSectionDef[] = [
   { type: 'task', label: '任务历史', icon: ListTodo, color: 'text-slate-500' },
 ]
 
+const MODEL_CATEGORIES: Array<{ id: ModelCategory; label: string }> = [
+  { id: 'trained', label: '已训练模型' },
+  { id: 'architecture', label: '模型架构与配置' },
+]
+type DepResultItem = { dep: string; success: boolean; already?: boolean; reason?: string }
+
+interface DepDialogState {
+  kind: 'tool' | 'agent'
+  /** 工具 id 或 Agent id */
+  targetId: string
+  toolName: string
+  /** 缺失的 import 名 */
+  missing: string[]
+  /** 与 missing 一一对应的 pip 包名（安装用） */
+  install: string[]
+  /** Agent 专属：它依赖但目标环境没有的工具 */
+  missingTools?: string[]
+  installing: boolean
+  results?: DepResultItem[]
+  error?: string
+}
+
 export function ResourceBrowser() {
   const {
     dataResources,
     toolResources,
     modelResources,
+    modelGroups,
     agentResources,
     taskResources,
     selectedResource,
@@ -49,13 +75,107 @@ export function ResourceBrowser() {
     fetchToolsFromApi,
     fetchDatasetsFromApi,
     fetchModelsFromApi,
+    fetchModelGroups,
+    createModelGroup,
+    deleteModelGroup,
   } = useResourceStore()
   const { rightPanelOpen, toggleRightPanel, setActiveView } = useUIStore()
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(['data', 'tool', 'agent'])
   )
+  const [expandedModelCategories, setExpandedModelCategories] = useState<Set<ModelCategory>>(
+    new Set(['trained', 'architecture'])
+  )
+  const [collapsedModelGroups, setCollapsedModelGroups] = useState<Set<string>>(new Set())
   // 各编辑器中的未保存改动，用于在资源树上打标记
   const unsaved = useUnsavedMarks()
+
+  // ── 资源迁移：导入 .sotatool.zip / .sotaagent.zip ──
+  const [importing, setImporting] = useState(false)
+  const [importKind, setImportKind] = useState<'tool' | 'agent'>('tool')
+  const importInputRef = useRef<HTMLInputElement>(null)
+  // 导入后的依赖体检结果（缺失时弹窗，一键安装）
+  const [depDialog, setDepDialog] = useState<DepDialogState | null>(null)
+
+  const pickImportFile = (kind: 'tool' | 'agent') => {
+    setImportKind(kind)
+    importInputRef.current?.click()
+  }
+
+  const handleImportBundle = async (file: File) => {
+    const kind = importKind
+    setImporting(true)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      form.append('overwrite', 'false')
+      const data = await apiUpload<any>(`/api/migrate/${kind}/import-upload`, form)
+
+      const targetId: string = kind === 'tool' ? data.tool_id : data.agent_id
+      const name: string = data.name || targetId
+      if (kind === 'tool') {
+        await fetchToolsFromApi()
+        await useWorkspaceToolStore.getState().fetchFromApi()
+      } else {
+        await fetchAgentsFromApi()
+      }
+
+      const missing: string[] = data?.deps?.missing || []
+      const install: string[] = data?.deps?.install || []
+      const missingTools: string[] = data?.missing_tools || []
+      if (missing.length > 0 || missingTools.length > 0) {
+        setDepDialog({
+          kind,
+          targetId,
+          toolName: name,
+          missing,
+          install: install.length ? install : missing,
+          missingTools,
+          installing: false,
+        })
+      } else {
+        window.alert(
+          `已导入${kind === 'tool' ? '工具' : 'Agent'}：${name}（v${data.version || '?'}）\n` +
+          `依赖齐备，可直接使用。`
+        )
+      }
+    } catch (e) {
+      window.alert(`导入失败：${(e as Error).message}`)
+    } finally {
+      setImporting(false)
+      if (importInputRef.current) importInputRef.current.value = ''
+    }
+  }
+
+  const handleInstallDeps = async () => {
+    const dlg = depDialog
+    if (!dlg || dlg.installing) return
+    if (dlg.install.length === 0) {
+      setDepDialog({ ...dlg, error: '没有可安装的 Python 依赖（仅缺工具，请先导入工具包）' })
+      return
+    }
+    setDepDialog({ ...dlg, installing: true, error: '', results: undefined })
+    try {
+      const url = dlg.kind === 'agent'
+        ? `/api/migrate/agent/${encodeURIComponent(dlg.targetId)}/install-deps`
+        : `/api/tool/${encodeURIComponent(dlg.targetId)}/install-deps`
+      const data = await apiPost<any>(url, { dependencies: dlg.install })
+      const results: DepResultItem[] = data.results || []
+      const failed = results.filter((r) => !r.success)
+      setDepDialog({ ...dlg, installing: false, results })
+      if (failed.length === 0) {
+        if (dlg.kind === 'tool') {
+          await fetchToolsFromApi()
+          await useWorkspaceToolStore.getState().fetchFromApi()
+        } else {
+          await fetchAgentsFromApi()
+        }
+      }
+    } catch (e) {
+      setDepDialog({ ...dlg, installing: false, error: (e as Error).message })
+    }
+  }
+
 
   // 启动时确保从 API 加载（仅一次，MainLayout 的 fetchAllResources 已经调过）
   useEffect(() => {
@@ -63,9 +183,22 @@ export function ResourceBrowser() {
     fetchToolsFromApi()
     fetchDatasetsFromApi()
     fetchModelsFromApi()
+    fetchModelGroups()
     // 工具空间清单以后端为准（无痕窗口 / 换浏览器时 localStorage 是空的）
     useWorkspaceToolStore.getState().fetchFromApi()
   }, []) // 空依赖，只执行一次
+
+  const modelSectionOpen = expandedSections.has('model')
+  useEffect(() => {
+    if (!modelSectionOpen) return
+    void fetchModelsFromApi()
+    void fetchModelGroups()
+    const interval = window.setInterval(() => {
+      void fetchModelsFromApi()
+      void fetchModelGroups()
+    }, 10000)
+    return () => window.clearInterval(interval)
+  }, [modelSectionOpen, fetchModelsFromApi, fetchModelGroups])
 
   const toggleSection = (type: string) => {
     setExpandedSections((prev) => {
@@ -80,6 +213,20 @@ export function ResourceBrowser() {
   const workspaceTools = useWorkspaceToolStore((s) => s.tools)
   const workspaceRemoveTool = useWorkspaceToolStore((s) => s.removeTool)
   const workspaceRemoveDataset = useWorkspaceDatasetStore((s) => s.removeDataset)
+
+  const handleCreateModelGroup = async (category: ModelCategory, e: React.MouseEvent) => {
+    e.stopPropagation()
+    const label = MODEL_CATEGORIES.find((item) => item.id === category)?.label
+    const name = window.prompt(`在${label}中新建分组`)?.trim()
+    if (name && !await createModelGroup(name, category)) window.alert('创建分组失败')
+  }
+
+  const handleDeleteModelGroup = async (id: string, name: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!window.confirm(`确定删除空分组“${name}”？`)) return
+    const error = await deleteModelGroup(id)
+    if (error) window.alert(error)
+  }
 
   const getResources = (type: ResourceType): Resource[] => {
     switch (type) {
@@ -135,9 +282,8 @@ export function ResourceBrowser() {
     // 模型：确认后彻底删除
     if (resource.type === 'model') {
       if (!confirm(`确定删除模型 "${resource.name}"？此操作不可恢复。`)) return
-      const BASE_URL = ''
       try {
-        await fetch(`${BASE_URL}/api/model/${resource.id}`, { method: 'DELETE' })
+        await apiDelete(`/api/model/${resource.id}`)
         fetchModelsFromApi()
       } catch { /* ignore */ }
       return
@@ -145,9 +291,8 @@ export function ResourceBrowser() {
     // Agent：确认后彻底删除（数据/模型已在上方分支处理）
     if (resource.type !== 'agent') return
     if (!confirm(`确定删除 "${resource.name}"？此操作不可恢复。`)) return
-    const BASE_URL = ''
     try {
-      await fetch(`${BASE_URL}/api/agent/${resource.id}`, { method: 'DELETE' })
+      await apiDelete(`/api/agent/${resource.id}`)
       fetchAgentsFromApi()
     } catch { /* ignore */ }
   }
@@ -155,14 +300,140 @@ export function ResourceBrowser() {
   const handleResourceClick = (resource: Resource) => {
     selectResource(resource)
     if (resource.type === 'agent') {
-      setActiveView('agent-detail')
+      // 每个 Agent 使用独立视图 ID，双击打开各自独立的标签页与界面
+      setActiveView(`agent-detail:${resource.id}` as never)
     } else if (resource.type === 'tool') {
-      setActiveView('tool-detail')
+      setActiveView(`tool-detail:${resource.id}` as never)
     } else if (resource.type === 'data') {
       setActiveView('data-preview')
     } else if (!rightPanelOpen) {
       toggleRightPanel()
     }
+  }
+
+  const renderResourceRow = (resource: Resource) => (
+    <div
+      key={resource.id}
+      role="button"
+      tabIndex={0}
+      onClick={() => handleResourceClick(resource)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          handleResourceClick(resource)
+        }
+      }}
+      className={cn(
+        'group flex items-center gap-1.5 w-full py-[3px] pr-1.5 pl-[52px] rounded text-[11px] tracking-wide',
+        'hover:bg-maia-sidebar-hover transition-colors text-left text-maia-text-secondary',
+        selectedResource?.id === resource.id && 'bg-maia-accent-light text-maia-accent font-medium',
+      )}
+    >
+      <span className="truncate flex-1" title={resource.name}>{resource.name}</span>
+      {((resource.type === 'tool' && unsaved.tools.has(resource.id)) ||
+        (resource.type === 'agent' && unsaved.agents.has(resource.id))) && (
+        <span className="h-1.5 w-1.5 rounded-full shrink-0 bg-amber-500" title="有未保存的改动" />
+      )}
+      {resource.type === 'data' && resource.available === false && (
+        <span className="h-1.5 w-1.5 rounded-full shrink-0 bg-maia-danger" title="数据不在本机" />
+      )}
+      {resource.type === 'model' && resource.runtimeStatus === 'trained' && !resource.artifactAvailable && (
+        <span className="h-1.5 w-1.5 rounded-full shrink-0 bg-maia-danger" title="训练产物不完整或不可用" />
+      )}
+      {resource.type === 'tool' && (resource as ToolResource).isUserGenerated && (
+        <span title="用户本地工具"><Star className="h-3 w-3 shrink-0 text-amber-500" /></span>
+      )}
+      {resource.type === 'agent' && (
+        <span className="h-1.5 w-1.5 rounded-full shrink-0 bg-maia-success" />
+      )}
+      {resource.type === 'task' && (
+        <span className="text-[10px] text-maia-text-muted shrink-0 tracking-tight">v{resource.version}</span>
+      )}
+      <button
+        onClick={(e) => handleDelete(resource, e)}
+        className="opacity-0 group-hover:opacity-100 focus:opacity-100 flex items-center justify-center h-4 w-4 rounded hover:bg-red-100 text-maia-text-muted hover:text-red-500 transition-all shrink-0"
+        title={resource.type === 'tool' ? '从空间移除' : '删除'}
+        aria-label={`${resource.type === 'tool' ? '移除' : '删除'}${resource.name}`}
+      >
+        <Minus className="h-3 w-3" />
+      </button>
+    </div>
+  )
+
+  const renderModelCategory = (category: ModelCategory, label: string) => {
+    const resources = (modelResources as ModelResource[]).filter((item) =>
+      (item.modelCategory || (item.runtimeStatus === 'trained' && item.artifactAvailable !== false ? 'trained' : 'architecture')) === category,
+    )
+    const groups = modelGroups.filter((item) => item.category === category)
+    const groupNames = new Set([...groups.map((item) => item.name), ...resources.map((item) => item.groupPath || '其它模型')])
+    groupNames.add('其它模型')
+    const names = [...groupNames].sort((a, b) => a === '其它模型' ? -1 : b === '其它模型' ? 1 : a.localeCompare(b, 'zh-CN'))
+    const expanded = expandedModelCategories.has(category)
+    return (
+      <div key={category}>
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setExpandedModelCategories((previous) => {
+            const next = new Set(previous)
+            if (next.has(category)) next.delete(category)
+            else next.add(category)
+            return next
+          })}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.currentTarget.click() } }}
+          className="flex items-center gap-1.5 pl-5 pr-2 py-1.5 text-[11px] text-maia-text-secondary hover:bg-maia-sidebar-hover cursor-pointer"
+        >
+          {expanded ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
+          <span className="flex-1 min-w-0 truncate" title={label}>{label}</span>
+          <span className="text-[10px] text-maia-text-muted">{resources.length}</span>
+          <button
+            onClick={(e) => void handleCreateModelGroup(category, e)}
+            className="flex items-center justify-center h-5 w-5 rounded hover:bg-emerald-500/10 text-maia-text-muted hover:text-emerald-500"
+            title={`在${label}中新建分组`}
+            aria-label={`在${label}中新建分组`}
+          >
+            <FolderPlus className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        {expanded && names.map((name) => {
+          const group = groups.find((item) => item.name === name)
+          const groupKey = `${category}:${name}`
+          const collapsed = collapsedModelGroups.has(groupKey)
+          const items = resources.filter((item) => (item.groupPath || '其它模型') === name)
+          return (
+            <div key={groupKey}>
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => setCollapsedModelGroups((previous) => {
+                  const next = new Set(previous)
+                  if (next.has(groupKey)) next.delete(groupKey)
+                  else next.add(groupKey)
+                  return next
+                })}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.currentTarget.click() } }}
+                className="group flex items-center gap-1 pl-8 pr-2 py-1 text-[10px] text-maia-text-secondary hover:bg-maia-sidebar-hover cursor-pointer"
+              >
+                {collapsed ? <ChevronRight className="h-3 w-3 shrink-0" /> : <ChevronDown className="h-3 w-3 shrink-0" />}
+                <span className="flex-1 min-w-0 truncate" title={name}>{name}</span>
+                <span className="text-maia-text-muted">{items.length}</span>
+                {group && !group.system && (
+                  <button
+                    onClick={(e) => void handleDeleteModelGroup(group.id, name, e)}
+                    className="opacity-0 group-hover:opacity-100 focus:opacity-100 flex items-center justify-center h-4 w-4 rounded text-maia-text-muted hover:text-red-500"
+                    title={`删除分组 ${name}`}
+                    aria-label={`删除分组 ${name}`}
+                  >
+                    <Minus className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+              {!collapsed && items.map(renderResourceRow)}
+            </div>
+          )
+        })}
+      </div>
+    )
   }
 
   return (
@@ -204,19 +475,61 @@ export function ResourceBrowser() {
                 {resources.length}
               </span>
               {section.type === 'agent' && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    useUIStore.getState().setActiveView('agent-editor')
-                  }}
-                  className="flex items-center justify-center h-4 w-4 rounded hover:bg-maia-accent/10 text-maia-text-muted hover:text-maia-accent transition-colors"
-                  title="创建新 Agent"
-                >
-                  <Plus className="h-3 w-3" />
-                </button>
+                <>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      pickImportFile('agent')
+                    }}
+                    disabled={importing}
+                    className={cn(
+                      'flex items-center justify-center h-4 w-4 rounded transition-colors',
+                      'hover:bg-emerald-500/10 text-maia-text-muted hover:text-emerald-500',
+                      importing && 'opacity-50 cursor-wait'
+                    )}
+                    title="导入 Agent 包（.sotaagent.zip）"
+                  >
+                    <Upload className={cn('h-3 w-3', importing && 'animate-pulse')} />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      useUIStore.getState().setActiveView('agent-editor')
+                    }}
+                    className="flex items-center justify-center h-4 w-4 rounded hover:bg-maia-accent/10 text-maia-text-muted hover:text-maia-accent transition-colors"
+                    title="创建新 Agent"
+                  >
+                    <Plus className="h-3 w-3" />
+                  </button>
+                </>
               )}
               {section.type === 'tool' && (
                 <>
+                  <input
+                    ref={importInputRef}
+                    type="file"
+                    accept=".zip"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      if (f) handleImportBundle(f)
+                    }}
+                  />
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      pickImportFile('tool')
+                    }}
+                    disabled={importing}
+                    className={cn(
+                      'flex items-center justify-center h-4 w-4 rounded transition-colors',
+                      'hover:bg-emerald-500/10 text-maia-text-muted hover:text-emerald-500',
+                      importing && 'opacity-50 cursor-wait'
+                    )}
+                    title="导入工具包（.sotatool.zip）"
+                  >
+                    <Upload className={cn('h-3 w-3', importing && 'animate-pulse')} />
+                  </button>
                   <button
                     onClick={(e) => {
                       e.stopPropagation()
@@ -256,70 +569,10 @@ export function ResourceBrowser() {
             {/* Section items — indented to align under parent label */}
             {isExpanded && (
               <div>
-                {resources.map((resource) => (
-                  // 条目也必须是 div —— 行内的「删除/移除」按钮若嵌在
-                  // <button> 里会触发 React 的非法 DOM 嵌套报错
-                  <div
-                    key={resource.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => handleResourceClick(resource)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        handleResourceClick(resource)
-                      }
-                    }}
-                    style={{ paddingLeft: '52px' }}
-                    className={cn(
-                      'flex items-center gap-1.5 w-full py-[3px] pr-1.5 rounded text-[11px] tracking-wide',
-                      'hover:bg-maia-sidebar-hover transition-colors text-left',
-                      'text-maia-text-secondary',
-                      selectedResource?.id === resource.id &&
-                        'bg-maia-accent-light text-maia-accent font-medium'
-                    )}
-                  >
-                    <span className="truncate flex-1">{resource.name}</span>
-                    {/* 未保存改动标记：即使切到其他视图也能看到
-                        "这个资源还有改动没保存"（类似 VSCode 标签页的圆点） */}
-                    {((resource.type === 'tool' && unsaved.tools.has(resource.id)) ||
-                      (resource.type === 'agent' && unsaved.agents.has(resource.id))) && (
-                      <span
-                        className="h-1.5 w-1.5 rounded-full shrink-0 bg-amber-500"
-                        title="有未保存的改动"
-                      />
-                    )}
-                    {resource.type === 'data' && resource.available === false && (
-                      <span
-                        className="h-1.5 w-1.5 rounded-full shrink-0 bg-maia-danger"
-                        title="数据不在本机（可能注册于其他机器）"
-                      />
-                    )}
-                    {resource.type === 'tool' &&
-                      (resource as ToolResource).isUserGenerated && (
-                        <span title="用户本地工具">
-                          <Star className="h-3 w-3 shrink-0 text-amber-500" />
-                        </span>
-                      )}
-                    {resource.type === 'agent' && (
-                      <span className="h-1.5 w-1.5 rounded-full shrink-0 bg-maia-success" />
-                    )}
-                    {resource.type === 'task' && (
-                      <span className="text-[10px] text-maia-text-muted shrink-0 tracking-tight">
-                        v{resource.version}
-                      </span>
-                    )}
-                    {/* Remove button — tool: 从空间移除, data/agent: 删除 */}
-                    <button
-                      onClick={(e) => handleDelete(resource, e)}
-                      className="opacity-0 group-hover:opacity-100 hover:!opacity-100 flex items-center justify-center h-4 w-4 rounded hover:bg-red-100 text-maia-text-muted hover:text-red-500 transition-all shrink-0"
-                      title={section.type === 'tool' ? '从空间移除' : '删除'}
-                    >
-                      <Minus className="h-3 w-3" />
-                    </button>
-                  </div>
-                ))}
-                {resources.length === 0 && (
+                {section.type === 'model'
+                  ? MODEL_CATEGORIES.map(({ id, label }) => renderModelCategory(id, label))
+                  : resources.map(renderResourceRow)}
+                {section.type !== 'model' && resources.length === 0 && (
                   <p className="text-[10px] text-maia-text-muted py-1 px-1.5 tracking-wide">
                     暂无资源
                   </p>
@@ -330,6 +583,88 @@ export function ResourceBrowser() {
         )
       })}
       <DeviceSection />
+
+      {/* 导入后依赖体检：缺失时弹窗，一键安装 */}
+      {depDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-[460px] max-w-[92vw] rounded-lg border border-maia-border bg-maia-surface p-4 shadow-xl">
+            <div className="text-sm font-semibold text-maia-text-heading mb-2">
+              导入完成，但依赖未齐备
+            </div>
+            <p className="text-[11px] text-maia-text-secondary mb-2">
+              「{depDialog.toolName}」（{depDialog.kind === 'tool' ? '工具' : 'Agent'}）缺少以下内容：
+            </p>
+
+            {depDialog.missing.length > 0 && (
+              <>
+                <div className="text-[11px] text-maia-text-muted mb-1">Python 包</div>
+                <ul className="mb-3 max-h-32 overflow-auto text-[11px] font-mono">
+                  {depDialog.missing.map((m, i) => (
+                    <li key={m} className="flex items-center justify-between gap-2 py-0.5">
+                      <span className="text-maia-text-secondary">{m}</span>
+                      <span className="text-maia-text-muted">
+                        {depDialog.install[i] && depDialog.install[i] !== m ? `→ ${depDialog.install[i]}` : ''}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+
+            {depDialog.missingTools && depDialog.missingTools.length > 0 && (
+              <div className="mb-3 rounded border border-amber-500/30 bg-amber-500/10 p-2 text-[11px]">
+                <div className="text-amber-600 font-medium mb-1">依赖的工具未安装</div>
+                <div className="font-mono text-maia-text-secondary break-all">
+                  {depDialog.missingTools.join('、')}
+                </div>
+                <div className="mt-1 text-[10px] text-maia-text-muted">
+                  请先在「工具空间」用 ⬆ 导入对应的 .sotatool.zip，再运行该 Agent。
+                </div>
+              </div>
+            )}
+
+            {depDialog.error && (
+              <div className="mb-2 max-h-28 overflow-auto rounded bg-maia-bg/60 p-2 text-[11px] text-maia-danger break-all whitespace-pre-wrap">
+                {depDialog.error}
+              </div>
+            )}
+
+            {depDialog.results && depDialog.results.length > 0 && (
+              <div className="mb-2 max-h-32 overflow-auto rounded bg-maia-bg/60 p-2 text-[11px]">
+                {depDialog.results.map((r) => (
+                  <div key={r.dep} className={r.success ? 'text-emerald-500' : 'text-maia-danger'}>
+                    {r.success ? '✓' : '✗'} {r.dep}
+                    {r.already ? '（已存在）' : ''}
+                    {!r.success && r.reason ? ` — ${String(r.reason).slice(-300)}` : ''}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2">
+              <button
+                onClick={() => setDepDialog(null)}
+                className="px-3 py-1 rounded text-[11px] text-maia-text-secondary hover:bg-maia-sidebar-hover"
+              >
+                {depDialog.results &&
+                depDialog.results.every((r) => r.success) &&
+                (depDialog.missingTools || []).length === 0
+                  ? '完成'
+                  : '稍后'}
+              </button>
+              {depDialog.install.length > 0 && (
+                <button
+                  onClick={handleInstallDeps}
+                  disabled={depDialog.installing}
+                  className="px-3 py-1 rounded text-[11px] bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50"
+                >
+                  {depDialog.installing ? '安装中…' : '一键安装'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

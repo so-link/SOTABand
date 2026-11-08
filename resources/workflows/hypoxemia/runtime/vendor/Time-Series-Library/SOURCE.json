@@ -1,0 +1,249 @@
+{
+  "upstream_url": "https://github.com/thuml/Time-Series-Library",
+  "comparison_commit": "4e938a1767106324dd753b2a44832bf870a0252e",
+  "original_backup_commit": null,
+  "delivery_version": "sotaband-hypoxemia-tslib-1",
+  "license": "MIT",
+  "files": [
+    {
+      "path": "LICENSE",
+      "sha256": "8a6caa178ea3f33ebff5d7bb5558628cf5b423305dc30d3630f86564c7db94a2",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "layers/AutoCorrelation.py",
+      "sha256": "354b44e54bdd39380c9f5c2bfaaf3b967fdbe80dc7998741dbfdfa5d521a040c",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "layers/Autoformer_EncDec.py",
+      "sha256": "48745b4bb647355e9845792a855df9c59fd7df7fcc664c765351fec390c4073e",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "layers/ClassificationHeads.py",
+      "sha256": "effc9a7f3d7c87b650fdc763bd7cb31de0c38a3fbbb31bd76cc73243cb945e55",
+      "upstream_status": "local_addition"
+    },
+    {
+      "path": "layers/Conv_Blocks.py",
+      "sha256": "16d9f2d9e4fa094dc357901e32beecda9839709bcca02625e6447186933ce4e1",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "layers/Crossformer_EncDec.py",
+      "sha256": "ee2cc5c8d3a44f4de67ce986e6b442488826a20fa4d8f87991941a75587936a1",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "layers/DWT_Decomposition.py",
+      "sha256": "422af1eec77df1b9dcfdea3d457e545c8575da69da4f505f27ba54db0c9f7764",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "layers/ETSformer_EncDec.py",
+      "sha256": "4ba2a0b76381602e32341fcc1a6a74ca86d2347905589fb34a74f8e54d7023e3",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "layers/Embed.py",
+      "sha256": "17e7c3577324c41a0da427a199c955b782fde905aabb1f7cbc3c4e15ebd4ae35",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "layers/FourierCorrelation.py",
+      "sha256": "cea1095b3a94764f240e6ac67280d6ea7fac9f5ef54de137cd1f5e5adab1305f",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "layers/MSGBlock.py",
+      "sha256": "01d3d446a214c33062ba098f251a1e49ed8a342dd4372e973a0a8c0dde5cd8c0",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "layers/MambaBlock.py",
+      "sha256": "cbcbbd6cbb83366e40ffe5926da16b4ca0aa11b6649e2259750994b60527a390",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "layers/MultiWaveletCorrelation.py",
+      "sha256": "cf0b8faf45a1b7fab4a3c1c521623c0762e2f9d7375b20ba9a9acd2142747342",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "layers/Pyraformer_EncDec.py",
+      "sha256": "ab92396677a9ad2e49c7bf171e15c96108d388b8898d29ee520d18dfe0bd5306",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "layers/SelfAttention_Family.py",
+      "sha256": "6f6592aed0753e342fc04c01db70528c2eb191eeb067cd5fd4c8d348fddcb794",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "layers/StandardNorm.py",
+      "sha256": "3f690dc5fc0e395d4f1ffe6396717548d18bd04f4518258308bbe5f392703f5f",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "layers/TimeFilter_layers.py",
+      "sha256": "3441713bdb54de1153afe3d5e746de4e251c07b545492180a073c4f275df6b9f",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "layers/Transformer_EncDec.py",
+      "sha256": "7b26f4459735c341f161011f6bc24b9deb8ecc3bcf61e4f15431998272a44fb4",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "layers/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "models/Autoformer.py",
+      "sha256": "e7d31b5071e4412bcece030f343450d2ca93932988ee912b95058d9955473810",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "models/Crossformer.py",
+      "sha256": "f5892f70eb3fc320f69fa0a9b2019b68537cc5a5e5aa2ec544c15127b19e36f0",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "models/DLinear.py",
+      "sha256": "e03acaf97e70c85ea6bda6776b3a62550f84470afa7bc53dffccb6121626e7eb",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "models/ETSformer.py",
+      "sha256": "3cd25f1ea4dc18e926720b2976d86820363dcc5db0436e490f2b794630086035",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "models/FEDformer.py",
+      "sha256": "2d9051784362cf848f061cfec9038aff8ec2bb3047abdffe47f0ad0abdf88e62",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "models/FiLM.py",
+      "sha256": "866054afc57411ebaf47c270566c05302b19acf3a3663b0b86e9153e386d2dc6",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "models/Informer.py",
+      "sha256": "95dee85f6c0642dbfeee7736d526f9e20a54b5f5871a7085343b6a8be3cf56d2",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "models/KANAD.py",
+      "sha256": "8503dc8fffb3c1c5212c60da9d645c28ecf590ef5846d37dea9bcc6568f7e95d",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "models/LightTS.py",
+      "sha256": "1de1583c4ee0bbfa0764fa9b158f09ac8bcd7ddf7f2d9f1b58ab1a03a7d13989",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "models/MICN.py",
+      "sha256": "a0cb59254e850bfd1d94114a73126c290e6baf2ea700132ede8aade680bbedbf",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "models/MSGNet.py",
+      "sha256": "e6f8f3fbd4e0bc9d77c78e2409969c4fe4b2fc6560e7c1f5cced2a809d8e9e59",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "models/MambaSingleLayer.py",
+      "sha256": "32db2b9a7081c9bec00a0c882d94ca0959cef05d6a96a0b4ccbbf9b2499cd4bb",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "models/MultiPatchFormer.py",
+      "sha256": "e8603a9d8b1e796a822171399a057bd3945cf51b38fb1661d91fe60ad79313b3",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "models/Nonstationary_Transformer.py",
+      "sha256": "8c12c8bddbfe7414a87efee19f019079e62e9ad7cc4e7627cb25d2886ae60c33",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "models/PatchTST.py",
+      "sha256": "29835d4fedddd3cbee26cc60d6a54c04513f5a9ca32e4a0d08de2c9e059084e5",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "models/Pyraformer.py",
+      "sha256": "6ec9a21d56fa47b81b706b05b7caf76f440daf3cb4ffe2dca9d2f149b02dd877",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "models/Reformer.py",
+      "sha256": "d559a572111615a3a6c0b2ed25e29a2678997a6406d44814aba97b24c1c63517",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "models/SegRNN.py",
+      "sha256": "764d4ad950ee65162c70746248754942cfb4ba661162d515caab0a4eedd12252",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "models/TiDE.py",
+      "sha256": "4ab07dec4ae85f8b7c3062ff7d2fec00be342968d41cf09e48d599d8e40f6143",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "models/TimeFilter.py",
+      "sha256": "6cbce92f112a9907fe6117ea23527bf1864c0ea00721a812d786e86e0a1b0724",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "models/TimeMixer.py",
+      "sha256": "bbf378cab03d16d3e7ae907f7b3cefbac89ae1504e036270578d5d496ffbd133",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "models/TimesNet.py",
+      "sha256": "f64c4bed1fd7347090044a0163bd4209c9f9ec1c1b19ceff47842df36b64bba7",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "models/Transformer.py",
+      "sha256": "46ded6c516fd03951bce0a82c3f4245f0247efd01fb5bde775145cfbb6d8435d",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "models/WPMixer.py",
+      "sha256": "5b549f5454864d19a230747f0060dc00732fb0de6b50a359173e0d7a6b04ce8f",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "models/__init__.py",
+      "sha256": "d97d758fc2ef4da5eb24a20e940538bb5b8f6ed81d9b2e6ecaf20a2b178daee2",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "models/_classification_hybrid_utils.py",
+      "sha256": "68bf94b0cd9054b976c4ea327e0c156f83b1ddc0d87e83c5fa677877e0230981",
+      "upstream_status": "local_addition"
+    },
+    {
+      "path": "models/iTransformer.py",
+      "sha256": "7fdc721d041b0f8f63be8fa794ecd68422fd958c7c8d449026320fd9f368788e",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "utils/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "upstream_status": "identical"
+    },
+    {
+      "path": "utils/masking.py",
+      "sha256": "02f453e52cfaec65e34132923add80e7132f188706680fa86d7bd884976e09ef",
+      "upstream_status": "identical"
+    }
+  ]
+}

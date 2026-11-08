@@ -7,8 +7,7 @@ import { useFileTreeStore } from '@/stores/file-tree-store'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 
-const BASE_URL = ''
-
+import { apiText, apiUrl } from '@/services/api/client'
 const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'ico'])
 const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'm4v'])
 const MD_EXTENSIONS = new Set(['md', 'markdown'])
@@ -108,15 +107,13 @@ export function FilePreviewView() {
     if (previewFile && isMarkdown) {
       setLoading(true)
       setMdHtml(null)
-      fetch(`${BASE_URL}/api/file/download?path=${encodeURIComponent(previewFile.path)}`)
-        .then(r => r.text())
+      apiText(`/api/file/download?path=${encodeURIComponent(previewFile.path)}`)
         .then(text => { setMdHtml(renderMarkdown(text)); setLoading(false) })
         .catch(() => setLoading(false))
     } else if (previewFile && isCsv) {
       setLoading(true)
       setCsvData(null)
-      fetch(`${BASE_URL}/api/file/download?path=${encodeURIComponent(previewFile.path)}`)
-        .then(r => r.text())
+      apiText(`/api/file/download?path=${encodeURIComponent(previewFile.path)}`)
         .then(text => {
           const lines = text.split('\n').filter(l => l.trim())
           if (lines.length > 0) {
@@ -142,8 +139,8 @@ export function FilePreviewView() {
     )
   }
 
-  const downloadUrl = `${BASE_URL}/api/file/download?path=${encodeURIComponent(previewFile.path)}`
-  const imageUrl = `${BASE_URL}/api/file/image?path=${encodeURIComponent(previewFile.path)}`
+  const downloadUrl = `${apiUrl(`/api/file/download?path=${encodeURIComponent(previewFile.path)}`)}`
+  const imageUrl = `${apiUrl(`/api/file/image?path=${encodeURIComponent(previewFile.path)}`)}`
 
   return (
     <div className="flex flex-col h-full bg-maia-surface overflow-auto">

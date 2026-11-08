@@ -7,6 +7,9 @@ class GenerateSpecRequest(BaseModel):
     """自然语言 → MD 规范文档"""
 
     description: str = ""
+    # Agent 类型（三类体系）：interactive | task | web-service
+    # 用于在生成 MD 时注入类型专属的结构约束（如 task 的 flow、web-service 的 apis）
+    role: str | None = None
 
 
 class GenerateCodeRequest(BaseModel):
@@ -27,8 +30,12 @@ class RegisterAgentRequest(BaseModel):
     code: str = ""
     agent_id: str = Field(alias="agentId")
     agent_name: str = Field(default="Custom Agent", alias="agentName")
+    # 编辑已发布 Agent 时传入「原 Agent id」——注册的权威身份。
+    # 未传时退回 agent_id（由 MD 内容推导），即新建 Agent 的旧行为。
+    base_agent_id: str = Field(default="", alias="baseAgentId")
     role: str = "task"
-    version: str = "0.1.0"
+    # 留空表示由服务端决定：更新时 patch+1，新建时 0.1.0
+    version: str = ""
     tags: list[str] = Field(default_factory=list)
     demand_desc: str = Field(default="", alias="demandDesc")
 
@@ -36,9 +43,20 @@ class RegisterAgentRequest(BaseModel):
 
 
 class AgentExecuteRequest(BaseModel):
-    """向 Agent 发送输入"""
+    """向 Agent 发送输入。
+
+    三类 Agent 的入口参数不同：
+      - interactive：content
+      - task：MD「## 输入」声明的启动参数（如 name / city ...）
+      - web-service：由 /test-api 走 HTTP，不经此路由
+
+    因此不能只声明 content —— 多余字段必须放行，否则任务式 Agent 的
+    启动参数会被静默丢弃，表现为「参数明明填了却报缺少必填参数」。
+    """
 
     content: str = ""
+
+    model_config = {"extra": "allow"}
 
 
 class AgentStatusResponse(BaseModel):

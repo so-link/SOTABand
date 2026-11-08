@@ -2,7 +2,9 @@
 import os, sys, json, time
 from pathlib import Path
 from typing import Any
-import requests
+import urllib.request
+import urllib.error
+import urllib.parse
 
 # ── 项目根路径 ──
 _tool_dir = os.environ.get("TOOL_DIR", "")
@@ -156,16 +158,20 @@ def _fetch_flights(iata: str, direction: str, limit: int = 100) -> list:
     else:
         params["arr_iata"] = iata
 
+    url = _BASE_URL + "?" + urllib.parse.urlencode(params)
     try:
-        resp = requests.get(_BASE_URL, params=params, timeout=30)
-        resp.raise_for_status()
-        payload = resp.json()
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            raw = resp.read().decode("utf-8")
+            payload = json.loads(raw)
         # 检查错误
         if payload.get("error"):
             raise Exception(payload["error"].get("message", "API error"))
         return payload.get("data", [])
-    except requests.RequestException as e:
-        raise Exception(f"航班信息查询失败: {str(e)}")
+    except urllib.error.HTTPError as e:
+        raise Exception(f"航班信息查询失败: HTTP {e.code}")
+    except urllib.error.URLError as e:
+        raise Exception(f"航班信息查询失败: {e.reason}")
     except Exception as e:
         raise
 
@@ -196,11 +202,14 @@ def execute(**kwargs) -> dict[str, Any]:
     # 查询与该城市相关的所有航班（出发和到达）
     seen = set()  # 用于去重，以 (flight_iata, dep_iata, arr_iata, scheduled_dep) 为特征
     all_flights = []
+    api_success_count = 0
+    api_fail_errors = []
 
     for code in iata_list:
         # 查询出发航班
         try:
             dep_flights = _fetch_flights(code, "dep")
+            api_success_count += 1
             for flight in dep_flights:
                 key = (
                     flight.get("flight", {}).get("iata"),
@@ -211,13 +220,13 @@ def execute(**kwargs) -> dict[str, Any]:
                 if key not in seen:
                     seen.add(key)
                     all_flights.append(flight)
-        except Exception:
-            # 单个IATA代码查失败不中断整体，继续下一个
-            pass
+        except Exception as e:
+            api_fail_errors.append(str(e))
 
         # 查询到达航班
         try:
             arr_flights = _fetch_flights(code, "arr")
+            api_success_count += 1
             for flight in arr_flights:
                 key = (
                     flight.get("flight", {}).get("iata"),
@@ -228,8 +237,8 @@ def execute(**kwargs) -> dict[str, Any]:
                 if key not in seen:
                     seen.add(key)
                     all_flights.append(flight)
-        except Exception:
-            pass
+        except Exception as e:
+            api_fail_errors.append(str(e))
 
     # 按计划出发时间排序（可选，保证一致性）
     all_flights.sort(key=lambda f: f.get("departure", {}).get("scheduled") or "")
@@ -255,6 +264,11 @@ def execute(**kwargs) -> dict[str, Any]:
         rows.append([flight_number, airline_name, departure_airport, arrival_airport, scheduled_dep, scheduled_arr])
 
     if not rows:
+        if api_success_count == 0:
+            return {
+                "status": "failed",
+                "message": "航班信息查询失败，请稍后重试",
+            }
         return {
             "status": "success",
             "message": "未找到相关航班信息",

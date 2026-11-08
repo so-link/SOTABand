@@ -3,7 +3,8 @@ import { Loader2, ChevronLeft, ChevronRight, Table2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardBody } from '@/components/ui/card'
 
-const BASE_URL = ''
+import { apiText } from '@/services/api/client'
+
 const TABLE_PAGE_OPTIONS = [8, 16, 32, 64, 100]
 
 /** 原生 CSV 行解析 */
@@ -45,8 +46,7 @@ export function CsvTablePreview({ datasetPath, csvFiles }: CsvTablePreviewProps)
     const filePath = datasetPath ? `${datasetPath}/${csvFile.name}` : ''
     if (!filePath) return
     setLoading(true)
-    fetch(`${BASE_URL}/api/file/download?path=${encodeURIComponent(filePath)}`)
-      .then(r => r.text())
+    apiText(`/api/file/download?path=${encodeURIComponent(filePath)}`)
       .then(text => {
         const lines = text.split('\n').filter(l => l.trim())
         if (lines.length > 0) {

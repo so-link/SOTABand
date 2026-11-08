@@ -76,33 +76,105 @@
 /* ============================================================
    Base
    ============================================================ */
-* { margin: 0; padding: 0; box-sizing: border-box; }
-html, body, #root { height: 100%; width: 100%; overflow: hidden; }
 
-body {
-  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-size: 13px; font-weight: 400; line-height: 1.68;
-  letter-spacing: 0.03em;
-  color: var(--color-maia-text);
-  background: var(--color-maia-bg);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+/* ⚠️ 这一层**必须**包在 @layer base 里，否则会把全项目的 Tailwind 工具类打废。
+ *
+ * 原因（CSS 级联层规则）：**未分层（unlayered）的样式无条件优先于任何 @layer 内
+ * 的规则**，与选择器权重、书写先后顺序都无关。而 Tailwind 4 的 `p-*` / `m-*` /
+ * `pl-*` 等工具类都生成在 `@layer utilities` 里。
+ *
+ * 于是下面这条 `* { padding: 0 }` 曾经把**每一个** padding / margin 工具类都清零：
+ *   - 卡片 `p-6` 失效  → 内容贴着卡片边框
+ *   - 输入框 `pl-8` 失效 → 左侧图标直接压住输入的文字
+ *   - `mb-*` / `mt-*` 全部失效 → 元素之间没有间距
+ *
+ * 症状就是"文字和图标重叠"。放进 @layer base 后，utilities 层排在 base 之后，
+ * 工具类恢复正常优先级，而 reset 仍然对没有工具类的元素生效。
+ */
+@layer base {
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1.68;
+    letter-spacing: 0.03em;
+    color: var(--color-maia-text);
+    background: var(--color-maia-bg);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    letter-spacing: 0.04em;
+    font-weight: 650;
+  }
+
+  code,
+  pre,
+  .font-mono,
+  .mono {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'SF Mono', ui-monospace, monospace;
+    letter-spacing: 0.03em;
+    font-size: 12px;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-maia-text-muted);
+    border-radius: 3px;
+    opacity: 0.3;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-maia-text-secondary);
+  }
+
+  ::selection {
+    background: var(--color-maia-accent-glow);
+    color: var(--color-maia-accent);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-maia-accent);
+    outline-offset: 1px;
+  }
+
+  /* ── 隐藏浏览器原生的密码显示按钮 ──
+   *
+   * Edge / Chromium 会给 `input[type=password]` 自动加一个"显示密码"的小眼睛，
+   * 而我们的密码框**自己有**一个自定义的眼睛按钮（位置在 pr-9 让出的右侧）。
+   * 不隐藏的话两个图标会并排叠在同一处 —— 截图里看得非常明显。
+   *
+   * `::-ms-reveal` / `::-ms-clear` 是 Edge/IE 的伪元素；Chromium 的部分版本
+   * 也支持 `::-ms-reveal`。加上它即可，无副作用（我们本来就不依赖原生行为）。
+   */
+  input[type='password']::-ms-reveal,
+  input[type='password']::-ms-clear {
+    display: none;
+  }
 }
-
-h1,h2,h3,h4,h5,h6 { letter-spacing: 0.04em; font-weight: 650; }
-
-code, pre, .font-mono, .mono {
-  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'SF Mono', ui-monospace, monospace;
-  letter-spacing: 0.03em; font-size: 12px;
-}
-
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--color-maia-text-muted); border-radius: 3px; opacity: 0.3; }
-::-webkit-scrollbar-thumb:hover { background: var(--color-maia-text-secondary); }
-
-::selection { background: var(--color-maia-accent-glow); color: var(--color-maia-accent); }
-:focus-visible { outline: 2px solid var(--color-maia-accent); outline-offset: 1px; }
 
 .panel-transition { transition: width 200ms cubic-bezier(0.16, 1, 0.3, 1); }
 

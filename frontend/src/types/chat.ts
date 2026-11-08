@@ -10,11 +10,23 @@ export type CardType =
   | 'data-preview'
   | 'tool-match'
   | 'tool-confirm'
+  | 'model-confirm'
+  | 'model-parameters'
+  | 'training-parameters'
+  | 'raw-processing-parameters'
+  | 'workflow-action'
+  | 'mode-selection'
   | 'code-review'
   | 'execution-progress'
   | 'result-summary'
   | 'orchestration-preview'
   | 'create-tool'
+  | 'dataset-summary'
+  | 'dataset-register'
+  | 'model-resource'
+  | 'model-catalog'
+  | 'task-progress'
+  | 'evaluation-result'
 
 /** 内联卡片数据 */
 export interface InlineCard {

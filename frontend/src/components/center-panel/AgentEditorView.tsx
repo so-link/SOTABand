@@ -8,11 +8,11 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardBody } from '@/components/ui/card'
 import { useUIStore } from '@/stores/ui-store'
-import { useResourceStore } from '@/stores/resource-store'
-import { useAgentEditorStore } from '@/stores/agent-editor-store'
+import { useAgentEditorStore, AGENT_ROLE_OPTIONS } from '@/stores/agent-editor-store'
 import { useTabIndent } from '@/hooks/use-tab-indent'
 import { useSaveShortcut } from '@/hooks/use-save-shortcut'
 
+import { apiFetchRaw } from '@/services/api/client'
 /** Agent 保存状态指示器 + 保存按钮（手动保存，支持 Ctrl/Cmd+S） */
 function AgentSaveIndicator() {
   const { saveState, saveError, flushSave } = useAgentEditorStore()
@@ -47,7 +47,6 @@ function AgentSaveIndicator() {
 export function AgentEditorView() {
   const store = useAgentEditorStore()
   const setActiveView = useUIStore((s) => s.setActiveView)
-  const selectedResource = useResourceStore((s) => s.selectedResource)
 
   // Ctrl/Cmd+S 保存（仅编辑已注册 Agent 时有效）
   useSaveShortcut(
@@ -57,7 +56,10 @@ export function AgentEditorView() {
 
   const handleClose = () => {
     const isEditingExisting = Boolean(store.editingAgentId)
-    const backTo = isEditingExisting && selectedResource?.type === 'agent' ? 'agent-detail' : 'chat'
+    // 编辑已有 Agent 时返回该 Agent 的独立详情页
+    const backTo = isEditingExisting
+      ? (`agent-detail:${store.editingAgentId}` as never)
+      : ('chat' as never)
     if (isEditingExisting && store.hasUnsavedChanges()) {
       const ok = window.confirm(
         '当前 Agent 有未保存的改动。\n\n' +
@@ -122,7 +124,7 @@ export function AgentEditorView() {
       </div>
 
       {/* Step content */}
-      <div className="flex-1 min-h-0 overflow-auto p-4">
+      <div className="flex-1 min-h-0 overflow-auto p-4 flex flex-col">
         {store.step === 1 && <Step1Description />}
         {store.step === 2 && <Step2Review />}
         {store.step === 3 && <Step3Verify />}
@@ -140,7 +142,7 @@ interface AcItem {
 }
 
 function Step1Description() {
-  const { description, setDescription, generateSpec, isGenerating, error } =
+  const { description, setDescription, generateSpec, isGenerating, error, agentRole, setAgentRole } =
     useAgentEditorStore()
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -167,7 +169,6 @@ function Step1Description() {
 
   // ═══ Fetch data on mount ═══
   useEffect(() => {
-    const BASE = ''
     const TIMEOUT_MS = 10000
     // 统一的列表拉取：带超时与非 2xx 判定，失败走 onFail 而不是只 console.warn。
     // 后端未启动（代理 ECONNREFUSED）、返回 404/HTML、挂起超时，统一归为 failed。
@@ -178,7 +179,7 @@ function Step1Description() {
     ) => {
       const ctrl = new AbortController()
       const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS)
-      fetch(url, { signal: ctrl.signal })
+      apiFetchRaw(url, { signal: ctrl.signal })
         .then((r) => {
           if (!r.ok) throw { kind: 'http', status: r.status }
           return r.json()
@@ -194,7 +195,7 @@ function Step1Description() {
     }
 
     fetchList(
-      `${BASE}/api/apis/list`,
+      `/api/apis/list`,
       (d) => {
         const items = ((d.apis || []) as Array<Record<string, unknown>>).map(
           (a: Record<string, unknown>) => ({
@@ -212,7 +213,7 @@ function Step1Description() {
     )
 
     fetchList(
-      `${BASE}/api/tool/list`,
+      `/api/tool/list`,
       (d) => {
         const items = (
           ((d as Record<string, unknown>).tools as Array<Record<string, unknown>>) || []
@@ -332,14 +333,47 @@ function Step1Description() {
 
   // ═══ Render ═══
   return (
-    <div className="max-w-2xl mx-auto relative">
+    <div className="max-w-4xl mx-auto relative flex flex-col min-h-full">
       <h3 className="text-lg font-semibold text-maia-text-heading mb-2 tracking-wide">
         Step 1: 描述你的 Agent 需求
       </h3>
-      <p className="text-sm text-maia-text-secondary mb-4">
-        用自然语言描述你需要什么样的 Agent，系统会调用大模型自动生成标准化的 MD 规范文档。
-        输入 <code className="text-maia-accent bg-maia-accent/5 px-1 rounded">@</code> 引用系统 API，
-        输入 <code className="text-maia-accent bg-maia-accent/5 px-1 rounded">$</code> 引用注册工具。
+
+      {/* 类型选择：先选类型，再填需求（选定后自动填入该类型默认模板） */}
+      <div className="mb-3 shrink-0">
+        <p className="text-[13px] text-maia-text-secondary mb-1.5">请先选择 Agent 类型：</p>
+        <div className="grid grid-cols-3 gap-2">
+          {AGENT_ROLE_OPTIONS.map((opt) => {
+            const active = agentRole === opt.value
+            return (
+              <button
+                key={opt.value}
+                onClick={() => {
+                  // 已有用户内容时询问是否覆盖为模板
+                  if (agentRole && description.trim() && agentRole !== opt.value) {
+                    const ok = window.confirm('切换类型将用该类型的默认模板替换当前需求内容，是否继续？')
+                    if (!ok) return
+                    setDescription('')
+                  }
+                  setAgentRole(opt.value)
+                }}
+                className={`text-left rounded-lg border px-3 py-1.5 transition-colors ${
+                  active
+                    ? 'border-maia-accent bg-maia-accent/10'
+                    : 'border-maia-border hover:border-maia-accent/40'
+                }`}
+              >
+                <div className="text-[12px] font-semibold text-maia-text-heading">{opt.label}</div>
+                <div className="text-[10px] text-maia-text-muted leading-snug truncate">{opt.desc}</div>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      <p className="text-[12px] text-maia-text-secondary mb-2 shrink-0">
+        描述你的 Agent 需求，系统会调用大模型生成标准化 MD 规范文档。
+        <code className="text-maia-accent bg-maia-accent/5 px-1 rounded mx-1">@</code>引用 API，
+        <code className="text-maia-accent bg-maia-accent/5 px-1 rounded mx-1">$</code>引用工具。
       </p>
 
       <textarea
@@ -349,7 +383,7 @@ function Step1Description() {
         onKeyDown={handleKeyDown}
         placeholder={'例如: "我需要一个能分析EEG数据、检测异常信号、自动生成可视化报告的Agent"'}
         rows={6}
-        className="w-full rounded-lg border border-maia-border bg-maia-surface px-4 py-3 text-[13px] tracking-wide outline-none resize-none focus:border-maia-accent/40 placeholder:text-maia-text-muted"
+        className="w-full flex-1 min-h-[200px] rounded-lg border border-maia-border bg-maia-surface px-4 py-3 text-[13px] leading-relaxed tracking-wide outline-none resize-none focus:border-maia-accent/40 placeholder:text-maia-text-muted"
       />
 
       {/* Dropdown via Portal to avoid parent clipping */}
@@ -370,10 +404,10 @@ function Step1Description() {
                 </div>
               ) : (
                 <div className="px-3 py-2 text-[12px] text-maia-danger leading-relaxed">
-                  无法连接后端服务（http://localhost:8001）
+                  无法连接后端服务（http://localhost:8002）
                   <br />
                   <span className="text-[10px] text-maia-text-muted">
-                    请先启动后端：uvicorn app.main:app --port 8001
+                    请先启动后端：uvicorn app.main:app --port 8002
                   </span>
                 </div>
               )
@@ -415,8 +449,12 @@ function Step1Description() {
         </div>
       )}
 
-      <div className="flex justify-end mt-4">
-        <Button onClick={generateSpec} disabled={!description.trim() || isGenerating}>
+      <div className="flex justify-end mt-3 shrink-0">
+        <Button
+          onClick={generateSpec}
+          disabled={!description.trim() || !agentRole || isGenerating}
+          title={!agentRole ? '请先选择 Agent 类型' : undefined}
+        >
           {isGenerating ? (
             <>
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -456,7 +494,7 @@ function Step2Review() {
       </h3>
       <p className="text-sm text-maia-text-secondary mb-4">
         {isEditMode
-          ? <>正在编辑已有 Agent <span className="text-amber-500">{editingAgentName || editingAgentId}</span>，以下是其现有规范文档，可直接修改后重新生成代码。</>
+          ? <>正在编辑已有 Agent <span className="text-amber-500">{editingAgentName || editingAgentId}</span>，以下是其现有规范文档，可直接修改后重新生成代码。注册时会更新该 Agent 并把版本号 +1，不会新增重复 Agent。</>
           : '以下是 AI 生成的 Agent 规范文档，你可以直接编辑修改。'}
       </p>
 
@@ -669,7 +707,7 @@ function Step3Verify() {
 // ── Step 4: 完成 ─────────────────────────────────────────────
 
 function Step4Done() {
-  const { registeredId, reset } = useAgentEditorStore()
+  const { registeredId, reset, lastRegisterUpdated, lastRegisterVersion } = useAgentEditorStore()
   const setActiveView = useUIStore((s) => s.setActiveView)
 
   return (
@@ -681,7 +719,7 @@ function Step4Done() {
       </div>
 
       <h3 className="text-lg font-semibold text-maia-text-heading mb-2 tracking-wide">
-        Agent 已就绪！
+        {lastRegisterUpdated ? 'Agent 已更新' : 'Agent 已就绪！'}
       </h3>
 
       <Card className="border-maia-border mt-4">
@@ -691,9 +729,15 @@ function Step4Done() {
               <span className="text-maia-text-muted">Agent ID</span>
               <span className="font-mono text-maia-text">{registeredId}</span>
             </div>
+            {lastRegisterVersion && (
+              <div className="flex justify-between text-xs">
+                <span className="text-maia-text-muted">版本</span>
+                <span className="font-mono text-maia-text">v{lastRegisterVersion}</span>
+              </div>
+            )}
             <div className="flex justify-between text-xs">
               <span className="text-maia-text-muted">状态</span>
-              <Badge variant="success">已注册</Badge>
+              <Badge variant="success">{lastRegisterUpdated ? '已更新' : '已注册'}</Badge>
             </div>
           </div>
         </CardBody>

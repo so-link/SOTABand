@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-const BASE_URL = ''
+import { apiGet } from '@/services/api/client'
 
 export interface RepositoryDataset {
   id: string
@@ -12,6 +12,7 @@ export interface RepositoryDataset {
   file_count: number
   total_size: number
   created_at: string
+  isOwner?: boolean
   thumbnail?: string
   description_preview?: string
 }
@@ -47,9 +48,10 @@ export const useDatasetRepositoryStore = create<DatasetRepositoryState>((set, ge
   fetchDatasets: async () => {
     set({ loading: true })
     try {
-      const res = await fetch(`${BASE_URL}/api/data/repository`)
-      const data = await res.json()
-      const datasets = (data.datasets || []).map((d: Record<string, unknown>) => ({
+      const data = await apiGet<{ datasets: any[]; tag_stats?: Record<string, number> }>(
+        '/api/data/repository'
+      )
+      const datasets = (data.datasets || []).map((d: any) => ({
         id: d.id || '',
         name: d.name || d.id || '',
         version: d.version || '0.1.0',
@@ -59,6 +61,9 @@ export const useDatasetRepositoryStore = create<DatasetRepositoryState>((set, ge
         file_count: (d.file_count as number) || 0,
         total_size: (d.total_size as number) || 0,
         created_at: (d.created_at as string) || '',
+        // 三态保留：字段缺失保持 undefined —— 视图用 `!== false` 门控删除按钮，
+        // 把缺失写成 false 会把"未知"误判成"不可删除"（反向默认）。
+        isOwner: typeof d.is_owner === 'boolean' ? d.is_owner : undefined,
         thumbnail: (d.thumbnail as string) || undefined,
         description_preview: (d.description_preview as string) || undefined,
       }))

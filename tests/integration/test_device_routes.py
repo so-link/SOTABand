@@ -41,3 +41,22 @@ def test_ws_sends_init_then_snapshots(client):
         assert first["type"] == second["type"] == "snapshot"
         assert second["data"]["ts"] > first["data"]["ts"]
         assert monitor.subscriber_count == 1
+
+
+def test_app_ws_requires_session():
+    from app.main import app
+    from starlette.testclient import WebSocketDenialResponse
+
+    with pytest.raises(WebSocketDenialResponse) as denied:
+        with TestClient(app).websocket_connect("/api/devices/ws"):
+            pass
+    assert denied.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_authenticated_device_snapshot(authed_client, monkeypatch, tmp_path):
+    monitor = DeviceMonitor(MockGpuProvider("2x24", seed=0), project_root=tmp_path)
+    monkeypatch.setattr(device_routes, "get_device_monitor", lambda: monitor)
+    response = await authed_client.get("/api/devices")
+    assert response.status_code == 200
+    assert response.json()["gpu_provider"] == "mock"
