@@ -185,3 +185,41 @@ def test_agent_own_code_is_inferred(agents_dir):
 def test_plain_agent_needs_nothing(agents_dir):
     _agent_code(agents_dir, "import json\n")
     assert rq.resolve_agent_requirements("bot").gpu == "none"
+
+
+def test_private_tool_requirements_override_builtin(monkeypatch, tmp_path):
+    from core.resource import paths
+
+    builtin = tmp_path / "builtin"
+    private = tmp_path / "private"
+    monkeypatch.setattr(rq, "TOOLS_DIR", builtin)
+    monkeypatch.setattr(paths, "PRIVATE_ROOT", private)
+    (builtin / "definitions").mkdir(parents=True)
+    (builtin / "definitions" / "trainer.md").write_text(SPEC_WITH_RESOURCES)
+    impl = private / "tools" / "implementations" / "trainer"
+    impl.mkdir(parents=True)
+    (impl / "spec.md").write_text("---\nresources:\n  gpu: none\n---\n")
+    assert resolve_tool_requirements("trainer").gpu == "none"
+    (impl / "spec.md").write_text("# 无显式声明")
+    (impl / "tool.py").write_text("import torch\n")
+    assert resolve_tool_requirements("trainer").gpu == "optional"
+
+
+def test_private_agent_requirements_include_private_tools(monkeypatch, tmp_path):
+    from core.resource import paths
+
+    monkeypatch.setattr(paths, "PRIVATE_ROOT", tmp_path)
+    monkeypatch.setattr(rq, "AGENTS_DIR", tmp_path / "builtin-agents")
+    monkeypatch.setattr(rq, "TOOLS_DIR", tmp_path / "builtin-tools")
+    impl = tmp_path / "agents" / "implementations" / "private-agent"
+    impl.mkdir(parents=True)
+    (impl / "spec.md").write_text("---\nresources:\n  gpu: required\n---\n")
+    assert rq.resolve_agent_requirements("private-agent").gpu == "required"
+    (impl / "spec.md").write_text("# 无显式声明")
+    (impl / "agent.py").write_text("# CPU code\n")
+    (tmp_path / "agents" / "registry.json").write_text(
+        '[{"id": "private-agent", "tools": ["private-tool"]}]')
+    tool = tmp_path / "tools" / "implementations" / "private-tool"
+    tool.mkdir(parents=True)
+    (tool / "tool.py").write_text("import torch\n")
+    assert rq.resolve_agent_requirements("private-agent").gpu == "optional"

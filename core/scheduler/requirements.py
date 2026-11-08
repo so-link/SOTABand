@@ -119,15 +119,34 @@ def infer_from_code(code: str) -> ResourceRequirements:
     return req
 
 
+def _resource_dirs(space: str, builtin: Path) -> list[Path]:
+    """与执行器保持一致：私有资源优先，回退内置目录。"""
+    from core.resource.paths import BUILTIN_ROOT, read_roots
+
+    return [root / space for root in read_roots() if root != BUILTIN_ROOT] + [builtin]
+
+
+def _resource_file(space: str, builtin: Path, *candidates: Path) -> Path:
+    for directory in _resource_dirs(space, builtin):
+        for relative in candidates:
+            path = directory / relative
+            if path.is_file():
+                return path
+    return builtin / candidates[0]
+
+
 def resolve_tool_requirements(tool_id: str, code: str | None = None) -> ResourceRequirements:
     """工具的资源需求：spec 声明优先，否则推断 code（未传入时读取已注册的实现）"""
-    spec = TOOLS_DIR / "definitions" / f"{tool_id}.md"
+    spec = _resource_file(
+        "tools", TOOLS_DIR, Path("definitions") / f"{tool_id}.md",
+        Path("implementations") / tool_id / "spec.md",
+    )
     if spec.is_file():
         declared = read_declared(spec.read_text(encoding="utf-8"))
         if declared is not None:
             return declared
     if code is None:
-        impl = TOOLS_DIR / "implementations" / tool_id / "tool.py"
+        impl = _resource_file("tools", TOOLS_DIR, Path("implementations") / tool_id / "tool.py")
         if not impl.is_file():
             return ResourceRequirements(reason="未找到工具代码")
         code = impl.read_text(encoding="utf-8")
@@ -141,13 +160,16 @@ def resolve_agent_requirements(agent_id: str) -> ResourceRequirements:
     所以 Agent 的预留必须覆盖这些工具。所调用的工具取注册信息的 tools 列表与代码中
     实际引用的工具之并集（现有注册信息的 tools 列表普遍为空）。
     """
-    spec = AGENTS_DIR / "definitions" / f"{agent_id}.md"
+    spec = _resource_file(
+        "agents", AGENTS_DIR, Path("definitions") / f"{agent_id}.md",
+        Path("implementations") / agent_id / "spec.md",
+    )
     if spec.is_file():
         declared = read_declared(spec.read_text(encoding="utf-8"))
         if declared is not None:
             return declared
 
-    impl = AGENTS_DIR / "implementations" / agent_id / "agent.py"
+    impl = _resource_file("agents", AGENTS_DIR, Path("implementations") / agent_id / "agent.py")
     code = impl.read_text(encoding="utf-8") if impl.is_file() else ""
     own = infer_from_code(code) if code else ResourceRequirements(reason="未找到 Agent 代码")
 
@@ -160,13 +182,14 @@ def resolve_agent_requirements(agent_id: str) -> ResourceRequirements:
 
 
 def _registry_tools(agent_id: str) -> list[str]:
-    try:
-        entries = json.loads((AGENTS_DIR / "registry.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return []
-    for e in entries if isinstance(entries, list) else []:
-        if isinstance(e, dict) and e.get("id") == agent_id:
-            return [t for t in e.get("tools") or [] if isinstance(t, str)]
+    for directory in _resource_dirs("agents", AGENTS_DIR):
+        try:
+            entries = json.loads((directory / "registry.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        for e in entries if isinstance(entries, list) else []:
+            if isinstance(e, dict) and e.get("id") == agent_id:
+                return [t for t in e.get("tools") or [] if isinstance(t, str)]
     return []
 
 
