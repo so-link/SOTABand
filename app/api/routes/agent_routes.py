@@ -95,6 +95,9 @@ created: {今天日期}
 | content | string | 是 | 用户输入的原始文本，赋值给变量 {变量名} |
 
 {如用户描述中有 "输入：{变量名}"，则列出该变量；如有多个变量，逐行列出；说明中注明变量用途}
+{【重要】只有「用户每次运行都要现场提供、且不能给默认值」的参数才列为必填（如用户要自己填的查询词）。
+ 数据集 id、文件路径、列名、固定配置这类能在规范里写死的值，必须在 flow 的 params 里写固定值，
+ 不要提升为 Agent 的必填输入——否则每次运行都要用户手填一遍才能跑}
 
 ## 4. 输出规范
 
@@ -104,6 +107,11 @@ created: {今天日期}
 | card | 结构化卡片（结果摘要/数据预览等） | `{"type": "...", "title": "...", "data": {...}}` |
 | done | 执行结束 | `{"messageId": "..."}` |
 | error | 错误信息 | `{"code": "...", "message": "..."}` |
+
+【输出内容要求】content 的事件结构是 `{"text": "..."}`，不要把整个 Markdown 文档包在 `{"text": ...}` 里当一坨塞进去；
+文字开头直接用业务结论，禁止输出 "# 标题"、"## 小节" 这类文档式标题层级（对话气泡里层级标题会喧宾夺主）。
+数据空/缺字段时说「未获取到 X」，不要用「无预警 / 一切正常 / 无异常」这类**看似肯定、实则未校验**的表述——
+只有确实读取到对应字段（如 alerts 为空数组）时才可以说「无预警」。
 
 ## 5. API 调用
 
@@ -189,6 +197,19 @@ created: {今天日期}
 5. 【重要】"agent 输入：{变量名}" 或 "输入：{变量名}" 表示将用户输入的内容赋值给该变量；输入规范中应列出该变量，执行流程第一步应写 "解析 Agent 输入，赋值给 {变量名}"
 6. API 调用参数的"来源"列必须明确：来自Agent输入变量 {变量名} / 来自第N步输出.字段名 / 固定值
 7. 执行流程中每一步的输入和输出要可追溯，形成清晰的数据流，用 {变量名} 标注数据在步骤间的传递
+7b. 【重要】任务式（task）Agent 的「## 7. 执行流程」必须额外给出一个 ```` ```flow ```` 代码块（JSON 数组，按顺序），
+    每个元素形如 {"step": 1, "tool": "工具显示名称", "params": {"参数": "固定值或 {变量名}"}, "output_bind": "结果变量名"}。
+    "tool" 填「## 6. 工具调用」标题里【【】】内的**工具名称原文**（不要改写成内部工具 id）；
+    params 里的固定值直接写字面值（如 "dataset_id": "ett-h1_1794053389"、"column": "OT"），
+    只有真正来自 Agent 输入的才写 {{变量名}}（双花括号，单花括号会被当成普通文字）；
+    步骤按先后顺序排列，同一工具多次调用就写多条。
+    【禁止】把「接收输入 / 校验结果 / 汇总点评 / 输出结果」这类非工具步骤写进 flow——
+    flow 只列真实工具调用；汇总由系统在流程结束后按「汇总要求」自动生成。
+    【禁止】同一工具 + 同一参数的重复步骤。
+    执行流程的文字描述里必须有一条明确写出「汇总要求」
+    （如「汇总成 2-4 句中文结论，指出…最高时段」），系统会据此生成面向用户的总结，
+    而不是只回显最后一次工具调用结果。
+7c. 步骤面向用户展示，名称必须是人能看懂的业务动作（如「统计油温各时段均值」），禁止出现 tool_id、函数名、文件路径等实现细节
 8. 如果用户未描述完整的输入/输出/异常处理，根据上下文合理推断填充
 9. 只输出 Markdown，不要额外解释
 10. frontmatter 中的 created 使用实际日期"""
@@ -1229,10 +1250,22 @@ async def delete_agent(agent_id: str):
     # 停止进程（两层的删除都需要先停，stop 对未运行进程是幂等的）
     await agent_factory.stop(agent_id)
 
+    # 级联清理该 Agent 的对话历史与执行历史：Agent 删除后这些数据在界面上
+    # 已不可见（会话按 agent_id 归属、任务按 Agent 归属），留在库里只会变成
+    # 无法打开的孤儿数据。三层删除口径一致。
+    # **必须放在文件删除成功之后**：文件删除失败会抛 500，那时 Agent 仍然
+    # 存在，若先把历史删了就是「删除失败但数据已不可逆丢失」。
+    def _purge_history() -> dict:
+        from core.observability import chat_store, task_history
+        return {
+            "removed_sessions": chat_store.delete_sessions_by_agent(agent_id),
+            "removed_tasks": task_history.delete_by_agent(agent_id),
+        }
+
     if entry.get("source") == "builtin":
         # 内置层：只移内置 registry 条目，git 管理的内置文件保留原处
         await registry.unregister(agent_id, scope="builtin")
-        return {"deleted": agent_id, "scope": "builtin"}
+        return {"deleted": agent_id, "scope": "builtin", **_purge_history()}
 
     if entry.get("source") == "shared":
         # 共享层（超管发布）：删共享文件与共享条目，对所有用户生效
@@ -1246,7 +1279,7 @@ async def delete_agent(agent_id: str):
         except OSError as e:
             raise HTTPException(500, f"删除 Agent '{agent_id}' 的文件失败：{type(e).__name__}: {e}")
         await registry.unregister(agent_id, scope="shared")
-        return {"deleted": agent_id, "scope": "shared"}
+        return {"deleted": agent_id, "scope": "shared", **_purge_history()}
 
     private_dir = resource_paths.private_space_dir("agents")
     private_spec = private_dir / "definitions" / f"{agent_id}.md"
@@ -1262,7 +1295,7 @@ async def delete_agent(agent_id: str):
     except OSError as e:
         raise HTTPException(500, f"删除 Agent '{agent_id}' 的文件失败：{type(e).__name__}: {e}")
     await registry.unregister(agent_id, scope="private")
-    return {"deleted": agent_id, "scope": "private"}
+    return {"deleted": agent_id, "scope": "private", **_purge_history()}
 
 # ══════════════════════════════════════════════════════════════════════
 #  Web 服务式 Agent 支持（见 docs/agent-types-design.md）

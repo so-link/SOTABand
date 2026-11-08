@@ -139,6 +139,14 @@ def delete(task_id: int) -> bool:
         return cur.rowcount > 0
 
 
+def delete_by_agent(agent_id: str) -> int:
+    """删除某 Agent 的全部执行历史，返回删除条数（删除 Agent 时级联调用）。"""
+    with _lock():
+        cur = _db().execute("DELETE FROM task_history WHERE agent_id=?", (agent_id,))
+        _db().commit()
+        return cur.rowcount
+
+
 def recent(limit: int = 50, agent_id: str | None = None) -> list[dict[str, Any]]:
     """最近任务（时间倒序）。running 状态的任务也会返回。"""
     with _lock():

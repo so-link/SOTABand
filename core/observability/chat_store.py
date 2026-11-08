@@ -174,3 +174,20 @@ def delete_session(session_id: str) -> bool:
         cur = conn.execute("DELETE FROM chat_sessions WHERE session_id=?", (session_id,))
         conn.commit()
         return cur.rowcount > 0
+
+
+def delete_sessions_by_agent(agent_id: str) -> int:
+    """删除某 Agent 的全部会话及其消息，返回删除的会话数。
+
+    删除 Agent 时调用：Agent 没了，它的会话在界面上已不可见，
+    留在库里只会变成无法打开的孤儿数据。
+    """
+    with _lock():
+        conn = _db()
+        sids = [r[0] for r in conn.execute(
+            "SELECT session_id FROM chat_sessions WHERE agent_id=?", (agent_id,)).fetchall()]
+        for sid in sids:
+            conn.execute("DELETE FROM chat_messages WHERE session_id=?", (sid,))
+        cur = conn.execute("DELETE FROM chat_sessions WHERE agent_id=?", (agent_id,))
+        conn.commit()
+        return len(sids) if sids else cur.rowcount

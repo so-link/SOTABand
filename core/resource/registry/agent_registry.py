@@ -40,6 +40,10 @@ def _write_json(path: Path, data) -> None:
 REGISTRY_DIR = paths.BUILTIN_ROOT / "agents"
 REGISTRY_FILE = REGISTRY_DIR / "registry.json"
 
+# status=deleted 占位条目：内置根只读，删除内置 Agent 时在上层写掩码，
+# 由 _read 合并后过滤，使删除对随 git 分发的内置条目同样生效。
+DELETED = "deleted"
+
 # registry.json 读-改-写锁：并发注册/删除时防止后写覆盖前写丢条目
 _WRITE_LOCK = threading.Lock()
 
@@ -125,7 +129,13 @@ class AgentRegistry(BaseRegistry):
         return self._read_scope(VISIBILITY_PRIVATE)
 
     def _read(self) -> list[dict]:
-        """合并内置与私有 registry（**私有优先**：同 id 取先命中的私有条目）。"""
+        """合并内置与私有 registry（**私有优先**：同 id 取先命中的私有条目）。
+
+        ``status=deleted`` 是删除掩码：内置注册表随 git 分发、运行期只读，
+        要「删掉」一个内置 Agent 只能在上层写掩码，由这里统一过滤。
+        （旧实现直接改写内置 registry.json，删掉的内置 Agent 在 git 拉取/
+        重装后不会回来，等同于把系统资产从仓库里抹掉了。）
+        """
         merged: dict[str, dict] = {}
         for root in paths.resource_roots():
             rf = root / "agents" / "registry.json"
@@ -146,7 +156,7 @@ class AgentRegistry(BaseRegistry):
                         merged[e["id"]] = e
             except Exception:
                 continue
-        return list(merged.values())
+        return [e for e in merged.values() if e.get("status") != DELETED]
 
     def read_from(self, root: Path) -> list[dict]:
         rf = root / "agents" / "registry.json"
@@ -186,11 +196,10 @@ class AgentRegistry(BaseRegistry):
         # public 落共享根（全员可见），private 落当前用户的私有根
         with _WRITE_LOCK:
             data = self._read_scope(visibility)
-            existing = [i for i, e in enumerate(data) if e["id"] == agent_id]
-            if existing:
-                data[existing[0]] = entry
-            else:
-                data.append(entry)
+            # 同名条目（含同层的 status=deleted 删除掩码）一律替换：重新注册
+            # 意味着「我要用这个 Agent」，不能保留掩码把它继续藏起来。
+            data = [e for e in data if e.get("id") != agent_id]
+            data.append(entry)
             self._write_scope(data, visibility)
 
         # 保存 MD 规范文档——与 registry 条目同根（内置根随仓库分发，运行期不写）
@@ -203,18 +212,27 @@ class AgentRegistry(BaseRegistry):
         return agent_id
 
     async def unregister(self, resource_id: str, scope: str = "all") -> None:
-        # 按层移除注册条目（与 tool_registry.unregister 同款多态）：
-        # "builtin" 只删内置条目、"shared" 只删共享条目、"private" 只删私有
-        # 条目、"all" 各层全删。层与层之间独立——删除任一层不得牵连另一层。
-        if scope == "private":
-            roots = [paths.private_root()]
-        elif scope == "shared":
-            roots = [paths.shared_root()]
-        elif scope == "builtin":
-            roots = [paths.BUILTIN_ROOT]
-        else:
-            roots = paths.resource_roots()
-        for root in roots:
+        """按层移除注册条目（层与层独立，删除任一层不得牵连另一层）。
+
+        - ``"private"`` / ``"shared"``：从对应可写层移除条目；
+        - ``"builtin"``：内置根随 git 分发、运行期只读，**不改写内置
+          registry.json**，改为在上层写一条 ``status=deleted`` 删除掩码，
+          由 ``_read`` 过滤——与 model_registry 同一套办法。这样 git 拉取或
+          重新部署后内置 Agent 仍然健全，可以随时取消掩码恢复；
+        - ``"all"``：私有、共享两层移除条目 + 内置写掩码。
+
+        内置掩码写到**共享层**而不是当前用户的私有层：内置 Agent 是系统资产，
+        超管删除后应对所有用户消失。写私有层的话只有执行删除的那个人看不到，
+        其他用户仍然能看到、能用，删除语义就分裂了。
+        """
+        writable_roots: list[Path] = []
+        if scope in ("private", "all"):
+            writable_roots.append(paths.private_root())
+        if scope in ("shared", "all"):
+            writable_roots.append(paths.shared_root())
+        needs_mask = scope in ("builtin", "all")
+
+        for root in writable_roots:
             rf = root / "agents" / "registry.json"
             if not rf.exists():
                 continue
@@ -226,6 +244,21 @@ class AgentRegistry(BaseRegistry):
                 next_data = [e for e in data if isinstance(e, dict) and e.get("id") != resource_id]
                 if len(next_data) != len(data):
                     _write_json(rf, next_data)
+
+        if needs_mask:
+            builtin_ids = {e.get("id") for e in self.read_from(paths.BUILTIN_ROOT)}
+            if resource_id not in builtin_ids:
+                return
+            with _WRITE_LOCK:
+                # 共享层若已有同 id 的真实条目（重新发布的新版本），它不是
+                # 内置「原版」，不应被掩码遮蔽——否则新发布的公共 Agent 谁都看不到。
+                shared = self._read_scope(VISIBILITY_PUBLIC)
+                if any(e.get("id") == resource_id and e.get("status") != DELETED for e in shared):
+                    return
+                shared = [e for e in shared if e.get("id") != resource_id]
+                shared.append({"id": resource_id, "name": resource_id,
+                               "type": "agent", "status": DELETED})
+                self._write_scope(shared, VISIBILITY_PUBLIC)
 
     async def get(self, resource_id: str) -> dict | None:
         data = self._read()
