@@ -65,8 +65,8 @@ from pathlib import Path
 from typing import AsyncGenerator
 
 # 项目根目录：只信平台注入的 env，不写死目录层级。
-# Agent 实现可能落在内置 resources/agents/implementations/ 或私有
-# resources-private/agents/implementations/，两者到项目根的层级不同，
+# Agent 实现可能落在系统公共层 SB-USER/100/agents/ 或私有
+# <USER_HOME>/agents/（扁平布局），两者到项目根的层级不同，
 # 写死 parents[N] 会把上级目录当成项目根（工具查找、日志目录全部失效）。
 def _detect_project_root() -> Path:
     env_root = os.environ.get("SOTABAND_ROOT", "").strip()
@@ -107,8 +107,7 @@ from core.agent.base import BaseAgent, AgentContext
 TOOL_HELPER_TEMPLATE = '''
     def _call_tool_{tool_id_safe}(self, **params) -> dict:
         """调用工具: {tool_name} (tool_id: {tool_id})"""
-        # 在「内置 + 私有」资源根中定位工具实现。
-        # 私有根在 USER_HOME/resources-private，与项目根层级无关，
+        # 在「私有 + 系统公共层」资源根中定位工具实现（私有优先）。
         # 运行时优先向 core.resource.paths 询问，失败再按 env 还原。
         try:
             from core.resource import paths as _paths
@@ -116,8 +115,10 @@ TOOL_HELPER_TEMPLATE = '''
         except Exception:
             _spaces = None
         if not _spaces:
-            _spaces = [PROJECT_ROOT / "resources" / "tools",
-                       USER_HOME / "resources-private" / "tools"]
+            _sb = Path(os.environ.get("SOTABAND_HOME", "").strip()
+                       or str(PROJECT_ROOT.parent / "SB-USER"))
+            _uid = os.environ.get("SOTABAND_SYSTEM_UID", "100").strip() or "100"
+            _spaces = [USER_HOME / "tools", _sb / _uid / "tools"]
         _tool_base = None
         for _space in _spaces:
             _cand = _space / "implementations" / "{tool_id}"
@@ -1191,7 +1192,7 @@ yield self._step("reply", "回复完成", "done")
   - 【禁止】任何绝对路径（/root/…、/home/…、C:… 等），包括写成常量、参数默认值、或从规范文档里抄来的数据集目录
   - 【禁止】用 Path(__file__).parents[N] / .parent.parent 链或 Path.cwd() 猜目录——模板已备好：PROJECT_ROOT（系统根，只读）、USER_HOME（当前用户目录，产物写这里）、out_dir(...) （自动创建并返回 USER_HOME/子目录）
   - 需要落盘（导出文件、中间结果）一律 out_dir("子目录")；执行日志已由 _log_step 统一落 USER_HOME/agent_logs，不要自己拼日志路径
-  - 【禁止】往 PROJECT_ROOT、resources/、resources-private/ 里写任何文件——那是 git 管理的系统资产区
+  - 【禁止】往 PROJECT_ROOT（git 管理的代码区）或系统公共层 SB-USER/100/ 里写任何文件
   - 工具产物的路径从工具返回结果里读，不要自己按目录规则拼出来
 - 直接返回 Python 代码，不要 markdown 代码块"""
 

@@ -130,9 +130,9 @@ def _llm_chat(messages: list, **kwargs) -> str:
     finally:
         loop.close()
 
-# ── 资源根（私有 + 内置，私有优先）──
+# ── 资源根（私有 + 系统公共层，私有优先）──
 def _resource_roots():
-    """当前用户私有根 + 内置根，私有在前（覆盖层语义：用户副本覆盖内置）。
+    """当前用户私有根 + 系统公共层根，私有在前（覆盖层语义：用户副本覆盖公共版本）。
 
     优先向 core.resource.paths 询问（平台权威实现）；不可用时按 env 还原。
     """
@@ -140,7 +140,9 @@ def _resource_roots():
         from core.resource import paths as _p
         return list(_p.resource_roots())
     except Exception:
-        return [_USER_HOME / "resources-private", _PROJECT_ROOT / "resources"]
+        _sb = _env_path("SOTABAND_HOME") or (_PROJECT_ROOT.parent / "SB-USER")
+        return [_USER_HOME,
+                _sb / (os.environ.get("SOTABAND_SYSTEM_UID", "100").strip() or "100")]
 
 # ── 工具调用辅助 ──
 def _call_tool(tool_name: str, **params) -> dict:
@@ -670,7 +672,7 @@ CRITICAL RULES:
        _DATA_DIR      _USER_HOME/data — the base for files this tool produces
        _out_dir(...)  create & return _DATA_DIR/<subdir> (preferred for outputs)
        _tool_dir      this tool's own directory (static assets shipped with it)
-   - Writing: use _out_dir("xxx") / _DATA_DIR / ... . NEVER write under _PROJECT_ROOT (it is the git-distributed system area) and never mutate resources/ or resources-private/.
+   - Writing: use _out_dir("xxx") / _DATA_DIR / ... . NEVER write under _PROJECT_ROOT (it is the git-distributed code area) and never mutate the public system resource layer (SB-USER/100) or other users' homes.
    - Reading a file the user provided: pass the path through _resolve_path(path) (handles relative/absolute/~ cross-platform). Reading a registered dataset/model: use _dataset_file(id, name="", ext="csv") for a dataset FILE, _dataset_dir(id) for a dataset DIRECTORY, _model_data(id) for model contents — NEVER reconstruct those paths yourself, and NEVER assume how many files a dataset directory holds or what they are named (a dataset usually has many CSVs, e.g. one per stock/entity).
    - Default parameter values must be portable too: default to "" or a relative name and resolve at runtime, not a machine-specific absolute path.
 6b. File artifacts & IDs: put every produced file path in a ``*_path`` field of ``data`` (e.g. image_path, file_path, output_path). The platform auto-registers any ``*_path`` pointing inside the user home and injects a ``file_id`` for the UI — NEVER call file APIs or construct download URLs yourself, just return the path fields.

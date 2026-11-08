@@ -55,8 +55,9 @@ def _call_api(api_name: str, **params) -> dict:
 def _call_tool(tool_name: str, **params) -> dict:
     """调用已注册的工具"""
     import subprocess as _sp
-    # 资源根读取顺序：私有优先（用户「复制为副本」后的修改生效），内置兜底
-    _roots = [_USER_HOME / "resources-private", _PROJECT_ROOT / "resources"]
+    # 资源根读取顺序：私有优先（用户「复制为副本」后的修改生效），系统公共层兜底
+    _roots = [_USER_HOME, _env_path("SOTABAND_HOME") or (_PROJECT_ROOT.parent / "SB-USER")
+              / (os.environ.get("SOTABAND_SYSTEM_UID", "100").strip() or "100")]
     tool_dir = next((r / "tools" / "implementations" / tool_name for r in _roots
                          if (r / "tools" / "implementations" / tool_name / "tool.py").exists()),
                     _roots[0] / "tools" / "implementations" / tool_name)

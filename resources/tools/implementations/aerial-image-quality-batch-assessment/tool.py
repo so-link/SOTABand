@@ -73,8 +73,9 @@ def _llm_chat(messages: list, **kwargs) -> str:
 def _call_tool(tool_name: str, **params) -> dict:
     """调用已注册的工具（通过 registry.json 查找工具 ID 对应的实现目录）"""
     import subprocess as _sp
-    # 资源根读取顺序：私有优先（用户「复制为副本」后的修改生效），内置兜底
-    _roots = [_USER_HOME / "resources-private", _PROJECT_ROOT / "resources"]
+    # 资源根读取顺序：私有优先（用户「复制为副本」后的修改生效），系统公共层兜底
+    _roots = [_USER_HOME, _env_path("SOTABAND_HOME") or (_PROJECT_ROOT.parent / "SB-USER")
+              / (os.environ.get("SOTABAND_SYSTEM_UID", "100").strip() or "100")]
     # 从「私有 + 内置」registry.json 查找工具 ID（目录名），私有优先
     tool_id = tool_name  # 默认用名称作为 ID
     for _r in _roots:

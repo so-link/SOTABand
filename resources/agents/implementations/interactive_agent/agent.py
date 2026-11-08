@@ -2184,11 +2184,16 @@ class InteractiveAgent(BaseAgent):
         if not s:
             return None
         project_root = Path(__file__).resolve().parent.parent.parent.parent.parent
-        # 私有数据根按多用户规划取 SOTABAND_USER_HOME（factory 注入），不再硬编码
+        # 数据根（扁平布局）：私有数据目录优先，系统公共层次之，
+        # 均按 factory 注入的 env 还原，不硬编码层级
         _uh = os.environ.get("SOTABAND_USER_HOME", "").strip()
-        data_roots = [project_root / "resources" / "data", project_root / "storage" / "workspace"]
+        _sb = os.environ.get("SOTABAND_HOME", "").strip() or str(project_root.parent / "SB-USER")
+        _sys_uid = os.environ.get("SOTABAND_SYSTEM_UID", "100").strip() or "100"
+        data_roots = []
         if _uh:
-            data_roots.append(Path(_uh) / "resources-private" / "data")
+            data_roots.append(Path(_uh) / "data")
+        data_roots.append(Path(_sb) / _sys_uid / "data")
+        data_roots.append(project_root / "storage" / "workspace")
         # 候选 1：整条回答就是路径
         # 候选 2：从文本中提取带扩展名的文件名 token
         cands = [s]

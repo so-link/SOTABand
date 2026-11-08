@@ -910,8 +910,8 @@ async def update_tool_tags(tool_id: str, req: dict):
 async def get_tool(tool_id: str):
     entry = await registry.get(tool_id)
     if not entry: raise HTTPException(404, f"Tool '{tool_id}' not found")
-    # 内置工具（resources/）与私有工具（resources-private/）的内容都要能读到，
-    # 否则打开内置示例工具会因只查私有目录而界面空白。
+    # 公共层工具（SB-USER/100/）与私有工具（用户家目录）的内容都要能读到，
+    # 否则打开公共示例工具会因只查私有目录而界面空白。
     spec_md, _ = registry.read_def_text(tool_id, ".md")
     code = registry.read_code_text(tool_id)
     demand_md, has_demand = registry.read_def_text(tool_id, "-demand.md")
@@ -2146,9 +2146,9 @@ async def save_step1(tool_id: str, req: SaveStep1Request):
 
 
 # ── 显式 fork（覆盖层，方案 C，2026-11-04）──────────────────────
-# 内置工具是随 git 分发的系统资产：默认只读使用，要改先「复制为我的
-# 副本」——复制到 USER_HOME/resources-private 后才进编辑器。读取已统一
-# 私有优先，副本自动生效；「丢弃副本」即恢复内置原样。
+# 公共工具是系统用户目录（SB-USER/100）的系统资产：默认只读使用，要改先
+# 「复制为我的副本」——复制到用户家目录（扁平布局）后才进编辑器。读取已统一
+# 私有优先，副本自动生效；「丢弃副本」即恢复公共原样。
 
 @router.get("/{tool_id}/fork-status")
 async def get_fork_status(tool_id: str):
