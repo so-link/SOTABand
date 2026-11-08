@@ -39,7 +39,7 @@ import time
 from pathlib import Path
 
 from core import user_paths
-from core.user_paths import DEFAULT_UID, auth_dir, user_home
+from core.user_paths import DEFAULT_UID, SYSTEM_UID, auth_dir, user_home
 from core.resource.json_store import write_json_atomic
 
 # 系统级例外：登录用户表与令牌密钥是**平台级实体**（验证任何用户的令牌
@@ -48,11 +48,19 @@ USERS_DIR = auth_dir()
 USERS_FILE = USERS_DIR / "users.json"
 SECRET_FILE = USERS_DIR / "secret.key"
 
-# 普通用户 uid 起始值（类比 Linux 普通账号从 1000 开始）
+# 普通用户 uid 起始值（类比 Linux 普通账号从 1000 开始）。uid < 1000 全部
+# 是保留位：0=超管、100=系统用户，永不分配给普通用户（_next_uid 的下限保证）。
 FIRST_USER_UID = 1000
 
 # 超级用户 uid（历史数据已经落在 SB-USER/0/，直接复用）
 SUPERUSER_UID = DEFAULT_UID
+
+# 系统用户 uid（公共资源归属，见 core.user_paths.SYSTEM_UID）
+SYSTEM_USER_UID = SYSTEM_UID
+
+# 保留用户名：即使有人想建一个恰好叫这些名字的普通账号也会与系统实体混淆，
+# 一律禁止（系统用户本身不可登录，这里只堵"同名普通账号"的口子）。
+RESERVED_USERNAMES = frozenset({"system"})
 
 # 令牌默认有效期（秒）
 TOKEN_TTL_SECONDS = int(os.getenv("SOTABAND_AUTH_TOKEN_TTL", str(7 * 24 * 3600)))
@@ -122,6 +130,36 @@ def is_superuser_uid(uid: str) -> bool:
     return str(uid) == SUPERUSER_UID
 
 
+def is_system_uid(uid: str) -> bool:
+    """uid 是否属于系统用户（公共资源归属者）。"""
+    return str(uid) == SYSTEM_USER_UID
+
+
+def _seed_system_row(users: list[dict]) -> dict:
+    """首次使用时把系统用户行种进用户表（id=100, builtin=True）。
+
+    与超管行同构：**行内不存密码散列，且永远不发放密码通道**——系统用户
+    不可登录，authenticate 对它一律拒绝。role 恒为 user：它是资源归属
+    实体，不是管理角色。种进表的意义：
+
+    - cron 调度以 known_uids() 判定存活 → 系统定时任务能被调度；
+    - 用户管理页可见（builtin=True 标为内置，与普通账号一样只读 uid）。
+    """
+    row = {
+        "id": SYSTEM_USER_UID,
+        "username": "system",
+        "display_name": "系统",
+        "role": "user",
+        "builtin": True,
+        "system": True,
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    # 紧跟超管行之后（超管行由 _load_users 先种入）
+    users.insert(min(1, len(users)), row)
+    _save_users(users)
+    return row
+
+
 def known_uids() -> set[str]:
     """用户表中存在的 uid 集合。
 
@@ -177,6 +215,8 @@ def _load_users() -> list[dict]:
     _downgrade_legacy_admins(users)  # 唯一 admin = .env 超管；原地改，仅变化时落盘
     if not any(str(u.get("id")) == SUPERUSER_UID for u in users if isinstance(u, dict)):
         _seed_superuser_row(users)  # 原地 insert(0) 并落盘
+    if not any(str(u.get("id")) == SYSTEM_USER_UID for u in users if isinstance(u, dict)):
+        _seed_system_row(users)  # 公共资源归属实体，紧跟超管行
     return users
 
 
@@ -295,6 +335,8 @@ def create_user(username: str, password: str, display_name: str = "") -> dict:
     err = validate_username(username)
     if err:
         raise AuthError(err)
+    if username in RESERVED_USERNAMES:
+        raise AuthError(f"用户名 {username} 为系统保留名", 409)
     err = validate_password(password)
     if err:
         raise AuthError(err)
@@ -323,8 +365,11 @@ def rename_user(uid: str, new_username: str) -> dict:
     """改用户名。**只改名字不改 uid**——uid 是用户目录名，搬家不在本次范围。
 
     超管与普通用户同路径：都在用户表这一行上改名（超管行的密码不在表里，
-    登录名随本行 username 走）。
+    登录名随本行 username 走）。系统用户行不可改名：``system`` 这个名字
+    是保留名（禁止他人占用），改名会留下空档。
     """
+    if str(uid) == SYSTEM_USER_UID:
+        raise AuthError("系统用户不可改名", 400)
     err = validate_username(new_username)
     if err:
         raise AuthError(err)
@@ -366,6 +411,8 @@ def set_password(uid: str, new_password: str, *, allow_superuser: bool = False) 
         if not allow_superuser:
             raise AuthError("超级用户的密码在 .env 的 SOTABAND_ROOT_PASSWORD 中配置", 400)
         return
+    if str(uid) == SYSTEM_USER_UID:
+        raise AuthError("系统用户不可登录，无需密码", 400)
     users = _load_users()
     target = next((u for u in users if str(u.get("id")) == str(uid)), None)
     if target is None:
@@ -394,6 +441,8 @@ def delete_user(uid: str) -> dict:
     """删除账号。**只删凭据，不删用户目录**（数据删除不可逆，留给手工处理）。"""
     if str(uid) == SUPERUSER_UID:
         raise AuthError("不能删除超级用户", 400)
+    if str(uid) == SYSTEM_USER_UID:
+        raise AuthError("不能删除系统用户（公共资源的归属实体）", 400)
     users = _load_users()
     remain = [u for u in users if str(u.get("id")) != str(uid)]
     if len(remain) == len(users):
@@ -414,6 +463,10 @@ def authenticate(username: str, password: str) -> dict | None:
     entry = _raw_by_name(username)
     if entry is None:
         # 用户不存在时也执行一次哈希，拉平响应时间防用户名枚举
+        _hash_password(password)
+        return None
+    if str(entry.get("id")) == SYSTEM_USER_UID:
+        # 系统用户不可登录：即使有人手工往行里塞了散列也拒绝（同超管行的纵深防御）
         _hash_password(password)
         return None
     if entry.get("id") == SUPERUSER_UID:
@@ -464,6 +517,30 @@ def issue_token(user: dict, ttl: int | None = None) -> str:
     body = _b64e(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
     sig = hmac.new(_get_secret(), body.encode("ascii"), hashlib.sha256).digest()
     return f"{body}.{_b64e(sig)}"
+
+
+def system_user() -> dict:
+    """系统用户行（缺行时先种入）。公共资源的归属实体，不可登录。"""
+    row = next((u for u in _load_users() if str(u.get("id")) == SYSTEM_USER_UID), {})
+    return _public(row)
+
+
+# 代管令牌有效期：足够完成一轮公共资源维护，过期后须重新领取。
+# 不用持久会话：超管的登录令牌与代管令牌分离，代管令牌泄露影响面小且自愈。
+ACT_AS_SYSTEM_TTL_SECONDS = int(os.getenv("SOTABAND_ACT_AS_SYSTEM_TTL", "3600"))
+
+
+def issue_system_token() -> str:
+    """签发系统用户短时令牌（仅供超管代管公共资源）。
+
+    系统用户不可登录（authenticate 拒绝），这条通道是它唯一的令牌来源，
+    调用方必须先过 require_superuser。令牌走标准 verify_token 校验链，
+    中间件与路由零特判；过期即失效，不写任何持久状态。
+    """
+    row = next((u for u in _load_users() if str(u.get("id")) == SYSTEM_USER_UID), None)
+    if row is None:
+        row = _seed_system_row(_load_users())
+    return issue_token(_public(row), ttl=ACT_AS_SYSTEM_TTL_SECONDS)
 
 
 def verify_token(token: str) -> dict | None:

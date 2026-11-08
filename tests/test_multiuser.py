@@ -102,7 +102,8 @@ def test_superuser_login_and_token(superuser_env):
 def test_list_users_has_superuser_first_and_no_passwords(superuser_env):
     create_user("alice", "alice-password")
     users = list_users()
-    assert [u["id"] for u in users] == ["0", "1000"]
+    # 超管置顶，其后是系统用户行（公共资源归属实体，builtin），再追加普通用户
+    assert [u["id"] for u in users] == ["0", "100", "1000"]
     assert all("password" not in u for u in users)
 
 

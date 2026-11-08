@@ -29,12 +29,16 @@ from pydantic import BaseModel
 from app.api.deps import require_login, require_superuser
 from core import user_prefs
 from core.auth import (
+    ACT_AS_SYSTEM_TTL_SECONDS,
+    SUPERUSER_UID,
+    SYSTEM_USER_UID,
     AuthError,
     authenticate,
     change_own_password,
     create_user,
     delete_user,
     get_user_by_id,
+    issue_system_token,
     issue_token,
     list_users,
     set_display_name,
@@ -42,6 +46,7 @@ from core.auth import (
     rename_user,
     superuser,
     superuser_password_configured,
+    system_user,
 )
 from core.auth.session import AuthUser, get_current_user
 
@@ -111,7 +116,10 @@ async def me():
             "username": u.username,
             "role": u.role,
             "displayName": full.get("display_name") or u.username,
-            "builtin": bool(full.get("builtin")) or u.id == "0",
+            "builtin": bool(full.get("builtin")) or u.id in (SUPERUSER_UID, SYSTEM_USER_UID),
+            # 代管模式标记：超管持系统令牌请求时为 true，前端据此显示
+            # 「正在以系统身份操作」横幅，避免误以为在改自己的资源
+            "acting_as_system": u.id == SYSTEM_USER_UID,
         },
     }
 
@@ -219,3 +227,20 @@ async def superuser_info(_: AuthUser = Depends(require_superuser)):
     没有密码可登录——界面据此提示"设置密码后才会启用多用户"。
     """
     return {"superuser": superuser(), "password_configured": superuser_password_configured()}
+
+
+@router.post("/act-as-system")
+async def act_as_system(_: AuthUser = Depends(require_superuser)):
+    """领取系统用户短时令牌（仅超管）——代管公共资源的身份入口。
+
+    系统用户（uid=100）是公共资源（内置数据集/工具/模型/Agent、系统定时
+    任务）的归属实体，不可登录、无密码。超管从这里领取 1 小时有效的令牌，
+    之后以该令牌调用普通资源接口，写入即落在系统目录、owner=100、全员
+    可见。令牌过期即失效；无撤销端点（最多 1 小时窗口，接受）。
+    """
+    return {
+        "ok": True,
+        "token": issue_system_token(),
+        "expires_in": ACT_AS_SYSTEM_TTL_SECONDS,
+        "user": system_user(),
+    }

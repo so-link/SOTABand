@@ -19,8 +19,13 @@
   沿用迁移脚本已经落地的 0 号目录，历史数据（对话/私有资源/上传/工作区
   清单）天然归属超管，无需再搬一次。密码来自 .env
   ``SOTABAND_ROOT_PASSWORD``；用户名/显示名在用户表（见 core.auth）。
+- **系统用户 uid = "100"**（目录 /root/SB-USER/100/）：类比 Linux 的
+  root/bin 等系统账号。公共资源（内置数据集/工具/模型/Agent、系统定时
+  任务）一律归属它；**不可登录、无密码**，仅超管可代管（领取短时令牌，
+  见 POST /api/auth/act-as-system）。
 - **普通用户 uid 从 1000 起**（类比 Linux 普通账号），由系统顺序分配、
-  不可修改，目录如 /root/SB-USER/1000/。
+  不可修改，目录如 /root/SB-USER/1000/。uid < 1000 的号位是保留位，
+  永远不会分配给普通用户。
 
 登录后（core/auth）取登录用户 id；无登录态读环境变量 SOTABAND_USER_ID；
 都没有就是超管 "0"。
@@ -28,7 +33,8 @@
 **系统级例外（不放用户目录）**：
 - ``users.json`` / ``secret.key``（登录用户表与令牌密钥）：平台级实体，
   验证任何用户的令牌都需要同一把密钥 → SYSTEM_ROOT/storage/auth/。
-- 内置资源 owner 历史值迁移时统一改写为 "0"。
+- 公共资源归属系统用户 "100"（内置资源运行期安装进系统目录后，
+  owner 统一为 "100"）。
 """
 
 from __future__ import annotations
@@ -47,6 +53,11 @@ USER_HOME_ROOT = Path(os.environ.get("SOTABAND_HOME", "/root/SB-USER"))
 
 # 超级用户 uid（无登录态时的回退值，见 current_uid）
 DEFAULT_UID = "0"
+
+# 系统用户 uid：公共资源（内置数据集/工具/模型/Agent、系统定时任务）的归属。
+# 类比 Linux 系统账号，落在普通用户段（≥1000）之下的保留位，不可登录、无密码，
+# 仅超管可代管。见 core.auth。
+SYSTEM_UID = "100"
 
 # uid 消毒：只允许安全字符，防 token/env 注入路径穿越
 _UID_RE = re.compile(r"[^A-Za-z0-9_.-]")
