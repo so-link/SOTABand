@@ -6,7 +6,7 @@ import {
 import { Button } from '@/components/ui/button'
 import type { FileTreeNode } from '@/types/workspace'
 
-const BASE_URL = ''
+import { apiGet } from '@/services/api/client'
 
 interface Subdir { name: string; path: string }
 interface DirFile { name: string; path: string; format: string; size: number }
@@ -29,12 +29,9 @@ export function OpenDirectoryDialog({ onOpen, onClose }: Props) {
     setLoading(true)
     setError('')
     try {
-      const res = await fetch(`${BASE_URL}/api/file/browse-directory?path=${encodeURIComponent(path)}`)
-      if (!res.ok) {
-        const detail = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }))
-        throw new Error(detail.detail || `HTTP ${res.status}`)
-      }
-      const data = await res.json()
+      const data = await apiGet<any>(
+        `/api/file/browse-directory?path=${encodeURIComponent(path)}`
+      )
       setCurrentPath(data.current)
       setSubdirs(data.subdirs || [])
       setFiles(data.files || [])
@@ -55,10 +52,12 @@ export function OpenDirectoryDialog({ onOpen, onClose }: Props) {
 
   // 返回上级
   const goUp = async () => {
-    const res = await fetch(`${BASE_URL}/api/file/browse-directory?path=${encodeURIComponent(currentPath)}`)
-    if (!res.ok) return
-    const data = await res.json()
-    if (data.parent) loadDir(data.parent)
+    try {
+      const data = await apiGet<any>(
+        `/api/file/browse-directory?path=${encodeURIComponent(currentPath)}`
+      )
+      if (data.parent) loadDir(data.parent)
+    } catch { /* 已在根目录或不可访问，无操作 */ }
   }
 
   // 打开当前目录（扫描成树结构）
@@ -67,12 +66,9 @@ export function OpenDirectoryDialog({ onOpen, onClose }: Props) {
     setOpening(true)
     setError('')
     try {
-      const res = await fetch(`${BASE_URL}/api/file/scan-directory?path=${encodeURIComponent(currentPath)}`)
-      if (!res.ok) {
-        const detail = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }))
-        throw new Error(detail.detail || `HTTP ${res.status}`)
-      }
-      const data = await res.json()
+      const data = await apiGet<any>(
+        `/api/file/scan-directory?path=${encodeURIComponent(currentPath)}`
+      )
       onOpen(data.root as FileTreeNode)
     } catch (e) {
       setError(String(e))

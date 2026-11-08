@@ -10,13 +10,64 @@ export interface AutocompleteItem {
   id: string
 }
 
+/** Agent 类型（三类体系，见 docs/agent-types-design.md） */
+export type AgentRoleChoice = 'interactive' | 'task' | 'web-service'
+
+export const AGENT_ROLE_OPTIONS: Array<{ value: AgentRoleChoice; label: string; desc: string }> = [
+  { value: 'interactive', label: '交互式', desc: '通过对话完成任务，理解用户意图并调用合适的工具' },
+  { value: 'task', label: '任务式', desc: '按既定流程依次调用工具完成任务' },
+  { value: 'web-service', label: 'Web 服务式', desc: '以 HTTP API 形式对外提供服务，组合调用工具' },
+]
+
+/** 三类 Agent 的默认需求模板（用户可在此基础上编辑） */
+export const AGENT_ROLE_TEMPLATES: Record<AgentRoleChoice, string> = {
+  interactive:
+`我需要一个交互式 Agent，用于【描述你的业务场景】。
+
+- 功能：接收用户输入，理解用户意图，并调用合适的工具完成任务。
+- 可用工具：$工具名（按需引用）
+- 交互方式：与用户多轮对话，逐步澄清需求后执行。
+- 输出：以自然语言回复，并展示工具执行结果。`,
+
+  task:
+`我需要一个任务式 Agent，用于【描述你的业务流程】。
+
+- 功能：按既定流程依次调用工具完成任务。
+- 触发方式：用户点击「启动」后执行。
+- 执行流程：
+    步骤 1：调用 $工具名1，参数 ...
+    步骤 2：调用 $工具名2，使用步骤 1 的输出 ...
+    步骤 3：...
+- 启动参数：【列出启动时需要的参数】
+- 输出：最终结果输出到消息界面。`,
+
+  'web-service':
+`我需要一个 Web 服务式 Agent，用于【描述你的服务场景】。
+
+- 功能：以 HTTP API 形式对外提供服务。
+- 提供服务（可多个）：
+    API 1：POST /xxx
+        参数：{ 参数名: 类型 }
+        流程：调用 $工具名 ...
+        返回：{ 返回字段 }
+    API 2：...
+- 监听端口：自动分配
+- 输出：JSON 响应。`,
+}
+
 interface AgentEditorState {
   step: EditorStep
+  /** 新建 Agent 时选择的类型（null 表示尚未选择，需先选类型再填需求） */
+  agentRole: AgentRoleChoice | null
   description: string
   generatedMd: string
   generatedCode: string
   sandboxResults: Record<string, unknown> | null
   registeredId: string | null
+  /** 上次注册是否命中了已有 Agent（原地更新，而非新增一条） */
+  lastRegisterUpdated: boolean
+  /** 上次注册后的版本号，用于完成页展示 */
+  lastRegisterVersion: string
   isGenerating: boolean
   error: string | null
   // ── 编辑已有 Agent 模式 ──
@@ -38,6 +89,8 @@ interface AgentEditorState {
   toolItems: AutocompleteItem[]
 
   setDescription: (text: string) => void
+  /** 选择 Agent 类型；若需求框为空则自动填入该类型默认模板 */
+  setAgentRole: (role: AgentRoleChoice) => void
   setGeneratedMd: (md: string) => void
   setGeneratedCode: (code: string) => void
   generateSpec: () => Promise<void>
@@ -71,11 +124,14 @@ interface AgentEditorState {
 
 export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
   step: 1,
+  agentRole: null,
   description: '',
   generatedMd: '',
   generatedCode: '',
   sandboxResults: null,
   registeredId: null,
+  lastRegisterUpdated: false,
+  lastRegisterVersion: '',
   isGenerating: false,
   error: null,
   editingAgentId: null,
@@ -89,6 +145,13 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
 
   setDescription: (text) => set({ description: text }),
 
+  setAgentRole: (role) => {
+    const { description } = get()
+    // 需求框为空 → 自动填入该类型默认模板；已有内容 → 保留（由 UI 层询问是否覆盖）
+    const next = description.trim() ? description : AGENT_ROLE_TEMPLATES[role]
+    set({ agentRole: role, description: next })
+  },
+
   setGeneratedMd: (md) => set({ generatedMd: md }),
 
   setGeneratedCode: (code) => set({ generatedCode: code }),
@@ -98,11 +161,14 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
   reset: () =>
     set({
       step: 1,
+      agentRole: null,
       description: '',
       generatedMd: '',
       generatedCode: '',
       sandboxResults: null,
       registeredId: null,
+      lastRegisterUpdated: false,
+      lastRegisterVersion: '',
       error: null,
       apiItems: [],
       toolItems: [],
@@ -125,6 +191,8 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
       baselineMd: specMd,
       sandboxResults: null,
       registeredId: agentId,
+      lastRegisterUpdated: false,
+      lastRegisterVersion: '',
       error: null,
       isGenerating: false,
       saveState: 'idle',
@@ -268,12 +336,12 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
   },
 
   generateSpec: async () => {
-    const { description } = get()
+    const { description, agentRole } = get()
     if (!description.trim()) return
 
     set({ isGenerating: true, error: null })
     try {
-      const result = await agentApi.generateSpec(description)
+      const result = await agentApi.generateSpec(description, agentRole || undefined)
       set({ generatedMd: result.spec_md, step: 2, isGenerating: false })
     } catch (e) {
       set({ error: String(e), isGenerating: false })
@@ -299,20 +367,31 @@ export const useAgentEditorStore = create<AgentEditorState>((set, get) => ({
   },
 
   registerAgent: async () => {
-    const { generatedMd, generatedCode } = get()
+    const { generatedMd, generatedCode, editingAgentId } = get()
     if (!generatedMd.trim()) return
 
     set({ isGenerating: true, error: null })
     try {
-      const result = await agentApi.register(generatedMd, generatedCode, get().description)
+      // 编辑态必须把原 Agent id 作为权威身份传过去：MD 里的 id 可能已被
+      // 「返回修改需求 → 重新生成文档」改掉，只按 MD 推导会新增重复 Agent。
+      const result = await agentApi.register(
+        generatedMd, generatedCode, get().description, editingAgentId || undefined,
+      )
       set({
         registeredId: result.agent_id,
         step: 4,
         isGenerating: false,
+        lastRegisterUpdated: Boolean(result.updated),
+        lastRegisterVersion: result.version || '',
       })
       // 刷新左侧 Agent 空间列表
       const { useResourceStore } = await import('@/stores/resource-store')
-      useResourceStore.getState().fetchAgentsFromApi()
+      await useResourceStore.getState().fetchAgentsFromApi()
+      // 编辑态：刷新后按同一 id 重新选中，让详情页重取 MD/代码与新版本徽标
+      if (editingAgentId) {
+        const fresh = useResourceStore.getState().agentResources.find(a => a.id === result.agent_id)
+        if (fresh) useResourceStore.getState().selectResource(fresh)
+      }
     } catch (e) { set({ error: String(e), isGenerating: false }) }
   },
 }))

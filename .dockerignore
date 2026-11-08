@@ -1,0 +1,46 @@
+# Docker 构建上下文排除项。
+#
+# 目的有两个：
+# 1. **加快构建** —— venv 和 node_modules 有几十万文件，传进 Docker daemon 很慢；
+# 2. **避免污染镜像** —— 本机的 storage/*.db、output/、screenshots 不该进镜像。
+
+# 版本控制与编辑器
+.git
+.gitignore
+.gitattributes
+.vscode
+.idea
+
+# Python
+venv
+.venv
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.ruff_cache
+.mypy_cache
+*.egg-info
+build
+dist
+
+# 前端依赖与产物（镜像内会重新构建）
+frontend/node_modules
+frontend/dist
+
+# 运行时数据（容器里用 PostgreSQL + 命名卷，不打包本机数据）
+storage
+output
+uploaded_images
+data
+
+# 文档与验收产物
+docs
+.planning
+*.md
+!README.md
+
+# 本机配置与备份
+.env
+.env.*
+backup

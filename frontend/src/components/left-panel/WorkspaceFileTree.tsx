@@ -29,6 +29,7 @@ import { DatasetImportDialog } from './DatasetImportDialog'
 import { OpenDirectoryDialog } from './OpenDirectoryDialog'
 import type { FileTreeNode, FileCategory } from '@/types/workspace'
 
+import { apiPost } from '@/services/api/client'
 const FILE_ICONS: Record<FileCategory, typeof File> = {
   eeg: Activity,
   image: Image,
@@ -123,15 +124,7 @@ export function WorkspaceFileTree() {
     if (!deleteTarget) return
     setDeleting(true)
     try {
-      const res = await fetch('/api/file/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: deleteTarget.path }),
-      })
-      if (!res.ok) {
-        const detail = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }))
-        throw new Error(detail.detail || `删除失败 (HTTP ${res.status})`)
-      }
+      await apiPost('/api/file/delete', { path: deleteTarget.path })
       // 从文件树中移除该节点
       useFileTreeStore.getState().removeNode(deleteTarget.id)
     } catch (e) {

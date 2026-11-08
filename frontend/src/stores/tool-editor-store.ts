@@ -31,6 +31,10 @@ interface ToolEditorState {
   testInputs: Record<string, string>
   testOutput: { stdout: string; stderr: string; exit_code: number; success: boolean } | null
   registeredId: string | null
+  /** 上次注册是否命中了已有工具（原地更新，而非新增一条） */
+  lastRegisterUpdated: boolean
+  /** 上次注册后的版本号，用于完成页展示 */
+  lastRegisterVersion: string
   // ── 编辑已有工具模式 ──
   // editingToolId 非空表示当前是在编辑一个已发布的工具（而非新建），
   // 注册时应覆盖该工具，而不是创建新条目。
@@ -102,6 +106,7 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
   debugRounds: [], debugStream: '',
   editingToolId: null, editingToolName: '', baselineCode: '', baselineMd: '',
   saveState: 'idle', saveError: null,
+  lastRegisterUpdated: false, lastRegisterVersion: '',
 
   setDescription: (text) => set({ description: text }),
   setReferenceCode: (code) => set({ referenceCode: code }),
@@ -204,6 +209,7 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
     debugRounds: [], debugStream: '', params: [], modes: [], selectedMode: '',
     editingToolId: null, editingToolName: '', baselineCode: '', baselineMd: '',
   saveState: 'idle', saveError: null,
+  lastRegisterUpdated: false, lastRegisterVersion: '',
   }),
 
   // 编辑已发布工具：保留现有 MD 与代码，直接从 step 2（审阅）开始，
@@ -226,6 +232,8 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
       testInputs: inputs,
       testOutput: null,
       registeredId: toolId,
+      lastRegisterUpdated: false,
+      lastRegisterVersion: '',
       error: null,
       debugRounds: [],
       debugStream: '',
@@ -242,6 +250,7 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
     error: null, debugRounds: [], debugStream: '', params: [], modes: [], selectedMode: '',
     editingToolId: null, editingToolName: '', baselineCode: '', baselineMd: '',
   saveState: 'idle', saveError: null,
+  lastRegisterUpdated: false, lastRegisterVersion: '',
   }),
 
   generateSpec: async () => {
@@ -404,6 +413,13 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
               debugStream: s.debugStream + `\n⏳ 安装 ${data.dep} (${data.env})...\n`,
             }))
             break
+          case 'dep_already':
+            // 已按「发行版」判定过，跳过是可信的（不再只凭 import 成功）
+            set((s) => ({
+              debugStream: s.debugStream
+                + `\n✅ ${data.dep} 已安装${data.version ? `（${data.package} ${data.version}）` : ''}，跳过\n`,
+            }))
+            break
           case 'pip_output':
             set((s) => ({
               debugStream: s.debugStream + `  ${data.line}\n`,
@@ -434,6 +450,12 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
               debugStream: s.debugStream + `❌ ${data.dep} 安装失败: ${data.reason || ''}\n`,
             }))
             break
+          case 'dep_conflict':
+            // 模块被另一个同名发行版占用（如 barcode 被 DNA 工具包占用）
+            set((s) => ({
+              debugStream: s.debugStream + `⚠️ ${data.message || '模块被另一个同名包占用'}\n`,
+            }))
+            break
           case 'env_switch':
             set((s) => ({
               debugStream: s.debugStream + `⚠️ 全局安装 ${data.dep} 失败，切换到本地环境\n`,
@@ -461,6 +483,16 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
           case 'code_updated':
             set({ generatedCode: String(data.code || '') })
             set((s) => { const rounds = [...s.debugRounds]; const last = rounds[rounds.length - 1]; if (last) last.code = String(data.code || ''); return { debugRounds: rounds } })
+            break
+          case 'debug_blocked':
+            // 依赖装不上：后端已终止调试（不再让 LLM 一轮轮换库兜圈），
+            // 这里把原因明确摆出来，提示使用者手动安装后重试。
+            set((s) => ({
+              debugStream: s.debugStream + `\n⛔ ${data.message || '依赖安装失败，已停止自动调试'}\n`,
+              isAutoDebugging: false,
+              abortController: null,
+              error: String(data.message || '依赖安装失败，已停止自动调试'),
+            }))
             break
           case 'done':
           case 'stopped':
@@ -494,15 +526,32 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
   },
 
   registerTool: async () => {
-    const { generatedMd, generatedCode, testInputs, referenceCode, tags } = get()
+    const { generatedMd, generatedCode, testInputs, referenceCode, tags, editingToolId } = get()
     if (!generatedMd.trim()) return
     set({ isGenerating: true, error: null })
     try {
-      const result = await toolApi.register(generatedMd, generatedCode, testInputs, get().description, referenceCode, tags)
-      set({ registeredId: result.tool_id, step: 4, isGenerating: false })
+      // 编辑态必须把原工具 id 作为权威身份传过去：MD 里的 id 可能已被
+      // 「返回修改需求 → 重新生成文档」改掉，只按 MD 推导会新增重复工具。
+      const result = await toolApi.register(
+        generatedMd, generatedCode, testInputs, get().description, referenceCode, tags,
+        editingToolId || undefined,
+      )
+      set({
+        registeredId: result.tool_id,
+        step: 4,
+        isGenerating: false,
+        lastRegisterUpdated: Boolean(result.updated),
+        lastRegisterVersion: result.version || '',
+      })
       // 刷新资源列表
       const { useResourceStore } = await import('@/stores/resource-store')
-      useResourceStore.getState().fetchToolsFromApi()
+      await useResourceStore.getState().fetchToolsFromApi()
+      // 编辑态：刷新后按同一 id 重新选中，让详情页重取 MD/代码与新版本徽标
+      // （详情页 useEffect 依赖整个 tool 对象，不换引用就不会重取）
+      if (editingToolId) {
+        const fresh = useResourceStore.getState().toolResources.find(t => t.id === result.tool_id)
+        if (fresh) useResourceStore.getState().selectResource(fresh)
+      }
       // 自动加入工具空间
       const { useWorkspaceToolStore } = await import('@/stores/workspace-tool-store')
       const toolName = generatedMd.match(/^#\s*(.+)$/m)?.[1] || result.tool_id

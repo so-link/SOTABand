@@ -117,3 +117,25 @@ async def test_cancel_during_allocation_does_not_leak(allocator, monkeypatch):
         await task
     await asyncio.sleep(0.5)
     assert allocator.allocations() == []
+
+
+@pytest.mark.parametrize("sync", [False, True])
+async def test_scheduling_preserves_execution_identity(allocator, monkeypatch, sync):
+    monkeypatch.setenv("SOTABAND_AGENT_HTTP_TOKEN", "agent-only-secret")
+    code = '''
+import os
+
+def execute(**kwargs):
+    return {"status": "success", "data": {
+        "owner": os.environ.get("SOTABAND_USER_ID"),
+        "token": os.environ.get("SOTABAND_AGENT_HTTP_TOKEN"),
+        "device": os.environ.get("SOTABAND_DEVICE"),
+    }}
+'''
+    kwargs = dict(code=code, owner_id="test-owner", device="cpu")
+    if sync:
+        result = await asyncio.to_thread(ToolExecutor.execute_sync, "sched-probe", {}, **kwargs)
+    else:
+        result = await ToolExecutor.execute("sched-probe", {}, **kwargs)
+    assert result["data"] == {"owner": "test-owner", "token": None, "device": "cpu"}
+    assert allocator.allocations() == []

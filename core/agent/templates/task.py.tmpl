@@ -1,6 +1,17 @@
-"""Auto-generated Task Agent: {agent_name}"""
+"""Auto-generated Task Agent: {agent_name}
+
+任务式 Agent — 按既定流程依次调用工具完成任务。
+
+流程在 spec.flow 中声明（由 MD 规范文档解析而来），形如：
+    [
+      {"step": 1, "tool": "<tool-id>", "params": {...}, "output_bind": "step1"},
+      {"step": 2, "tool": "<tool-id>", "params": {"data": "{step1.data.model_path}"}},
+    ]
+参数值中的 "{{".."}}" 引用会从执行作用域（启动参数 + 各步骤输出）中解析。
+"""
 
 from typing import AsyncGenerator
+
 from core.agent.base import BaseAgent, AgentContext
 
 
@@ -8,13 +19,53 @@ class {AgentClassName}(BaseAgent):
     """{agent_description}"""
 
     async def execute(self, ctx: AgentContext, **kwargs) -> AsyncGenerator[dict, None]:
-        content = kwargs.get("content", "")
-        attachments = kwargs.get("attachments", [])
+        """执行任务流程。
 
-        # TODO: 在此实现具体的任务处理逻辑
-        # 1. 接收输入数据
-        # 2. 调用所需工具处理
-        # 3. 返回处理结果
+        Args:
+            ctx: 执行上下文
+            **kwargs: 启动参数（对应 spec.inputs）
+        """
+        # 执行作用域：启动参数 + 各步骤输出（供 "{{...}}" 引用解析）
+        scope: dict = {"input": dict(kwargs), **kwargs}
+        flow = self.spec.flow or []
 
-        yield {{"event": "content", "data": {{"text": f"Agent {agent_id} processing..."}}}}
-        yield {{"event": "done", "data": {{"messageId": ctx.session_id}}}}
+        if not flow:
+            yield {"event": "content", "data": {"text": "该任务式 Agent 未定义执行流程（flow）。"}}
+            yield {"event": "done", "data": {"messageId": ctx.session_id}}
+            return
+
+        total = len(flow)
+        yield {"event": "content", "data": {"text": f"任务启动，共 {total} 个步骤。"}}
+
+        for idx, step in enumerate(flow, start=1):
+            tool_id = step.get("tool", "")
+            raw_params = step.get("params", {}) or {}
+            params = self.resolve_refs(raw_params, scope)
+
+            yield {"event": "content",
+                   "data": {"text": f"[步骤 {idx}/{total}] 调用工具 {tool_id} ..."}}
+
+            try:
+                result = await self.call_tool(tool_id, params)
+            except Exception as e:
+                yield {"event": "error", "data": {"message": f"步骤 {idx} 调用工具失败: {e}"}}
+                yield {"event": "done", "data": {"messageId": ctx.session_id}}
+                return
+
+            status = result.get("status") if isinstance(result, dict) else None
+            if status == "failed":
+                msg = result.get("message", "未知错误") if isinstance(result, dict) else ""
+                yield {"event": "error", "data": {"message": f"步骤 {idx} 执行失败: {msg}"}}
+                yield {"event": "done", "data": {"messageId": ctx.session_id}}
+                return
+
+            # 绑定输出，供后续步骤引用（如 "{{step1.data.xxx}}"）
+            bind = step.get("output_bind") or f"step{idx}"
+            scope[bind] = result if isinstance(result, dict) else {"data": result}
+            scope[f"step{idx}"] = scope[bind]
+
+            yield {"event": "content",
+                   "data": {"text": f"[步骤 {idx}/{total}] 完成: {result.get('message', '') if isinstance(result, dict) else result}"}}
+
+        yield {"event": "content", "data": {"text": "任务全部完成。"}}
+        yield {"event": "done", "data": {"messageId": ctx.session_id}}

@@ -25,7 +25,11 @@ class RegisterToolRequest(BaseModel):
     code: str = ""
     tool_id: str = Field(alias="toolId")
     tool_name: str = Field(default="Custom Tool", alias="toolName")
-    version: str = "0.1.0"
+    # 编辑已发布工具时传入「原工具 id」——注册的权威身份。
+    # 未传时退回 tool_id（由 MD 内容推导），即新建工具的旧行为。
+    base_tool_id: str = Field(default="", alias="baseToolId")
+    # 留空表示由服务端决定：更新时 patch+1，新建时 0.1.0
+    version: str = ""
     tags: list[str] = Field(default_factory=list)
     test_data: dict = Field(default_factory=dict)
     demand_desc: str = Field(default="", alias="demandDesc")

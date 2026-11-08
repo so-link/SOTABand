@@ -1,8 +1,14 @@
 import { create } from 'zustand'
 import type { FileTreeNode } from '@/types/workspace'
 
+import { apiFetch, apiGet, apiUpload } from '@/services/api/client'
+
 const STORAGE_KEY = 'maia-workspace-tree'
 
+// localStorage 仅作降级缓存。真实状态源是后端 storage/workspace_tree.json：
+// 以前整棵工作区文件树只存 localStorage，换浏览器 / 无痕窗口 / 清缓存后工作区间
+// 就全空了，后端也无从知晓用户的工作现场。现在与工具空间同一范式——
+// 启动时以后端为准，写入时同步后端，后端不可达才回落到 localStorage。
 function loadPersisted(): FileTreeNode | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
@@ -15,6 +21,20 @@ function persistTree(tree: FileTreeNode) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(tree))
   } catch { /* ignore */ }
+}
+
+/** 同步写入后端；失败不阻塞本地（下次 loadTree 会重新对齐）。 */
+function persistTreeToBackend(tree: FileTreeNode) {
+  apiFetch('/api/file/workspace/tree', {
+    method: 'PUT',
+    body: JSON.stringify({ root: tree }),
+  }).catch(() => { /* 后端不可达时保留 localStorage 数据 */ })
+}
+
+/** 本地 + 后端双写，作为「工作区已变更」的统一出口。 */
+function persistEverywhere(tree: FileTreeNode) {
+  persistTree(tree)
+  persistTreeToBackend(tree)
 }
 
 function emptyTree(): FileTreeNode {
@@ -39,8 +59,6 @@ async function refreshDirectories(
   tree: FileTreeNode,
   onDone: (newRoot: FileTreeNode) => void,
 ): Promise<void> {
-  const BASE_URL = ''
-
   const refreshIn = async (n: FileTreeNode): Promise<FileTreeNode> => {
     if (!n.children) return n
     // 先递归刷新子节点
@@ -52,13 +70,12 @@ async function refreshDirectories(
     // 当前节点是真实目录 → 重新扫描
     if (isRealDir(n)) {
       try {
-        const res = await fetch(`${BASE_URL}/api/file/scan-directory?path=${encodeURIComponent(n.path)}`)
-        if (res.ok) {
-          const data = await res.json()
-          const scannedRoot = data.root as FileTreeNode
-          // 用扫描结果替换 children，保留原节点的 name/id/expanded 等元信息
-          return { ...n, children: scannedRoot?.children ?? [], expanded: n.expanded ?? true }
-        }
+        const data = await apiGet<{ root: FileTreeNode }>(
+          `/api/file/scan-directory?path=${encodeURIComponent(n.path)}`
+        )
+        const scannedRoot = data.root as FileTreeNode
+        // 用扫描结果替换 children，保留原节点的 name/id/expanded 等元信息
+        return { ...n, children: scannedRoot?.children ?? [], expanded: n.expanded ?? true }
       } catch { /* 目录不存在或不可访问，保留原数据 */ }
     }
     return { ...n, children: refreshedChildren }
@@ -82,7 +99,7 @@ interface FileTreeState {
   selectFile: (node: FileTreeNode | null) => void
   setPreviewFile: (node: FileTreeNode | null) => void
   toggleExpand: (nodeId: string) => void
-  uploadFiles: (files: FileList) => Promise<void>
+  uploadFiles: (files: FileList | File[]) => Promise<void>
   removeNode: (nodeId: string) => void
   setSearchQuery: (query: string) => void
   getFilteredTree: () => FileTreeNode | null
@@ -99,18 +116,43 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => ({
 
   loadTree: async () => {
     set({ isLoading: true })
-    // 1. 尝试从 localStorage 恢复
-    const persisted = loadPersisted()
+
+    // 1. 先以后端为准：后端保存了工作现场（服务重启 / 换浏览器都能恢复）
+    let persisted: FileTreeNode | null = null
+    try {
+      // 后端为空时返回 {root: null}，属于正常路径而不是错误 → 不能用会抛错的写法
+      const data = await apiGet<{ root: FileTreeNode | null } | null>(
+        '/api/file/workspace/tree'
+      )
+      if (data && data.root) {
+        persisted = data.root as FileTreeNode
+      } else {
+        // 后端为空，而本地 localStorage 有数据（升级前只存 localStorage）：
+        // 一次性迁移——把本地工作区上传到后端，避免用户已有的工作现场丢失。
+        const local = loadPersisted()
+        if (local) {
+          persistTreeToBackend(local)
+          persisted = local
+        }
+      }
+    } catch { /* 后端不可达：回落到 localStorage */ }
+
+    // 2. 后端不可达或为空时，回落到 localStorage
+    if (!persisted) {
+      persisted = loadPersisted()
+    }
+
     if (!persisted) {
       // 首次启动：空工作区间
       set({ root: emptyTree(), isLoading: false })
       return
     }
+
     set({ root: persisted, isLoading: false })
-    // 2. 异步刷新目录节点，与实际文件系统保持一致
+    // 3. 异步刷新目录节点，与实际文件系统保持一致（刷新结果双写回本地与后端）
     refreshDirectories(persisted, (newRoot) => {
       set({ root: newRoot })
-      persistTree(newRoot)
+      persistEverywhere(newRoot)
     })
   },
 
@@ -128,30 +170,36 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => ({
     }
     const newRoot = toggleIn(root)
     set({ root: newRoot })
-    persistTree(newRoot)
+    persistEverywhere(newRoot)
   },
 
-  uploadFiles: async (files: FileList) => {
-    const BASE_URL = ''
+  uploadFiles: async (files: FileList | File[]) => {
     let { root } = get()
     if (!root) root = emptyTree()
+    const uploadSubdir = `batch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
     for (const file of Array.from(files)) {
       try {
         const formData = new FormData()
         formData.append('file', file)
-        const res = await fetch(`${BASE_URL}/api/file/upload`, { method: 'POST', body: formData })
-        if (!res.ok) continue
-        const uploaded = await res.json()
+        // 同一批文件放进同一个时间戳子目录：上游 #11 为避免同名文件互相覆盖
+        formData.append('subdir', uploadSubdir)
+        const uploaded = await apiUpload<{
+          id: string
+          fileName: string
+          filePath: string
+          format: string
+          fileSize: number
+        }>('/api/file/upload', formData)
         const newNode: FileTreeNode = {
           id: uploaded.id, name: uploaded.fileName, type: 'file', category: 'unknown',
           path: uploaded.filePath, format: uploaded.format, size: uploaded.fileSize,
         }
         root = { ...root, children: [...(root.children || []), newNode] }
-      } catch { /* ignore */ }
+      } catch { /* 单个文件失败不影响其余文件 */ }
     }
     set({ root })
-    persistTree(root)
+    persistEverywhere(root)
   },
 
   removeNode: (nodeId) => {
@@ -168,7 +216,7 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => ({
     const newRoot = removeIn(root)
     if (newRoot) {
       set({ root: newRoot })
-      persistTree(newRoot)
+      persistEverywhere(newRoot)
     }
   },
 
@@ -188,7 +236,7 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => ({
 
   persist: () => {
     const { root } = get()
-    if (root) persistTree(root)
+    if (root) persistEverywhere(root)
   },
 
   // 清空工作区间的唯一入口。
@@ -197,7 +245,7 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => ({
   clearWorkspace: async () => {
     const fresh = emptyTree()
     set({ root: fresh, selectedFile: null })
-    persistTree(fresh)
+    persistEverywhere(fresh)
 
     // 文件已全部移除，对话里残留的附件引用一并清掉。
     // 动态 import 与 chat-store 解耦其它 store 的写法保持一致，

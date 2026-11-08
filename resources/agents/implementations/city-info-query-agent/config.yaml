@@ -1,0 +1,3 @@
+# 城市信息查询 Agent 运行时配置
+role: interactive
+version: 0.1.0

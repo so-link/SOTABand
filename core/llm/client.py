@@ -3,9 +3,25 @@
 from abc import ABC, abstractmethod
 from typing import AsyncGenerator
 
+import httpx
 from openai import AsyncOpenAI
 
 from config.settings import LLMConfig, settings
+
+
+def _make_http_client(cfg: LLMConfig) -> httpx.AsyncClient:
+    """构造 LLM 请求用的 httpx 客户端：**不跟随重定向**。
+
+    ## 为什么必须显式关闭
+
+    ``httpx`` 在 ``AsyncClient`` 默认 ``follow_redirects=False``，但 OpenAI SDK
+    自带的默认客户端是 ``follow_redirects=True``。若不覆盖，SSRF 防护只校验
+    初始 URL：攻击者用 ``base_url=https://attacker/v1`` 通过校验，再让该地址
+    302 到 ``http://127.0.0.1:...`` 即可让服务端请求内网（实测可绕过）。
+
+    超时与调用方一致（``LLM_TIMEOUT``），避免在错误场景下无限等待。
+    """
+    return httpx.AsyncClient(follow_redirects=False, timeout=cfg.timeout)
 
 
 class LLMClient(ABC):
@@ -41,6 +57,8 @@ class OpenAICompatibleClient(LLMClient):
         # 最近一次构建的客户端：客户端是按需构建的，需留下引用供 aclose() 关闭，
         # 否则 httpx 连接池残留会在事件循环关闭时报错
         self._last_client: AsyncOpenAI | None = None
+        #: 最近一次构建的 httpx 客户端（自定义以关闭重定向，需一并关闭）
+        self._last_http_client: httpx.AsyncClient | None = None
 
     @property
     def config(self) -> LLMConfig:
@@ -48,11 +66,14 @@ class OpenAICompatibleClient(LLMClient):
 
     def _build_client(self) -> AsyncOpenAI:
         cfg = self.config
+        http_client = _make_http_client(cfg)
         client = AsyncOpenAI(
             base_url=cfg.base_url,
             api_key=cfg.api_key,
+            http_client=http_client,
         )
         self._last_client = client
+        self._last_http_client = http_client
         return client
 
     async def chat_stream(
@@ -90,6 +111,13 @@ class OpenAICompatibleClient(LLMClient):
         try:
             if self._last_client is not None:
                 await self._last_client.close()
+        except Exception:
+            pass
+        # SDK 的 close() 通常会关闭传入的 http_client；这里再兜底一次，
+        # 确保自定义客户端（关闭重定向的那一个）不会泄漏连接池。
+        try:
+            if self._last_http_client is not None:
+                await self._last_http_client.aclose()
         except Exception:
             pass
 

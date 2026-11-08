@@ -1,11 +1,43 @@
 import { create } from 'zustand'
-import type { Resource, ResourceType, AgentResource, ToolResource, DataResource } from '@/types/resources'
+import type { Resource, ResourceType, AgentResource, ToolResource, DataResource, ModelResource, ModelGroup, ModelCategory } from '@/types/resources'
 import { MockResourceService } from '@/services/mock/resources'
 import { agentApi } from '@/services/api/agent'
 import { toolApi } from '@/services/api/tool'
 import { dataApi } from '@/services/api/data'
+import { apiGet, apiPost, apiDelete, describeError } from '@/services/api/client'
 
 const resourceService = new MockResourceService()
+
+/**
+ * `can_edit` 的**三态**映射。
+ *
+ * 后端按 `can_write_resource` 计算该字段（owner 本人或租户 Owner/Admin；内置资产
+ * 仅租户管理员）。字段缺失（旧响应、请求失败、另一套部署）时**不能**当成 false ——
+ * 那会让视图误判为只读。缺失保持 `undefined`，视图按「有权限」渲染，由后端
+ * 403/404 兜底。
+ */
+function toCanEdit(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined
+}
+
+function mapModelResource(m: Record<string, unknown>): ModelResource {
+  return {
+    id: m.id as string, name: (m.name as string) || (m.id as string), description: '',
+    type: 'model', version: (m.version as string) || '0.1.0', status: 'active',
+    createdAt: (m.created_at as string) || '', updatedAt: '',
+    tags: (m.tags as string[]) || [], framework: (m.framework as string) || '',
+    modelType: 'timeseries', weightPath: (m.model_path as string) || '',
+    isOwner: m.is_owner === true,
+    canEdit: toCanEdit(m.can_edit),
+    inputFormat: m.input_format ? [String(m.input_format)] : [],
+    outputFormat: m.output_format ? [String(m.output_format)] : [],
+    deploymentStatus: 'registered', relatedToolId: (m.associated_tool_id as string) || '',
+    runtimeStatus: (m.runtime_status as string) || 'configured',
+    groupPath: (m.group_path as string) || '其它模型',
+    modelCategory: m.model_category === 'trained' ? 'trained' : 'architecture',
+    artifactAvailable: m.artifact_available === true,
+  }
+}
 
 interface ResourceState {
   selectedResource: Resource | null
@@ -14,18 +46,29 @@ interface ResourceState {
   dataResources: Resource[]
   toolResources: Resource[]
   modelResources: Resource[]
+  modelGroups: ModelGroup[]
   agentResources: Resource[]
   taskResources: Resource[]
   isLoading: boolean
 
   selectResource: (resource: Resource | null) => void
   setCachedToolForDetail: (tool: ToolResource | null) => void
+  /**
+   * 清空所有资源数据与选中项。
+   *
+   * 登出 / 会话过期时调用（由认证订阅统一触发），否则下一个登录的账号会看到
+   * 上一个账号的资源列表、标签页标题和被选中的资源名 —— 串号最难察觉。
+   */
+  reset: () => void
   fetchResources: (type: ResourceType) => Promise<void>
   fetchAllResources: () => Promise<void>
   fetchAgentsFromApi: () => Promise<void>
   fetchToolsFromApi: () => Promise<void>
   fetchDatasetsFromApi: () => Promise<void>
   fetchModelsFromApi: () => Promise<void>
+  fetchModelGroups: () => Promise<void>
+  createModelGroup: (name: string, category: ModelCategory) => Promise<boolean>
+  deleteModelGroup: (id: string) => Promise<string | null>
 }
 
 export const useResourceStore = create<ResourceState>((set, get) => ({
@@ -33,6 +76,7 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
   dataResources: [],
   toolResources: [],
   modelResources: [],
+  modelGroups: [],
   agentResources: [],
   taskResources: [],
   isLoading: false,
@@ -51,6 +95,20 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
   },
   setCachedToolForDetail: (tool) => set({ cachedToolForDetail: tool }),
 
+  reset: () =>
+    set({
+      selectedResource: null,
+      cachedToolForDetail: null,
+      cachedDatasetForDetail: null,
+      dataResources: [],
+      toolResources: [],
+      modelResources: [],
+      modelGroups: [],
+      agentResources: [],
+      taskResources: [],
+      isLoading: false,
+    }),
+
   fetchResources: async (type) => {
     set({ isLoading: true })
     const resources = await resourceService.list(type)
@@ -67,12 +125,11 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
     set({ isLoading: true })
 
     // 优先从真实 API 加载
-    const BASE_URL = ''
     const apiResults = await Promise.allSettled([
       toolApi.list(),
       agentApi.list(),
       dataApi.list(true),   // 只加载本机有数据的数据集
-      fetch(`${BASE_URL}/api/model/list`).then(r => r.json()),
+      apiGet<{ models: Record<string, unknown>[] }>('/api/model/list'),
     ])
     const [toolResult, agentResult, dataResult, modelResult] = apiResults
 
@@ -87,6 +144,8 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
           dependencies: [], runtimeEnv: 'python' as const, usageCount: (t.usage_count as number) || 0,
           // 后端按 owner 字段判定：内置示例工具无 owner → 非本地生成
           isUserGenerated: Boolean(t.is_user_generated),
+          isOwner: Boolean(t.is_owner),
+          canEdit: toCanEdit(t.can_edit),
         }))
       })
     }
@@ -100,6 +159,8 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
           updatedAt: '', tags: (a.tags as string[]) || [], role: (a.role as AgentResource['role']) || 'task',
           capabilities: '', requiredTools: (a.tools as string[]) || [], inputFormat: 'text', outputFormat: 'text',
           collaborationProtocol: 'pub-sub', healthStatus: (a.health as AgentResource['healthStatus']) || 'healthy',
+          isOwner: Boolean(a.is_owner),
+          canEdit: toCanEdit(a.can_edit),
         }))
       })
     }
@@ -112,6 +173,9 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
           version: (d.version as string) || '0.1.0', status: 'active' as const, createdAt: (d.created_at as string) || '',
           updatedAt: '', tags: (d.tags as string[]) || [], format: ((d.formats as string[])?.[0]) || 'unknown',
           filePath: (d.data_path as string) || '', fileSize: (d.total_size as number) || 0, source: 'upload' as const, lineage: [],
+          isOwner: Boolean(d.is_owner),
+          // 数据集没有独立的 can_edit，写权限等同归属；同样保留三态
+          canEdit: toCanEdit(d.is_owner),
           available: d.available as boolean | undefined,
           dataPathAbs: d.data_path_abs as string | undefined,
           fileCountActual: d.file_count_actual as number | undefined,
@@ -122,12 +186,7 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
     // 模型
     if (modelResult.status === 'fulfilled' && Array.isArray(modelResult.value?.models) && modelResult.value.models.length > 0) {
       set({
-        modelResources: modelResult.value.models.map((m: Record<string, unknown>) => ({
-          id: m.id as string, name: (m.name as string) || (m.id as string), description: '', type: 'model' as const,
-          version: (m.version as string) || '0.1.0', status: 'active' as const, createdAt: (m.created_at as string) || '',
-          updatedAt: '', tags: (m.tags as string[]) || [], format: (m.framework as string) || '',
-          filePath: (m.model_path as string) || '', fileSize: 0, source: 'upload' as const, lineage: [],
-        }))
+        modelResources: modelResult.value.models.map(mapModelResource)
       })
     }
 
@@ -158,6 +217,9 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
           updatedAt: '', tags: (a.tags as string[]) || [], role: (a.role as AgentResource['role']) || 'task',
           capabilities: '', requiredTools: (a.tools as string[]) || [], inputFormat: 'text', outputFormat: 'text',
           collaborationProtocol: 'pub-sub', healthStatus: (a.health as AgentResource['healthStatus']) || 'healthy',
+          // 这条刷新路径也要带权限字段：否则保存后列表被换新，只读态会"消失"
+          isOwner: Boolean(a.is_owner),
+          canEdit: toCanEdit(a.can_edit),
         })) })
       }
     } catch { /* ignore */ }
@@ -174,6 +236,8 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
           updatedAt: '', tags: (t.tags as string[]) || [], inputSpec: { formats: [] }, outputSpec: { formats: [] },
           dependencies: [], runtimeEnv: 'python' as const, usageCount: (t.usage_count as number) || 0,
           isUserGenerated: Boolean(t.is_user_generated),
+          isOwner: Boolean(t.is_owner),
+          canEdit: toCanEdit(t.can_edit),
         })) })
       }
     } catch { /* ignore */ }
@@ -200,18 +264,37 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
 
   fetchModelsFromApi: async () => {
     try {
-      const BASE_URL = ''
-      const res = await fetch(`${BASE_URL}/api/model/list`)
-      const data = await res.json()
-      if (Array.isArray(data.models) && data.models.length > 0) {
-        set({ modelResources: data.models.map((m: Record<string, unknown>) => ({
-          id: m.id as string, name: (m.name as string) || (m.id as string), description: '',
-          type: 'model' as const, version: (m.version as string) || '0.1.0', status: 'active' as const,
-          createdAt: (m.created_at as string) || '', updatedAt: '',
-          tags: (m.tags as string[]) || [], format: (m.framework as string) || '',
-          filePath: (m.model_path as string) || '', fileSize: 0, source: 'upload' as const, lineage: [],
-        })) })
+      const data = await apiGet<{ models: Record<string, unknown>[] }>('/api/model/list')
+      if (Array.isArray(data.models)) {
+        set({ modelResources: data.models.map(mapModelResource) })
       }
     } catch { /* ignore */ }
+  },
+
+  fetchModelGroups: async () => {
+    try {
+      const data = await apiGet<{ groups: ModelGroup[] }>('/api/model/groups')
+      if (Array.isArray(data.groups)) set({ modelGroups: data.groups })
+    } catch { /* ignore */ }
+  },
+
+  createModelGroup: async (name: string, category: ModelCategory) => {
+    try {
+      await apiPost('/api/model/groups', { name, category })
+      await get().fetchModelGroups()
+      return true
+    } catch {
+      return false
+    }
+  },
+
+  deleteModelGroup: async (id: string) => {
+    try {
+      await apiDelete(`/api/model/groups/${encodeURIComponent(id)}`)
+      await get().fetchModelGroups()
+      return null
+    } catch (e) {
+      return describeError(e) || '删除分组失败'
+    }
   },
 }))

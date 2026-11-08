@@ -19,42 +19,94 @@ import time
 from pathlib import Path
 
 from core.resource.registry.registry_base import BaseRegistry
+from core.resource import paths
 from core.user_context import get_current_user_id, is_visible_to, VISIBILITY_PUBLIC
 
-REGISTRY_DIR = Path(__file__).resolve().parent.parent.parent.parent / "resources" / "agents"
+
+def _write_json(path: Path, data) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+REGISTRY_DIR = paths.BUILTIN_ROOT / "agents"
 REGISTRY_FILE = REGISTRY_DIR / "registry.json"
 
 
 class AgentRegistry(BaseRegistry):
-    """Agent 注册中心"""
+    """Agent 注册中心。
+
+    读：合并「内置」与「私有」两个目录的 registry.json（私有同 id 覆盖内置）。
+    写：新建 / 更新的 Agent 一律写入私有目录。
+    """
 
     def __init__(self):
+        paths.ensure_private_dirs("agents")
         REGISTRY_DIR.mkdir(parents=True, exist_ok=True)
         if not REGISTRY_FILE.exists():
-            self._write([])
+            _write_json(REGISTRY_FILE, [])
+
+    def _private_registry_file(self) -> Path:
+        d = paths.ensure_private_dirs("agents")
+        f = d / "registry.json"
+        if not f.exists():
+            _write_json(f, [])
+        return f
 
     def _get_spec_dir(self) -> Path:
-        """获取 MD 规范文档目录"""
-        return REGISTRY_DIR / "definitions"
+        """MD 规范文档目录（私有）——新建的规范写入此处。"""
+        return paths.ensure_private_dirs("agents") / "definitions"
 
     def _get_impl_dir(self) -> Path:
-        """获取 Agent 实现代码根目录"""
-        return REGISTRY_DIR / "implementations"
+        """实现代码根目录（私有）——新建的实现写入此处。"""
+        return paths.ensure_private_dirs("agents") / "implementations"
+
+    def get_spec_search_dirs(self) -> list[Path]:
+        """规范文档的检索目录（私有在前、内置在后），用于「读」时定位已有 MD。
+
+        写入一律落私有根，注册表也是私有覆盖内置，故定位必须私有优先 ——
+        否则同 id 同时存在于两个根的 Agent 会永远读到内置那份旧文档
+        （编辑后重新打开还是旧的）。
+        """
+        return [root / "agents" / "definitions" for root in paths.read_roots()]
+
+    def get_impl_search_dirs(self) -> list[Path]:
+        """实现目录的检索目录（私有在前、内置在后）。"""
+        return [root / "agents" / "implementations" for root in paths.read_roots()]
 
     def _read(self) -> list[dict]:
-        with open(REGISTRY_FILE, encoding='utf-8') as f:
-            return json.load(f)
+        """合并内置与私有 registry（私有同 id 覆盖内置）。"""
+        merged: dict[str, dict] = {}
+        for root in paths.resource_roots():
+            rf = root / "agents" / "registry.json"
+            if not rf.exists():
+                continue
+            try:
+                for e in json.loads(rf.read_text(encoding="utf-8")):
+                    if isinstance(e, dict) and e.get("id"):
+                        merged[e["id"]] = e
+            except Exception:
+                continue
+        return list(merged.values())
+
+    def read_from(self, root: Path) -> list[dict]:
+        rf = root / "agents" / "registry.json"
+        if not rf.exists():
+            return []
+        try:
+            return json.loads(rf.read_text(encoding="utf-8"))
+        except Exception:
+            return []
 
     def _write(self, data: list[dict]):
-        with open(REGISTRY_FILE, "w", encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        """写入私有 registry。"""
+        _write_json(self._private_registry_file(), data)
 
-    async def register(self, resource: dict) -> str:
-        agent_id = resource.get("id", f"agent-{int(time.time())}")
+    async def register(self, resource: dict, *, owner: str | None = None) -> str:
+        agent_id = resource.get("id") or f"agent-{int(time.time())}"
         entry = {
             "id": agent_id,
-            "name": resource.get("name", agent_id),
-            "version": resource.get("version", "0.1.0"),
+            "name": resource.get("name") or agent_id,
+            "version": resource.get("version") or "0.1.0",
             "role": resource.get("role", "task"),
             "status": "active",
             "spec_path": f"definitions/{agent_id}.md",
@@ -66,21 +118,33 @@ class AgentRegistry(BaseRegistry):
             # 归属与可见性：Agent 默认共享（public），owner 记录创建者。
             # 未来若要支持「私有 Agent / 公共池」，改 visibility 即可，
             # 判定逻辑已预置在 is_visible() 中。
-            "owner": get_current_user_id(),
+            "owner": owner or get_current_user_id(),
             "visibility": VISIBILITY_PUBLIC,
         }
 
         data = self._read()
         existing = [i for i, e in enumerate(data) if e["id"] == agent_id]
         if existing:
+            old = data[existing[0]]
+            # 更新语义（编辑已发布 Agent 后重新注册）：条目内容换成新的，
+            # 但「首次创建的事实」沿用旧值，否则每次编辑都会重置创建时间 /
+            # 创建者 / 健康状态。
+            for key in ("created_at", "owner", "visibility", "health", "status"):
+                if old.get(key) not in (None, ""):
+                    entry[key] = old[key]
+            entry["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             data[existing[0]] = entry
         else:
             data.append(entry)
         self._write(data)
 
         # 保存 MD 规范文档
+        # 写入【私有】目录（与 _get_spec_dir() 保持一致）：新建 / 更新的 Agent
+        # 一律写入私有目录，内置目录只放随仓库分发的资源。
+        # 注：此前误用 REGISTRY_DIR（= BUILTIN_ROOT/agents），会把用户新建的
+        #     Agent 规范写进内置目录 —— 既污染内置，也在只读部署下直接失败。
         if "raw_md" in resource:
-            spec_path = REGISTRY_DIR / "definitions" / f"{agent_id}.md"
+            spec_path = self._get_spec_dir() / f"{agent_id}.md"
             spec_path.parent.mkdir(parents=True, exist_ok=True)
             with open(spec_path, "w", encoding='utf-8') as f:
                 f.write(resource["raw_md"])
