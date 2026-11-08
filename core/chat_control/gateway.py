@@ -144,7 +144,12 @@ async def platform_call(
     clean = model.model_dump()
 
     # ③ 写/高危操作 → 只生成待确认，不执行
-    if tool.risk != RISK_READ:
+    #    例外：工作空间工具执行已由交互 Agent 的统一执行确认门（同一 TTL、
+    #    同一审计口径）取得用户确认，Agent 以 confirmed=True 回传，避免同一
+    #    操作出现两张确认卡。该字段不进入 LLM 可见的 schema，模型无法伪造。
+    pre_confirmed = (name == "run_tool" and isinstance(clean, dict)
+                     and clean.pop("confirmed", False) is True)
+    if tool.risk != RISK_READ and not pre_confirmed:
         op = confirm.create(
             tool=name, args=clean, risk=tool.risk,
             summary=reg.summary_for(tool, clean),

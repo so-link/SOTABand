@@ -331,9 +331,49 @@ class RegisterDatasetArgs(StrictArgs):
 
 
 def _slug(text: str) -> str:
-    """数据集 id 前缀：非 ASCII 字母数字一律折叠，空则兜底。"""
-    s = re.sub(r"[^A-Za-z0-9_-]+", "-", text).strip("-").lower()
+    """数据集 id 前缀：非 ASCII 字母数字一律折叠，空则兜底。
+
+    中文名（如「ETT-h1 电力负荷小时数据集」）经折叠后会只剩 etth1 这样的
+    尾部片段，再加时间戳后缀就成了 etth1_1794053389 —— 用户和自己给的
+    dataset_id 对不上。中文名改为取目录名（更短、更稳定、更像用户心里的
+    那个 id）。
+    """
+    s = (text or "").strip()
+    if re.search(r"[\u4e00-\u9fff]", s):
+        return "dataset"
+    s = re.sub(r"[^A-Za-z0-9_-]+", "-", s).strip("-").lower()
     return s or "dataset"
+
+
+def _spec_name(spec_md: str) -> str:
+    """取 MD 规范 frontmatter 的 name（LLM 生成的中文工具名），没有则空串。"""
+    for line in (spec_md or "").split("\n"):
+        s = line.strip()
+        if s.startswith("name:") and ":" in s:
+            return s.split(":", 1)[1].strip().strip("'\"")
+    return ""
+
+
+def _spec_id_slug(spec_md: str) -> str:
+    """取 MD 规范 frontmatter 的 id（LLM 生成的英文短 id），没有则空串。
+
+    中文展示名没法直接做 id，规格文档里的 id 字段就是可读的英文标识
+    （hourly-ot-stats）；拿不到时调用方退回通用前缀。
+    """
+    for line in (spec_md or "").split("\n"):
+        s = line.strip()
+        if s.startswith("id:") and ":" in s:
+            v = s.split(":", 1)[1].strip().strip("'\"")
+            v = re.sub(r"[^A-Za-z0-9_-]+", "-", v).strip("-").lower()
+            if re.fullmatch(r"[a-z0-9][a-z0-9_-]{2,40}", v or ""):
+                return v
+    return ""
+
+
+def _is_ascii_slug(s: str) -> bool:
+    """判断名称是否只是英文 id（含空格/连字符/下划线），不是给人看的名字。"""
+    s = (s or "").strip()
+    return bool(s) and all(ord(ch) < 128 for ch in s.replace(" ", "").replace("-", "").replace("_", ""))
 
 
 def _scan_dataset_dir(root: Path) -> dict:
@@ -407,8 +447,13 @@ async def register_dataset(args: RegisterDatasetArgs, ctx: CallContext) -> dict:
         return {"error": f"目录为空（无可用文件）: {root}"}
 
     spec_md = _dataset_spec_md(name, args.description.strip(), root, scan)
+    # id 前缀：中文名取目录名（etth1 / etf_90d 这类，和用户嘴上说的 id 一致）；
+    # 纯英文名沿用名称折叠。
+    id_prefix = _slug(name)
+    if id_prefix == "dataset":
+        id_prefix = _slug(root.name)
     result = await ApiDataRegister.call(
-        id=f"{_slug(name)}_{int(time.time())}",
+        id=f"{id_prefix}_{int(time.time())}",
         name=name, raw_md=spec_md, data_path=str(root),
         file_count=scan["file_count"], total_size=scan["total_size"],
         formats=scan["formats"], tags=args.tags,
@@ -484,7 +529,10 @@ async def register_model(args: RegisterModelArgs, ctx: CallContext) -> dict:
 
 class CreateToolArgs(StrictArgs):
     description: str = Field(description="工具需求描述（要做什么、输入输出是什么）")
-    tool_name: str = Field(default="", description="工具名称（留空则由系统根据描述生成）")
+    tool_name: str = Field(
+        default="",
+        description="工具的中文展示名（如「ETF 近90日涨跌幅排行」）。不要填英文 id，"
+                    "留空则由系统按规格文档自动取名")
     reference_code: str = Field(default="", description="参考实现代码（可选）")
 
 
@@ -509,7 +557,9 @@ async def _collect_stream(agen) -> str:
 @platform_tool(
     "create_tool",
     "按需求描述创建一个新数据处理工具：自动生成规格与代码、经静态安全审查后注册到工具空间。"
-    "耗时较长（约 1 分钟），一次对话建议只创建一个。",
+    "用户要求「做一个 / 新建 / 生成某个工具」时使用本工具，不要在回复里让用户自己去找编辑器。"
+    "description 要写清楚工具做什么、输入参数（名称/类型/是否必填/默认值）与输出形态（table 需要 columns+rows）。"
+    "耗时较长（约 1 分钟），一次对话建议只创建一个；创建后可用 run_tool 执行验证。",
     CreateToolArgs, RISK_WRITE,
     summary_fn=lambda a: f"创建工具：{_clip_view(a.get('description', ''), 80)}",
     args_view_fn=lambda a: {
@@ -530,7 +580,6 @@ async def create_tool(args: CreateToolArgs, ctx: CallContext) -> dict:
     desc = args.description.strip()
     if not desc:
         return {"error": "工具需求描述不能为空"}
-
     await ctx.progress({"type": "tool-gen", "step": "spec", "message": "正在生成工具规格…"})
     user_content = desc
     if args.reference_code.strip():
@@ -551,8 +600,26 @@ async def create_tool(args: CreateToolArgs, ctx: CallContext) -> dict:
     if not spec_md:
         return {"error": "规格生成失败（LLM 返回为空），请稍后重试"}
 
-    name = args.tool_name.strip() or desc[:24].strip() or "对话创建的工具"
-    tool_id = f"{_slug(name)}_{int(time.time())}"
+    # 工具展示名：优先用规格文档 frontmatter 的 name（LLM 生成的中文名），
+    # 其次调用方给的 tool_name。调用方给的往往直接抄了需求里的英文 id
+    # （tool_name=etf-90d-change-ranking），注册后资源空间/确认卡里都显示
+    # 成一串 id，用户认不出。纯 ASCII 的 id 不作为展示名。
+    spec_name = _spec_name(spec_md)
+    given = args.tool_name.strip()
+    if _is_ascii_slug(spec_name):
+        spec_name = ""
+    name = spec_name or (given if not _is_ascii_slug(given) else "") \
+        or desc[:24].strip() or "对话创建的工具"
+    if _is_ascii_slug(name):
+        # 两头都是英文 id：从需求里取第一段中文当展示名（「ETF 近90日涨跌幅排行」）
+        m = re.search(r"[\u4e00-\u9fff][\u4e00-\u9fffA-Za-z0-9\s「」《》（）\-]{3,23}",
+                      desc)
+        if m:
+            name = m.group(0).strip()
+    # 工具 id 前缀：优先规格文档里的英文 id（hourly-ot-stats），再用展示名
+    # 折叠。中文展示名折叠不出来时 _slug 会退回 "dataset"，id 就成了
+    # dataset_<ts>，看不出是什么工具。
+    tool_id = f"{_spec_id_slug(spec_md) or _slug(name)}_{int(time.time())}"
     if not res_paths.is_valid_resource_id(tool_id):
         tool_id = f"tool-{int(time.time())}"
 
@@ -658,13 +725,33 @@ class RunToolArgs(StrictArgs):
         description="工具参数。**调用前必须先 get_tool_spec 查该工具的 param_meta**，"
                     "按其 name/required/default/hints 传值（枚举值要用 hints 里的写法，"
                     "如语言码是 zh_cn 而不是 zh）。不要凭常识猜参数名和取值。")
+    # 从「工作空间工具」发起的执行（交互 Agent 的 tool_call 与工具匹配两条
+    # 路径都归一到本工具）：确认门由 Agent 侧统一卡片承担，这里直接执行。
+    # 仅供 Agent 子进程内部使用，不进入 LLM 可见的 schema。
+    confirmed: bool = Field(
+        default=False,
+        description="内部字段：用户已在本轮确认卡上确认执行，网关跳过二次确认。")
+
+
+def _tool_label(tool_id: str) -> str:
+    """确认卡里展示工具的中文名而不是内部 id（同 _agent_label）。"""
+    if not tool_id:
+        return ""
+    try:
+        from core.resource.registry.tool_registry import ToolRegistry
+        for e in ToolRegistry()._read():
+            if e.get("id") == tool_id:
+                return e.get("name") or tool_id
+    except Exception:
+        pass
+    return tool_id
 
 
 @platform_tool(
     "run_tool",
     "执行一个已注册的工具（子进程沙箱内运行）。参数会在确认卡片中全量展示。",
     RunToolArgs, RISK_WRITE,
-    summary_fn=lambda a: f"执行工具 {a.get('tool_id', '')}",
+    summary_fn=lambda a: f"执行工具「{_tool_label(a.get('tool_id', ''))}」",
 )
 async def run_tool(args: RunToolArgs, ctx: CallContext) -> dict:
     from core.executor.tool_executor import ToolExecutor
@@ -698,6 +785,8 @@ class CreateAgentArgs(StrictArgs):
 @platform_tool(
     "create_agent",
     "按需求描述创建一个新智能体：生成规格 → 生成代码 → 静态安全审查 → 注册。"
+    "用户要求「做一个 / 新建 / 生成某个 Agent」时使用本工具，不要在回复里让用户自己去找编辑器。"
+    "描述里用【【工具名】】引用已有工具（名称必须与 list_tools 返回的一致），Agent 只能用被引用的工具。"
     "创建后可用 start_agent 启动。耗时较长，一次对话建议只创建一个。",
     CreateAgentArgs, RISK_WRITE,
     summary_fn=lambda a: f"创建 Agent：{_clip_view(a.get('description', ''), 80)}（{a.get('role') or 'task'}）",
@@ -792,17 +881,85 @@ async def create_agent(args: CreateAgentArgs, ctx: CallContext) -> dict:
         f"# {name} 运行时配置\nrole: {role}\nversion: 0.1.0\n", encoding="utf-8",
     )
     agent_routes._maybe_generate_api_doc(registered_id)
-    return {"agent_id": registered_id, "name": name, "role": role, "scan_passed": True}
+    # 启动即自检：只对任务式 Agent 做一轮真实试跑（子进程 + 首个 flow 步骤）。
+    # 目的是尽早暴露「必填参数没人传 / 工具名为不可移植默认值」这类结构性缺陷，
+    # 失败不回滚注册，但把可读原因回给模型，让它如实告知用户。
+    warning = ""
+    if role == "task":
+        try:
+            warning = await _probe_task_agent(registered_id)
+        except Exception:
+            warning = ""
+    out = {"agent_id": registered_id, "name": name, "role": role, "scan_passed": True,
+           "self_check": "passed"}
+    if warning:
+        out["self_check"] = "failed"
+        out["warning"] = warning
+        out["instruction"] = ("该 Agent 已注册但自检未通过，向用户汇报时必须说明"
+                              "「已创建，但首次运行自检未通过」并给出原因，"
+                              "禁止说已可用/自检通过。")
+    return out
+
+
+async def _probe_task_agent(agent_id: str) -> str:
+    """启动新建任务式 Agent 并试跑一轮，返回可读的告警（通过则空串）。
+
+    试跑带一段占位 content（入口文本本身几乎不会被业务用掉，参数都在 flow
+    里固定），目的不是校验输入，而是尽快跑到第一个工具调用，暴露「必填的
+    数据集/列名没人传」「数据集 id 用了不可移植默认值」这类结构性缺陷。
+    只收集到首个输出事件，超时即判通过（不自检长任务耗时）。
+    """
+    import asyncio as _asyncio
+
+    from core.agent.factory import agent_factory
+
+    await agent_factory.start(agent_id)
+    err = ""
+    try:
+        async with _asyncio.timeout(180):
+            async for ev in agent_factory.execute_stream(
+                    agent_id, params={"content": "自检运行"},
+                    context={"user_id": "0"}):
+                etype = ev.get("event")
+                if etype == "error":
+                    err = str((ev.get("data") or {}).get("message") or "")
+                    break
+                if etype in ("content", "delta", "card"):
+                    break
+                if etype == "done":
+                    break
+    except Exception:
+        err = ""
+    if err:
+        return f"自检未通过：{err[:200]}"
+    return ""
 
 
 class AgentIdArgs(StrictArgs):
     agent_id: str = Field(description="Agent id（先用 list_agents 确认）")
 
 
+def _agent_label(agent_id: str) -> str:
+    """确认卡里展示 Agent 的中文名而不是内部 id。
+
+    `启动 Agent city-info-query-agent` 这种卡片对用户没有信息量（同名中文
+    名在注册表里本来就有）。取不到名字时退回 id，不吞错。
+    """
+    if not agent_id:
+        return ""
+    try:
+        for e in _agents._read():
+            if e.get("id") == agent_id:
+                return e.get("name") or agent_id
+    except Exception:
+        pass
+    return agent_id
+
+
 @platform_tool(
     "start_agent", "启动一个已注册的 Agent（拉起其子进程）。",
     AgentIdArgs, RISK_WRITE,
-    summary_fn=lambda a: f"启动 Agent {a.get('agent_id', '')}",
+    summary_fn=lambda a: f"启动 Agent「{_agent_label(a.get('agent_id', ''))}」",
 )
 async def start_agent(args: AgentIdArgs, ctx: CallContext) -> dict:
     from core.agent.factory import agent_factory
@@ -818,7 +975,7 @@ async def start_agent(args: AgentIdArgs, ctx: CallContext) -> dict:
 @platform_tool(
     "stop_agent", "停止一个正在运行的 Agent 子进程。",
     AgentIdArgs, RISK_WRITE,
-    summary_fn=lambda a: f"停止 Agent {a.get('agent_id', '')}",
+    summary_fn=lambda a: f"停止 Agent「{_agent_label(a.get('agent_id', ''))}」",
 )
 async def stop_agent(args: AgentIdArgs, ctx: CallContext) -> dict:
     from core.agent.factory import agent_factory

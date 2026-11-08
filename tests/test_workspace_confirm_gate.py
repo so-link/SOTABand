@@ -264,10 +264,10 @@ def test_direct_match_requires_confirmation(monkeypatch):
 
     executed = []
 
-    async def fake_exec(tool_info, q, paths, pre_params=None):
-        executed.append(tool_info)
+    async def fake_exec(tool_id, params, ctx, session_key, confirmed=False):
+        executed.append({"id": tool_id, "confirmed": confirmed})
         return {"status": "success", "data": {}, "output_format": "file"}
-    monkeypatch.setattr(agent, "_execute_tool", fake_exec)
+    monkeypatch.setattr(agent, "_exec_via_gateway", fake_exec)
 
     ctx = types.SimpleNamespace(session_id="s1", user_id="0")
 
@@ -310,6 +310,8 @@ def test_direct_match_requires_confirmation(monkeypatch):
 
     run_coro(run2())
     assert executed and executed[-1]["id"] == "t-weather"
+    # 确认门放行后经网关执行（confirmed=True 让网关跳过二次确认）
+    assert executed[-1]["confirmed"] is True
     assert "s1" not in agent._pending_confirm
 
     statuses = [a["status"] for a in audited]

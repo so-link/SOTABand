@@ -38,18 +38,25 @@ SYSTEM_PROMPT = """你是 SOTABand Engine 的交互 Agent，一个多智能体�
 - 普通对话: 用自然语言回复
 - 简单数据处理需求: 分析需求 → 匹配工具 → 建议执行方案
 - 复杂任务: 分析步骤 → 建议使用编排模式
-- 无匹配工具: 回复必须**以 TOOL_NEEDED: 开头**（不要有任何前缀文字），然后简要描述需要创建什么工具（中文描述），
-  系统会自动跳转到工具编辑器并预填需求。例如: "TOOL_NEEDED: EEG带通滤波器，输入EDF文件，支持可配置的低频和高频截止频率"
 
 ## 平台工具（重要）
 - 你可以直接调用平台工具查询系统真实状态（数据集/工具/模型/Agent 清单、定时任务、目录浏览、数据预览等）。需要这类信息时**必须调用工具**，禁止凭空猜测或编造
+- 用户要求「创建 / 新建 / 做一个 / 开发一个」工具或 Agent 时，**必须调用 create_tool / create_agent 平台工具**完成创建（先给确认卡，用户确认后自动生成、审查并注册）。
+  禁止让用户自己去别的界面手工创建，禁止声称已创建
+- 用户要求「创建」时，**禁止先用 run_tool 跑一个同名/相似的老工具来"看看它是否满足要求"**。用户要的是新建，先调研再跑老工具会打断意图、多一张无意义的确认卡。
+  只有用户说的是「执行 / 跑一下 / 用已有的」时才去匹配并执行老工具；创建完成后要验证，用新工具 id 跑一次
+- 创建 Agent 前先用 list_tools 确认要引用的工具名称，描述里用【【工具名】】引用；创建后可直接 start_agent 启动
+- Agent 创建回执里若带 warning（自检未通过），必须如实告诉用户哪里没跑通、准备怎么改，禁止说「已创建并可用」
+- 创建工具后可立刻 run_tool 用真实参数执行验证，并把关键结果告诉用户
 - 涉及修改平台资源的工具会先向用户发出确认卡片，工具返回 status=pending 时，你只需告知用户在卡片上确认，**绝不能声称操作已执行**
 - 工具返回的 status=error 表示未执行，把错误原因用自然语言告诉用户或修正参数后重试
 
 ## 注意事项
-- 回复简洁清晰，逐步引导用户
+- 回复简洁清晰，逐步引导用户：结论先行，不罗列内部步骤、工具 id、JSON、日志
+- 指代工具 / Agent 一律用中文名称，不要报内部 id（如 etf-90d-ranking-review-agent）
+- 不要用「# 标题」「## 小节」开头（对话气泡里标题层级喧宾夺主），直接给结论与要点
+- 数据缺失时说「未获取到 X」，不要用「一切正常 / 无异常 / 无预警」这类未校验的肯定表述
 - 如用户提及具体数据文件，引用文件名
-- 当用户描述数据处理需求但当前没有匹配工具时，必须使用 TOOL_NEEDED: 格式，且 TOOL_NEEDED: 必须在回复最开头
 - 保持友好、专业的语气"""
 
 
@@ -94,6 +101,9 @@ class InteractiveAgent(BaseAgent):
         self._pending_confirm: dict[str, dict] = {}
         self._pending_modes: dict[str, dict] = {}
         self._pending_agents: dict[str, dict] = {}
+        # 待续跑的 Agent 请求：{session_key: {"agent_id","request"}}，
+        # 用户确认 start_agent 后在回执轮继续派发（不回“已启动”就结束）。
+        self._pending_agent_request: dict[str, dict] = {}
 
     async def execute(
         self, ctx: AgentContext, **kwargs
@@ -534,7 +544,8 @@ class InteractiveAgent(BaseAgent):
             # 执行步骤提示：工具可能耗时较长，用 step 事件告知用户正在执行
             yield {"event": "step", "data": {"id": "call_tool", "text": f"正在执行工具「{_tool_name}」", "status": "running"}}
             _exec_started = time.time()
-            tool_result = await self._execute_tool(matched_tool, content, dataset_paths, params)
+            tool_result = await self._exec_via_gateway(
+                matched_tool["id"], params, ctx, session_key, confirmed=exec_confirmed)
             _exec_ms = int((time.time() - _exec_started) * 1000)
             await self._audit_workspace_op(
                 op_id=exec_op_id, session_key=session_key, owner=owner,
@@ -595,8 +606,14 @@ class InteractiveAgent(BaseAgent):
                         },
                     },
                 }
-                # 图片/表格/文件/失败 → 直接结束，不调 LLM（文件由前端渲染，如音频播放器、下载链接等）
-                if tool_result.get("output_format") in ("image", "table", "file") or tool_result.get("status") == "failed":
+                # 图片/表格/文件 → 直接结束，不调 LLM（前端已有渲染器）。
+                # 失败不能静默：卡片上的报错是给机器看的，用户还需要一句
+                # 「哪里不对、下一步怎么办」，否则对话停在一张红灯卡片上。
+                if _ok and tool_result.get("output_format") in ("image", "table", "file"):
+                    return
+                if not _ok:
+                    yield {"event": "content", "data": {
+                        "text": self._failure_reply(matched_tool, tool_result)}}
                     return
             else:
                 tool_failed = True
@@ -612,8 +629,10 @@ class InteractiveAgent(BaseAgent):
                     },
                 }
 
-        # 工具执行失败 → 不调用 LLM，直接返回
+        # 工具执行失败 → 不调用 LLM，但必须给用户一句可操作的话
         if tool_failed:
+            yield {"event": "content", "data": {
+                "text": self._failure_reply(matched_tool, tool_result or {})}}
             return
 
         user_msg, image_urls = self._build_user_message(content, attachments, dataset_paths)
@@ -795,19 +814,17 @@ class InteractiveAgent(BaseAgent):
             # LLM 流式输出已全部完成
             yield {"event": "step", "data": {"id": "reply", "text": "回复整理完成", "status": "done"}}
 
-            # 检查是否需要创建工具（宽松匹配，兼容前缀/中英文冒号）
-            m_tool_needed = re.search(r"TOOL_NEEDED[:：]\s*(.+)", full_response, re.DOTALL)
-            if m_tool_needed:
-                tool_desc = m_tool_needed.group(1).strip()
-                yield {
-                    "event": "card",
-                    "data": {
-                        "type": "create-tool",
-                        "title": "需要创建新工具",
-                        "summary": tool_desc,
-                        "data": {"description": tool_desc},
-                    },
-                }
+            # 创建工具/Agent 一律走平台工具 create_tool / create_agent，
+            # 不再识别 TOOL_NEEDED 文本标记（模型偶尔仍会照旧习惯输出，
+            # 直接剥掉标记文字，避免把内部协议泄漏给用户）。
+            full_response = re.sub(r"TOOL_NEEDED[:：]\s*", "", full_response).strip()
+
+            # 回复整洁化：模型习惯在「即将调用平台工具」时甩出空代码块围栏
+            # （``` 后内容为空）或纯空白——它们在前端渲染成一个空代码框，
+            # 是很明显的界面噪音。这里统一剥掉，同时把结尾的
+            # 「我来创建 / 我先调用…」这类过程台词去掉，结果卡/确认卡
+            # 才是真正的信息载体。
+            full_response = self._tidy_reply(full_response)
 
             # 保存对话历史：只保留纯文本轮次。
             # tool_calls/tool 中间消息跨轮保留会因历史裁剪拆散配对而报协议错误，
@@ -1042,10 +1059,13 @@ class InteractiveAgent(BaseAgent):
         except Exception:
             return []
 
-    async def _run_workspace_tool(self, tc: dict, ctx: AgentContext, session_key: str) -> dict:
-        """执行 LLM function calling 指定的工作空间工具（ToolExecutor）。
+    async def _run_workspace_tool(self, tc: dict, ctx: AgentContext, session_key: str,
+                                  confirmed: bool = False) -> dict:
+        """执行 LLM function calling 指定的工作空间工具。
 
-        LLM 已给出 arguments（含 file_id），ToolExecutor 会把 f_xxx 解析回路径。
+        LLM 已给出 arguments（含 file_id）。确认卡之后（confirmed=True）
+        统一经平台网关 run_tool 执行——与工具匹配路径同一条执行/审计通道，
+        本 Agent 不再自己直连 ToolExecutor。
         """
         tool_id = str(tc.get("name") or "")
         args = tc.get("arguments")
@@ -1056,11 +1076,37 @@ class InteractiveAgent(BaseAgent):
                 return {"status": "error", "error": "工具参数不是合法 JSON，请生成正确参数后重试"}
         if not isinstance(args, dict):
             args = {}
-        try:
-            from core.executor.tool_executor import ToolExecutor
-            return await ToolExecutor.execute(tool_id=tool_id, params=args, timeout=None)
-        except Exception as e:
-            return {"status": "failed", "message": f"工具执行异常: {str(e)[:300]}"}
+        return await self._exec_via_gateway(tool_id, args, ctx, session_key,
+                                            confirmed=confirmed)
+
+    async def _exec_via_gateway(self, tool_id: str, params: dict,
+                                ctx: AgentContext, session_key: str,
+                                confirmed: bool = False) -> dict:
+        """经平台网关 run_tool 执行工具，返回 ToolExecutor 同构结果。
+
+        所有工作空间工具执行（工具匹配直执行 / 候选确认 / 参数补全 /
+        LLM tool_call）最终都收敛到这里：一张确认卡、一条审计流水、
+        一个执行入口。
+        """
+        if self._bus is None:
+            # 无总线（进程内调试/单测）时退回直接执行
+            try:
+                from core.executor.tool_executor import ToolExecutor
+                return await ToolExecutor.execute(tool_id=tool_id, params=params, timeout=None)
+            except Exception as e:  # noqa: BLE001
+                return {"status": "failed", "message": f"工具执行异常: {str(e)[:300]}"}
+        receipt = await self._bus.platform_call(
+            "run_tool", {"tool_id": tool_id, "params": params, "confirmed": bool(confirmed)},
+            session_id=ctx.session_id or session_key,
+            user_id=ctx.user_id or "default",
+        )
+        if receipt.get("status") == "pending":
+            # 未确认却要求直执行：交回确认卡，绝不静默执行
+            return {"status": "error", "error": "等待用户确认后执行"}
+        if receipt.get("status") == "ok":
+            return receipt.get("result") or {}
+        return {"status": "failed", "message": str(receipt.get("error") or "工具执行失败"),
+                "data": {}}
 
     async def _run_platform_tool(self, tc: dict, ctx: AgentContext, session_key: str) -> dict:
         """执行单个平台工具调用，返回结构化结果（不抛异常）。
@@ -1095,6 +1141,46 @@ class InteractiveAgent(BaseAgent):
             text = text[:6000] + "…（结果已截断）"
         return text
 
+    @staticmethod
+    def _failure_reply(tool: dict, result: dict) -> str:
+        """工具执行失败时给用户一句可操作的话（不是把 traceback 丢给用户）。
+
+        卡片里已有完整失败详情，正文只回答「错在哪、下一步怎么做」：
+        找不到数据集/列时给出可改的方向，其它错误提示重试或修改需求。
+        """
+        name = (tool or {}).get("name") or (tool or {}).get("id") or "工具"
+        msg = str((result or {}).get("message") or "").strip()
+        # 只取第一行：多行的是「错误 + Traceback」，用户不需要栈信息；
+        # 开头的「执行失败:」是网关加的标签，正文里已经有失败语气了
+        head = msg.split("\n", 1)[0][:160]
+        head = re.sub(r"^(执行失败|工具执行失败)\s*[:：]\s*", "", head).strip()
+        if "数据集" in msg and ("不存在" in msg or "无法解析" in msg):
+            hint = "请确认要用的数据集名称，我可以用正确的数据集重新执行。"
+        elif "列" in msg and ("不存在" in msg or "缺少" in msg):
+            hint = "请确认要统计的列名（如 OT），或告诉我数据里实际有哪些列。"
+        elif "recent_days" in msg or "参数" in msg:
+            hint = "参数取值需要调整，告诉我正确的取值我再跑一次。"
+        else:
+            hint = "可以换个数据集或参数再试，也可以告诉我期望的输出形式。"
+        return f"「{name}」没有跑成功：{head}\n\n{hint}"
+
+    @staticmethod
+    def _tidy_reply(text: str) -> str:
+        """去掉回复里的空代码围栏与多余空白行（纯展示层清洗）。
+
+        模型在「准备调用平台工具」时经常先甩一段 ``` 开围栏却没有任何
+        内容，前端会渲染成空代码框；连续多个空行也会把卡片挤得很散。
+        这里只做确定性的文本清洗，不改语义、不删有内容的代码块。
+        """
+        s = text or ""
+        # 成对的空代码块：```...```（中间只有空白）整体删除
+        s = re.sub(r"```[a-zA-Z]*\s*```", "", s)
+        # 落单的空围栏行（只有 ``` 或 ```python）
+        s = re.sub(r"^[ \t]*```[a-zA-Z]*[ \t]*$", "", s, flags=re.MULTILINE)
+        # 三行以上连续空行压成一行
+        s = re.sub(r"\n{3,}", "\n\n", s)
+        return s.strip()
+
     async def _explain_platform_receipt(
         self, ctx: AgentContext, receipt: dict, session_key: str
     ) -> AsyncGenerator[dict, None]:
@@ -1116,9 +1202,16 @@ class InteractiveAgent(BaseAgent):
             f"（系统回执，非用户输入）用户刚在确认卡片上确认了平台操作，"
             f"{'已成功执行' if ok else '执行失败'}。网关回执："
             f"{self._clip_tool_result(payload)}\n"
-            "请用简洁的中文向用户解读这次操作的结果：做了什么、关键数据或 ID、"
+            "请用简洁的中文向用户解读这次操作的结果：做了什么、关键数据或结论、"
             "下一步建议。数据类结果提炼要点，不要照抄 JSON。"
             "不要向用户提及本条系统回执本身。"
+            "【禁止暴露内部标识】不要向用户报工具 id、Agent id、数据集 id 这类内部标识"
+            "（如 etf-90d-ranking-review-agent），需要指代时只说中文名称；"
+            "确实需要用户填写的参数值（如 dataset_id）才可原样出现。"
+            "【状态必须与回执一致】回执里 self_check=failed 或带 warning/error 时，"
+            "必须原样说明「已创建，但自检/运行未通过」及具体原因，"
+            "严禁写成「自检已通过」「已可用」「一切正常」；只有 self_check=passed 且没有"
+            "warning/error 才能说自检通过。"
         )
         history = self._sessions.get(session_key) or []
         if not history:
@@ -1135,15 +1228,59 @@ class InteractiveAgent(BaseAgent):
         history.append({"role": "assistant", "content": full})
         self._sessions[session_key] = history
 
+        # start_agent 回执的延续：用户确认启动 Agent 的原始动机是「让它处理我的
+        # 问题」，只回一句「已启动」等于把请求丢在半路。这里把此前待处理的
+        # Agent 请求接着派发出去（派发失败或已完成则不再重复）。
+        pending = self._pending_agent_request.pop(session_key, None)
+        if tool == "start_agent" and ok and pending:
+            entry = await self._registry_entry(pending.get("agent_id", ""))
+            if entry is not None:
+                yield {"event": "step", "data": {"id": "dispatch_agent",
+                                                 "text": f"继续交给「{entry.get('name', '')}」处理",
+                                                 "status": "running"}}
+                async for ev in self._dispatch_to_agent(entry, pending.get("request", ""),
+                                                        session_key, None, start_wait_s=90.0):
+                    yield ev
+
+    async def _registry_entry(self, agent_id: str) -> dict | None:
+        """按 id 取当前用户可见的 Agent 条目（回执续跑派发用）。"""
+        if not agent_id:
+            return None
+        try:
+            from core.resource.registry.agent_registry import AgentRegistry
+            from core.user_context import get_current_user_id
+            reg = AgentRegistry()
+            me = get_current_user_id()
+            for e in reg._read():
+                if e.get("id") == agent_id and reg.is_visible(e, me):
+                    return e
+        except Exception:
+            return None
+        return None
+
     async def _match_agent(self, query: str):
         """判断用户是否指定了某个已注册 Agent，返回单个条目 / 多候选 list / None。
-
         两级匹配：
         ① 名称级强匹配（名称/id 显式出现在句中出现）—— 精确、无歧义，优先；
         ② 未命中时做 LLM 语义匹配（用功能概述判断用户需求是否正好由某个
            Agent 完成，例如「预测 ETF 510500 的价格」→ ETF目标价预测Agent）。
            语义匹配置信度要求高，宁缺毋滥：错派 Agent 的代价高于回退去匹配工具。
+
+        「创建新 Agent」的诉求不是派发：用户说「创建一个叫 XX 的 Agent」时，
+        名称/语义都可能命中同名老 Agent，派发过去只会执行老 Agent，创建意图
+        丢失。此类请求一律返回 None，交给主流程的平台工具 create_agent。
         """
+        if self._detect_create_intent(query):
+            return None
+        # 「用这个工具跑一次」「用『ETF 近90日涨跌幅排行』跑一下」指向的是工具，
+        # 不是 Agent：Agent 名常常是工具名的加长版（…榜点评 Agent），只要名字里
+        # 包含工具名就会被拽进派发，多一张启动确认卡、执行的还是别的对象。
+        # 因此句子里提到「工具」且没有 Agent/智能体 字样时，一律不做 Agent 派发。
+        mentions_tool_word = "工具" in query
+        mentions_agent_word = ("Agent" in query or "agent" in query.lower()
+                               or "智能体" in query)
+        if mentions_tool_word and not mentions_agent_word:
+            return None
         try:
             from core.resource.registry.agent_registry import AgentRegistry
             from core.user_context import get_current_user_id
@@ -1301,11 +1438,16 @@ class InteractiveAgent(BaseAgent):
         return last
 
     async def _dispatch_to_agent(self, agent_entry: dict, request: str, session_key: str,
-                                 user_id: str = ""):
+                                 user_id: str = "", start_wait_s: float = 5.0):
         """把用户请求转发给指定 Agent（经主进程 RPC），聚合结果后返回。
 
         RPC 语义（见 core/agent/entrypoint.py）：参数平铺为 execute kwargs，
         content 即用户原话；成功聚合为 {"text": ...}。
+
+        start_wait_s：目标 Agent 未运行、且启动已获授权（自动确认策略）时，
+        最多等待多久让它就绪。回执轮续跑（用户已在确认卡上确认过启动）必须
+        给足等待时间——此前沿用默认 60s 且第一轮命中尚未就绪，未做重试，
+        用户看到的就是「0 个工具调用」这类空结果。
         """
         aid = agent_entry.get("id", "")
         name = agent_entry.get("name", aid)
@@ -1317,9 +1459,11 @@ class InteractiveAgent(BaseAgent):
             yield {"event": "content", "data": {"text": f"当前环境不支持 Agent 间调用，请打开 **{name}** 的详情页直接交互。"}}
             return
 
-        yield {"event": "content",
-               "data": {"text": f"正在转交给 **{name}** 处理，请稍候……（任务可能需要较长时间）"}}
-
+        # 先把「转交中」这句中间态说清楚，但如果后面立刻要用户确认启动，
+        # 这句话会变成让人困惑的「半句话」（用户还没确认，已经在转交了）。
+        # 因此只在确定要直接执行时才说；需要确认的分支由卡片文案负责。
+        yield {"event": "step", "data": {"id": "dispatch_agent",
+                                         "text": f"转交「{name}」处理", "status": "running"}}
         resp = await self._bus.call_agent(aid, "execute", {"content": request}, timeout=300)
 
         if isinstance(resp, dict) and "未运行" in str(resp.get("error", "")):
@@ -1341,9 +1485,15 @@ class InteractiveAgent(BaseAgent):
             if isinstance(r, dict) and r.get("status") == "pending" and r.get("confirm"):
                 # 启动是写操作，仍需用户确认；保留原请求以便确认后补提交
                 self._pending_agents[session_key] = {"agent": agent_entry, "request": request}
+                # 待处理请求按 agent_id 登记：回执轮（start_agent 成功）据此续跑，
+                # 与服务端「启动完成继续处理原始提问」保持同一语义。
+                self._pending_agent_request[session_key] = {
+                    "agent_id": aid, "agent_name": name, "request": request}
                 yield {"event": "step",
                        "data": {"id": "start_agent",
                                 "text": f"「{name}」未运行，需确认后启动", "status": "done"}}
+                yield {"event": "step",
+                       "data": {"id": "dispatch_agent", "text": "等待用户确认启动", "status": "done"}}
                 confirm_data = dict(r["confirm"])
                 # 原请求随卡片下发：确认执行在前端异步完成，确认成功后前端要
                 # 用它自动续跑，否则启动完成时已没有上下文知道用户问了什么。
@@ -1366,7 +1516,7 @@ class InteractiveAgent(BaseAgent):
             # 网关直接放行（自动确认策略）→ 界面上把「启动」这一步显式展示出来
             yield {"event": "step",
                    "data": {"id": "start_agent", "text": f"「{name}」已启动，等待就绪", "status": "running"}}
-            resp = await self._retry_agent_after_start(aid, request)
+            resp = await self._retry_agent_after_start(aid, request, wait_s=start_wait_s)
             if isinstance(resp, dict) and "未运行" in str(resp.get("error", "")):
                 self._pending_agents[session_key] = {"agent": agent_entry, "request": request}
                 yield {"event": "step",
@@ -1389,19 +1539,37 @@ class InteractiveAgent(BaseAgent):
             result = resp.get("result") or {}
             text = result.get("text") if isinstance(result, dict) else json.dumps(result, ensure_ascii=False, default=str)
             text = (text or "").strip() or "（该 Agent 未返回文本结果）"
-            yield {
-                "event": "card",
-                "data": {
-                    "type": "result-summary",
-                    "title": f"Agent 执行: {name}",
-                    "summary": text[:200],
-                    "data": {"agent_id": aid, "result": text[:4000]},
-                },
-            }
+            # Agent 侧若产出了结果卡（含表格/图片/文件数据），原样转给前端：
+            # 表格结果本身就在卡里，丢卡只回一句「成功处理 N 只」用户看不到数据。
+            inner = result.get("card") if isinstance(result, dict) else None
+            if isinstance(inner, dict) and inner.get("data"):
+                yield {
+                    "event": "card",
+                    "data": {
+                        "type": "result-summary",
+                        "title": f"Agent 执行: {name}",
+                        "summary": (inner.get("summary") or text)[:200],
+                        "data": inner["data"],
+                    },
+                }
+            else:
+                yield {
+                    "event": "card",
+                    "data": {
+                        "type": "result-summary",
+                        "title": f"Agent 执行: {name}",
+                        "summary": text[:200],
+                        "data": {"agent_id": aid, "result": text[:4000]},
+                    },
+                }
             # 注入历史，让后续对话能引用本次结果
             session.append({"role": "user", "content": f"[转交 {name}] {request}"})
             session.append({"role": "assistant", "content": f"[{name} 的执行结果]\n{text[:3000]}"})
-            summary = f"Agent「{name}」已完成任务，结果如下：\n{text[:3000]}\n请用一两句话向用户小结以上结果。"
+            # Agent 的结果本身就是给用户的答复（含摘要与结论），直接正文输出。
+            # 之前这里再过一轮 LLM「小结」，效果是同一段结论说两遍，且小结提示词
+            # 被模型当成正文回显（气泡里出现 <system>…</system>）。
+            yield {"event": "content", "data": {"text": text}}
+            return
         else:
             err = str((resp or {}).get("error", "未知错误"))[:300]
             yield {
@@ -1415,16 +1583,9 @@ class InteractiveAgent(BaseAgent):
             }
             session.append({"role": "user", "content": f"[转交 {name}] {request}"})
             session.append({"role": "assistant", "content": f"[{name} 执行失败] {err}"})
-            summary = f"Agent「{name}」执行失败：{err}。请向用户说明失败原因并给出建议。"
-
-        # 用 LLM 对结果做简短小结（直接走 content 流式，不重复输出全文）
-        try:
-            hist = [m for m in session if m["role"] != "system"][-12:]
-            msgs = [{"role": "system", "content": "你是交互助手。基于最近的 Agent 执行结果，用简洁中文向用户小结，不要编造未提供的信息。"}] + hist
-            async for token in self.llm.chat_stream(messages=msgs, temperature=0.2, max_tokens=800):
-                yield {"event": "content", "data": {"text": token}}
-        except Exception:
-            pass
+            yield {"event": "content",
+                   "data": {"text": f"「{name}」执行失败：{err}"}}
+            return
 
     async def _pre_match_tool(
         self, query: str, workspace_tool_ids: list[str] = None
@@ -1439,10 +1600,13 @@ class InteractiveAgent(BaseAgent):
         不能装作没看见——此前正是这里让「查询广州的天气」对着仓库里的
         城市天气预报静默失败。第三项就是给调用方发「加入工具空间」卡片的。
         """
-        # 0. 明确「创建工具」意图 → 直接进入创建流程，不做工具匹配
+        # 明确「创建工具 / 创建 Agent」意图 → 不做工具匹配，直接进主流程，
+        # 由 LLM 调平台工具 create_tool / create_agent（网关确认卡 + 生成 + 审查 +
+        # 注册一条龙）。之前这里发 create-tool 卡片提前 return，导致对话既没有
+        # 确认卡、也没有任何文字回复，用户只能被引导去手工打开编辑器。
         create_intent = self._detect_create_intent(query)
         if create_intent:
-            return [], create_intent, []
+            return [], None, []
 
         # 0.5 平台元信息查询（"我有哪些数据集"等）→ 不做工具匹配，
         # 交给主流程的平台工具（function calling）用真实数据回答。
@@ -1468,6 +1632,10 @@ class InteractiveAgent(BaseAgent):
         llm_candidates, llm_create = await self._llm_semantic_match(query, active)
         if llm_candidates:
             return llm_candidates, None, []
+        # 用户点名的工具不在工具空间时，按 id/名称直达（不猜语义）
+        named_outside = self._explicit_tool_match(query, outside)
+        if named_outside:
+            return named_outside, None, []
         # 关键词匹配兜底仅在工具空间内做（规则宽松，跨范围容易误伤）
         kw_candidates = self._keyword_match(query, active)
         if kw_candidates:
@@ -1490,26 +1658,46 @@ class InteractiveAgent(BaseAgent):
         return [], None, []
 
     def _detect_create_intent(self, query: str) -> str | None:
-        """检测用户是否明确表达「创建工具」意图，返回工具描述（或 None）"""
-        # 明确创建意图的关键词
+        """检测用户是否明确表达「创建工具 / 创建 Agent」意图，返回描述（或 None）。
+
+        两类创建意图都识别：工具类（创建工具/写个工具…）与 Agent 类
+        （创建 Agent/做一个智能体…）。它们都要走平台工具 create_tool /
+        create_agent，既不能去做工具匹配，也不能做 Agent 派发。
+        """
         CREATE_KEYWORDS = [
             "创建工具", "新建工具", "生成工具", "做一个工具", "做个工具",
             "创建新工具", "新建一个工具", "开发一个工具", "开发个工具",
             "帮我做工具", "帮我写工具", "我要工具", "写个工具", "写一个工具",
             "create tool", "create a tool", "new tool", "make a tool",
             "我要创建", "我想创建", "帮我创建",
+            "创建agent", "创建 agent", "新建agent", "新建 agent",
+            "新建一个agent", "新建一个 agent", "生成agent", "生成 agent",
+            "创建一个agent", "创建一个 agent", "做一个agent", "做一个 agent",
+            "开发一个agent", "开发一个 agent", "创建智能体", "新建智能体",
+            "创建一个智能体", "做一个智能体", "帮我创建一个", "帮我做一个",
+            "create agent", "create an agent", "new agent", "build an agent",
+            # 名称在动词前的语序：「ETTh1 巡检 Agent 帮我实现」这类需求里
+            # 「创建/需要一个」与「Agent」之间常隔着一串修饰词，直接按
+            # 「创建…Agent」相邻匹配会漏。这里用「动词出现在句中 + 句中出现
+            # Agent/智能体」兜底，宁可判成创建意图（创建后仍可复用同名工具）。
+            "创建一个", "帮我实现", "实现一个", "搭一个", "搭一个agent",
         ]
         q = query.strip()
         q_lower = q.lower()
-        has_create_intent = any(kw in q for kw in CREATE_KEYWORDS) or any(kw in q_lower for kw in CREATE_KEYWORDS)
+        # 英文关键词按小写比对；中文原样比对，避免 casefold 破坏中英混写匹配
+        has_create_intent = any(kw in q for kw in CREATE_KEYWORDS if not kw.isascii()) \
+            or any(kw in q_lower for kw in CREATE_KEYWORDS if kw.isascii())
 
         if not has_create_intent:
             return None
 
-        # 提取工具描述：去掉「创建工具」等意图词，剩下的作为描述
+        # 提取描述：去掉「创建工具」等意图词，剩下的作为描述
         desc = q
         for kw in CREATE_KEYWORDS:
-            desc = desc.replace(kw, " ")
+            if kw.isascii():
+                desc = re.sub(re.escape(kw), " ", desc, flags=re.IGNORECASE)
+            else:
+                desc = desc.replace(kw, " ")
         # 清理标点和多余空格
         desc = re.sub(r"[，。！？,.!?\s]+", " ", desc).strip()
         # 如果去掉意图词后没有实质描述，用原始 query
@@ -1580,12 +1768,36 @@ class InteractiveAgent(BaseAgent):
 
         return None
 
+    @staticmethod
+    def _explicit_tool_match(query: str, tools: list[dict]) -> list[dict]:
+        """用户句子里点名了某个工具（id 或中文名）→ 直接选中它。
+
+        语义匹配只看功能概述，遇到功能相近的多个工具必然选错；用户已经把
+        工具 id / 名称说出来时不应再猜。名称取最长命中，避免短名吃长名。
+        """
+        q_low = (query or "").lower()
+        for t in tools:
+            tid = str(t.get("id") or "").lower()
+            if tid and tid in q_low:
+                return [t]
+        named = [t for t in tools
+                 if (t.get("name") or "") and str(t["name"]) in (query or "")]
+        if named:
+            named.sort(key=lambda t: len(str(t.get("name"))), reverse=True)
+            return named[:1]
+        return []
+
     async def _llm_semantic_match(self, query: str, tools: list[dict]) -> tuple[list[dict], str | None]:
         """用 LLM 做语义匹配。
 
         返回 (匹配到的工具候选列表, 需要创建的工具描述 或 None)
         """
         try:
+            # 用户句子里直接写了工具 id（「用工具 etf-xxx_1794 跑一次」）或
+            # 工具中文名时，以显式指名优先，不做语义猜测。
+            explicit = self._explicit_tool_match(query, tools)
+            if explicit:
+                return explicit, None
             # 构建工具候选列表（id + name + tags + 功能概述）
             candidates = []
             for t in tools:
@@ -1850,14 +2062,70 @@ class InteractiveAgent(BaseAgent):
                 )
             return {name: resolved}
 
-        # 其他类型（string 等）：直接使用输入
-        return {name: val}
+        # 数据集 id：是逻辑标识，必须先从回答里剥掉「数据集就用…」这类前缀，
+        # 再对着真实注册表校验。曾把整句「数据集就用 etf-90d-ohlcv」写进
+        # dataset_id，工具随后报「数据集不存在」。
+        if (name or "").lower() in ("dataset_id", "dataset", "data_id", "dir_id"):
+            cand = self._pick_dataset_id(val)
+            if cand:
+                return {name: cand}
+            known = self._known_dataset_ids()
+            raise ValueError(
+                f"没有在「{val}」里认出数据集。当前可用的数据集有："
+                f"{'、'.join(known[:8]) or '（暂无）'}。请回复其中一个名称，或回复「取消」放弃本次执行。"
+            )
+
+        # 其他类型（string 等）：整句只作为值，但要剥掉明显的口语句式
+        return {name: self._pick_scalar_value(val)}
+
+    @staticmethod
+    def _pick_dataset_id(text: str) -> str | None:
+        """从回答里挑出真实存在的数据集 id（先精确匹配，再按包含关系）。"""
+        s = (text or "").strip().strip("「」“”\"'")
+        if not s:
+            return None
+        try:
+            from core.resource.registry.data_registry import DataRegistry
+            ids = [str(e.get("id") or "") for e in DataRegistry()._read() if e.get("id")]
+        except Exception:
+            ids = []
+        if not ids:
+            return None
+        low = s.lower()
+        if low in (i.lower() for i in ids):
+            return next(i for i in ids if i.lower() == low)
+        # 包含关系只认较长的 id：ships / L1 这类短 id 会误命中普通单词
+        for i in sorted((i for i in ids if len(i) >= 4), key=len, reverse=True):
+            if i.lower() in low:
+                return i
+        return None
+
+    @staticmethod
+    def _known_dataset_ids() -> list[str]:
+        try:
+            from core.resource.registry.data_registry import DataRegistry
+            return [str(e.get("id")) for e in DataRegistry()._read() if e.get("id")]
+        except Exception:
+            return []
+
+    @staticmethod
+    def _pick_scalar_value(text: str) -> str:
+        """剥掉「参数就用 X」「列就用 X」「改成 X」这类口语句式前缀，只留值本身。"""
+        s = (text or "").strip()
+        s = re.sub(r"^[^，。,\s]{1,12}(就)?(用|是|填|改成|换成|设置为)\s*[:：]?\s*", "", s)
+        s = re.sub(r"^(参数|值|改成|换成|设置为)\s*[:：]?\s*", "", s)
+        return s.strip().strip("「」“”\"'") or (text or "").strip()
 
     @staticmethod
     def _is_path_param(param: dict) -> bool:
         desc = (param.get("desc", "") or "").lower()
         ptype = (param.get("type", "") or "").lower()
         name = (param.get("name", "") or "").lower()
+        # 数据集 id / 目录 id 是逻辑标识不是文件路径：它的 desc 里常带
+        # 「CSV/目录」等字样，按关键词会被误判成路径，随后解析不到真实文件
+        # 被丢掉，工具反而报「参数不足」。这类参数原样透传给工具。
+        if name in ("dataset_id", "dataset", "data_id", "dir_id"):
+            return False
         return (
             any(kw in desc for kw in ("文件", "路径", "目录", "pdf", "图片", "图像", "csv", "文档"))
             or "path" in ptype or "file" in ptype or "file" in name or "_path" in name
@@ -2129,6 +2397,9 @@ class InteractiveAgent(BaseAgent):
                 desc = (p.get("desc", "") or "").lower()
                 ptype = (p.get("type", "") or "").lower()
                 name = (p.get("name", "") or "").lower()
+                # 数据集 id 是逻辑标识，不能被附件路径覆盖（见 _is_path_param）
+                if name in ("dataset_id", "dataset", "data_id", "dir_id"):
+                    continue
                 # 主要通过 desc 判断
                 is_path = any(kw in desc for kw in PATH_KEYWORDS)
                 # 辅助：type 包含 path/file

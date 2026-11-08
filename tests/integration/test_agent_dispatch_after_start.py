@@ -84,6 +84,7 @@ def _make_agent(module, bus):
     agent._pending_calls = {}
     agent._pending_modes = {}
     agent._pending_confirm = {}
+    agent._pending_agent_request = {}
 
     async def _no_summary(*args, **kwargs):
         return

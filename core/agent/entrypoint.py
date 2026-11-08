@@ -207,6 +207,7 @@ async def main():
         invoke_kwargs["bus_method"] = method
         invoke_kwargs["bus_params"] = params or {}
         card_summary: str | None = None
+        card_payload: dict | None = None
         try:
             async for event in agent.execute(ctx, **invoke_kwargs):
                 et = event.get("event")
@@ -226,8 +227,14 @@ async def main():
                     # 只放在 result-summary 卡里，正文留给 LLM 小结。只收集
                     # 正文会让「某次小结没提到结论」的轮次整体丢失答案。
                     d = event.get("data") or {}
-                    if d.get("type") == "result-summary" and d.get("summary"):
-                        card_summary = str(d["summary"])
+                    if d.get("type") == "result-summary":
+                        if d.get("summary"):
+                            card_summary = str(d["summary"])
+                        # 表格/图片/文件结果只存在于卡片的 data.result 里，
+                        # 调用方（交互 Agent 派发）要用它渲染结果卡；
+                        # 只带 summary 会让对话里只剩一句「成功处理 N 只」。
+                        if isinstance(d.get("data"), dict):
+                            card_payload = d["data"]
         except Exception as e:
             return {"ok": False, "error": f"{type(e).__name__}: {e}"}
         if err is not None:
@@ -235,9 +242,17 @@ async def main():
         if result is not None:
             return {"ok": True, "result": result}
         text = "".join(contents).strip()
-        if card_summary and card_summary not in text:
-            text = f"{text}\n\n{card_summary}" if text else card_summary
-        return {"ok": True, "result": {"text": text}}
+        # 正文为空时才用卡片摘要兜底；有正文（如 Agent 的汇总结论）时再拼摘要，
+        # 前端正文与卡片会重复显示同一句「成功处理 N 只」。
+        if not text and card_summary:
+            text = card_summary
+        out: dict = {"text": text}
+        if card_payload:
+            out["card"] = {"type": "result-summary",
+                           "title": "",
+                           "summary": card_summary or "",
+                           "data": card_payload}
+        return {"ok": True, "result": out}
 
     bus.add_handler("__call__", _handle_rpc)
 

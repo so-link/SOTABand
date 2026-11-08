@@ -171,6 +171,45 @@ def test_unknown_tool_rejected_by_gateway():
     assert any(o["status"] == "rejected_unknown_tool" for o in audit.recent(owner="alice"))
 
 
+def test_run_tool_confirmed_flag_bypasses_second_confirm():
+    """工作空间工具经 Agent 统一确认门后带 confirmed=True：网关直接执行。
+
+    模型可见的 schema 里不能有 confirmed（否则等于把二次确认开关
+    交给 LLM），只有 Agent 子进程内部回传才会出现该字段。
+    """
+    calls = []
+
+    async def _fake_run_tool(args, ctx):
+        calls.append((args.tool_id, args.params))
+        return {"status": "success", "output_format": "text", "message": "ok", "data": {}}
+
+    # monkeypatch 无法替换「模块内直接引用」的名称，这里直接改注册表登记的
+    # handler（网关就是通过 tool.handler 调用的），用例结束复原。
+    tool = reg.get("run_tool")
+    original_handler = tool.handler
+    tool.handler = _fake_run_tool
+    try:
+        # 未带 confirmed → 仍然只发确认卡
+        r1 = run_coro(gateway.platform_call(
+            "run_tool", {"tool_id": "any-tool", "params": {"a": 1}},
+            owner="alice", session_id="u-rt"))
+        assert r1["status"] == "pending" and calls == []
+
+        # 带 confirmed=True → 直接执行（handler 收到的是剥离该内部字段后的参数）
+        r2 = run_coro(gateway.platform_call(
+            "run_tool", {"tool_id": "any-tool", "params": {"a": 1}, "confirmed": True},
+            owner="alice", session_id="u-rt"))
+        assert r2["status"] == "ok", r2
+        assert calls and calls[0][0] == "any-tool"
+    finally:
+        tool.handler = original_handler
+
+    # LLM 可见 schema 里不能暴露 confirmed
+    for s in reg.schemas():
+        if s["function"]["name"] == "run_tool":
+            assert "confirmed" not in (s["function"]["parameters"].get("properties") or {})
+
+
 def test_read_tool_never_creates_pending():
     """只读工具直接执行；写工具只生成 pending，绝不本轮执行。"""
     calls = []

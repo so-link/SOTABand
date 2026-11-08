@@ -135,6 +135,13 @@ def schemas(risk: str | None = None) -> list[dict]:
         schema = t.args_model.model_json_schema()
         # 去掉顶层多余元数据，保持 schema 干净
         schema.pop("title", None)
+        # 内部字段（不由模型填写，只由 Agent 子进程回传）不进 schema：
+        # confirmed 是工作空间工具经统一确认门后的放行标记，暴露给模型
+        # 就等于把二次确认开关交给模型。
+        props = schema.get("properties") or {}
+        for k in list(props):
+            if k.lower() in _INTERNAL_ARG_NAMES:
+                props.pop(k, None)
         out.append({
             "type": "function",
             "function": {
@@ -144,6 +151,10 @@ def schemas(risk: str | None = None) -> list[dict]:
             },
         })
     return out
+
+
+# 网关内部专用、不允许模型填写的参数名（见 schemas()）
+_INTERNAL_ARG_NAMES = frozenset({"confirmed"})
 
 
 def summary_for(tool: PlatformTool, args: dict) -> str:
