@@ -10,6 +10,7 @@ import { Highlight, themes } from 'prism-react-renderer'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardBody } from '@/components/ui/card'
+import { confirmDialog, alertDialog } from '@/components/ui/confirm-dialog'
 import { useResourceStore } from '@/stores/resource-store'
 import { useUIStore } from '@/stores/ui-store'
 import { useToolEditorStore } from '@/stores/tool-editor-store'
@@ -211,18 +212,18 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
   const openEditor = async () => {
     if (!tool) return
     if (forkStatus?.is_builtin && !forkStatus.has_copy) {
-      const ok = window.confirm(
-        `「${tool.name}」是内置工具（随系统分发，不可直接修改）。\n\n` +
-        '点击「确定」：复制为我的副本后进入编辑\n' +
-        '点击「取消」：留在详情页（不复制）'
-      )
+      const ok = await confirmDialog({
+        title: '编辑前先复制为我的副本？',
+        description: `「${tool.name}」是内置工具（随系统分发，不可直接修改）。确认后会复制为你的副本并进入编辑，内置版本不受影响。`,
+        confirmText: '复制并编辑',
+      })
       if (!ok) return
       setForkBusy(true)
       try {
         await toolApi.fork(tool.id)
         setForkStatus({ ...forkStatus, has_copy: true, forked: true })
       } catch (e) {
-        window.alert(`复制副本失败：${String(e)}`)
+        await alertDialog('复制副本失败', String(e))
         setForkBusy(false)
         return
       }
@@ -253,8 +254,13 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
   /** 丢弃副本：删除私有文件后详情重新加载，回到内置版本 */
   const discardFork = async () => {
     if (!tool) return
-    if (!window.confirm(
-      `确定丢弃「${tool.name}」的我的副本吗？\n\n副本上的所有修改将丢失，\n恢复为直接使用内置版本。`)) return
+    const ok = await confirmDialog({
+      title: `丢弃「${tool.name}」的我的副本？`,
+      description: '副本上的所有修改将丢失，之后直接使用内置版本。',
+      confirmText: '丢弃副本',
+      danger: true,
+    })
+    if (!ok) return
     setForkBusy(true)
     try {
       await toolApi.discardFork(tool.id)
@@ -265,7 +271,7 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
       const c = data.code || ''
       setCode(c); setEditedCode(c); setCodeModified(false)
     } catch (e) {
-      window.alert(`丢弃副本失败：${String(e)}`)
+      await alertDialog('丢弃副本失败', String(e))
     }
     setForkBusy(false)
   }
@@ -273,14 +279,19 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
   /** 上游有更新时：按当前内置重新复制（我的副本改动会丢弃） */
   const refork = async () => {
     if (!tool) return
-    if (!window.confirm(
-      '内置版本已有更新。重新复制将以最新内置内容覆盖我的副本，\n副本上的修改会丢失。确定重新复制吗？')) return
+    const ok = await confirmDialog({
+      title: '用最新内置版本重新复制？',
+      description: '内置版本已有更新。重新复制将以最新内置内容覆盖我的副本，副本上的修改会丢失。',
+      confirmText: '重新复制',
+      danger: true,
+    })
+    if (!ok) return
     setForkBusy(true)
     try {
       await toolApi.fork(tool.id)
       setForkStatus({ is_builtin: true, has_copy: true, forked: true, upstream_changed: false })
     } catch (e) {
-      window.alert(`复制失败：${String(e)}`)
+      await alertDialog('复制失败', String(e))
     }
     setForkBusy(false)
   }
@@ -342,18 +353,18 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
     const st = await toolApi.getForkStatus(tool.id).catch(() => null)
     if (st) setForkStatus(st.is_builtin ? st : null)
     if (!st || !st.is_builtin || st.has_copy) return true
-    const ok = window.confirm(
-      `「${tool.name}」是内置工具（随系统分发，不可直接修改）。\n\n` +
-      '点击「确定」：复制为我的副本后保存\n' +
-      '点击「取消」：不保存'
-    )
+    const ok = await confirmDialog({
+      title: '保存前先复制为我的副本？',
+      description: `「${tool.name}」是内置工具（随系统分发，不可直接修改）。确认后会先复制为你的副本，再保存本次修改。`,
+      confirmText: '复制并保存',
+    })
     if (!ok) return false
     try {
       await toolApi.fork(tool.id)
       setForkStatus({ ...st, has_copy: true, forked: true })
       return true
     } catch (e) {
-      window.alert(`复制副本失败：${String(e)}`)
+      await alertDialog('复制副本失败', String(e))
       return false
     }
   }

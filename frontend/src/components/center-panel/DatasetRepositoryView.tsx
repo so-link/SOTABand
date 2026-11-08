@@ -4,6 +4,7 @@ import { useResourceStore } from '@/stores/resource-store'
 import { useDatasetRepositoryStore, getFilteredDatasets, formatFileSize, type RepositoryDataset } from '@/stores/dataset-repository-store'
 import { ArrowLeft, Search, Trash2, Package, ChevronLeft, ChevronRight, ChevronDown, Loader2, AlertTriangle, Image as ImageIcon, Table, FileText, Brain, Tag, Folder } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { confirmDialog, alertDialog } from '@/components/ui/confirm-dialog'
 
 const BASE_URL = ''
 
@@ -37,12 +38,18 @@ export function DatasetRepositoryView() {
   const pageDatasets = filtered.slice(startIdx, startIdx + store.pageSize)
 
   const handleDelete = async (id: string) => {
-    if (!confirm(`确定要删除数据集 "${id}" 吗？此操作不可逆，将清除所有关联文件。`)) return
+    const ok = await confirmDialog({
+      title: `删除数据集「${id}」？`,
+      description: '此操作不可逆：注册信息、引用与托管目录内的数据文件都会被清除。',
+      confirmText: '删除',
+      danger: true,
+    })
+    if (!ok) return
     setDeleting(id)
     try {
       await fetch(`${BASE_URL}/api/data/${id}`, { method: 'DELETE' })
       await store.fetchDatasets()
-    } catch { alert('删除失败') }
+    } catch (e) { await alertDialog('删除失败', e instanceof Error ? e.message : String(e)) }
     finally { setDeleting(null) }
   }
 

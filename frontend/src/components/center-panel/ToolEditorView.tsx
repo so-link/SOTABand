@@ -21,6 +21,7 @@ import { useToolEditorStore } from '@/stores/tool-editor-store'
 import { useTabIndent } from '@/hooks/use-tab-indent'
 import { useSaveShortcut } from '@/hooks/use-save-shortcut'
 import { useStickToBottom } from '@/hooks/use-stick-to-bottom'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 import { SpecOutlineView } from './SpecOutlineView'
 import { TableEditView } from './TableEditView'
 import type { SpecOutline, SpecTable } from '@/types/spec-outline'
@@ -141,11 +142,11 @@ export function ToolEditorView() {
     const backTo = isEditingExisting && selectedResource?.type === 'tool' ? 'tool-detail' : 'chat'
     // 有未保存改动时先确认，避免静默丢失
     if (isEditingExisting && store.hasUnsavedChanges()) {
-      const ok = window.confirm(
-        '当前工具有未保存的改动。\n\n' +
-        '点击「确定」：保存后关闭\n' +
-        '点击「取消」：留在编辑器（不保存）'
-      )
+      const ok = await confirmDialog({
+        title: '保存改动后关闭？',
+        description: '当前工具有未保存的改动。确认会先保存再关闭；保存失败时留在编辑器，不会丢弃改动。',
+        confirmText: '保存并关闭',
+      })
       if (!ok) return
       // 必须等保存结果再决定去留：此前是 void flushSave() 后立刻 reset()，
       // 保存失败（例如代码没过静态安全审查）也会被 reset 清掉，

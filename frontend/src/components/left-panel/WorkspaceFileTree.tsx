@@ -29,6 +29,7 @@ import { nodeFileUrl, type FileTreeNode, type FileCategory } from '@/types/works
 import { authedUrl } from '@/services/api/auth'
 import { useUIStore } from '@/stores/ui-store'
 import { useAuthStore } from '@/stores/auth-store'
+import { alertDialog } from '@/components/ui/confirm-dialog'
 
 const FILE_ICONS: Record<FileCategory, typeof File> = {
   eeg: Activity,
@@ -158,7 +159,7 @@ export function WorkspaceFileTree() {
         chat.pruneAttachmentsToValidIds(valid)
       } catch { /* 剪附件失败不影响删除主流程 */ }
     } catch (e) {
-      alert(`删除失败: ${e}`)
+      void alertDialog('删除失败', String(e))
     } finally {
       setDeleting(false)
       setDeleteTarget(null)

@@ -36,6 +36,10 @@ interface ResourceState {
   taskResources: Resource[]
   recentAgentUsage: RecentAgentRecord[]
   isLoading: boolean
+  /** 是否至少完成过一次资源清单加载。
+   *  失效标签校验必须等它变 true：首帧各数组都是空，若此时按空清单校验，
+   *  会把从 localStorage 恢复的合法标签当成已删除资源全部关掉。 */
+  loadedOnce: boolean
 
   // 数据集预览的文件清单：由中栏预览拉取后共享给右栏文件列表，
   // 右栏点选文件即可切换中栏预览的 CSV / Markdown。
@@ -72,6 +76,7 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
   taskResources: [],
   recentAgentUsage: [],
   isLoading: false,
+  loadedOnce: false,
   cachedToolForDetail: null,
   cachedDatasetForDetail: null,
   previewDatasetId: null,
@@ -114,6 +119,7 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
     taskResources: [],
     recentAgentUsage: [],
     isLoading: false,
+    loadedOnce: false,
     previewDatasetId: null,
     previewFiles: [],
     activeCsvIndex: 0,
@@ -218,7 +224,8 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
 
     // 后端不可达时保持空列表（展示空态），绝不用 Mock 假数据填充，
     // 否则用户会把演示数据误认为真实资源。
-    set({ isLoading: false })
+    // loadedOnce 标记清单已就绪，供「失效标签校验」判断可以开始比对了。
+    set({ isLoading: false, loadedOnce: true })
   },
 
   fetchAgentsFromApi: async () => {

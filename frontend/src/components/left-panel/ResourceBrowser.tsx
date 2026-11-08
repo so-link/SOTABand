@@ -19,6 +19,7 @@ import { useAgentEditorStore } from '@/stores/agent-editor-store'
 import { useWorkspaceToolStore } from '@/stores/workspace-tool-store'
 import { useAuthStore } from '@/stores/auth-store'
 import { useUnsavedMarks } from '@/hooks/use-unsaved-marks'
+import { confirmDialog, alertDialog } from '@/components/ui/confirm-dialog'
 import { cn } from '@/lib/utils'
 import type { Resource, ResourceType, ToolResource, TaskResource, AgentResource } from '@/types/resources'
 
@@ -159,13 +160,13 @@ export function ResourceBrowser() {
           installing: false,
         })
       } else {
-        window.alert(
-          `已导入${kind === 'tool' ? '工具' : 'Agent'}：${name}（v${data.version || '?'}）\n` +
-          `依赖齐备，可直接使用。${overrideNote}`
+        await alertDialog(
+          `已导入${kind === 'tool' ? '工具' : 'Agent'}：${name}`,
+          `版本 v${data.version || '?'}，依赖齐备，可直接使用。${overrideNote}`
         )
       }
     } catch (e) {
-      window.alert(`导入失败：${(e as Error).message}`)
+      await alertDialog('导入失败', (e as Error).message)
     } finally {
       setImporting(false)
       if (importInputRef.current) importInputRef.current.value = ''
@@ -282,15 +283,29 @@ export function ResourceBrowser() {
     e.stopPropagation()
     // 工具：从工作空间移除（不删除仓库中的工具）
     if (resource.type === 'tool') {
+      const ok = await confirmDialog({
+        title: `将「${resource.name}」移出工具空间？`,
+        description: '只从当前工具空间移出，工具本身仍保留在工具仓库中，随时可以重新添加。',
+        confirmText: '移出',
+        danger: true,
+      })
+      if (!ok) return
       workspaceRemoveTool(resource.id)
       return
     }
     // 任务历史：删除单条执行记录（id 形如 task-3，取数字主键）
     if (resource.type === 'task') {
+      const ok = await confirmDialog({
+        title: `删除任务记录「${resource.name}」？`,
+        description: '仅删除这一条执行历史记录，不影响任务对应的 Agent 或定时任务。',
+        confirmText: '删除',
+        danger: true,
+      })
+      if (!ok) return
       try {
         const res = await fetch(`/api/task/${resource.id.replace(/^task-/, '')}`, { method: 'DELETE' })
         if (!res.ok) {
-          alert(`删除失败：HTTP ${res.status}`)
+          await alertDialog('删除失败', `HTTP ${res.status}`)
           return
         }
         fetchTasksFromApi()
@@ -299,7 +314,13 @@ export function ResourceBrowser() {
     }
     // 数据：左栏「数据空间」列的是已注册数据集，删除即注销该数据集
     if (resource.type === 'data') {
-      if (!confirm(`确定删除数据集 "${resource.name}"？注册信息与引用将一并移除。`)) return
+      const ok = await confirmDialog({
+        title: `删除数据集「${resource.name}」？`,
+        description: '注册信息与引用将一并移除，托管目录内的数据文件会被清除。',
+        confirmText: '删除',
+        danger: true,
+      })
+      if (!ok) return
       try {
         await fetch(`/api/data/${resource.id}`, { method: 'DELETE' })
         fetchDatasetsFromApi()
@@ -308,7 +329,13 @@ export function ResourceBrowser() {
     }
     // 模型：确认后彻底删除
     if (resource.type === 'model') {
-      if (!confirm(`确定删除模型 "${resource.name}"？此操作不可恢复。`)) return
+      const ok = await confirmDialog({
+        title: `删除模型「${resource.name}」？`,
+        description: '此操作不可恢复。',
+        confirmText: '删除',
+        danger: true,
+      })
+      if (!ok) return
       const BASE_URL = ''
       try {
         await fetch(`${BASE_URL}/api/model/${resource.id}`, { method: 'DELETE' })
@@ -318,9 +345,15 @@ export function ResourceBrowser() {
     }
     // Agent：确认后删除（数据/模型已在上方分支处理）。后端按命中层删除：
     // 我的副本删除后回落内置；内置 Agent 仅超级管理员可删（非超管看不到
-    // 删除按钮，直接请求会被后端 403 拒绝并经下方 alert 透出）。
+    // 删除按钮，直接请求会被后端 403 拒绝并经下方提示透出）。
     if (resource.type !== 'agent') return
-    if (!confirm(`确定删除 "${resource.name}"？\n仅作用于个人定制版（我的副本删除后回落到内置；内置原版不受影响）。`)) return
+    const confirmed = await confirmDialog({
+      title: `删除 Agent「${resource.name}」？`,
+      description: '仅作用于个人定制版：我的副本删除后回落到内置，内置原版不受影响。',
+      confirmText: '删除',
+      danger: true,
+    })
+    if (!confirmed) return
     const BASE_URL = ''
     try {
       const res = await fetch(`${BASE_URL}/api/agent/${resource.id}`, { method: 'DELETE' })
@@ -331,12 +364,12 @@ export function ResourceBrowser() {
           const body = await res.json()
           detail = body?.detail || detail
         } catch { /* 非 JSON 响应沿用状态码 */ }
-        alert(`删除失败：${detail}`)
+        await alertDialog('删除失败', detail)
         return
       }
       fetchAgentsFromApi()
     } catch (err) {
-      alert(`删除失败：${err instanceof Error ? err.message : String(err)}`)
+      await alertDialog('删除失败', err instanceof Error ? err.message : String(err))
     }
   }
 
@@ -421,14 +454,20 @@ export function ResourceBrowser() {
                     <Upload className={cn('h-3 w-3', importing && 'animate-pulse')} />
                   </button>
                   <button
-                    onClick={(e) => {
+                    onClick={async (e) => {
                       e.stopPropagation()
                       if (!useAuthStore.getState().requireLogin()) return
                       // 「+」的语义是新建：必须先把编辑器 store 复位，
                       // 否则残留的 editingAgentId 会让界面继续停留在旧 Agent 的编辑态。
                       const st = useAgentEditorStore.getState()
                       if (st.editingAgentId && st.hasUnsavedChanges()) {
-                        if (!window.confirm('当前 Agent 编辑器有未保存的改动，新建将丢弃这些改动。确定新建吗？')) return
+                        const ok = await confirmDialog({
+                          title: '丢弃未保存的改动？',
+                          description: '当前 Agent 编辑器有未保存的改动，新建将丢弃这些改动。',
+                          confirmText: '新建',
+                          danger: true,
+                        })
+                        if (!ok) return
                       }
                       st.reset()
                       useUIStore.getState().setActiveView('agent-editor')
@@ -458,14 +497,20 @@ export function ResourceBrowser() {
                     <Upload className={cn('h-3 w-3', importing && 'animate-pulse')} />
                   </button>
                   <button
-                    onClick={(e) => {
+                    onClick={async (e) => {
                       e.stopPropagation()
                       if (!useAuthStore.getState().requireLogin()) return
                       // 「+」的语义是新建：必须先把编辑器 store 复位，
                       // 否则残留的 editingToolId 会让界面继续停留在旧工具的编辑态。
                       const st = useToolEditorStore.getState()
                       if (st.editingToolId && st.hasUnsavedChanges()) {
-                        if (!window.confirm('当前工具编辑器有未保存的改动，新建将丢弃这些改动。确定新建吗？')) return
+                        const ok = await confirmDialog({
+                          title: '丢弃未保存的改动？',
+                          description: '当前工具编辑器有未保存的改动，新建将丢弃这些改动。',
+                          confirmText: '新建',
+                          danger: true,
+                        })
+                        if (!ok) return
                       }
                       st.reset()
                       useUIStore.getState().setActiveView('tool-editor')

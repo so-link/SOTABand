@@ -59,6 +59,7 @@ function ViewTabBar() {
   const tools = useResourceStore((s) => s.toolResources)
   const modelResources = useResourceStore((s) => s.modelResources)
   const datasets = useResourceStore((s) => s.dataResources)
+  const loadedOnce = useResourceStore((s) => s.loadedOnce)
 
   // 「批量关闭标签」下拉菜单
   const [menuOpen, setMenuOpen] = useState(false)
@@ -74,6 +75,28 @@ function ViewTabBar() {
 
   // 除 chat（固定标签）外的可关闭标签数
   const closableCount = openViews.filter((v) => v !== 'chat').length
+
+  // 资源被删除后，openViews 是持久化的（刷新仍在），标签会以内部 id 的形式
+  // 残留成一个打不开的页签。资源清单加载完成后按清单校验一遍，失效即关闭。
+  // 必须等 loadedOnce：首帧各清单都是空数组，此时校验会把从 localStorage
+  // 恢复的合法标签全部当成「已删除」关掉。
+  useEffect(() => {
+    if (!loadedOnce) return
+    const alive = (view: string) => {
+      const agentId = parseAgentDetailView(view)
+      if (agentId) return agents.some((a: { id: string }) => a.id === agentId)
+      const toolId = parseToolDetailView(view)
+      if (toolId) return tools.some((t: { id: string }) => t.id === toolId)
+      const modelId = parseModelDetailView(view)
+      if (modelId) return modelResources.some((m: { id: string }) => m.id === modelId)
+      const dsId = parseDatasetPreviewView(view)
+      if (dsId) return datasets.some((d: { id: string }) => d.id === dsId)
+      return true  // chat / 编辑器等非资源页签不在此列
+    }
+    for (const v of openViews) {
+      if (v !== 'chat' && !alive(v)) closeView(v)
+    }
+  }, [loadedOnce, openViews, agents, tools, modelResources, datasets, closeView])
 
   // 标签过多时用左右箭头滚动，不出原生水平滚动条
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -130,18 +153,23 @@ function ViewTabBar() {
     if (!cfg) {
       if (agentId) {
         const a = agents.find((x: { id: string }) => x.id === agentId)
-        cfg = { label: a?.name || agentId, icon: Bot }
+        // 资源已删除时不回退成内部 id（会被当成一个正常标签展示），直接不渲染
+        if (!a) return null
+        cfg = { label: a.name, icon: Bot }
       } else if (toolId) {
         const t = tools.find((x: { id: string }) => x.id === toolId)
-        cfg = { label: t?.name || toolId, icon: Bot }
+        if (!t) return null
+        cfg = { label: t.name, icon: Bot }
       } else if (modelId) {
         const m = modelResources.find((x: { id: string }) => x.id === modelId)
-        cfg = { label: m?.name || modelId, icon: BrainCircuit }
+        if (!m) return null
+        cfg = { label: m.name, icon: BrainCircuit }
       } else {
         const dsId = parseDatasetPreviewView(viewId)
         if (dsId) {
           const d = datasets.find((x: { id: string }) => x.id === dsId)
-          cfg = { label: d?.name || dsId, icon: BarChart3 }
+          if (!d) return null
+          cfg = { label: d.name, icon: BarChart3 }
         }
       }
     }

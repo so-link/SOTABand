@@ -18,6 +18,7 @@ import type { InlineCard as InlineCardType } from '@/types/chat'
 import { InlineCard } from './InlineCard'
 import { FileSelect } from '@/components/ui/file-select'
 import { DataFilePicker } from '@/components/ui/data-file-picker'
+import { confirmDialog, alertDialog } from '@/components/ui/confirm-dialog'
 
 const BASE_URL = ''
 
@@ -312,22 +313,22 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   const ensurePrivateCopy = async (): Promise<boolean> => {
     if (!agent) return false
     if (isSharedAgent && !isAdmin) {
-      window.alert(`「${agent.name}」是超级用户发布的公共 Agent，不可直接修改。`)
+      await alertDialog('不可直接修改', `「${agent.name}」是超级用户发布的公共 Agent，请先复制为我的副本。`)
       return false
     }
     if (!(forkStatus?.is_builtin && !forkStatus.has_copy)) return true
-    const ok = window.confirm(
-      `「${agent.name}」是内置 Agent（随系统分发，不可直接修改）。\n\n` +
-      '点击「确定」：复制为我的副本后保存\n' +
-      '点击「取消」：不保存'
-    )
+    const ok = await confirmDialog({
+      title: '保存前先复制为我的副本？',
+      description: `「${agent.name}」是内置 Agent（随系统分发，不可直接修改）。确认后会先复制为你的副本，再保存本次修改。`,
+      confirmText: '复制并保存',
+    })
     if (!ok) return false
     try {
       await agentApi.fork(agent.id)
       setForkStatus({ ...(forkStatus ?? { is_builtin: true, forked: false, upstream_changed: false }), has_copy: true, forked: true })
       return true
     } catch (e) {
-      window.alert(`复制副本失败：${String(e)}`)
+      await alertDialog('复制副本失败', String(e))
       return false
     }
   }
@@ -354,24 +355,24 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   const handleEditInEditor = async () => {
     if (!agent) return
     if (isSharedAgent && !isAdmin) {
-      window.alert(`「${agent.name}」是超级用户发布的公共 Agent，不可直接修改。`)
+      await alertDialog('不可直接修改', `「${agent.name}」是超级用户发布的公共 Agent，请先复制为我的副本。`)
       return
     }
     // 内置 Agent 不可直接修改（改了就是改 git 里的系统文件）：
     // 先复制为我的副本，编辑落私有，内置不受影响（方案 C）
     if (forkStatus?.is_builtin && !forkStatus.has_copy) {
-      const ok = window.confirm(
-        `「${agent.name}」是内置 Agent（随系统分发，不可直接修改）。\n\n` +
-        '点击「确定」：复制为我的副本后进入编辑\n' +
-        '点击「取消」：留在详情页（不复制）'
-      )
+      const ok = await confirmDialog({
+        title: '编辑前先复制为我的副本？',
+        description: `「${agent.name}」是内置 Agent（随系统分发，不可直接修改）。确认后会复制为你的副本并进入编辑，内置版本不受影响。`,
+        confirmText: '复制并编辑',
+      })
       if (!ok) return
       setForkBusy(true)
       try {
         await agentApi.fork(agent.id)
         setForkStatus({ ...forkStatus, has_copy: true, forked: true })
       } catch (e) {
-        window.alert(`复制副本失败：${String(e)}`)
+        await alertDialog('复制副本失败', String(e))
         setForkBusy(false)
         return
       }
@@ -391,8 +392,13 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   /** 丢弃副本：删除私有文件与条目，回到内置版本 */
   const handleDiscardFork = async () => {
     if (!agent) return
-    if (!window.confirm(
-      `确定丢弃「${agent.name}」的我的副本吗？\n\n副本上的所有修改将丢失，\n恢复为直接使用内置版本。`)) return
+    const ok = await confirmDialog({
+      title: `丢弃「${agent.name}」的我的副本？`,
+      description: '副本上的所有修改将丢失，之后直接使用内置版本。',
+      confirmText: '丢弃副本',
+      danger: true,
+    })
+    if (!ok) return
     setForkBusy(true)
     try {
       await agentApi.discardFork(agent.id)
@@ -402,7 +408,7 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
       setCode(data.code || '')
       setDraftCode(data.code || '')
     } catch (e) {
-      window.alert(`丢弃副本失败：${String(e)}`)
+      await alertDialog('丢弃副本失败', String(e))
     }
     setForkBusy(false)
   }
@@ -410,14 +416,19 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   /** 上游有更新：按当前内置重新复制（副本改动丢弃） */
   const handleRefork = async () => {
     if (!agent) return
-    if (!window.confirm(
-      '内置版本已有更新。重新复制将以最新内置内容覆盖我的副本，\n副本上的修改会丢失。确定重新复制吗？')) return
+    const ok = await confirmDialog({
+      title: '用最新内置版本重新复制？',
+      description: '内置版本已有更新。重新复制将以最新内置内容覆盖我的副本，副本上的修改会丢失。',
+      confirmText: '重新复制',
+      danger: true,
+    })
+    if (!ok) return
     setForkBusy(true)
     try {
       await agentApi.fork(agent.id)
       setForkStatus({ is_builtin: true, has_copy: true, forked: true, upstream_changed: false })
     } catch (e) {
-      window.alert(`复制失败：${String(e)}`)
+      await alertDialog('复制失败', String(e))
     }
     setForkBusy(false)
   }
@@ -760,11 +771,17 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
             {showCode ? '收起代码' : '代码'}
           </button>
           <button
-            onClick={() => {
-              if (messages.length > 0 && confirm('确定清空当前对话历史？此操作不可恢复。')) {
-                setMessages([])
-                fetch(`${BASE_URL}/api/agent/${agentId}/chat-history`, { method: 'DELETE' }).catch(() => {})
-              }
+            onClick={async () => {
+              if (messages.length === 0) return
+              const ok = await confirmDialog({
+                title: '清空当前对话历史？',
+                description: '该 Agent 与本用户的全部对话消息会被删除，此操作不可恢复。',
+                confirmText: '清空',
+                danger: true,
+              })
+              if (!ok) return
+              setMessages([])
+              fetch(`${BASE_URL}/api/agent/${agentId}/chat-history`, { method: 'DELETE' }).catch(() => {})
             }}
             disabled={messages.length === 0}
             className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-[12px] whitespace-nowrap border border-transparent text-maia-text-muted hover:bg-maia-sidebar-hover hover:text-maia-danger transition-colors shrink-0 ml-auto disabled:opacity-40 disabled:pointer-events-none"

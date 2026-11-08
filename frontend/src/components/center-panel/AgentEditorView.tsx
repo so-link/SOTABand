@@ -13,6 +13,7 @@ import { useAgentEditorStore, AGENT_ROLE_OPTIONS, parseTestParamDefs, parseAgent
 import { useTabIndent } from '@/hooks/use-tab-indent'
 import { useSaveShortcut } from '@/hooks/use-save-shortcut'
 import { useStickToBottom } from '@/hooks/use-stick-to-bottom'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 /** Agent 保存状态指示器 + 保存按钮（手动保存，支持 Ctrl/Cmd+S） */
 function AgentSaveIndicator() {
@@ -57,20 +58,22 @@ export function AgentEditorView() {
     Boolean(store.editingAgentId)
   )
 
-  const handleClose = () => {
+  const handleClose = async () => {
     const isEditingExisting = Boolean(store.editingAgentId)
     // 编辑已有 Agent 时返回该 Agent 的独立详情页
     const backTo = isEditingExisting
       ? (`agent-detail:${store.editingAgentId}` as never)
       : ('chat' as never)
     if (isEditingExisting && store.hasUnsavedChanges()) {
-      const ok = window.confirm(
-        '当前 Agent 有未保存的改动。\n\n' +
-        '点击「确定」：保存后关闭\n' +
-        '点击「取消」：留在编辑器（不保存）'
-      )
+      const ok = await confirmDialog({
+        title: '保存改动后关闭？',
+        description: '当前 Agent 有未保存的改动。确认会先保存再关闭；保存失败时留在编辑器，不会丢弃改动。',
+        confirmText: '保存并关闭',
+      })
       if (!ok) return
-      void store.flushSave()
+      // 必须等保存结果再决定去留：早于结果就 reset() 会让保存失败时改动静默丢失
+      await store.flushSave()
+      if (useAgentEditorStore.getState().saveState === 'error') return
     }
     setActiveView(backTo)
     store.reset()
@@ -412,10 +415,15 @@ function Step1Description() {
             return (
               <button
                 key={opt.value}
-                onClick={() => {
+                onClick={async () => {
                   // 已有用户内容时询问是否覆盖为模板
                   if (agentRole && description.trim() && agentRole !== opt.value) {
-                    const ok = window.confirm('切换类型将用该类型的默认模板替换当前需求内容，是否继续？')
+                    const ok = await confirmDialog({
+                      title: '切换 Agent 类型？',
+                      description: '切换类型将用该类型的默认模板替换当前需求内容。',
+                      confirmText: '切换并替换',
+                      danger: true,
+                    })
                     if (!ok) return
                     setDescription('')
                   }

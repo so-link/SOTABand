@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { toolApi } from '@/services/api/tool'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 export type EditorStep = 1 | 2 | 3 | 4
 
@@ -401,11 +402,12 @@ export const useToolEditorStore = create<ToolEditorState>((set, get) => ({
     // 以前点一下就把没保存的代码连同参数表一起清掉，没有任何提示。
     const s = get()
     if (s.editingToolId && s.generatedCode.trim() && s.generatedCode !== s.baselineCode) {
-      const ok = window.confirm(
-        '重新生成会覆盖当前那份经过手工修改、且尚未保存的代码。\n\n' +
-        '点击「确定」：丢弃这些改动并重新生成\n' +
-        '点击「取消」：留在当前页面（可先点「保存代码」）'
-      )
+      const ok = await confirmDialog({
+        title: '丢弃未保存的代码并重新生成？',
+        description: '重新生成会覆盖当前那份经过手工修改、且尚未保存的代码。想保留的话请先取消并点「保存代码」。',
+        confirmText: '丢弃并重新生成',
+        danger: true,
+      })
       if (!ok) return
     }
 

@@ -12,6 +12,7 @@ import { useRepositoryStore, getFilteredTools, type RepositoryTool } from '@/sto
 import { useWorkspaceToolStore } from '@/stores/workspace-tool-store'
 import { useAuthStore } from '@/stores/auth-store'
 import { toolApi } from '@/services/api/tool'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 const PAGE_SIZE_OPTIONS = [8, 12, 16, 24, 32]
 const BASE_URL = ''
@@ -71,7 +72,13 @@ export function RepositoryView() {
         ? `确定删除「我的副本」${tool.id}？\n仅移除个人定制版，内置版本不受影响（将回落到直接使用内置）。`
         : `确定删除工具 "${tool.id}"？\n仅移除注册记录，代码文件保留在仓库中。`)
       : `确定将内置工具 "${tool.id}" 从仓库移除？\n仅移除内置注册记录（重新添加可挂回），不影响我的副本。`
-    if (!confirm(msg)) return
+    const ok = await confirmDialog({
+      title: tool.source === 'private' && tool.forked ? `删除「我的副本」${tool.id}？` : `删除工具「${tool.id}」？`,
+      description: msg.split('\n').slice(1).join('\n'),
+      confirmText: '删除',
+      danger: true,
+    })
+    if (!ok) return
     try {
       const res = await fetch(`${BASE_URL}/api/tool/${tool.id}`, { method: 'DELETE' })
       if (res.ok) {
@@ -155,7 +162,13 @@ export function RepositoryView() {
       let r = await toolApi.importTool(file)
       if (r.status === 409) {
         const conflictId = r.body.imported || file.name.replace(/\.zip$/i, '')
-        if (confirm(`${r.body.detail || `工具 "${conflictId}" 已存在`} 覆盖将替换本地版本，确定？`)) {
+        const overwrite = await confirmDialog({
+          title: `覆盖已存在的工具「${conflictId}」？`,
+          description: `${r.body.detail || `工具 "${conflictId}" 已存在`}\n覆盖将替换本地版本。`,
+          confirmText: '覆盖',
+          danger: true,
+        })
+        if (overwrite) {
           r = await toolApi.importTool(file, true)
         } else {
           setImporting(false)

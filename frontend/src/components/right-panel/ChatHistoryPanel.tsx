@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Loader2, MessageSquare, Trash2 } from 'lucide-react'
 import { useChatStore } from '@/stores/chat-store'
+import { confirmDialog } from '@/components/ui/confirm-dialog'
 
 interface SessionItem {
   session_id: string
@@ -90,9 +91,15 @@ export function ChatHistoryPanel() {
                 </div>
               </div>
               <button
-                onClick={(e) => {
+                onClick={async (e) => {
                   e.stopPropagation()
-                  if (confirm('删除该对话？此操作不可恢复。')) deleteSession(s.session_id)
+                  const ok = await confirmDialog({
+                    title: `删除对话「${s.title || '未命名对话'}」？`,
+                    description: '该会话的全部消息会被删除，此操作不可恢复。',
+                    confirmText: '删除',
+                    danger: true,
+                  })
+                  if (ok) deleteSession(s.session_id)
                 }}
                 className="shrink-0 flex items-center justify-center h-5 w-5 rounded text-maia-text-muted opacity-0 group-hover:opacity-100 hover:text-maia-danger hover:bg-maia-danger-bg transition-all"
                 title="删除对话"

@@ -14,6 +14,7 @@ import {
   ChevronDown, ChevronRight, Loader2, Wrench, Bot,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { confirmDialog, alertDialog } from '@/components/ui/confirm-dialog'
 import { cronApi, type CronJob, type CronOptions, type CronRun, type CronJobPayload } from '@/services/api/cron'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -201,21 +202,27 @@ export function CronJobsView() {
       await cronApi.trigger(job.id)
       if (expanded === job.id) setRuns(await cronApi.runs(job.id, 20))
       else await toggleExpand(job.id)
-    } catch (e) { alert(`触发失败：${e instanceof Error ? e.message : e}`) }
+    } catch (e) { await alertDialog('触发失败', e instanceof Error ? e.message : String(e)) }
     finally { setBusyId('') }
   }
 
   const doToggle = async (job: CronJob) => {
     if (!useAuthStore.getState().requireLogin()) return
     try { await cronApi.toggle(job.id); reload() }
-    catch (e) { alert(`操作失败：${e instanceof Error ? e.message : e}`) }
+    catch (e) { await alertDialog('操作失败', e instanceof Error ? e.message : String(e)) }
   }
 
   const doDelete = async (job: CronJob) => {
     if (!useAuthStore.getState().requireLogin()) return
-    if (!confirm(`确定删除定时任务「${job.name}」？执行历史将保留。`)) return
+    const ok = await confirmDialog({
+      title: `删除定时任务「${job.name}」？`,
+      description: '任务本身会被删除，已有执行历史会保留，不再继续按计划触发。',
+      confirmText: '删除',
+      danger: true,
+    })
+    if (!ok) return
     try { await cronApi.remove(job.id); if (expanded === job.id) setExpanded(null); reload() }
-    catch (e) { alert(`删除失败：${e instanceof Error ? e.message : e}`) }
+    catch (e) { await alertDialog('删除失败', e instanceof Error ? e.message : String(e)) }
   }
 
   const targetName = (job: CronJob) => {
