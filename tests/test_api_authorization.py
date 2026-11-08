@@ -20,17 +20,17 @@ pytestmark = pytest.mark.unit
 
 from fastapi.testclient import TestClient
 
-from core import user_paths
 from core import auth as auth_mod
+from core import user_paths
 
 
 @pytest.fixture(autouse=True)
 def isolate(tmp_path, monkeypatch):
     """用户目录根、用户表、令牌密钥、各存储连接池全部指向临时位置。"""
+    from core import user_files, user_prefs
     from core.chat_control import audit
     from core.cron import store as cron_store
     from core.observability import chat_store, task_history
-    from core import user_prefs, user_files
 
     root = tmp_path / "SB-USER"
     # 只建超管目录：_next_uid 把 USER_HOME_ROOT 下已存在的数字目录也算作已占用，
@@ -244,7 +244,10 @@ def test_agent_execute_uses_login_identity(client, tokens, monkeypatch):
 
     monkeypatch.setattr(ar.agent_factory, "is_running", lambda _aid: True)
     monkeypatch.setattr(ar.agent_factory, "execute_stream", fake_execute_stream)
+    # _visible_agent 走 get + is_visible 双闸门；假条目没有注册文件，
+    # 可见性判定一并打桩，让用例聚焦「执行身份按登录用户注入」。
     monkeypatch.setattr(ar.registry, "get", fake_get)
+    monkeypatch.setattr(ar.registry, "is_visible", lambda entry, uid: True)
 
     r = client.post("/api/agent/some-agent/execute", headers=_bearer(tokens["alice"]),
                     json={"name": "北京", "session_id": "agent-chat-x"})
@@ -345,29 +348,45 @@ def test_superuser_agent_is_public(client, tokens):
     assert client.get("/api/agent/agent-root", headers=_bearer(bob)).status_code == 200
 
 
-def test_builtin_agent_visible_to_normal_user(client, tokens):
-    """内置 Agent（随仓库分发）对所有人可见，不因新规则消失。"""
+def test_public_agent_visible_to_normal_user(client, tokens):
+    """公共层（系统用户目录）的 Agent 对所有人可见——种子导入后即此形态。"""
+    import json as _json
+
+    from core.resource import paths
+
+    sys_dir = paths.system_space_dir("agents")
+    sys_dir.mkdir(parents=True, exist_ok=True)
+    (sys_dir / "registry.json").write_text(_json.dumps([
+        {"id": "orchestrator-agent", "name": "编排", "owner": "100",
+         "visibility": "public", "status": "active"},
+    ]), encoding="utf-8")
+
     entry = client.get("/api/agent/orchestrator-agent", headers=_bearer(tokens["alice"]))
     assert entry.status_code == 200, entry.text
     assert entry.json()["id"] == "orchestrator-agent"
 
 
-def test_superuser_agent_written_to_shared_root(client, tokens):
-    """超管发布的 Agent 落共享根——私有根是每用户独立的，不共享就没人读得到。"""
+def test_public_agent_written_to_system_root(client, tokens):
+    """公共 Agent 落系统用户目录——私有根是每用户独立的，不落公共层就没人读得到。
+
+    注：写闸门换轨为「仅系统身份」（act-as 令牌）在 ③b 落地；本用例只锁
+    写入位置，与当期的超管角色闸门兼容。
+    """
     import json as _json
+
     from core.resource import paths
 
-    assert _register_agent(client, tokens["root"], "agent-shared-root").status_code == 200
+    assert _register_agent(client, tokens["root"], "agent-system-root").status_code == 200
 
-    shared_reg = paths.shared_root() / "agents" / "registry.json"
-    assert shared_reg.exists()
-    ids = [e["id"] for e in _json.loads(shared_reg.read_text(encoding="utf-8"))]
-    assert "agent-shared-root" in ids
+    system_reg = paths.system_space_dir("agents") / "registry.json"
+    assert system_reg.exists()
+    ids = [e["id"] for e in _json.loads(system_reg.read_text(encoding="utf-8"))]
+    assert "agent-system-root" in ids
 
     # 不能落在超管自己的私有根里（那样其他用户看不到）
     private_reg = paths.private_root("0") / "agents" / "registry.json"
     if private_reg.exists():
-        assert "agent-shared-root" not in [
+        assert "agent-system-root" not in [
             e["id"] for e in _json.loads(private_reg.read_text(encoding="utf-8"))
         ]
 
@@ -390,6 +409,7 @@ def test_dataset_endpoints_enforce_ownership(client, tokens):
     跨用户访问一律 404（与"不存在"同响应），避免泄露条目是否存在。
     """
     import asyncio
+
     from core.auth import authenticate, create_user, issue_token
     from core.auth.session import AuthUser, reset_current_user, set_current_user
     from core.resource.registry.data_registry import DataRegistry
@@ -484,6 +504,7 @@ def test_preview_table_rejects_sibling_dir_prefix(client, tokens):
     旧实现用 str.startswith 比对：data_path=…/ds 会放过 …/ds_backup/f。
     """
     import asyncio
+
     from core.auth.session import AuthUser, reset_current_user, set_current_user
     from core.resource.registry.data_registry import DataRegistry
 

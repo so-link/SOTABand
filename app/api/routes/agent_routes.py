@@ -878,13 +878,14 @@ async def get_agent_fork_status(agent_id: str):
     from core.resource import fork as _fork
 
     entry = await _visible_agent(agent_id)
-    in_builtin = _fork.exists_in_builtin("agents", agent_id)
+    in_builtin = _fork.exists_in_upstream("agents", agent_id)
     in_private = _fork.exists_in_private("agents", agent_id)
     forked_from = entry.get("forked_from") or {}
     upstream_changed = False
-    if in_builtin and in_private and forked_from.get("builtin_hash"):
+    up_root = _fork.upstream_root("agents", agent_id)
+    if in_builtin and in_private and forked_from.get("builtin_hash") and up_root is not None:
         upstream_changed = (
-            _fork.content_hash(_fork.paths.BUILTIN_ROOT, "agents", agent_id)
+            _fork.content_hash(up_root, "agents", agent_id)
             != forked_from["builtin_hash"]
         )
     return {
@@ -902,15 +903,16 @@ async def fork_agent(agent_id: str):
     from core.resource import fork as _fork
 
     entry = await _visible_agent(agent_id)
-    if not _fork.exists_in_builtin("agents", agent_id):
-        raise HTTPException(400, "该 Agent 不是内置 Agent（本就是用户资源，直接编辑即可）")
+    if not _fork.exists_in_upstream("agents", agent_id):
+        raise HTTPException(400, "该 Agent 不是公共 Agent（本就是用户资源，直接编辑即可）")
 
     n = _fork.fork_copy("agents", agent_id)
     from datetime import datetime as _dt
     await registry.update(agent_id, {
         "forked_from": {
             "forked_at": _dt.now().isoformat(timespec="seconds"),
-            "builtin_hash": _fork.content_hash(_fork.paths.BUILTIN_ROOT, "agents", agent_id),
+            "builtin_hash": _fork.content_hash(
+                _fork.upstream_root("agents", agent_id), "agents", agent_id),
         }
     })
     return {"forked": agent_id, "files": n}
@@ -924,8 +926,8 @@ async def discard_agent_fork(agent_id: str):
     entry = await _visible_agent(agent_id)
     if not _fork.exists_in_private("agents", agent_id):
         raise HTTPException(400, "该 Agent 没有私有副本")
-    if not _fork.exists_in_builtin("agents", agent_id):
-        raise HTTPException(400, "该 Agent 无内置版本可恢复（删除请走删除 Agent）")
+    if not _fork.exists_in_upstream("agents", agent_id):
+        raise HTTPException(400, "该 Agent 无公共版本可恢复（删除请走删除 Agent）")
 
     _fork.drop_copy("agents", agent_id)
     from core.resource.registry.agent_registry import _WRITE_LOCK
@@ -1427,18 +1429,23 @@ def _load_agent_spec(agent_id: str):
 
 
 def _read_registry_entry(agent_id: str) -> dict | None:
-    """同步读取注册表中的 Agent 条目（不依赖事件循环）。"""
+    """同步读取注册表中的 Agent 条目（不依赖事件循环）。
+
+    扫描全部资源根（私有优先，同 registry._read 的合并语义）——公共
+    Agent 现落系统用户目录，私有副本落用户目录，都不能只看 git 种子根。
+    """
     try:
         import json as _json
 
-        from core.resource.registry import agent_registry as _ar
+        from core.resource import paths as _paths
 
-        reg_file = _ar.REGISTRY_FILE
-        if not reg_file.exists():
-            return None
-        for a in _json.loads(reg_file.read_text(encoding="utf-8")):
-            if a.get("id") == agent_id:
-                return a
+        for root in _paths.resource_roots():
+            rf = root / "agents" / "registry.json"
+            if not rf.exists():
+                continue
+            for a in _json.loads(rf.read_text(encoding="utf-8")):
+                if isinstance(a, dict) and a.get("id") == agent_id:
+                    return a
     except Exception:
         pass
     return None

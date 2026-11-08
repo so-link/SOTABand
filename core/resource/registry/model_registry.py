@@ -15,11 +15,8 @@ def _write_json(path: Path, data) -> None:
     write_json_atomic(path, data)
 
 
-MODEL_DIR = paths.BUILTIN_ROOT / "models"
-REGISTRY_FILE = MODEL_DIR / "registry.json"
-
-# 删除掩码：内置 registry 只读，删除其中的条目时向私有 registry 写入
-# status=deleted 占位条目，_read 合并后过滤，使删除对只读内置根同样生效。
+# 删除掩码：出厂种子导入的条目被删后，重跑种子脚本会让它复活；
+# 保留 status=deleted 占位能力，_read 合并后过滤（常规删除已改为真删）。
 DELETED = "deleted"
 
 # registry.json 读-改-写锁：并发注册/删除时防止后写覆盖前写丢条目
@@ -29,30 +26,17 @@ _WRITE_LOCK = threading.Lock()
 class ModelRegistry(BaseRegistry):
     """模型注册中心。
 
-    读：合并「内置」与「私有」两个目录的 registry.json（私有同 id 覆盖内置）。
-    写：新建 / 更新的模型一律写入私有目录。
+    读：合并「私有」与「系统（公共）」两层 registry.json（私有同 id 覆盖公共）。
+    写：private 落私有目录；公共层运行期可写（仅系统身份，闸门在路由层）。
     """
 
     def __init__(self):
-        MODEL_DIR.mkdir(parents=True, exist_ok=True)
-        (MODEL_DIR / "definitions").mkdir(parents=True, exist_ok=True)
-        (MODEL_DIR / "models").mkdir(parents=True, exist_ok=True)
         pd = paths.ensure_private_dirs("models")
         (pd / "definitions").mkdir(parents=True, exist_ok=True)
         (pd / "models").mkdir(parents=True, exist_ok=True)
-        if not REGISTRY_FILE.exists():
-            _write_json(REGISTRY_FILE, [])
 
     def _private_registry_file(self) -> Path:
         d = paths.ensure_private_dirs("models")
-        f = d / "registry.json"
-        if not f.exists():
-            _write_json(f, [])
-        return f
-
-    def _shared_registry_file(self) -> Path:
-        d = paths.shared_root() / "models"
-        d.mkdir(parents=True, exist_ok=True)
         f = d / "registry.json"
         if not f.exists():
             _write_json(f, [])
@@ -71,19 +55,21 @@ class ModelRegistry(BaseRegistry):
         return [e for e in data if isinstance(e, dict) and e.get("id")]
 
     def _writable_roots(self) -> list[Path]:
-        """可写层（私有 + 共享）；内置层随 git 分发、运行期只读。"""
-        return [r for r in paths.resource_roots() if r != paths.BUILTIN_ROOT]
+        """可写层：私有 + 公共（系统用户目录）。"""
+        return paths.resource_roots()
 
     def _read(self) -> list[dict]:
-        """合并内置与私有 registry（**私有优先**：同 id 取先命中的私有条目；status=deleted 为删除掩码）。"""
+        """合并私有与公共 registry（**私有优先**：同 id 取先命中的私有条目；status=deleted 为删除掩码）。"""
         merged: dict[str, dict] = {}
         for root in paths.resource_roots():
             rf = root / "models" / "registry.json"
             if not rf.exists():
                 continue
+            source = paths.source_of(root)
             try:
                 for e in json.loads(rf.read_text(encoding="utf-8")):
                     if isinstance(e, dict) and e.get("id") and e["id"] not in merged:
+                        e["source"] = source
                         merged[e["id"]] = e
             except Exception:
                 continue
@@ -184,14 +170,15 @@ class ModelRegistry(BaseRegistry):
         return model_id
 
     async def unregister(self, resource_id: str):
-        """彻底删除：可写层删条目 + 删规范文档与产物目录，内置层写全局删除掩码。
+        """彻底删除：各层删条目 + 删规范文档与产物目录。
 
-        两条历史缺陷（用户反馈「删掉的模型一会儿又出现」的根因）：
-        1. 掩码原先写进**当前用户**的私有层——换身份/换用户/子进程回退
-           uid=0 后掩码不在同一层，内置条目立刻重新出现。与 agent_registry
-           一致改写共享层，删除对全员全局生效。
-        2. 只注销条目、不删文件，`definitions/<id>.md` 与 `models/<id>/`
-           残留成孤儿，看起来像没删干净。
+        公共层运行期可写（写权限由路由层闸门把关），删除就是真删——
+        不再写 status=deleted 全局掩码（旧掩码是为「内置层只读」设计的；
+        恢复出厂 = 重跑 scripts/seed_system_resources.py）。
+
+        两条历史缺陷的教训保留：
+        1. 删除必须对所有层全局生效（不能只写当前用户私有层）；
+        2. 不只注销条目：definitions/<id>.md 与产物目录一并删除，不留孤儿。
         """
         with _WRITE_LOCK:
             for root in self._writable_roots():
@@ -203,19 +190,6 @@ class ModelRegistry(BaseRegistry):
                         _write_json(rf, next_data)
                 # 无条目也要清文件：旧版删除只注销条目，留下过孤儿规范/产物
                 self._purge_files(root, resource_id)
-
-            # 共享层若已有同 id 的真实条目（重新发布的新版本），它不是内置
-            # 「原版」，不应被掩码遮蔽。
-            shared = self._load(self._shared_registry_file())
-            if any(e.get("id") == resource_id and e.get("status") != DELETED for e in shared):
-                return
-            builtin_ids = {e.get("id") for e in self.read_from(paths.BUILTIN_ROOT)}
-            if resource_id not in builtin_ids:
-                return
-            shared = [e for e in shared if e.get("id") != resource_id]
-            shared.append({"id": resource_id, "name": resource_id,
-                           "type": "model", "status": DELETED})
-            _write_json(self._shared_registry_file(), shared)
 
     @staticmethod
     def _purge_files(root: Path, resource_id: str) -> None:

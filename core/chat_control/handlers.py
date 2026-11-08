@@ -1228,17 +1228,15 @@ async def delete_resource(args: DeleteResourceArgs, ctx: CallContext) -> dict:
         source = entry.get("source")
         await agent_factory.stop(rid)
 
-        if source in ("builtin", "shared"):
-            # 内置/共享层：仅超级管理员可删（角色取 ctx.owner 回表查——
-            # 网关可能没有请求级 contextvar）。内置文件随 git 分发不落删除；
-            # 共享文件是超管发布的运行期资产，删除后对所有用户生效。
+        if source == "system":
+            # 公共层（系统用户目录）：闸门在 ③b 换轨为「必须系统身份」，
+            # 过渡期仍按 admin 角色把关。删除对所有用户生效。
             if _role_of(ctx.owner) != "admin":
                 return {"error": f"'{rid}' 是系统级 Agent，仅超级用户可删除；"
                                  "你可以先「复制为我的副本」再管理自己的版本"}
-            if source == "shared":
-                _fork.drop_copy("agents", rid, root="shared")
-            await _agents.unregister(rid, scope=source)
-            return {"deleted": rid, "type": "agent", "scope": source}
+            _fork.drop_copy("agents", rid, root="system")
+            await _agents.unregister(rid, scope="system")
+            return {"deleted": rid, "type": "agent", "scope": "system"}
 
         # 私有层：删文件（definitions/<id>* + implementations/<id>/，含
         # -demand.md；drop_copy 对缺失路径幂等）+ 删私有条目

@@ -164,8 +164,7 @@ def _build_bundle(
         "exported_at": _now_iso(),
         "source": {
             "project": paths.PROJECT_ROOT.name,
-            "origin": ("private" if origin == paths.private_root()
-                       else "shared" if origin == paths.shared_root() else "builtin"),
+            "origin": paths.source_of(origin) if origin is not None else "builtin",
         },
         "agent": {
             "id": agent_id,
@@ -313,9 +312,10 @@ def import_agent(
         impl_dir = impl_root / agent_id
 
         existing_entry, existing_origin = _find_entry(agent_id)
-        # 内置同 id 允许导入：resource_roots() 私有优先，私有副本遮蔽内置，
-        # 与工具迁移 / tool_routes /import 的 overrode_builtin 先例一致。
-        overrode_builtin = existing_origin == paths.BUILTIN_ROOT
+        # 公共层同 id 允许导入：resource_roots() 私有优先，私有副本遮蔽公共
+        # 版本，与工具迁移 / tool_routes /import 的 overrode_builtin 先例一致。
+        overrode_builtin = (existing_origin is not None
+                            and paths.source_of(existing_origin) == "system")
 
         existing = def_path.exists() or impl_dir.exists() or existing_entry is not None
         if existing and not overwrite:

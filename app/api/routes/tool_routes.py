@@ -2157,13 +2157,14 @@ async def get_fork_status(tool_id: str):
     entry = await registry.get(tool_id)
     if not entry:
         raise HTTPException(404, f"Tool '{tool_id}' not found")
-    in_builtin = _fork.exists_in_builtin("tools", tool_id)
+    in_builtin = _fork.exists_in_upstream("tools", tool_id)
     in_private = _fork.exists_in_private("tools", tool_id)
     forked_from = entry.get("forked_from") or {}
     upstream_changed = False
-    if in_builtin and in_private and forked_from.get("builtin_hash"):
+    up_root = _fork.upstream_root("tools", tool_id)
+    if in_builtin and in_private and forked_from.get("builtin_hash") and up_root is not None:
         upstream_changed = (
-            _fork.content_hash(_fork.paths.BUILTIN_ROOT, "tools", tool_id)
+            _fork.content_hash(up_root, "tools", tool_id)
             != forked_from["builtin_hash"]
         )
     return {
@@ -2183,17 +2184,18 @@ async def fork_tool(tool_id: str):
     entry = await registry.get(tool_id)
     if not entry:
         raise HTTPException(404, f"Tool '{tool_id}' not found")
-    if not _fork.exists_in_builtin("tools", tool_id):
-        raise HTTPException(400, "该工具不是内置工具（本就是用户资源，直接编辑即可）")
+    if not _fork.exists_in_upstream("tools", tool_id):
+        raise HTTPException(400, "该工具不是公共资源（本就是用户资源，直接编辑即可）")
 
     n = _fork.fork_copy("tools", tool_id)
     # registry 条目落私有并记 fork 血缘；param_meta 等字段原样带走。
-    # 用 fork_copy 后「当前内置内容」的哈希做基准——上游比对以此为锚。
+    # 用 fork_copy 后「当前上游内容」的哈希做基准——上游比对以此为锚。
     from datetime import datetime as _dt
     await registry.update(tool_id, {
         "forked_from": {
             "forked_at": _dt.now().isoformat(timespec="seconds"),
-            "builtin_hash": _fork.content_hash(_fork.paths.BUILTIN_ROOT, "tools", tool_id),
+            "builtin_hash": _fork.content_hash(
+                _fork.upstream_root("tools", tool_id), "tools", tool_id),
         }
     })
     return {"forked": tool_id, "files": n}
@@ -2209,8 +2211,8 @@ async def discard_tool_fork(tool_id: str):
         raise HTTPException(404, f"Tool '{tool_id}' not found")
     if not _fork.exists_in_private("tools", tool_id):
         raise HTTPException(400, "该工具没有私有副本")
-    if not _fork.exists_in_builtin("tools", tool_id):
-        raise HTTPException(400, "该工具无内置版本可恢复（删除请走删除工具）")
+    if not _fork.exists_in_upstream("tools", tool_id):
+        raise HTTPException(400, "该工具无公共版本可恢复（删除请走删除工具）")
 
     _fork.drop_copy("tools", tool_id)
     # 私有条目必须一并移除，否则 _read 合并仍会以私有优先命中它

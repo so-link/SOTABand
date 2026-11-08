@@ -251,8 +251,7 @@ def _build_bundle(
         "exported_at": _now_iso(),
         "source": {
             "project": paths.PROJECT_ROOT.name,
-            "origin": ("private" if origin == paths.private_root()
-                       else "shared" if origin == paths.shared_root() else "builtin"),
+            "origin": paths.source_of(origin) if origin is not None else "builtin",
         },
         "tool": {
             "id": tool_id,
@@ -422,10 +421,12 @@ def import_tool(
             reg_entry = None
 
         existing_entry, existing_origin = _find_entry(tool_id)
-        # 内置同 id 允许导入：resource_roots() 私有优先，私有副本遮蔽内置，
-        # 与「复制为我的副本」同一覆盖层语义（见 tool_routes /import 的
+        # 公共层同 id 允许导入：resource_roots() 私有优先，私有副本遮蔽公共
+        # 版本，与「复制为我的副本」同一覆盖层语义（见 tool_routes /import 的
         # overrode_builtin 先例）。响应里带 overrode_builtin=true 由 UI 警示。
-        overrode_builtin = existing_origin == paths.BUILTIN_ROOT
+        # 字段名保留 overrode_builtin：前端已按此消费，语义 = 遮蔽了公共层版本。
+        overrode_builtin = (existing_origin is not None
+                            and paths.source_of(existing_origin) == "system")
 
         # 冲突只看「私有层是否已有同名」：内置同 id 不构成冲突（私有副本会
         # 遮蔽它，属于正常导入），否则内置工具将永远无法导入，用户也拿不到

@@ -123,10 +123,6 @@ def resolve_tool_id(ref) -> str:
     return ref_n
 
 
-# 内置资源根（随仓库分发）与私有资源根（本地新建，不入 git）
-TOOLS_DIR = paths.BUILTIN_ROOT / "tools"
-REGISTRY_FILE = TOOLS_DIR / "registry.json"
-
 # registry.json 读-改-写锁：并发注册/删除时防止后写覆盖前写丢条目
 _WRITE_LOCK = threading.Lock()
 
@@ -140,9 +136,6 @@ class ToolRegistry(BaseRegistry):
 
     def __init__(self):
         paths.ensure_private_dirs("tools")
-        TOOLS_DIR.mkdir(parents=True, exist_ok=True)
-        if not REGISTRY_FILE.exists():
-            _write_json(REGISTRY_FILE, [])
 
     # ── 读写：读合并、写私有 ──
 
@@ -168,7 +161,7 @@ class ToolRegistry(BaseRegistry):
             if not rf.exists():
                 continue
             # 命中根的先后即优先级：先命中的（私有）胜出
-            source = "private" if root == paths.private_root() else "builtin"
+            source = paths.source_of(root)
             try:
                 for e in json.loads(rf.read_text(encoding="utf-8")):
                     if isinstance(e, dict) and e.get("id") and e["id"] not in merged:
@@ -327,20 +320,20 @@ class ToolRegistry(BaseRegistry):
     async def unregister(self, tool_id: str, scope: str = "all"):
         """按层移除该工具的注册条目。
 
-        scope 三态（内置与个人定制版相互独立，删一层不影响另一层）：
-        - ``"builtin"``：只移除内置 registry 条目——个人副本（条目+文件）原样保留；
-        - ``"private"``：只移除私有 registry 条目——内置条目不动；
+        scope（公共层与个人定制版相互独立，删一层不影响另一层）：
+        - ``"system"``（兼容旧名 ``"builtin"``）：只移除公共层条目——个人副本原样保留；
+        - ``"private"``：只移除私有 registry 条目——公共条目不动；
         - ``"all"``（默认）：两层都移除，供彻底清除该 id 的场景使用。
 
         两种删除都只动 registry，不删磁盘文件：实现目录与定义文件保留在
-        仓库中，重新挂回走 register/导入。「删除后刷新又出现」是旧 bug，
-        但当年用「两层连坐删除」修复过头了——那会让删除内置时连个人
+        系统用户目录中，重新挂回走 register/导入。「删除后刷新又出现」是旧 bug，
+        但当年用「两层连坐删除」修复过头了——那会让删除公共版时连个人
         定制版一起消失，违背覆盖层模型的独立性约定。
         """
         if scope == "private":
             roots = [paths.private_root()]
-        elif scope == "builtin":
-            roots = [paths.BUILTIN_ROOT]
+        elif scope in ("system", "builtin"):
+            roots = [paths.system_root()]
         else:
             roots = paths.resource_roots()
         for root in roots:

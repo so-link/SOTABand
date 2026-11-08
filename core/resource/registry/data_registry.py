@@ -21,8 +21,6 @@ def _write_json(path: Path, data) -> None:
     write_json_atomic(path, data)
 
 
-DATA_DIR = paths.BUILTIN_ROOT / "data"
-REGISTRY_FILE = DATA_DIR / "registry.json"
 
 # registry.json 读-改-写锁：并发注册/删除时防止后写覆盖前写丢条目
 _WRITE_LOCK = threading.Lock()
@@ -37,9 +35,6 @@ class DataRegistry(BaseRegistry):
 
     def __init__(self):
         paths.ensure_private_dirs("data")
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        if not REGISTRY_FILE.exists():
-            _write_json(REGISTRY_FILE, [])
         # 一次性迁移：把早期没有 owner 字段、但本机确实有数据的条目
         # 认领给当前用户。之后列表走精确的归属匹配，不再依赖
         # "本机是否有数据"的启发式判断。
@@ -111,11 +106,18 @@ class DataRegistry(BaseRegistry):
 
         注册时可能写入相对路径（如 "datasets/xxx/"）或绝对路径，
         这里统一处理，避免各调用方各自拼字符串导致不一致。
+
+        相对路径按资源根顺序解析（私有优先、公共兜底，同 registry._read）：
+        取第一个真实存在的候选；都不存在时返回私有根候选（写路径语义——
+        新建数据集的数据落在自己目录）。
         """
         if not data_path:
-            return DATA_DIR
+            return paths.private_space_dir("data")
         p = Path(data_path)
-        return p if p.is_absolute() else DATA_DIR / p
+        if p.is_absolute():
+            return p
+        candidates = [root / "data" / p for root in paths.resource_roots()]
+        return next((c for c in candidates if c.exists()), candidates[0])
 
     def check_availability(self, entry: dict) -> dict:
         """检查数据集在本机是否真的可用。

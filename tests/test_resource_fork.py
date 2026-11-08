@@ -1,12 +1,12 @@
 """覆盖层（fork）与私有优先读取的单元测试。
 
-覆盖 2026-11-04 方案 C 的核心不变量，全部在 tmp_path 里搭两套假资源根
-（内置 + 私有），不碰真实的 resources/ 与 USER_HOME：
+覆盖资源归属改造（2026-11）后的核心不变量，全部在 tmp_path 里搭两套假
+资源根（公共系统层 + 私有），不碰真实的 SB-USER 目录：
 
-- resource_roots() 私有在前
-- registry 合并：同 id 私有胜出，source 标注正确
+- resource_roots() 私有在前、系统兜底，去重
+- registry 合并：同 id 私有胜出，source 标注正确（private / system）
 - fork_copy/drop_copy 的文件面行为与重复 fork 幂等
-- content_hash 随内置内容变化（上游更新检测的依据）
+- content_hash 随上游（系统层）内容变化（上游更新检测的依据）
 """
 
 import json
@@ -23,43 +23,42 @@ from core.resource import fork, paths
 
 @pytest.fixture
 def roots(tmp_path, monkeypatch):
-    """假内置根 + 假私有根。"""
-    builtin = tmp_path / "builtin"
+    """假公共（系统用户）根 + 假私有根。"""
+    system = tmp_path / "system"
     private = tmp_path / "private"
-    (builtin / "tools" / "definitions").mkdir(parents=True)
-    (builtin / "tools" / "implementations" / "demo").mkdir(parents=True)
+    (system / "tools" / "definitions").mkdir(parents=True)
+    (system / "tools" / "implementations" / "demo").mkdir(parents=True)
     private.mkdir()
 
-    (builtin / "tools" / "definitions" / "demo.md").write_text("# 原版\n", encoding="utf-8")
-    (builtin / "tools" / "implementations" / "demo" / "tool.py").write_text(
-        "def execute(**kw):\n    return {'v': 'builtin'}\n", encoding="utf-8")
-    (builtin / "tools" / "registry.json").write_text(
+    (system / "tools" / "definitions" / "demo.md").write_text("# 原版\n", encoding="utf-8")
+    (system / "tools" / "implementations" / "demo" / "tool.py").write_text(
+        "def execute(**kw):\n    return {'v': 'system'}\n", encoding="utf-8")
+    (system / "tools" / "registry.json").write_text(
         json.dumps([{"id": "demo", "name": "演示工具", "param_meta": []}]), encoding="utf-8")
 
-    monkeypatch.setattr(paths, "BUILTIN_ROOT", builtin)
+    # 种子包根指向不存在的临时子目录：默认情况下上游 = 系统层
+    monkeypatch.setattr(paths, "BUILTIN_ROOT", tmp_path / "seed-nope")
     monkeypatch.setattr(paths, "private_root", lambda uid=None: private)
-    # 共享根（超管发布、全员可用）同样指向临时目录，避免读到真实 USER_HOME
-    shared = tmp_path / "shared"
-    monkeypatch.setattr(paths, "shared_root", lambda: shared)
+    monkeypatch.setattr(paths, "system_root", lambda: system)
     # registry 构造期用 ensure_private_dirs → 内部调 private_root()，已动态
-    return builtin, private
+    return system, private
 
 
-def test_resource_roots_private_first(roots, tmp_path):
-    builtin, private = roots
+def test_resource_roots_private_first(roots):
+    system, private = roots
     r = paths.resource_roots()
-    # 顺序：私有（覆盖层）→ 共享（超管发布）→ 内置（兜底）
-    assert r[0] == private and r[1] == tmp_path / "shared" and r[2] == builtin
+    # 顺序：私有（覆盖层）→ 系统（公共兜底）
+    assert r == [private, system]
 
 
 def test_fork_copy_and_overlay_reads(roots):
-    builtin, private = roots
+    system, private = roots
     from core.resource.registry.tool_registry import ToolRegistry
 
     reg = ToolRegistry()
     entry = reg._read()[0] if len(reg._read()) == 1 else next(
         e for e in reg._read() if e["id"] == "demo")
-    assert entry["source"] == "builtin"
+    assert entry["source"] == "system"
     assert not fork.exists_in_private("tools", "demo")
 
     n = fork.fork_copy("tools", "demo")
@@ -70,24 +69,23 @@ def test_fork_copy_and_overlay_reads(roots):
     # 修改私有副本 → 合并读取必须命中副本（覆盖层生效）
     (private / "tools" / "implementations" / "demo" / "tool.py").write_text(
         "def execute(**kw):\n    return {'v': 'mine'}\n", encoding="utf-8")
-    import asyncio
     run_coro(reg.update("demo", {"name": "我的副本"}))  # 生产 fork 后端点即如此落条目
     entry = next(e for e in reg._read() if e["id"] == "demo")
     assert entry["source"] == "private" and entry["name"] == "我的副本"
-    assert fork.content_hash(private, "tools", "demo") != fork.content_hash(builtin, "tools", "demo")
+    assert fork.content_hash(private, "tools", "demo") != fork.content_hash(system, "tools", "demo")
 
-    # 丢弃副本 → 回到内置（与 discard 端点一致：删文件 + 删私有条目）
+    # 丢弃副本 → 回到公共层（与 discard 端点一致：删文件 + 删私有条目）
     fork.drop_copy("tools", "demo")
     data = [e for e in reg._read_private() if e.get("id") != "demo"]
     reg._write(data)
     assert not fork.exists_in_private("tools", "demo")
     entry = next(e for e in reg._read() if e["id"] == "demo")
-    assert entry["source"] == "builtin"
+    assert entry["source"] == "system"
 
 
-def test_re_fork_resets_to_current_builtin(roots):
+def test_re_fork_resets_to_current_upstream(roots):
     """重复 fork 必须先清残留：旧副本的修改不能混进新副本。"""
-    builtin, private = roots
+    _system, private = roots
     fork.fork_copy("tools", "demo")
     p = private / "tools" / "definitions" / "demo.md"
     p.write_text("# 被我改过\n", encoding="utf-8")
@@ -95,22 +93,36 @@ def test_re_fork_resets_to_current_builtin(roots):
     assert p.read_text(encoding="utf-8") == "# 原版\n"
 
 
-def test_content_hash_detects_builtin_update(roots):
-    builtin, private = roots
-    h0 = fork.content_hash(builtin, "tools", "demo")
-    # 模拟 git pull 升级内置实现
-    (builtin / "tools" / "implementations" / "demo" / "tool.py").write_text(
-        "def execute(**kw):\n    return {'v': 'builtin-v2'}\n", encoding="utf-8")
-    assert fork.content_hash(builtin, "tools", "demo") != h0
+def test_upstream_falls_back_to_seed_package(roots, tmp_path, monkeypatch):
+    """系统层没有该资源时，上游回退到出厂种子包（未导入的极端场景）。"""
+    system, _private = roots
+    seed = tmp_path / "seed"
+    (seed / "tools" / "definitions").mkdir(parents=True)
+    (seed / "tools" / "definitions" / "legacy.md").write_text("# 种子\n", encoding="utf-8")
+    monkeypatch.setattr(paths, "BUILTIN_ROOT", seed)
+
+    assert fork.upstream_root("tools", "demo") == system
+    assert fork.upstream_root("tools", "legacy") == seed
+    assert fork.exists_in_upstream("tools", "legacy")
+    assert not fork.exists_in_upstream("tools", "ghost")
+
+
+def test_content_hash_detects_upstream_update(roots):
+    system, _private = roots
+    h0 = fork.content_hash(system, "tools", "demo")
+    # 模拟系统身份升级公共层实现
+    (system / "tools" / "implementations" / "demo" / "tool.py").write_text(
+        "def execute(**kw):\n    return {'v': 'system-v2'}\n", encoding="utf-8")
+    assert fork.content_hash(system, "tools", "demo") != h0
 
 
 def test_fork_skips_venv(roots):
     """虚拟环境不是资源内容：不参与复制与哈希。"""
-    builtin, _ = roots
-    venv = builtin / "tools" / "implementations" / "demo" / ".venv" / "lib"
+    system, _ = roots
+    venv = system / "tools" / "implementations" / "demo" / ".venv" / "lib"
     venv.mkdir(parents=True)
     (venv / "spam.py").write_text("x=1\n", encoding="utf-8")
-    files = fork.iter_resource_files(builtin, "tools", "demo")
+    files = fork.iter_resource_files(system, "tools", "demo")
     assert all(".venv" not in str(f) for f in files)
 
 
@@ -119,7 +131,6 @@ def test_update_strips_derived_source(roots):
     from core.resource.registry.tool_registry import ToolRegistry
 
     reg = ToolRegistry()
-    import asyncio
     run_coro(reg.update("demo", {"tags": ["x"]}))
     raw = json.loads((roots[1] / "tools" / "registry.json").read_text(encoding="utf-8"))
     assert "source" not in raw[0]
@@ -127,27 +138,25 @@ def test_update_strips_derived_source(roots):
 
 
 def test_unregister_scopes_keep_layers_independent(roots):
-    """删除按层生效，内置与个人定制版互不牵连（覆盖层模型的独立性约定）。"""
-    import asyncio
-
+    """删除按层生效，公共与个人定制版互不牵连（覆盖层模型的独立性约定）。"""
     from core.resource.registry.tool_registry import ToolRegistry
 
-    builtin, private = roots
+    system, _private = roots
     reg = ToolRegistry()
     fork.fork_copy("tools", "demo")
     run_coro(reg.update("demo", {"name": "我的副本"}))
 
-    # 删除个人层（我的副本）：内置条目必须原样保留
+    # 删除个人层（我的副本）：公共条目必须原样保留
     run_coro(reg.unregister("demo", scope="private"))
     entries = [e for e in reg._read() if e["id"] == "demo"]
-    assert len(entries) == 1 and entries[0]["source"] == "builtin"
+    assert len(entries) == 1 and entries[0]["source"] == "system"
 
-    # 重新 fork 后删除内置层：个人条目必须原样保留
+    # 重新 fork 后删除公共层：个人条目必须原样保留
     fork.fork_copy("tools", "demo")
     run_coro(reg.update("demo", {"name": "我的副本"}))
-    run_coro(reg.unregister("demo", scope="builtin"))
-    raw_builtin = json.loads((builtin / "tools" / "registry.json").read_text(encoding="utf-8"))
-    assert raw_builtin == []
+    run_coro(reg.unregister("demo", scope="system"))
+    raw_system = json.loads((system / "tools" / "registry.json").read_text(encoding="utf-8"))
+    assert raw_system == []
     entries = [e for e in reg._read() if e["id"] == "demo"]
     assert len(entries) == 1 and entries[0]["source"] == "private"
     assert fork.exists_in_private("tools", "demo")

@@ -390,6 +390,19 @@ def test_build_user_message_large_file_head():
 
 def test_workspace_tool_schemas():
     """工作空间工具应转成 function calling schema（name=工具 id，含参数）。"""
+    import json
+
+    from core.resource import paths
+
+    # 资源根已收敛为 [私有, 系统]，出厂种子包不再参与运行期解析：
+    # 在隔离的公共层放一条工具条目，模拟种子导入后的真实形态。
+    sys_dir = paths.system_space_dir("tools")
+    sys_dir.mkdir(parents=True, exist_ok=True)
+    (sys_dir / "registry.json").write_text(json.dumps([
+        {"id": "demo-tool", "name": "演示", "status": "active", "owner": "100",
+         "param_meta": [{"name": "city", "type": "string", "required": True}]},
+    ]), encoding="utf-8")
+
     agent_mod = pytest.importorskip(
         "resources.agents.implementations.interactive_agent.agent")
     InteractiveAgent = agent_mod.InteractiveAgent
