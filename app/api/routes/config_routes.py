@@ -9,12 +9,20 @@
 LLM_PROVIDER / LLM_API_KEY / LLM_MODEL 三件套（主 key 体系，见条目 32）。
 """
 
+import re
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import get_auth_context
 from config.settings import LLMConfig, PROVIDER_PRESETS, settings
+from core.auth.audit import add_audit_event
+from core.auth.context import AuthContext
+from core.auth.platform_admin import is_platform_admin
+from core.db.models import RESULT_SUCCESS
+from core.db.session import get_db_session
 
 router = APIRouter(tags=["config"])
 
@@ -31,6 +39,23 @@ SUPPORTED_MODELS = [
     for pid, preset in PROVIDER_PRESETS.items()
 ]
 _MODEL_LOOKUP = {m["value"]: m for m in SUPPORTED_MODELS}
+
+# ── 写入 .env 的值格式白名单（v3 评审：防换行注入任意配置行）──
+# 攻击面：_write_env 直接 f"{k}={v}" 落盘，api_key/model 若允许换行，就能
+# 注入 `EVIL=...` 任意行（下次重启生效）。这里按字符集白名单收口。
+_API_KEY_RE = re.compile(r"^[A-Za-z0-9._\-]{8,300}$")
+_MODEL_RE = re.compile(r"^[A-Za-z0-9._:\-/]{1,200}$")
+# .env 的 key 只允许字母/数字/下划线（不能含 = 或换行）；值禁止控制字符（含 \r \n NUL）
+_ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_ENV_VALUE_FORBIDDEN_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _check_env_value(key: str, value: str) -> None:
+    """写 .env 前的兜底校验：key 合法、值不含控制字符（防注入新行）。"""
+    if not _ENV_KEY_RE.match(str(key or "")):
+        raise HTTPException(400, f".env 键名非法: {key!r}")
+    if _ENV_VALUE_FORBIDDEN_RE.search(str(value or "")):
+        raise HTTPException(400, f"{key} 的值含非法控制字符（可能注入 .env 行）")
 
 
 class LLMConfigUpdate(BaseModel):
@@ -64,7 +89,14 @@ def _read_env() -> dict[str, str]:
 
 
 def _write_env(env: dict[str, str]) -> None:
-    """将字典写回 .env 文件（保留注释与空行）"""
+    """将字典写回 .env 文件（保留注释与空行）。
+
+    写前统一校验 key/值：值里出现换行等控制字符时拒绝，避免 `api_key` 里的
+    换行把后续内容变成独立的配置行（v3 评审）。
+    """
+    for key, value in env.items():
+        _check_env_value(key, value)
+
     lines: list[str] = []
     if ENV_FILE.exists():
         raw = ENV_FILE.read_text(encoding="utf-8").splitlines()
@@ -112,12 +144,17 @@ def _refresh_settings(provider: str, model: str, api_key: str) -> None:
 
 
 @router.get("/llm")
-async def get_llm_config():
-    """获取当前 LLM 配置（api_key 脱敏）
+async def get_llm_config(ctx: AuthContext = Depends(get_auth_context)):
+    """获取当前 LLM 配置（api_key 脱敏）。
+
+    v3 评审：与 POST 口径统一为**平台管理员**。该接口会暴露全局 LLM 端点、
+    模型名与掩码后的 key（掩码本身也是凭据指纹），不该向普通租户成员开放。
 
     注意：model 返回 `<provider>:<模型>` 复合值，须与 supported_models 的
     value 格式一致，否则 SettingsView 的下拉框回显为空（该值原样回传给 POST）。
     """
+    if not is_platform_admin(ctx):
+        raise HTTPException(403, "只有平台管理员可以读取全局 LLM 配置")
     provider = settings.llm.provider or ""
     model = settings.llm.model or ""
     model_value = f"{provider}:{model}" if provider and model else model
@@ -145,13 +182,32 @@ async def get_llm_config():
 
 
 @router.post("/llm")
-async def update_llm_config(payload: LLMConfigUpdate):
-    """更新 LLM 配置（设定主 key），写入 .env 并动态刷新"""
+async def update_llm_config(
+    payload: LLMConfigUpdate,
+    ctx: AuthContext = Depends(get_auth_context),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """更新 LLM 配置（设定主 key），写入 .env 并动态刷新。
+
+    ⚠️ 这是**全租户共享**的全局配置（劫持它等于把所有人的对话路由到攻击者端点），
+    因此仅**平台管理员**可改，并写审计。
+    """
+    if not is_platform_admin(ctx):
+        raise HTTPException(403, "只有平台管理员可以修改全局 LLM 配置")
+
     model = payload.model.strip()
     api_key = payload.api_key.strip()
 
     if not model:
         raise HTTPException(400, "模型类型不能为空")
+
+    # 字符集白名单：值会被原样写进 .env，绝不允许换行等可注入新配置行的字符
+    if not _MODEL_RE.match(model):
+        raise HTTPException(400, "模型类型含非法字符（只允许字母/数字/. _ : - /）")
+    if api_key and not _API_KEY_RE.match(api_key):
+        raise HTTPException(
+            400, "api_key 格式不合法（8-300 位字母/数字/. _ -，且不得含空白与换行）"
+        )
 
     # 兼容两种 value：<provider>:<模型>（含"当前"项）与纯模型名（旧格式）
     if ":" in model:
@@ -177,6 +233,20 @@ async def update_llm_config(payload: LLMConfigUpdate):
     # 动态刷新内存配置，使当前进程立即生效
     final_key = env.get("LLM_API_KEY", "")
     _refresh_settings(provider, model_name, final_key)
+
+    import uuid as _uuid
+
+    add_audit_event(
+        session,
+        action="config.llm.change",
+        result=RESULT_SUCCESS,
+        request_id=ctx.request_id,
+        actor_id=ctx.user_id,
+        tenant_id=_uuid.UUID(ctx.tenant_id),
+        target_type="llm_config",
+        target_id=provider,
+    )
+    await session.commit()
 
     return {
         "message": "配置已更新",

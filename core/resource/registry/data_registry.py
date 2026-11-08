@@ -4,48 +4,88 @@ import json
 import time
 from pathlib import Path
 
+from core.resource.registry.json_store import update_json_list
 from core.resource.registry.registry_base import BaseRegistry
+from core.runtime.paths import DATA_DIR, DATA_REGISTRY_FILE, DATASETS_DIR, data_registry_path
+from core.resource import paths
 from core.user_context import (
-    get_current_user_id,
-    detect_storage,
-    get_visibility,
-    is_visible_to,
     VISIBILITY_PRIVATE,
+    detect_storage,
+    get_current_user_id,
+    is_visible_to,
 )
 
-DATA_DIR = Path(__file__).resolve().parent.parent.parent.parent / "resources" / "data"
-REGISTRY_FILE = DATA_DIR / "registry.json"
+REGISTRY_FILE = DATA_REGISTRY_FILE
+
+
+def _write_json(path: Path, data) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 class DataRegistry(BaseRegistry):
-    """数据注册中心"""
+    """数据注册中心。
+
+    读：合并「内置」与「私有」两个目录的 registry.json（私有同 id 覆盖内置）。
+    写：新建 / 更新的数据集一律写入私有目录。
+    """
 
     def __init__(self):
+        paths.ensure_private_dirs("data")
         DATA_DIR.mkdir(parents=True, exist_ok=True)
+        DATASETS_DIR.mkdir(parents=True, exist_ok=True)
+        data_registry_path()
         if not REGISTRY_FILE.exists():
-            self._write([])
-        # 一次性迁移：把早期没有 owner 字段、但本机确实有数据的条目
-        # 认领给当前用户。之后列表走精确的归属匹配，不再依赖
-        # "本机是否有数据"的启发式判断。
-        # 只认领本机真实存在的条目，因此不会误认他人环境的数据。
-        try:
-            self.claim_local_orphans()
-        except (OSError, ValueError):
-            pass  # 迁移失败不影响正常使用，退化为运行时启发式判断
+            _write_json(REGISTRY_FILE, [])
+        # ⚠️ 不在构造期做一次性 claim：
+        # engine 启动即实例化 registry，此时没有任何请求上下文，claim 会把
+        # 无主历史数据集全部挂到机器身份 local-xxxx 名下 —— 之后管理员
+        # 再调 /api/data/claim-local 也认领不到（owner 已非空）。
+        # 认领改为显式操作（管理员接口），运行期靠 belongs_to 的
+        # 「本机有数据视为本人」启发式保证可用性。
+
+    def _private_registry_file(self) -> Path:
+        f = REGISTRY_FILE
+        f.parent.mkdir(parents=True, exist_ok=True)
+        if not f.exists():
+            _write_json(f, [])
+        return f
 
     def _read(self) -> list[dict]:
-        with open(REGISTRY_FILE, encoding='utf-8') as f:
-            return json.load(f)
+        """合并内置与私有 registry（私有同 id 覆盖内置）。"""
+        merged: dict[str, dict] = {}
+        registry_files = [root / "data" / "registry.json" for root in paths.resource_roots()]
+        if REGISTRY_FILE not in registry_files:
+            registry_files.append(REGISTRY_FILE)
+        for rf in registry_files:
+            if not rf.exists():
+                continue
+            try:
+                for e in json.loads(rf.read_text(encoding="utf-8")):
+                    if isinstance(e, dict) and e.get("id"):
+                        merged[e["id"]] = e
+            except Exception:
+                continue
+        return list(merged.values())
+
+    def read_from(self, root: Path) -> list[dict]:
+        rf = root / "data" / "registry.json"
+        if not rf.exists():
+            return []
+        try:
+            return json.loads(rf.read_text(encoding="utf-8"))
+        except Exception:
+            return []
 
     def _write(self, data: list[dict]):
-        with open(REGISTRY_FILE, "w", encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        """写入私有 registry。"""
+        _write_json(self._private_registry_file(), data)
 
     def _get_def_dir(self) -> Path:
-        return DATA_DIR / "definitions"
+        return paths.ensure_private_dirs("data") / "definitions"
 
     def _get_data_dir(self) -> Path:
-        return DATA_DIR / "datasets"
+        return paths.ensure_private_dirs("data") / "datasets"
 
     def resolve_data_path(self, data_path: str) -> Path:
         """把注册表中的 data_path 解析为绝对路径。
@@ -56,7 +96,13 @@ class DataRegistry(BaseRegistry):
         if not data_path:
             return DATA_DIR
         p = Path(data_path)
-        return p if p.is_absolute() else DATA_DIR / p
+        if p.is_absolute():
+            return p
+        for root in reversed(paths.resource_roots()):
+            candidate = root / "data" / p
+            if candidate.exists():
+                return candidate
+        return DATA_DIR / p
 
     def check_availability(self, entry: dict) -> dict:
         """检查数据集在本机是否真的可用。
@@ -124,6 +170,21 @@ class DataRegistry(BaseRegistry):
         except (OSError, PermissionError):
             return False
 
+    @staticmethod
+    def is_machine_owner(owner: str | None) -> bool:
+        """是否是 8.1 之前的机器身份（``local-xxxx``）。
+
+        历史单机部署注册的数据集 owner 是机器身份；升级到多用户后这些条目
+        对 UUID 用户不可见、也无法认领。把机器身份视为"未认领"的历史条目，
+        沿用「本机有数据视为可用」的迁移启发式（与无 owner 条目同口径）。
+        """
+        value = str(owner or "")
+        return value.startswith("local-") or value == get_current_user_id()
+
+    def is_unclaimed(self, entry: dict) -> bool:
+        """无 owner 或机器身份 owner → 未认领的历史条目。"""
+        return (not entry.get("owner")) or self.is_machine_owner(entry.get("owner"))
+
     def belongs_to(self, entry: dict, user_id: str) -> bool:
         """判断数据集是否属于指定用户。
 
@@ -134,8 +195,9 @@ class DataRegistry(BaseRegistry):
         新注册的条目一律带 owner，直接按 owner 精确匹配。
         """
         owner = entry.get("owner")
-        if owner:
+        if owner and not self.is_machine_owner(owner):
             return owner == user_id
+        # 无 owner / 机器身份历史条目：本机有数据视为可用（升级兼容）
         return self.is_present_locally(entry)
 
     def is_visible(self, entry: dict, user_id: str) -> bool:
@@ -152,7 +214,7 @@ class DataRegistry(BaseRegistry):
             return True
         # private 且 owner 不匹配时，仍要保留历史启发式：
         # 无 owner 且本机有数据的历史条目应视为自己的。
-        if not entry.get("owner"):
+        if self.is_unclaimed(entry):
             return self.is_present_locally(entry)
         return False
 
@@ -165,27 +227,24 @@ class DataRegistry(BaseRegistry):
         返回被认领的条目数。
         """
         uid = user_id or get_current_user_id()
-        data = self._read()
         claimed = 0
-        changed = False
-        for entry in data:
-            # 补全缺失的 visibility：数据集一律补 private
-            if not entry.get("visibility"):
-                entry["visibility"] = VISIBILITY_PRIVATE
-                changed = True
-            # 补全缺失的 storage
-            if not entry.get("storage"):
-                entry["storage"] = detect_storage(entry.get("data_path", ""))
-                changed = True
-            if not entry.get("owner") and self.is_present_locally(entry):
-                entry["owner"] = uid
-                claimed += 1
-                changed = True
-        if changed:
-            self._write(data)
+        def claim(data):
+            nonlocal claimed
+            for entry in data:
+                if not entry.get("visibility"):
+                    entry["visibility"] = VISIBILITY_PRIVATE
+                if not entry.get("storage"):
+                    entry["storage"] = detect_storage(entry.get("data_path", ""))
+                if self.is_unclaimed(entry) and self.is_present_locally(entry):
+                    entry["owner"] = uid
+                    claimed += 1
+
+        update_json_list(REGISTRY_FILE, claim)
         return claimed
 
-    async def register(self, resource: dict = None, **kwargs) -> str:
+    async def register(
+        self, resource: dict | None = None, *, owner: str | None = None, **kwargs
+    ) -> str:
         if resource is None:
             resource = kwargs
         ds_id = resource.get("id", f"dataset-{int(time.time())}")
@@ -203,24 +262,34 @@ class DataRegistry(BaseRegistry):
             "tags": resource.get("tags", []),
             "quality_score": resource.get("quality_score"),
             "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            # 归属：数据集是「谁的」资源。不接受调用方传入，一律取当前用户，
-            # 避免伪造 owner 看到别人的数据。
-            "owner": get_current_user_id(),
+            # 归属：数据集是「谁的」资源。owner 由服务端从认证上下文解析后传入
+            # （未认证时回退机器身份），不信任客户端提交的任何 owner 字段。
+            "owner": owner or get_current_user_id(),
             # 可见性：数据集默认私有（数据在本机，他人本就访问不到）。
             # 未来数据集上云后，可设为 public 让所有人访问。
             "visibility": VISIBILITY_PRIVATE,
             # 存储位置：local / remote。上云后 data_path 会是远端地址，
             # 需要据此跳过本地文件校验，否则会被误判为"不可用"而过滤掉。
             "storage": detect_storage(resource.get("data_path", "")),
+            "group_path": resource.get("group_path", ""),
+            "manifest_path": resource.get("manifest_path", ""),
         }
 
-        data = self._read()
-        existing = [i for i, e in enumerate(data) if e["id"] == ds_id]
-        if existing:
-            data[existing[0]] = entry
-        else:
-            data.append(entry)
-        self._write(data)
+        def upsert(data):
+            existing = next((i for i, item in enumerate(data) if item["id"] == ds_id), None)
+            if existing is None:
+                data.append(entry)
+            else:
+                old = data[existing]
+                # 更新语义：内容以新值为准，但「首次创建的事实」（owner /
+                # created_at）必须沿用旧值 —— 否则任何人 register 同 id
+                # 就能接管他人的数据集条目。
+                for key in ("owner", "created_at", "visibility"):
+                    if old.get(key) not in (None, ""):
+                        entry[key] = old[key]
+                data[existing] = entry
+
+        update_json_list(REGISTRY_FILE, upsert)
 
         # 保存 MD 规范文档（中文内容，Windows 默认 GBK，必须显式 utf-8）
         if "raw_md" in resource:
@@ -231,9 +300,10 @@ class DataRegistry(BaseRegistry):
         return ds_id
 
     async def unregister(self, resource_id: str):
-        data = self._read()
-        data = [e for e in data if e["id"] != resource_id]
-        self._write(data)
+        def remove(data):
+            data[:] = [entry for entry in data if entry["id"] != resource_id]
+
+        update_json_list(REGISTRY_FILE, remove)
 
     async def get(self, resource_id: str) -> dict | None:
         for e in self._read():
@@ -255,8 +325,9 @@ class DataRegistry(BaseRegistry):
         return [e for e in data if self.is_visible(e, owner)]
 
     async def update(self, resource_id: str, updates: dict):
-        data = self._read()
-        for e in data:
-            if e["id"] == resource_id:
-                e.update(updates)
-        self._write(data)
+        def change(data):
+            for entry in data:
+                if entry["id"] == resource_id:
+                    entry.update(updates)
+
+        update_json_list(REGISTRY_FILE, change)

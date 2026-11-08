@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import {
   ArrowLeft, Search, ChevronLeft, ChevronRight,
-  Trash2, Plus, Check, Package,
+  Trash2, Plus, Check, Package, Download, X, Loader2, AlertTriangle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardBody } from '@/components/ui/card'
@@ -10,8 +10,8 @@ import { useResourceStore } from '@/stores/resource-store'
 import { useRepositoryStore, getFilteredTools, type RepositoryTool } from '@/stores/repository-store'
 import { useWorkspaceToolStore } from '@/stores/workspace-tool-store'
 
+import { apiGet, apiPost, apiDelete } from '@/services/api/client'
 const PAGE_SIZE_OPTIONS = [8, 12, 16, 24, 32]
-const BASE_URL = ''
 
 /** 工具图标映射 */
 function getToolIcon(id: string): string {
@@ -46,21 +46,83 @@ export function RepositoryView() {
   const [showAllTags, setShowAllTags] = useState(false)
   const visibleTags = showAllTags ? allTags : allTags.slice(0, 8)
 
+  // 缺失依赖弹窗状态
+  const [depDialog, setDepDialog] = useState<{
+    tool: RepositoryTool
+    missing: string[]      // 展示用（import 名）
+    install: string[]      // 安装用（pip 包名）
+    env: string
+    installing: boolean
+    done: boolean
+    error: string
+  } | null>(null)
+
   const handleDelete = async (tool: RepositoryTool) => {
     if (!confirm(`确定删除工具 "${tool.id}"？\n此操作不可撤销，将永久删除代码文件和注册记录。`)) return
     try {
-      const res = await fetch(`${BASE_URL}/api/tool/${tool.id}`, { method: 'DELETE' })
-      if (res.ok) {
-        // 同步从工具空间中移除
-        const { useWorkspaceToolStore } = await import('@/stores/workspace-tool-store')
-        useWorkspaceToolStore.getState().removeTool(tool.id)
-        fetchTools()
-      }
+      await apiDelete(`/api/tool/${tool.id}`)
+      // 同步从工具空间中移除
+      const { useWorkspaceToolStore } = await import('@/stores/workspace-tool-store')
+      useWorkspaceToolStore.getState().removeTool(tool.id)
+      fetchTools()
     } catch { /* ignore */ }
   }
 
-  const handleImport = (tool: RepositoryTool) => {
+  // ── 依赖检查弹窗 ──────────────────────────────────────────
+  // 添加工具时先检查代码依赖在当前执行环境是否齐备：
+  // 有缺失就弹窗让用户一键安装，否则工具加进来后第一次调用才
+  // 抛 ModuleNotFoundError，用户看到「Missing module: xxx」无从下手。
+  const doImport = (tool: RepositoryTool) => {
     addTool({ id: tool.id, name: tool.name, tags: tool.tags, loadedAt: new Date().toISOString() })
+  }
+
+  const handleAddWithDepCheck = async (tool: RepositoryTool) => {
+    try {
+      const data = await apiGet<{ missing?: string[]; install?: string[]; env?: string }>(
+        `/api/tool/${tool.id}/check-deps`
+      )
+      const missing: string[] = data.missing || []
+      if (missing.length === 0) {
+        doImport(tool)
+        return
+      }
+      setDepDialog({
+        tool, missing,
+        install: data.install?.length ? data.install : missing,
+        env: data.env || '', installing: false, done: false, error: '',
+      })
+    } catch {
+      // 检查失败不阻塞添加，按无缺失处理
+      doImport(tool)
+    }
+  }
+
+  const handleInstallMissing = async () => {
+    if (!depDialog) return
+    setDepDialog({ ...depDialog, installing: true, error: '' })
+    try {
+      const data = await apiPost<any>(`/api/tool/${depDialog.tool.id}/install-deps`, {
+        dependencies: depDialog.install,
+      }).catch(() => ({}))
+      const results: Array<{ dep: string; success: boolean; reason?: string }> = data.results || []
+      const failed = results.filter(r => !r.success)
+      if (failed.length > 0 && results.length > 0) {
+        // 把 pip 输出的最后几行带出来，否则只报包名无从定位
+        // （网络不通 / 权限不足 / 包名错误 的表现完全不同）
+        const detail = failed.map(r => {
+          const tail = String(r.reason || '').trim().split('\n').filter(Boolean).slice(-3).join(' | ')
+          return `· ${r.dep}${tail ? `：${tail.slice(0, 300)}` : ''}`
+        }).join('\n')
+        setDepDialog({
+          ...depDialog, installing: false, done: false,
+          error: `以下依赖安装失败：\n${detail}`,
+        })
+      } else {
+        setDepDialog({ ...depDialog, installing: false, done: true, error: '' })
+      }
+    } catch (e) {
+      setDepDialog({ ...depDialog, installing: false, error: `安装请求失败：${String(e)}` })
+    }
   }
 
   return (
@@ -197,17 +259,19 @@ export function RepositoryView() {
                         <span>已用 {tool.usage_count} 次</span>
                       </div>
                       <div className="flex items-center justify-center gap-3 shrink-0 border-t border-maia-border/30 pt-1.5">
-                        <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-red-400 hover:text-red-300 hover:bg-red-500/10"
-                          onClick={(e) => { e.stopPropagation(); handleDelete(tool) }}>
-                          <Trash2 className="h-3 w-3 mr-0.5" />删除
-                        </Button>
+                        {tool.can_edit !== false && (
+                          <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                            onClick={(e) => { e.stopPropagation(); handleDelete(tool) }}>
+                            <Trash2 className="h-3 w-3 mr-0.5" />删除
+                          </Button>
+                        )}
                         {loaded ? (
                           <span className="inline-flex items-center h-6 px-2 text-[10px] text-maia-text-muted">
                             <Check className="h-3 w-3 mr-0.5" />已加载
                           </span>
                         ) : (
                           <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-maia-accent hover:text-maia-accent"
-                            onClick={(e) => { e.stopPropagation(); handleImport(tool) }}>
+                            onClick={(e) => { e.stopPropagation(); handleAddWithDepCheck(tool) }}>
                             <Plus className="h-3 w-3 mr-0.5" />添加
                           </Button>
                         )}
@@ -249,6 +313,93 @@ export function RepositoryView() {
           </>
         )}
       </div>
+
+      {/* 缺失依赖安装弹窗 */}
+      {depDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={() => { if (!depDialog.installing) setDepDialog(null) }}>
+          <div className="w-[440px] max-w-[92vw] rounded-lg border border-maia-border bg-maia-surface shadow-2xl"
+            onClick={e => e.stopPropagation()}>
+            {/* 标题栏 */}
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-maia-border">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-400" />
+                <span className="text-sm font-semibold text-maia-text-heading">
+                  {depDialog.done ? '依赖已安装' : '检测到缺失类库'}
+                </span>
+              </div>
+              {!depDialog.installing && (
+                <button className="text-maia-text-muted hover:text-maia-text"
+                  onClick={() => setDepDialog(null)}>
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+
+            <div className="px-4 py-3 space-y-3">
+              {depDialog.done ? (
+                <div className="flex items-center gap-2 text-[13px] text-emerald-400">
+                  <Check className="h-4 w-4" />
+                  缺失依赖已安装完成，工具已添加到工作空间。
+                </div>
+              ) : (
+                <>
+                  <p className="text-[12px] text-maia-text-muted leading-relaxed">
+                    工具 <span className="font-mono text-maia-text">{depDialog.tool.id}</span> 依赖以下
+                    类库，当前执行环境
+                    {depDialog.env && <span className="text-maia-text">（{depDialog.env}）</span>}
+                    中尚未安装：
+                  </p>
+                  <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
+                    {depDialog.missing.map(dep => (
+                      <span key={dep}
+                        className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono
+                          bg-amber-500/10 text-amber-500 border border-amber-500/25">
+                        {dep}
+                      </span>
+                    ))}
+                  </div>
+                  {depDialog.installing && (
+                    <div className="flex items-center gap-2 text-[12px] text-maia-text-muted">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      正在安装，请稍候（可能需要数分钟）...
+                    </div>
+                  )}
+                  {depDialog.error && (
+                    <div className="max-h-40 overflow-auto rounded bg-maia-bg/60 p-2 text-[11px] text-red-400 break-words whitespace-pre-wrap">
+                      {depDialog.error}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 px-4 py-2.5 border-t border-maia-border">
+              {depDialog.done ? (
+                <Button size="sm" className="h-7 text-[11px]" onClick={() => setDepDialog(null)}>
+                  完成
+                </Button>
+              ) : (
+                <>
+                  <Button size="sm" variant="ghost" className="h-7 text-[11px]"
+                    disabled={depDialog.installing}
+                    onClick={() => { doImport(depDialog.tool); setDepDialog(null) }}>
+                    跳过
+                  </Button>
+                  <Button size="sm" className="h-7 text-[11px]"
+                    disabled={depDialog.installing}
+                    onClick={handleInstallMissing}>
+                    {depDialog.installing
+                      ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" />安装中...</>
+                      : <><Download className="h-3 w-3 mr-1" />安装缺失类库</>}
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
+

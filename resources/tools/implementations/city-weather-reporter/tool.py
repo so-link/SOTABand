@@ -1,9 +1,10 @@
-
 # === SOTABand 工具标准模板 ===
 import os, sys, json, time
 from pathlib import Path
 from typing import Any
-import requests
+import urllib.request
+import urllib.parse
+import urllib.error
 from urllib.parse import quote  # 使用标准库URL编码，更稳定
 
 # ── 项目根路径 ──
@@ -57,6 +58,33 @@ try:
     from dotenv import load_dotenv
 except ImportError:
     load_dotenv = None
+
+
+# 自定义 HTTP 请求函数（不依赖 requests）
+def _http_get_json(url: str, params: dict = None, headers: dict = None, timeout: int = 10):
+    """
+    使用 urllib 发送 GET 请求并尝试解析 JSON 响应。
+    返回 (status_code, data_dict_or_none, error_message)
+    """
+    try:
+        if params:
+            query_string = urllib.parse.urlencode(params)
+            url = f"{url}?{query_string}"
+        req = urllib.request.Request(url, headers=headers or {})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            status_code = resp.status
+            raw_data = resp.read().decode('utf-8', errors='replace')
+            try:
+                data = json.loads(raw_data)
+            except json.JSONDecodeError:
+                data = raw_data  # 非 JSON 返回原始文本
+            return status_code, data, None
+    except urllib.error.HTTPError as e:
+        return e.code, None, f"HTTP错误: {e.code}"
+    except urllib.error.URLError as e:
+        return None, None, f"URL错误: {e.reason}"
+    except Exception as e:
+        return None, None, f"请求异常: {str(e)}"
 
 
 # 常用中文城市名到英文名的映射（用于备用天气API）
@@ -145,80 +173,72 @@ def _fetch_weather_backup(city: str, units: str, lang: str) -> dict:
         if attempt_lang is not None:
             url += f"&lang={attempt_lang}"
 
-        try:
-            resp = requests.get(url, timeout=10, headers=headers)
-            if resp.status_code == 404:
-                return {
-                    "status": "failed",
-                    "message": f"未找到城市 '{city}' 的天气信息",
-                    "data": {}
-                }
-            # wttr.in 偶尔返回 500，尝试降级请求
-            if resp.status_code != 200:
-                last_error = f"备用天气源返回状态码 {resp.status_code}"
-                continue
-
-            wdata = resp.json()
-
-            # 提取当前天气信息
-            current = wdata.get("current_condition", [{}])[0]
-            if not current:
-                last_error = "备用天气源没有返回数据"
-                continue
-
-            # 根据单位提取温度和体感温度
-            if units == "metric":
-                temperature = float(current["temp_C"]) if "temp_C" in current else None
-                feels_like = float(current["FeelsLikeC"]) if "FeelsLikeC" in current else None
-            else:
-                temperature = float(current["temp_F"]) if "temp_F" in current else None
-                feels_like = float(current["FeelsLikeF"]) if "FeelsLikeF" in current else None
-
-            humidity = float(current["humidity"]) if "humidity" in current else None
-            pressure = float(current["pressure"]) if "pressure" in current else None
-
-            # 风速处理：metric 转换为 m/s，imperial 直接使用 windspeedMiles（mph）
-            if units == "metric":
-                wind_speed_kmh = float(current.get("windspeedKmph", 0))
-                wind_speed = round(wind_speed_kmh / 3.6, 2)
-            else:
-                wind_speed_mph = current.get("windspeedMiles", 0)
-                wind_speed = float(wind_speed_mph) if wind_speed_mph else 0.0
-
-            wind_dir = current.get("winddir16Point", "")
-            rainfall = float(current.get("precipMM", 0.0))
-            weather_desc = current.get("weatherDesc", [{}])[0].get("value", "")
-            city_name = current.get("observation_point", query_city)
-
-            # 警报和台风预警 wttr.in 不提供，设为空
-            alerts = []
-            typhoon_warning = None
-
-            weather_data = {
-                "city": city_name,
-                "temperature": temperature,
-                "feels_like": feels_like,
-                "humidity": humidity,
-                "pressure": pressure,
-                "wind_speed": wind_speed,
-                "wind_direction": wind_dir,
-                "rainfall": rainfall,
-                "weather_description": weather_desc,
-                "alerts": alerts,
-                "typhoon_warning": typhoon_warning,
-            }
+        status_code, wdata, err = _http_get_json(url, headers=headers, timeout=10)
+        if err:
+            last_error = err
+            continue
+        if status_code == 404:
             return {
-                "status": "success",
-                "message": "天气数据获取成功（备用源）",
-                "data": weather_data
+                "status": "failed",
+                "message": f"未找到城市 '{city}' 的天气信息",
+                "data": {}
             }
+        if status_code != 200 or not isinstance(wdata, dict):
+            last_error = f"备用天气源返回状态码 {status_code}"
+            continue
 
-        except requests.exceptions.RequestException as e:
-            last_error = f"备用天气请求异常: {str(e)}"
+        # 提取当前天气信息
+        current = wdata.get("current_condition", [{}])[0]
+        if not current:
+            last_error = "备用天气源没有返回数据"
             continue
-        except Exception as e:
-            last_error = f"备用天气解析失败: {str(e)}"
-            continue
+
+        # 根据单位提取温度和体感温度
+        if units == "metric":
+            temperature = float(current["temp_C"]) if "temp_C" in current else None
+            feels_like = float(current["FeelsLikeC"]) if "FeelsLikeC" in current else None
+        else:
+            temperature = float(current["temp_F"]) if "temp_F" in current else None
+            feels_like = float(current["FeelsLikeF"]) if "FeelsLikeF" in current else None
+
+        humidity = float(current["humidity"]) if "humidity" in current else None
+        pressure = float(current["pressure"]) if "pressure" in current else None
+
+        # 风速处理：metric 转换为 m/s，imperial 直接使用 windspeedMiles（mph）
+        if units == "metric":
+            wind_speed_kmh = float(current.get("windspeedKmph", 0))
+            wind_speed = round(wind_speed_kmh / 3.6, 2)
+        else:
+            wind_speed_mph = current.get("windspeedMiles", 0)
+            wind_speed = float(wind_speed_mph) if wind_speed_mph else 0.0
+
+        wind_dir = current.get("winddir16Point", "")
+        rainfall = float(current.get("precipMM", 0.0))
+        weather_desc = current.get("weatherDesc", [{}])[0].get("value", "")
+        city_name = current.get("observation_point", query_city)
+
+        # 警报和台风预警 wttr.in 不提供，设为空
+        alerts = []
+        typhoon_warning = None
+
+        weather_data = {
+            "city": city_name,
+            "temperature": temperature,
+            "feels_like": feels_like,
+            "humidity": humidity,
+            "pressure": pressure,
+            "wind_speed": wind_speed,
+            "wind_direction": wind_dir,
+            "rainfall": rainfall,
+            "weather_description": weather_desc,
+            "alerts": alerts,
+            "typhoon_warning": typhoon_warning,
+        }
+        return {
+            "status": "success",
+            "message": "天气数据获取成功（备用源）",
+            "data": weather_data
+        }
 
     return {
         "status": "failed",
@@ -244,13 +264,14 @@ def _fetch_weather_openmeteo(city: str, units: str, lang: str) -> dict:
             "format": "json",
         }
         headers = {"Accept": "application/json"}
-        geo_resp = requests.get(geo_url, params=geo_params, timeout=10, headers=headers)
-        if geo_resp.status_code != 200:
-            return {"status": "failed", "message": f"Open-Meteo 地理编码失败: HTTP {geo_resp.status_code}"}
-        geo_data = geo_resp.json()
+        status_code, geo_data, err = _http_get_json(geo_url, params=geo_params, headers=headers, timeout=10)
+        if err:
+            return {"status": "failed", "message": f"Open-Meteo 地理编码失败: {err}", "data": {}}
+        if status_code != 200 or not isinstance(geo_data, dict):
+            return {"status": "failed", "message": f"Open-Meteo 地理编码失败: HTTP {status_code}", "data": {}}
         results = geo_data.get("results", [])
         if not results:
-            return {"status": "failed", "message": f"未找到城市 '{city}' 的坐标信息"}
+            return {"status": "failed", "message": f"未找到城市 '{city}' 的坐标信息", "data": {}}
         latitude = results[0]["latitude"]
         longitude = results[0]["longitude"]
         city_name = results[0].get("name", city)
@@ -279,10 +300,11 @@ def _fetch_weather_openmeteo(city: str, units: str, lang: str) -> dict:
             "precipitation_unit": "mm",
             "timezone": "auto",
         }
-        weather_resp = requests.get(weather_url, params=weather_params, timeout=10, headers=headers)
-        if weather_resp.status_code != 200:
-            return {"status": "failed", "message": f"Open-Meteo 天气获取失败: HTTP {weather_resp.status_code}"}
-        wdata = weather_resp.json()
+        status_code, wdata, err = _http_get_json(weather_url, params=weather_params, headers=headers, timeout=10)
+        if err:
+            return {"status": "failed", "message": f"Open-Meteo 天气获取失败: {err}", "data": {}}
+        if status_code != 200 or not isinstance(wdata, dict):
+            return {"status": "failed", "message": f"Open-Meteo 天气获取失败: HTTP {status_code}", "data": {}}
         current = wdata.get("current", {})
 
         # 提取各个字段

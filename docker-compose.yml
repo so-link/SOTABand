@@ -1,0 +1,141 @@
+# SOTABand 全栈 Docker 部署 —— 开发/演示用
+#
+# ```powershell
+# docker compose up -d --build      # 首次构建并启动（约 2-4 分钟）
+# docker compose logs -f backend    # 看后端日志
+# docker compose down               # 停止（保留数据卷）
+# docker compose down -v            # 停止并**删除数据库数据**
+# ```
+#
+# 打开 http://localhost:5173
+#
+# ## 三个服务
+#
+# | 服务 | 作用 | 对外端口 |
+# |---|---|---|
+# | `db` | PostgreSQL 16 | **不暴露**（仅容器网络内可达） |
+# | `backend` | FastAPI + Alembic | **不暴露**（由前端 Nginx 反代） |
+# | `frontend` | Nginx 托管静态前端 + 反代 `/api` | `5173` |
+#
+# **为什么数据库和 API 都不暴露端口**：把唯一入口收敛到 Nginx，
+# 前后端天然同源，Cookie 会话、SSE 都不用处理跨域；也少两个攻击面。
+# 需要直连调试后端时，用 `docker compose exec backend ...` 或临时加 ports。
+#
+# ## 与开发模式的区别
+#
+# 开发模式（`npm run dev` + `uvicorn`）用 SQLite、前端走 Vite 代理；
+# 这里用 **PostgreSQL**，前端是**构建产物**。两者共用同一套 Alembic 迁移，
+# schema 不会漂移 —— 这也是 ADR-08-02 选择"一个环境变量切换"的目的。
+
+services:
+  db:
+    # 镜像源可覆盖：国内网络直连 Docker Hub 会超时，默认走 DaoCloud 镜像。
+    # 网络能直连时：$env:DOCKER_REGISTRY='docker.io'; docker compose up -d --build
+    image: ${DOCKER_REGISTRY:-docker.m.daocloud.io}/library/postgres:16-alpine
+    container_name: sotaband-db
+    environment:
+      POSTGRES_USER: sotaband
+      POSTGRES_PASSWORD: sotaband
+      POSTGRES_DB: sotaband
+      # 中文/多语言内容的排序与比较行为取决于 locale，显式设成 UTF-8
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sotaband -d sotaband"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        REGISTRY: ${DOCKER_REGISTRY:-docker.m.daocloud.io}
+        # PyPI 镜像：国内直连 pypi.org 下载极慢（实测卡住 3 分钟以上）
+        PIP_INDEX: ${PIP_INDEX:-https://mirrors.aliyun.com/pypi/simple/}
+    container_name: sotaband-backend
+    environment:
+      # 生产必填：多 worker / 重启后 Agent 工作负载凭证仍然有效
+      SOTABAND_WORKLOAD_SECRET: ${SOTABAND_WORKLOAD_SECRET:-}
+      # 开发/容器 http 默认 0（否则浏览器会丢弃 Secure Cookie，永远登录不上）；
+      # 生产 https 环境用项目根 .env 覆盖成 1。
+      # ⚠️ 不要在后面再写一份固定值 —— YAML 后者胜，会把可配置项覆盖成死配置。
+      SOTABAND_COOKIE_SECURE: ${SOTABAND_COOKIE_SECURE:-0}
+      SOTABAND_SESSION_TTL_DAYS: ${SOTABAND_SESSION_TTL_DAYS:-30}
+      SOTABAND_BCRYPT_ROUNDS: ${SOTABAND_BCRYPT_ROUNDS:-12}
+      SOTABAND_LOGIN_MAX_ATTEMPTS: ${SOTABAND_LOGIN_MAX_ATTEMPTS:-5}
+      SOTABAND_LOGIN_IP_MAX: ${SOTABAND_LOGIN_IP_MAX:-20}
+      SOTABAND_REGISTER_MAX_PER_HOUR: ${SOTABAND_REGISTER_MAX_PER_HOUR:-5}
+      SOTABAND_PASSWORD_MIN_LENGTH: ${SOTABAND_PASSWORD_MIN_LENGTH:-8}
+      SOTABAND_WORKLOAD_TTL: ${SOTABAND_WORKLOAD_TTL:-600}
+      SOTABAND_INVOKE_MAX_PER_WINDOW: ${SOTABAND_INVOKE_MAX_PER_WINDOW:-120}
+      SOTABAND_INVOKE_WINDOW: ${SOTABAND_INVOKE_WINDOW:-60}
+      SOTABAND_INVOKE_DELIVERY_TIMEOUT: ${SOTABAND_INVOKE_DELIVERY_TIMEOUT:-5}
+      # 容器网络里用服务名 `db` 作主机名
+      DATABASE_URL: postgresql+asyncpg://sotaband:sotaband@db:5432/sotaband
+      SOTABAND_CORS_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173"
+      # 反向代理后的真实客户端 IP（uvicorn 默认只信任 127.0.0.1；compose 内为前端 Nginx）
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
+      # 平台管理员名单（逗号分隔 user UUID）。空 = 无人是平台管理员。
+      # 全局 LLM 配置 / 查看他人数据集 / 认领历史数据集 / test-connection 需要它。
+      SOTABAND_PLATFORM_ADMINS: ${SOTABAND_PLATFORM_ADMINS:-}
+      # 私有资源目录（本机新建的工具/Agent/数据集）。
+      # 默认值会解析成 ``/``（见 Dockerfile 里的说明），必须显式指向可写目录。
+      SOTABAND_PRIVATE_RESOURCES: /app/resources-private
+      PORT: "8001"
+      # LLM 相关：从项目根目录 .env 或 shell 环境变量透传（缺省也能起，只是对话不可用）
+      LLM_PROVIDER: ${LLM_PROVIDER:-deepseek}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      # 运行时产物用命名卷持久化，容器重建不丢
+      - app_data:/app/data
+      - app_output:/app/output
+      - app_uploads:/app/uploaded_images
+      - app_private:/app/resources-private
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import sys, urllib.request
+          try:
+              sys.exit(0 if urllib.request.urlopen("http://127.0.0.1:8001/api/health", timeout=3).status == 200 else 1)
+          except Exception:
+              sys.exit(1)
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        REGISTRY: ${DOCKER_REGISTRY:-docker.m.daocloud.io}
+    container_name: sotaband-frontend
+    ports:
+      # 沿用 5173，这样 `.planning/project-status/verify_*.py` 的 BASE 不用改
+      - "5173:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  app_data:
+  app_output:
+  app_uploads:
+  app_private:

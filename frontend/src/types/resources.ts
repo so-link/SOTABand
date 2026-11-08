@@ -16,6 +16,10 @@ export interface BaseResource {
   createdAt: string
   updatedAt: string
   tags: string[]
+  /** 当前用户是否拥有该资源（后端计算，仅用于前端体验层门控） */
+  isOwner?: boolean
+  /** 当前用户是否可编辑/删除（后端计算；真正的权限判定在后端） */
+  canEdit?: boolean
 }
 
 // ---- 数据空间 ----
@@ -60,8 +64,21 @@ export interface ToolResource extends BaseResource {
 
 // ---- 模型空间 ----
 
+export type ModelCategory = 'trained' | 'architecture'
+
+export interface ModelGroup {
+  id: string
+  name: string
+  category: ModelCategory
+  system?: boolean
+}
+
 export interface ModelResource extends BaseResource {
   type: 'model'
+  runtimeStatus?: string
+  groupPath?: string
+  modelCategory?: ModelCategory
+  artifactAvailable?: boolean
   framework: string        // PyTorch, ONNX, TensorFlow, etc.
   modelType: 'llm' | 'vision' | 'timeseries' | 'audio' | 'multimodal'
   paramCount?: number

@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import type { FileTreeNode } from '@/types/workspace'
 
-const BASE_URL = ''
+import { apiGet } from '@/services/api/client'
 
 interface DatasetItem { id: string; name: string; data_path: string; file_count: number; formats: string[]; total_size: number }
 
@@ -22,8 +22,7 @@ export function DatasetImportDialog({ onImport, onClose }: Props) {
   const [importing, setImporting] = useState(false)
 
   useEffect(() => {
-    fetch(`${BASE_URL}/api/data/list`)
-      .then(r => r.json())
+    apiGet<any>('/api/data/list')
       .then(d => setDatasets(d.datasets || []))
       .catch(() => {})
       .finally(() => setLoading(false))
@@ -42,8 +41,10 @@ export function DatasetImportDialog({ onImport, onClose }: Props) {
     try {
       const ds = datasets.find(d => d.id === selected)
       const dsPath = ds?.data_path || ''
-      const filesRes = await fetch(`${BASE_URL}/api/data/${selected}/files`)
-      const fileData = filesRes.ok ? await filesRes.json() : {files:[]}
+      // 文件列表拉不到时按空处理（数据集本身仍可导入）
+      const fileData = await apiGet<any>(`/api/data/${selected}/files`).catch(
+        () => ({ files: [] as unknown[] })
+      )
       const files = (fileData.files as Array<Record<string, unknown>>) || []
 
       const dsNode: FileTreeNode = {

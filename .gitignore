@@ -11,6 +11,13 @@ eggs/
 
 # Virtual environments
 .venv/
+.venv-*/
+*.pt
+*.pth
+*.ckpt
+*.npz
+*.npy
+/resources/tasks/registry.json
 venv/
 env/
 .runtime/
@@ -49,12 +56,18 @@ Thumbs.db
 data/files/
 *.db
 *.sqlite3
+personal/
 
 # Docker
 docker-compose.override.yml
 
 # 运行时产物（日志、训练生成的模型）
 logs/
+*.log
+*.out.log
+*.err.log
+/resources/agents/logs/
+/resources/tasks/runs/
 predict.pkl
 models/*.pt
 models/*_2026*.pkl
@@ -67,6 +80,32 @@ models/linear_regression_*.pkl
 # Local runtime state
 storage/user.json
 storage/workspace_tools.json
+storage/backend.log
+storage/backend-error.log
+
+# 运行时状态：不提交到远端仓库
+# - storage/：引擎运行时状态（工作区、会话、用户信息等）
+storage/
+
+# 内置资源目录（resources/）**可提交**：随仓库分发的工具、智能体、
+# 数据、模型等资源（含规范文档与实现代码），供他人克隆后直接使用。
+# 用户在本机新创建的资源写入 resources-private/，不在此列。
+#
+# 例外说明：上面的 `data/` 规则（无路径前缀）会匹配任意层级名为 data 的
+# 目录，误伤内置数据资源 resources/data/，此处显式重新纳入。
+!resources/data/
+
+# 私有资源目录（用户在本机新创建的资源；平台会与内置 resources/ 一起加载）
+# 实际位置通常为 <项目根父目录>/resources-private，本就在仓库之外；
+# 此处再声明一次以防误建到仓库内。
+resources-private/
+
+# 训练/推理产物与权重（本地生成，体积大，不入仓库）
+runs/
+weights/
+*.pt
+*.pth
+yolo26n.pt
 
 # Generated local assessment logs
 logs/aerial-image-quality-batch-assessment_*.md
@@ -77,6 +116,3 @@ logs/aerial-image-quality-batch-assessment_*.md
 # 根目录只保留 README，其余 .md 文档不入仓库（子目录不受影响）
 /*.md
 !README.md
-
-# 根目录临时文件/目录（测试遗留）
-/FFF/

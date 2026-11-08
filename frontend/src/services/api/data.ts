@@ -1,28 +1,19 @@
-const BASE_URL = ''
+/** 数据集 API 服务 —— 全部走统一 client（`./client`）。 */
+import { apiDelete, apiGet, apiPost } from './client'
 
 export const dataApi = {
   async generateSpec(description: string, files: Array<Record<string, unknown>>) {
-    const res = await fetch(`${BASE_URL}/api/data/generate-spec`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ description, files }),
-    })
-    if (!res.ok) throw new Error((await res.json().catch(() => ({ detail: res.statusText }))).detail)
-    return res.json() as Promise<{ spec_md: string }>
+    return apiPost<{ spec_md: string }>('/api/data/generate-spec', { description, files })
   },
 
   async scanDirectory(path: string) {
-    const res = await fetch(`${BASE_URL}/api/data/scan-directory`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path }),
-    })
-    if (!res.ok) throw new Error((await res.json().catch(() => ({ detail: res.statusText }))).detail)
-    return res.json() as Promise<Record<string, unknown>>
+    return apiPost<Record<string, unknown>>('/api/data/scan-directory', { path })
   },
 
   async load(datasetId: string) {
-    const res = await fetch(`${BASE_URL}/api/data/load?dataset=${encodeURIComponent(datasetId)}`)
-    if (!res.ok) throw new Error((await res.json().catch(() => ({ detail: res.statusText }))).detail)
-    return res.json() as Promise<Record<string, unknown>>
+    return apiGet<Record<string, unknown>>(
+      `/api/data/load?dataset=${encodeURIComponent(datasetId)}`
+    )
   },
 
   /**
@@ -37,41 +28,26 @@ export const dataApi = {
     available_count: number
     unavailable_count: number
   }> {
-    const url = `${BASE_URL}/api/data/list?available_only=${availableOnly ? 'true' : 'false'}`
-    const res = await fetch(url)
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    return res.json()
+    return apiGet(
+      `/api/data/list?available_only=${availableOnly ? 'true' : 'false'}`
+    )
   },
 
   async register(specMd: string, datasetName: string, dataPath: string, fileCount: number, totalSize: number, formats: string[], sourceFiles: string[]) {
-    const res = await fetch(`${BASE_URL}/api/data/register`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        specMd,
-        datasetName,
-        dataPath,
-        fileCount,
-        totalSize,
-        formats,
-        sourceFiles,
-      }),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }))
-      throw new Error(err.detail || err.message || '注册失败')
-    }
-    return res.json() as Promise<{ dataset_id: string; entry: Record<string, unknown> }>
+    return apiPost<{ dataset_id: string; entry: Record<string, unknown> }>(
+      '/api/data/register',
+      { specMd, datasetName, dataPath, fileCount, totalSize, formats, sourceFiles }
+    )
   },
 
   async delete(datasetId: string) {
-    const res = await fetch(`${BASE_URL}/api/data/${encodeURIComponent(datasetId)}`, { method: 'DELETE' })
-    if (!res.ok) throw new Error((await res.json().catch(() => ({ detail: res.statusText }))).detail)
-    return res.json() as Promise<{ success: boolean }>
+    return apiDelete<{ success: boolean }>(`/api/data/${encodeURIComponent(datasetId)}`)
   },
 
   async listFiles(datasetId: string) {
-    const res = await fetch(`${BASE_URL}/api/data/${encodeURIComponent(datasetId)}/files`)
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    return res.json() as Promise<{ files: Array<{ name: string; path: string; format: string; size: number }>; count: number }>
+    return apiGet<{
+      files: Array<{ name: string; path: string; format: string; size: number }>
+      count: number
+    }>(`/api/data/${encodeURIComponent(datasetId)}/files`)
   },
 }

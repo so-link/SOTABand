@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
-  Wrench, FileCode, FileText, X, Play, Loader2,
+  Wrench, FileCode, FileText, X, Play, Loader2, Download,
   CheckCheck, Save, Bot, Code, Pencil, Plus, Square,
   FolderOpen, Folder, File, ChevronRight, ChevronDown,
 } from 'lucide-react'
@@ -9,13 +9,14 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardBody } from '@/components/ui/card'
 import { useResourceStore } from '@/stores/resource-store'
-import { useWorkspaceDatasetStore } from '@/stores/workspace-dataset-store'
 import { useUIStore } from '@/stores/ui-store'
 import { useToolEditorStore } from '@/stores/tool-editor-store'
 import { useTabIndent } from '@/hooks/use-tab-indent'
+import { toolApi } from '@/services/api/tool'
+import type { ToolReferences } from '@/services/api/tool'
 import type { ToolResource } from '@/types/resources'
-
-const BASE_URL = ''
+import { clearToolDraft, loadToolDraft, saveToolDraft, type ToolDetailDraft } from '@/lib/tool-detail-draft'
+import { apiFetchRaw, apiGet, apiPost, assertOk } from '@/services/api/client'
 
 interface InputField { name: string; type: string; required: boolean; default: string | null; desc: string }
 
@@ -37,7 +38,9 @@ function parseInputs(md: string): InputField[] {
       if (parts.length >= 4 && parts[0]) {
         fields.push({
           name: parts[0], type: parts[1] || 'string',
-          required: parts[2] === '是',
+          // 与后端 _parse_spec_inputs 对齐（用 includes 而非全等）：
+          // 手写成「是（必填）」「仅模式1」这类文本时也应视为必填。
+          required: (parts[2] || '').includes('是'),
           default: parts[3] === '-' || parts[3] === '—' || !parts[3] ? null : parts[3],
           desc: parts[4] || '',
         })
@@ -47,11 +50,15 @@ function parseInputs(md: string): InputField[] {
   return fields
 }
 
-export function ToolDetailView() {
+export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
   const selectedResource = useResourceStore((s) => s.selectedResource)
   const cachedToolForDetail = useResourceStore((s) => s.cachedToolForDetail)
+  const tools = useResourceStore((s) => s.toolResources)
   const setActiveView = useUIStore((s) => s.setActiveView)
-  const tool = selectedResource?.type === 'tool' ? (selectedResource as ToolResource) : cachedToolForDetail
+  // 指定 toolId 时（独立标签页）从列表中定位；否则回退到选中资源/缓存。
+  const tool = toolId
+    ? ((tools.find((t: { id: string }) => t.id === toolId) as ToolResource | undefined) || cachedToolForDetail)
+    : (selectedResource?.type === 'tool' ? (selectedResource as ToolResource) : cachedToolForDetail)
   // Python 代码用 4 空格缩进
   const onCodeTabIndent = useTabIndent('    ')
 
@@ -68,6 +75,10 @@ export function ToolDetailView() {
   const [hasReference, setHasReference] = useState(false)
   const [formValues, setFormValues] = useState<Record<string, string>>({})
   const [pickerFor, setPickerFor] = useState<string | null>(null)  // 正在选择文件的参数名
+  // ── 必填/可选切换（确定性：后端只改 MD 一格 + 同步 param_meta，不调 LLM）──
+  const [enforceRequired, setEnforceRequired] = useState(true)
+  const [togglingParam, setTogglingParam] = useState('')
+  const [refHint, setRefHint] = useState<{ param: string; refs: ToolReferences } | null>(null)
   // output 只被渲染消费（沙箱执行走的是 modify-and-debug 流），不再有独立 setter
   const [output] = useState<Record<string, unknown> | null>(null)
   const [isTesting, setIsTesting] = useState(false)
@@ -90,22 +101,28 @@ export function ToolDetailView() {
   const [modifyHistory, setModifyHistory] = useState<string[]>([])
   const abortRef = useRef<AbortController | null>(null)
   const logEndRef = useRef<HTMLDivElement>(null)
+  /** 已按哪个 toolId 初始化过表单（用于区分"换工具"与"同一工具重新拉取"） */
+  const loadedToolIdRef = useRef('')
+  // 导出迁移包（.sotatool.zip）的状态。必须声明在 `if (!tool) return` 之前，
+  // 否则 tool 由空变有会让 hooks 数量变化（React 会直接报错）。
+  const [exporting, setExporting] = useState(false)
+  const [exportInfo, setExportInfo] = useState<{ name: string; path: string; size: number } | null>(null)
 
   useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: 'auto' }) }, [debugRounds, debugStream])
 
   useEffect(() => {
-    if (!tool) return
-    fetch(`${BASE_URL}/api/tool/${tool.id}`)
-      .then(r => r.json())
+    const id = tool?.id
+    if (!id) return
+    const sameTool = loadedToolIdRef.current === id
+
+    apiGet<any>(`/api/tool/${id}`)
       .then(data => {
-        setSpecMd(data.spec_md || '')
+        const md = data.spec_md || ''
         const c = data.code || ''
+        setSpecMd(md)
         setCode(c)
-        setEditedCode(c)
-        const fields = parseInputs(data.spec_md || '')
-        const init: Record<string, string> = {}
-        fields.forEach(f => { init[f.name] = f.default || '' })
-        setFormValues(init)
+        // 老条目没有该字段时按「开启」处理（与后端 param_guard 一致）
+        setEnforceRequired(data.enforce_required !== false)
         // 切换工具时必须无条件重置：若只在"有值"时 set，上一个工具的
         // 需求描述/参考代码会残留到没有这些内容的工具上（内容错位）
         setDemandText(data.has_demand && data.demand_md ? data.demand_md : '')
@@ -116,9 +133,65 @@ export function ToolDetailView() {
           setReferenceCode('')
           setHasReference(false)
         }
+
+        // 同一工具被重新拉取（列表刷新/注册后 tools 换新数组）：保留用户
+        // 已输入的参数与未保存的代码，否则会出现"边填边被清空"。
+        if (sameTool) return
+
+        loadedToolIdRef.current = id
+        const draft = loadToolDraft(id)
+        const fields = parseInputs(md)
+        const defaultForm: Record<string, string> = {}
+        fields.forEach(f => { defaultForm[f.name] = f.default || '' })
+        setFormValues(draft?.formValues ? { ...defaultForm, ...draft.formValues } : defaultForm)
+
+        const draftCode = typeof draft?.editedCode === 'string' ? draft.editedCode : ''
+        const nextCode = draftCode && draftCode !== c ? draftCode : c
+        setEditedCode(nextCode)
+        setCodeModified(nextCode !== c)
       })
       .catch(() => {})
-  }, [tool])
+    // 依赖 tool.id 而不是 tool 对象：后者在每次 toolResources 刷新后都是新引用，
+    // 会让 effect 重跑并重置表单（历史 bug：参数输入后偶发被清空）。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tool?.id])
+
+  // 草稿持久化：参数与未保存代码按 toolId 落到 localStorage（防抖 300ms）。
+  // 切页签会导致组件卸载，重新挂载时由上面的 effect 从草稿恢复。
+  useEffect(() => {
+    const id = tool?.id
+    if (!id || loadedToolIdRef.current !== id) return
+    const timer = window.setTimeout(() => {
+      // 只在"有未保存修改"时记代码，保存成功后自动不写（草稿不会越积越大）
+      saveToolDraft(id, codeModified
+        ? { formValues, editedCode, codeModified: true }
+        : { formValues })
+    }, 300)
+    return () => window.clearTimeout(timer)
+  }, [tool?.id, formValues, editedCode, codeModified])
+
+  // 卸载时决定「落盘」还是「清空」：
+  // - 切到别的页签（本视图仍在 openViews 里）→ 落盘，切回来能恢复
+  // - 关闭本页签（已不在 openViews 里）→ 清空草稿（关闭即丢弃）
+  // 同时补上 300ms 防抖未触发的最后一次输入。
+  const latestDraftRef = useRef<ToolDetailDraft>({})
+  latestDraftRef.current = { formValues, editedCode, codeModified }
+  useEffect(() => {
+    const id = tool?.id
+    return () => {
+      if (!id || loadedToolIdRef.current !== id) return
+      const stillOpen = useUIStore.getState().openViews.includes(`tool-detail:${id}`)
+      if (!stillOpen) {
+        clearToolDraft(id)
+        return
+      }
+      const d = latestDraftRef.current
+      if (!d.formValues) return
+      saveToolDraft(id, d.codeModified
+        ? { formValues: d.formValues, editedCode: d.editedCode, codeModified: true }
+        : { formValues: d.formValues })
+    }
+  }, [tool?.id])
 
   if (!tool) {
     return (
@@ -128,7 +201,56 @@ export function ToolDetailView() {
     )
   }
 
+  // 只读态：`canEdit === false` 才是只读（后端 `can_write_resource`：owner 本人或
+  // 租户 Owner/Admin；内置资产仅租户管理员）。字段缺失时按有权限渲染 ——
+  // 后端写权限守卫 403/404 兜底，前端只做体验层，不得反向默认成只读。
+  const readOnly = tool.canEdit === false
+
   const inputs = parseInputs(specMd)
+
+  // ── 导出为迁移包（.sotatool.zip）：可在另一套部署里导入 ──
+  const handleExport = async () => {
+    setExporting(true)
+    try {
+      const data = await apiPost<{ file_name: string; bundle_path: string; size: number }>(
+        '/api/migrate/tool/export',
+        { tool_id: tool.id }
+      )
+      setExportInfo({ name: data.file_name, path: data.bundle_path, size: data.size })
+    } catch (e) {
+      window.alert(`导出失败：${(e as Error).message}`)
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const toggleParamRequired = async (field: InputField) => {
+    if (!tool) return
+    const next = !field.required
+    setTogglingParam(field.name)
+    setError(null)
+    try {
+      const res = await toolApi.setParamRequired({
+        toolId: tool.id, name: field.name, required: next, specMd, save: true,
+      })
+      // 后端只改了 MD 表格里那一格并同步了 param_meta，这里同步本地副本
+      setSpecMd(res.spec_md)
+      setRefHint(res.references && res.references.total > 0 ? { param: field.name, refs: res.references } : null)
+    } catch (e) { setError(String(e)) }
+    setTogglingParam('')
+  }
+
+  const toggleEnforceRequired = async () => {
+    if (!tool) return
+    const next = !enforceRequired
+    setEnforceRequired(next)
+    try {
+      await toolApi.setEnforceRequired(tool.id, next)
+    } catch (e) {
+      setError(String(e))
+      setEnforceRequired(!next)
+    }
+  }
 
   const handleCodeChange = (val: string) => {
     setEditedCode(val)
@@ -153,12 +275,7 @@ export function ToolDetailView() {
           try { params[f.name] = JSON.parse(val) } catch { params[f.name] = val.split(',').map(s => s.trim()) }
         } else params[f.name] = val
       })
-      const res = await fetch(`${BASE_URL}/api/tool/${tool.id}/execute`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ params }),
-      })
-      if (!res.ok) throw new Error((await res.json()).detail || `HTTP ${res.status}`)
-      const data = await res.json()
+      const data = await apiPost<any>(`/api/tool/${tool.id}/execute`, { params })
       setTestResults({ passed: [JSON.stringify(data, null, 2)], failed: data.status === 'failed' ? [data.result?.message || '执行失败'] : [] })
     } catch (e) { setError(String(e)) }
     setIsTesting(false)
@@ -169,11 +286,7 @@ export function ToolDetailView() {
     setIsUpdating(true)
     setError(null)
     try {
-      const res = await fetch(`${BASE_URL}/api/tool/${tool.id}/save-code`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: editedCode }),
-      })
-      if (!res.ok) throw new Error((await res.json()).detail || `HTTP ${res.status}`)
+      await apiPost(`/api/tool/${tool.id}/save-code`, { code: editedCode })
       setCode(editedCode)
       setCodeModified(false)
       setTestResults(null)
@@ -185,7 +298,10 @@ export function ToolDetailView() {
   const failed = (testResults?.failed as string[]) || []
 
   // AI 辅助修改 + 自动调试
-  const handleModify = useCallback(async () => {
+  // 注意：这里刻意用普通函数而不是 useCallback —— 它位于 `if (!tool)` 提前返回之后，
+  // 若写成 hook，tool 在挂载期间由空变有值时 hook 数量会变，React 会抛
+  // "Rendered more hooks than during the previous render"（整块详情面板白屏）。
+  const handleModify = async () => {
     const req = modifyRequest.trim()
     if (!req || isDebugging || !tool) return
     setModifyHistory(prev => [...prev, req])
@@ -200,9 +316,8 @@ export function ToolDetailView() {
     abortRef.current = controller
 
     try {
-      const res = await fetch(`${BASE_URL}/api/tool/${tool.id}/modify-and-debug`, {
+      const res = await apiFetchRaw(`/api/tool/${tool.id}/modify-and-debug`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           current_code: editedCode,
           request: req,
@@ -213,6 +328,9 @@ export function ToolDetailView() {
         }),
         signal: controller.signal,
       })
+      // SSE 流必须先校验 HTTP 状态：否则 4xx/5xx 的 JSON 错误体会被当成 SSE 解析，
+      // 最终只报一句"没有结果"，排查时看不出真实原因
+      await assertOk(res)
 
       const reader = res.body?.getReader()
       if (!reader) throw new Error('No response body')
@@ -266,14 +384,9 @@ export function ToolDetailView() {
                     // 调试通过后自动保存代码到文件
                     const finalCode = payload.code
                     try {
-                      const saveRes = await fetch(`${BASE_URL}/api/tool/${tool.id}/save-code`, {
-                        method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ code: finalCode, toolId: tool.id }),
-                      })
-                      if (saveRes.ok) {
-                        setCodeModified(false)
-                        setTestResults(null)
-                      }
+                      await apiPost(`/api/tool/${tool.id}/save-code`, { code: finalCode })
+                      setCodeModified(false)
+                      setTestResults(null)
                     } catch { /* ignore */ }
                   } else {
                     if (payload.code) { setEditedCode(payload.code); setCodeModified(true) }
@@ -287,6 +400,15 @@ export function ToolDetailView() {
                 case 'stopped':
                   setIsDebugging(false)
                   break
+                case 'debug_blocked':
+                  // 依赖装不上 → 后端已终止自动调试，把"该手动装什么"直接摆出来
+                  setError(payload.message || '依赖安装失败，已停止自动调试')
+                  setIsDebugging(false)
+                  break
+                case 'dep_conflict':
+                  // 模块被另一个同名包占用（需先卸载再重试）
+                  setError(payload.message || '模块被另一个同名包占用')
+                  break
               }
               currentEvent = ''
             } catch { /* skip */ }
@@ -297,17 +419,14 @@ export function ToolDetailView() {
       if ((e as Error).name !== 'AbortError') setError(String(e))
       setIsDebugging(false)
     }
-  }, [modifyRequest, isDebugging, tool, editedCode, specMd, formValues, modifyHistory])
+  }
 
-  const handleStopDebug = useCallback(() => {
+  const handleStopDebug = () => {
     abortRef.current?.abort()
     setIsDebugging(false)
     // 通知后端停止
-    fetch(`${BASE_URL}/api/tool/auto-debug/stop`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tool_id: tool?.id }),
-    }).catch(() => {})
-  }, [tool])
+    apiPost('/api/tool/auto-debug/stop', { tool_id: tool?.id }).catch(() => {})
+  }
 
   return (
     <div className="flex flex-col h-full bg-maia-surface">
@@ -366,8 +485,45 @@ export function ToolDetailView() {
           >
             <Pencil className="h-3 w-3" />编辑
           </button>
+          <button
+            onClick={handleExport}
+            disabled={exporting || readOnly}
+            className="flex items-center gap-1 text-[11px] text-emerald-500 hover:underline ml-2 disabled:opacity-50"
+            title="导出为 .sotatool.zip，可在其它环境导入"
+          >
+            {exporting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+            {exporting ? '导出中…' : '导出'}
+          </button>
         </div>
       </div>
+
+      {readOnly && (
+        <div className="px-4 py-1.5 text-[11px] border-b border-maia-border bg-amber-500/10 text-amber-600 shrink-0">
+          只读：该工具属于其他用户或为内置资产，你只能查看与运行，不能编辑/删除。
+        </div>
+      )}
+
+      {exportInfo && (
+        <div className="flex items-center gap-2 px-4 py-1.5 text-[11px] border-b border-maia-border bg-emerald-500/10 shrink-0">
+          <span className="text-emerald-600 shrink-0">
+            已导出 {Math.max(1, Math.round(exportInfo.size / 1024))} KB：
+          </span>
+          <a
+            className="text-maia-accent underline truncate"
+            href={`/api/migrate/bundles/${encodeURIComponent(exportInfo.name)}`}
+            download
+            title={exportInfo.path}
+          >
+            {exportInfo.name}
+          </a>
+          <button
+            onClick={() => setExportInfo(null)}
+            className="ml-auto text-maia-text-muted hover:underline shrink-0"
+          >
+            关闭
+          </button>
+        </div>
+      )}
 
       <div className="flex-1 min-h-0 overflow-auto p-4">
         {showCode ? (
@@ -411,7 +567,7 @@ export function ToolDetailView() {
                   <div className="flex items-center gap-2 mt-3 shrink-0">
                     <Button size="sm" variant="outline" onClick={runTests} disabled={isTesting || !editedCode.trim()}>
                       {isTesting ? <><Loader2 className="h-3 w-3 animate-spin" />测试中</> : <><Play className="h-3 w-3" />沙箱测试</>}</Button>
-                    <Button size="sm" onClick={updateCode} disabled={isUpdating || !codeModified || failed.length > 0}>
+                    <Button size="sm" onClick={updateCode} disabled={readOnly || isUpdating || !codeModified || failed.length > 0}>
                       {isUpdating ? <><Loader2 className="h-3 w-3 animate-spin" />更新中</> : <><Save className="h-3 w-3" />更新代码</>}</Button>
                   </div>
                   {testResults && (<div className="mt-2 space-y-1 shrink-0">
@@ -446,12 +602,36 @@ export function ToolDetailView() {
             {/* 右：参数 + 执行 + AI修改 */}
             <div className="shrink-0 space-y-4 overflow-auto" style={{ width: rightPanelWidth }}>
               <div>
-                <h3 className="text-sm font-semibold text-maia-text-heading mb-3 tracking-wide">输入参数</h3>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-maia-text-heading tracking-wide">输入参数</h3>
+                  <button onClick={toggleEnforceRequired}
+                    title="执行前是否按「必填」拦截（默认开启）。关闭后缺参不再由平台拦截，交由工具自身处理。"
+                    className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${enforceRequired ? 'border-maia-accent/40 text-maia-accent' : 'border-maia-border text-maia-text-muted'}`}>
+                    必填校验：{enforceRequired ? '开' : '关'}
+                  </button>
+                </div>
+                {refHint && (
+                  <div className="mb-2 rounded border border-amber-300/60 bg-amber-50/60 px-2 py-1.5 text-[10px] text-amber-700 leading-relaxed">
+                    「{refHint.param}」被 {refHint.refs.agents.length} 个 Agent、{refHint.refs.tools.length} 个工具引用
+                    {[...refHint.refs.agents, ...refHint.refs.tools].some(r => r.passes_param === false)
+                      ? '，其中部分调用未显式传该参数' : ''}
+                    。必填化不会中断已有的调用，但可能整条链路拿不到值。
+                    <button onClick={() => setRefHint(null)} className="ml-1 underline">知道了</button>
+                  </div>
+                )}
                 {inputs.length === 0 ? (<p className="text-xs text-maia-text-muted">此工具无需输入参数</p>) : (
                   <div className="space-y-3">
                     {inputs.map(f => (<div key={f.name}>
-                      <label className="text-[11px] font-medium text-maia-text-secondary tracking-wide">
-                        {f.name}{f.required && <span className="text-maia-danger ml-0.5">*</span>}<span className="text-maia-text-muted font-normal ml-1">({f.type})</span></label>
+                      <div className="flex items-center gap-1">
+                        <label className="text-[11px] font-medium text-maia-text-secondary tracking-wide">
+                          {f.name}{f.required && <span className="text-maia-danger ml-0.5">*</span>}<span className="text-maia-text-muted font-normal ml-1">({f.type})</span></label>
+                        <button onClick={() => void toggleParamRequired(f)}
+                          disabled={togglingParam === f.name}
+                          title="切换必填/可选：只改 MD 表格一格并同步 param_meta，对话 Agent 下一轮即生效"
+                          className="ml-auto text-[9px] px-1.5 py-0.5 rounded border border-maia-border text-maia-text-muted hover:text-maia-accent hover:border-maia-accent/40 disabled:opacity-50 transition-colors">
+                          {togglingParam === f.name ? '切换中…' : f.required ? '必填 → 可选' : '可选 → 必填'}
+                        </button>
+                      </div>
                       {f.desc && <p className="text-[10px] text-maia-text-muted mb-1">{f.desc}</p>}
                       <div className="flex items-center gap-1.5">
                         <input type="text" value={formValues[f.name] || ''} onChange={(e) => setFormValues(p => ({ ...p, [f.name]: e.target.value }))}
@@ -498,7 +678,7 @@ export function ToolDetailView() {
                       <Square className="h-3 w-3" />停止调试
                     </Button>
                   ) : (
-                    <Button size="sm" className="bg-purple-500 hover:bg-purple-600 text-white h-7 text-[11px] w-full" onClick={handleModify} disabled={!modifyRequest.trim()}>
+                    <Button size="sm" className="bg-purple-500 hover:bg-purple-600 text-white h-7 text-[11px] w-full" onClick={handleModify} disabled={readOnly || !modifyRequest.trim()}>
                       修改
                     </Button>
                   )}
@@ -621,45 +801,166 @@ export function ToolDetailView() {
 }
 
 /** 工作区间文件选择弹窗：列出已加载数据集及其内部文件，选中后返回完整路径 */
+/** 可选的数据集条目（来自 /api/data/repository，带可用性标记） */
+interface PickableDataset {
+  id: string
+  name: string
+  tags?: string[]
+  file_count?: number
+  data_path?: string
+  /** 数据目录在本机存在且有内容 */
+  is_local?: boolean
+  /** 条目归属当前用户 */
+  owner_match?: boolean
+}
+
+const RECENT_DATASETS_KEY = 'sotaband_picker_recent_datasets'
+
+function loadRecentDatasets(): string[] {
+  try {
+    const raw = localStorage.getItem(RECENT_DATASETS_KEY)
+    const arr = raw ? JSON.parse(raw) : []
+    return Array.isArray(arr) ? arr.filter((x) => typeof x === 'string') : []
+  } catch { return [] }
+}
+
+function saveRecentDatasets(ids: string[]) {
+  try { localStorage.setItem(RECENT_DATASETS_KEY, JSON.stringify(ids.slice(0, 5))) } catch { /* ignore */ }
+}
+
 function WorkspaceFilePicker({ paramName, currentValue, onClose, onSelect }: {
   paramName: string
   currentValue: string
   onClose: () => void
   onSelect: (path: string) => void
 }) {
-  const workspaceDatasets = useWorkspaceDatasetStore(s => s.datasets)
-  const dataResources = useResourceStore(s => s.dataResources)
+  // 数据源：数据集仓库 + 可用性标记。
+  // 曾经读的是 localStorage 里「已加入工作区间」的白名单，但它的写入入口
+  // （dataset-repository 卡片上的「添加」）在当前 UI 里没有入口，导致选择框永远为空。
+  // 现在直接列仓库条目，并用 is_local 区分「本机有数据」与「注册于其他机器的幽灵条目」。
+  const [datasets, setDatasets] = useState<PickableDataset[]>([])
+  const [loadingList, setLoadingList] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [keyword, setKeyword] = useState('')
+  const [recentIds, setRecentIds] = useState<string[]>(loadRecentDatasets)
+  const [showUnavailable, setShowUnavailable] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [filesMap, setFilesMap] = useState<Record<string, { name: string; path: string; size?: number }[]>>({})
+  const [fileError, setFileError] = useState<Record<string, string>>({})
   const [loadingFiles, setLoadingFiles] = useState<Record<string, boolean>>({})
 
-  // 解析工作区数据集的 data_path：优先从 dataResources 匹配，否则调用后端详情接口
-  const resolveDataPath = (id: string): string => {
-    const hit = dataResources.find(d => d.id === id)
-    return (hit && 'filePath' in hit && hit.filePath) ? hit.filePath : ''
+  useEffect(() => { void loadDatasets() }, [])
+
+  const loadDatasets = async () => {
+    setLoadingList(true); setLoadError('')
+    try {
+      const data = await apiGet<{ datasets: PickableDataset[] }>('/api/data/repository')
+      setDatasets(Array.isArray(data.datasets) ? data.datasets : [])
+    } catch (e) { setLoadError(String((e as Error).message || e)) }
+    setLoadingList(false)
   }
 
-  const toggleFiles = async (id: string) => {
-    if (expandedId === id) { setExpandedId(null); return }
-    setExpandedId(id)
-    if (!filesMap[id]) {
-      setLoadingFiles(p => ({ ...p, [id]: true }))
-      try {
-        let dataPath = resolveDataPath(id)
-        if (!dataPath) {
-          const detail = await (await fetch(`/api/data/${id}`)).json()
-          dataPath = (detail && detail.data_path) || ''
+  const remember = (id: string) => {
+    const next = [id, ...recentIds.filter(x => x !== id)].slice(0, 5)
+    setRecentIds(next)
+    saveRecentDatasets(next)
+  }
+
+  const dataRoot = (ds: PickableDataset): string => (ds.data_path || '').replace(/[\\/]+$/, '')
+
+  const toggleFiles = async (ds: PickableDataset) => {
+    if (expandedId === ds.id) { setExpandedId(null); return }
+    setExpandedId(ds.id)
+    if (filesMap[ds.id]) return
+    setLoadingFiles(p => ({ ...p, [ds.id]: true }))
+    setFileError(p => ({ ...p, [ds.id]: '' }))
+    try {
+      let root = dataRoot(ds)
+      if (!root) {
+        // 详情拿不到时不阻断文件列表（根目录只用于拼完整路径）
+        try {
+          const detail = await apiGet<{ data_path?: string }>(`/api/data/${ds.id}`)
+          root = (detail && detail.data_path) || ''
+        } catch {
+          root = ''
         }
-        const res = await fetch(`/api/data/${id}/files`)
-        const data = await res.json()
-        const files = (data.files || []).map((f: { name: string; path: string; size?: number }) => ({
-          ...f,
-          path: f.path.startsWith(dataPath) ? f.path : `${dataPath}/${f.path}`,
-        }))
-        setFilesMap(p => ({ ...p, [id]: files }))
-      } catch { setFilesMap(p => ({ ...p, [id]: [] })) }
-      setLoadingFiles(p => ({ ...p, [id]: false }))
+      }
+      const data = await apiGet<{ files: { name: string; path: string; size?: number }[] }>(
+        `/api/data/${ds.id}/files`
+      )
+      const files = (data.files || []).map((f: { name: string; path: string; size?: number }) => ({
+        ...f,
+        // 后端返回相对路径；拼上数据集根目录得到可执行用的完整路径
+        path: f.path.startsWith('/') || /^[A-Za-z]:/.test(f.path) ? f.path : `${root}/${f.path}`,
+      }))
+      setFilesMap(p => ({ ...p, [ds.id]: files }))
+    } catch (e) {
+      setFilesMap(p => ({ ...p, [ds.id]: [] }))
+      setFileError(p => ({ ...p, [ds.id]: String((e as Error).message || e) }))
     }
+    setLoadingFiles(p => ({ ...p, [ds.id]: false }))
+  }
+
+  const kw = keyword.trim().toLowerCase()
+  const matches = (ds: PickableDataset) =>
+    !kw || [ds.name, ds.id, ...(ds.tags || [])].some(x => String(x || '').toLowerCase().includes(kw))
+  const available = datasets.filter(d => d.is_local && matches(d))
+  const unavailable = datasets.filter(d => !d.is_local && matches(d))
+  const recentSet = new Set(recentIds)
+  const recentList = recentIds
+    .map(id => available.find(d => d.id === id))
+    .filter((d): d is PickableDataset => Boolean(d))
+  const restList = available.filter(d => !recentSet.has(d.id))
+
+  const renderDataset = (ds: PickableDataset) => {
+    const files = filesMap[ds.id] || []
+    const isExpanded = expandedId === ds.id
+    const root = dataRoot(ds)
+    return (
+      <div key={ds.id} className="rounded border border-maia-border bg-maia-surface overflow-hidden">
+        <button
+          className="w-full flex items-center gap-2 px-2.5 py-2 hover:bg-maia-bg transition-colors text-left"
+          onClick={() => void toggleFiles(ds)}
+        >
+          {loadingFiles[ds.id] ? <Loader2 className="h-3.5 w-3.5 animate-spin text-maia-accent shrink-0" />
+            : isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-maia-text-muted shrink-0" />
+            : <ChevronRight className="h-3.5 w-3.5 text-maia-text-muted shrink-0" />}
+          <Folder className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+          <span className="text-[12px] text-maia-text truncate flex-1">{ds.name}</span>
+          {root && <span className="text-[10px] text-maia-text-muted truncate max-w-[150px]" title={root}>{root}</span>}
+        </button>
+        {isExpanded && (
+          <div className="border-t border-maia-border max-h-[220px] overflow-auto">
+            <button
+              className={`w-full flex items-center gap-2 px-3 py-1.5 text-left ${root ? 'hover:bg-maia-accent/10' : 'opacity-50 cursor-not-allowed'}`}
+              onClick={() => { if (root) { remember(ds.id); onSelect(root) } }}
+              title={root ? '选择数据集根目录' : '该数据集没有可用的目录路径'}
+            >
+              <Folder className="h-3 w-3 text-maia-accent shrink-0" />
+              <span className="text-[11px] text-maia-text-secondary">使用数据集目录路径</span>
+            </button>
+            {fileError[ds.id] && (
+              <div className="px-3 py-2 text-[10px] text-maia-danger leading-relaxed">{fileError[ds.id]}</div>
+            )}
+            {!fileError[ds.id] && files.length === 0 && !loadingFiles[ds.id] && (
+              <div className="px-3 py-2 text-[10px] text-maia-text-muted">该数据集内没有文件</div>
+            )}
+            {files.map((f, i) => (
+              <button
+                key={i}
+                className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-maia-accent/10 text-left"
+                onClick={() => { remember(ds.id); onSelect(f.path) }}
+                title={f.path}
+              >
+                <File className="h-3 w-3 text-maia-text-muted shrink-0" />
+                <span className="text-[11px] text-maia-text truncate flex-1">{f.name}</span>
+                {f.size != null && <span className="text-[10px] text-maia-text-muted shrink-0">{(f.size / 1024).toFixed(1)}KB</span>}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    )
   }
 
   return (
@@ -671,66 +972,86 @@ function WorkspaceFilePicker({ paramName, currentValue, onClose, onSelect }: {
           </span>
           <button onClick={onClose} className="text-maia-text-muted hover:text-maia-text"><X className="h-4 w-4" /></button>
         </div>
+        <div className="px-3 pt-2 shrink-0">
+          <input
+            value={keyword}
+            onChange={e => setKeyword(e.target.value)}
+            placeholder="按名称 / ID / 标签筛选数据集"
+            className="w-full rounded border border-maia-border bg-maia-surface px-2 py-1 text-[11px] outline-none focus:border-maia-accent/40"
+          />
+        </div>
         <div className="flex-1 overflow-auto p-3 space-y-1.5">
           {currentValue && (
             <div className="mb-2 px-2 py-1 rounded bg-maia-surface border border-maia-border text-[11px] text-maia-text-muted">
-              当前值：<span className="text-maia-text font-mono">{currentValue}</span>
+              当前值：<span className="text-maia-text font-mono break-all">{currentValue}</span>
             </div>
           )}
-          {workspaceDatasets.length === 0 ? (
-            <div className="text-center py-10 text-xs text-maia-text-muted">
-              工作区间暂无数据文件<br />请先在数据空间加载数据集
+          {loadingList && (
+            <div className="flex items-center justify-center py-10 text-xs text-maia-text-muted gap-2">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />正在读取数据集…
             </div>
-          ) : (
+          )}
+          {!loadingList && loadError && (
+            <div className="text-center py-8 text-xs text-maia-danger">
+              读取数据集失败：{loadError}
+              <button onClick={() => void loadDatasets()} className="block mx-auto mt-2 underline text-maia-text-muted">重试</button>
+            </div>
+          )}
+          {!loadingList && !loadError && datasets.length === 0 && (
+            <div className="text-center py-10 text-xs text-maia-text-muted leading-relaxed">
+              数据空间还没有数据集<br />
+              请先在「资源空间」上传或注册数据，也可以直接在输入框里手填文件绝对路径
+            </div>
+          )}
+          {!loadingList && !loadError && datasets.length > 0 && available.length === 0 && (
+            <div className="py-6 px-2 text-xs text-maia-text-muted leading-relaxed text-center">
+              本机没有可用数据集
+              <div className="mt-2 text-[10px] text-maia-text-muted/90">
+                注册表里有 {datasets.length} 个数据集，但数据目录都不在本机
+                {unavailable[0]?.data_path ? `（例如 ${unavailable[0].data_path}）` : ''}。
+                这类条目通常是随项目目录一起拷贝过来的，文件仍在原机器上。
+                <br />请在「资源空间」重新上传数据，或直接在输入框里手填文件绝对路径。
+              </div>
+            </div>
+          )}
+          {recentList.length > 0 && (
             <>
-              <p className="text-[10px] text-maia-text-muted px-1">工作区间数据（点击展开查看文件）</p>
-              {workspaceDatasets.map(ds => {
-                const files = filesMap[ds.id] || []
-                const isExpanded = expandedId === ds.id
-                return (
-                  <div key={ds.id} className="rounded border border-maia-border bg-maia-surface overflow-hidden">
-                    <button
-                      className="w-full flex items-center gap-2 px-2.5 py-2 hover:bg-maia-bg transition-colors text-left"
-                      onClick={() => toggleFiles(ds.id)}
-                    >
-                      {loadingFiles[ds.id] ? <Loader2 className="h-3.5 w-3.5 animate-spin text-maia-accent shrink-0" />
-                        : isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-maia-text-muted shrink-0" />
-                        : <ChevronRight className="h-3.5 w-3.5 text-maia-text-muted shrink-0" />}
-                      <Folder className="h-3.5 w-3.5 text-amber-500 shrink-0" />
-                      <span className="text-[12px] text-maia-text truncate flex-1">{ds.name}</span>
-                      {resolveDataPath(ds.id) && <span className="text-[10px] text-maia-text-muted truncate max-w-[140px]">{resolveDataPath(ds.id)}</span>}
-                    </button>
-                    {isExpanded && (
-                      <div className="border-t border-maia-border max-h-[220px] overflow-auto">
-                        <button
-                          className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-maia-accent/10 text-left"
-                          onClick={() => onSelect(resolveDataPath(ds.id) || ds.name)}
-                          title="选择数据集根目录"
-                        >
-                          <Folder className="h-3 w-3 text-maia-accent shrink-0" />
-                          <span className="text-[11px] text-maia-text-secondary">使用数据集目录路径</span>
-                        </button>
-                        {files.length === 0 && !loadingFiles[ds.id] && (
-                          <div className="px-3 py-2 text-[10px] text-maia-text-muted">该数据集内没有文件</div>
-                        )}
-                        {files.map((f, i) => (
-                          <button
-                            key={i}
-                            className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-maia-accent/10 text-left"
-                            onClick={() => onSelect(f.path)}
-                            title={f.path}
-                          >
-                            <File className="h-3 w-3 text-maia-text-muted shrink-0" />
-                            <span className="text-[11px] text-maia-text truncate flex-1">{f.name}</span>
-                            {f.size != null && <span className="text-[10px] text-maia-text-muted shrink-0">{(f.size / 1024).toFixed(1)}KB</span>}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
+              <p className="text-[10px] text-maia-text-muted px-1">最近使用</p>
+              {recentList.map(renderDataset)}
             </>
+          )}
+          {restList.length > 0 && (
+            <>
+              <p className="text-[10px] text-maia-text-muted px-1 pt-1">
+                本机可用数据集（{available.length}）— 点击展开查看文件
+              </p>
+              {restList.map(renderDataset)}
+            </>
+          )}
+          {!loadingList && unavailable.length > 0 && (
+            <div className="pt-2">
+              <button
+                onClick={() => setShowUnavailable(v => !v)}
+                className="w-full flex items-center gap-1 px-1 text-[10px] text-maia-text-muted hover:text-maia-text"
+              >
+                {showUnavailable ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                不可用（{unavailable.length}）：数据目录不在本机
+              </button>
+              {showUnavailable && (
+                <div className="mt-1 space-y-1">
+                  {unavailable.map(ds => (
+                    <div key={ds.id} className="rounded border border-maia-border/70 bg-maia-surface/50 px-2.5 py-1.5 opacity-60">
+                      <div className="flex items-center gap-2">
+                        <Folder className="h-3 w-3 text-maia-text-muted shrink-0" />
+                        <span className="text-[11px] text-maia-text-muted truncate flex-1">{ds.name}</span>
+                        <span className="text-[9px] text-maia-text-muted shrink-0">不可用</span>
+                      </div>
+                      {ds.data_path && <p className="mt-0.5 text-[9px] text-maia-text-muted font-mono truncate" title={ds.data_path}>{ds.data_path}</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
         </div>
         <div className="px-4 py-2 border-t border-maia-border text-[10px] text-maia-text-muted shrink-0">
@@ -751,10 +1072,7 @@ function ToolTagsEditor({ toolId, tags: initialTags }: { toolId: string; tags: s
   const saveTags = async (updated: string[]) => {
     setSaving(true)
     try {
-      await fetch(`/api/tool/${toolId}/tags`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tags: updated }),
-      })
+      await apiPost(`/api/tool/${toolId}/tags`, { tags: updated })
       setTags(updated)
     } catch { /* ignore */ }
     setSaving(false)

@@ -2,17 +2,23 @@ import { PanelLeft, PanelRight, Bell, Settings, Cpu, Sun, Moon } from 'lucide-re
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip } from '@/components/ui/tooltip'
-import { Avatar } from '@/components/ui/avatar'
+import { UserMenu } from '@/components/topbar/UserMenu'
 import { useUIStore } from '@/stores/ui-store'
 import { DeviceStatusChip } from '@/components/devices/DeviceStatusChip'
 
 export function TopBar() {
   const { leftPanelOpen, rightPanelOpen, toggleLeftPanel, toggleRightPanel, theme, toggleTheme, setActiveView } = useUIStore()
 
+  // header 上的 z-40 是必需的，不是随手加的：
+  // `.glass` 带 backdrop-filter（会创建层叠上下文），header 自身 z-index 是 auto；
+  // 下方内容区（react-resizable-panels 的 Panel）在 DOM 里更靠后，同层级下后者绘制在上
+  // → 用户菜单浮窗（z-50，但被限制在 header 的层叠上下文内）会被页签栏盖住/糊掉。
+  // 给 header 一个显式 z-index 后，整条顶栏（含所有下拉浮层）才真正浮在内容之上；
+  // 内容区的模态框是 fixed + z-50，仍然高于这里。
   return (
-    <header className="flex h-9 items-center justify-between px-3 shrink-0 select-none glass border-b border-white/[0.04] relative">
+    <header className="grid h-9 items-center grid-cols-[1fr_auto_1fr] px-3 shrink-0 select-none glass border-b border-white/[0.04] relative z-40">
       <div className="absolute bottom-0 left-0 right-0 gradient-line" />
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 justify-self-start">
         <Tooltip content={leftPanelOpen ? '隐藏侧边栏' : '显示侧边栏'}>
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={toggleLeftPanel}>
             <PanelLeft className="h-3.5 w-3.5" />
@@ -35,11 +41,11 @@ export function TopBar() {
         <Badge variant="accent" className="text-[10px] ml-1 tracking-wider font-mono">v0.1</Badge>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 justify-self-center">
         <DeviceStatusChip />
       </div>
 
-      <div className="flex items-center gap-0.5">
+      <div className="flex items-center gap-0.5 justify-self-end">
         <Tooltip content={theme === 'dark' ? '浅色模式' : '深色模式'}>
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={toggleTheme}>
             {theme === 'dark' ? <Sun className="h-3.5 w-3.5 text-amber-400" /> : <Moon className="h-3.5 w-3.5 text-violet-400" />}
@@ -59,7 +65,7 @@ export function TopBar() {
             <PanelRight className="h-3.5 w-3.5" />
           </Button>
         </Tooltip>
-        <div className="ml-1.5"><Avatar fallback="J" className="h-6 w-6 text-[10px] tracking-wider" /></div>
+        <div className="ml-1.5"><UserMenu /></div>
       </div>
     </header>
   )
