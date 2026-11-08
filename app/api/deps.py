@@ -27,6 +27,7 @@ from collections.abc import Awaitable, Callable
 
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.requests import HTTPConnection
 
 from config.settings import settings
 from core.auth.context import AuthContext
@@ -42,7 +43,7 @@ DbSession = AsyncSession
 # ── 请求 id ─────────────────────────────────────────────────────────
 
 
-async def get_request_id(request: Request) -> str:
+async def get_request_id(request: HTTPConnection) -> str:
     """取 ``RequestContextMiddleware`` 分配的 request id；缺失时兜底生成。"""
     rid = getattr(request.state, "request_id", None)
     return rid or uuid.uuid4().hex
@@ -71,7 +72,7 @@ def build_auth_context(principal: Principal, request_id: str) -> AuthContext:
 # ── 会话令牌读取 ────────────────────────────────────────────────────
 
 
-def read_session_token(request: Request) -> str:
+def read_session_token(request: HTTPConnection) -> str:
     """从 Cookie 读会话令牌。明文令牌**只存在于 Cookie 与内存**，不落库。"""
     return request.cookies.get(settings.auth.cookie_name, "") or ""
 
@@ -100,7 +101,7 @@ async def get_optional_auth(
 
 
 async def get_auth_context(
-    request: Request,
+    request: HTTPConnection,
     request_id: str = Depends(get_request_id),
     session: AsyncSession = Depends(get_db_session),
 ) -> AuthContext:

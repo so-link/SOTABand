@@ -20,6 +20,7 @@ import { useWorkspaceToolStore } from '@/stores/workspace-tool-store'
 import { useWorkspaceDatasetStore } from '@/stores/workspace-dataset-store'
 import { useUnsavedMarks } from '@/hooks/use-unsaved-marks'
 import { cn } from '@/lib/utils'
+import { DeviceSection } from '@/components/devices/DeviceSection'
 import type { ModelCategory, ModelResource, Resource, ResourceType, ToolResource } from '@/types/resources'
 
 import { apiDelete, apiPost, apiUpload } from '@/services/api/client'
@@ -581,6 +582,7 @@ export function ResourceBrowser() {
           </div>
         )
       })}
+      <DeviceSection />
 
       {/* 导入后依赖体检：缺失时弹窗，一键安装 */}
       {depDialog && (

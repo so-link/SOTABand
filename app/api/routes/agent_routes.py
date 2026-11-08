@@ -716,7 +716,7 @@ async def agent_status(agent_id: str):
     if not entry:
         raise HTTPException(404, f"Agent '{agent_id}' not found")
     running = agent_factory.is_running(agent_id)
-    return {**entry, "running": running}
+    return {**entry, "running": running, "device": agent_factory.device_of(agent_id)}
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -724,15 +724,15 @@ async def agent_status(agent_id: str):
 # ═══════════════════════════════════════════════════════════════
 
 @router.post("/{agent_id}/start")
-async def start_agent(agent_id: str):
-    """启动 Agent 子进程"""
+async def start_agent(agent_id: str, device: str | None = None):
+    """启动 Agent 子进程（device 可手动指定 cpu / gpu / gpu:N，默认按资源需求自动匹配）"""
     entry = await registry.get(agent_id)
     if not entry:
         raise HTTPException(404, f"Agent '{agent_id}' not found")
 
     # 实现路径交由 agent_factory 在「内置 + 私有」资源根中自动检索，
     # 不在此硬编码（否则私有目录中的 Agent 无法启动）。
-    return await agent_factory.start(agent_id)
+    return await agent_factory.start(agent_id, device=device)
 
 
 @router.post("/{agent_id}/execute")

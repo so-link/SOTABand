@@ -17,6 +17,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from core.scheduler.allocator import Allocation, AllocationError, allocate_in_thread, get_allocator
+from core.scheduler.requirements import RequirementsError, resolve_tool_requirements
 from core.proc_utils import no_window_kwargs
 from config.settings import settings as _settings
 
@@ -292,6 +294,18 @@ class ToolExecutor:
         except json.JSONDecodeError:
             return {"status": "failed", "message": stdout[:500]}
 
+    # ── 设备调度（todo §12.2） ──
+
+    @staticmethod
+    def _allocate(tool_id: str, code: str, device: str | None) -> Allocation:
+        """按资源需求匹配设备并预留；调用方须在执行结束后 release"""
+        req = resolve_tool_requirements(tool_id, code)
+        return get_allocator().allocate(f"tool:{tool_id}", req, device)
+
+    @staticmethod
+    def _unschedulable(e: Exception) -> dict:
+        return {"status": "failed", "message": str(e), "error": type(e).__name__}
+
     # ── 异步执行（用于 FastAPI async 上下文） ──
 
     @classmethod
@@ -302,6 +316,7 @@ class ToolExecutor:
         timeout: float = None,
         code: str = None,
         owner_id: str | None = None,
+        device: str | None = None,
     ) -> dict:
         """异步执行工具。
 
@@ -310,6 +325,7 @@ class ToolExecutor:
             params: 执行参数字典
             timeout: 超时秒数，None 表示无超时，传入数字则限时
             code: 可选，直接传入代码字符串（用于自动调试，避免重复读文件）
+            device: 可选，手动指定设备（cpu / gpu / gpu:N），默认由调度器自动匹配
             owner_id: 可选，资源归属标识（已登录用户 UUID）。注入子进程环境，
                 供工具内 ``api_data.*`` 按人过滤数据集；None 表示不注入
                 （未登录 / 无上下文场景，回退机器身份）
@@ -336,6 +352,12 @@ class ToolExecutor:
         tool_dir = str(impl_dir)
         script = cls._build_script(code, params, tool_dir, project_root)
 
+        try:
+            req = await asyncio.to_thread(resolve_tool_requirements, tool_id, code)
+            alloc = await allocate_in_thread(get_allocator(), f"tool:{tool_id}", req, device)
+        except (RequirementsError, AllocationError) as e:
+            return cls._unschedulable(e)
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding='utf-8') as f:
             f.write(script)
             tmp_path = f.name
@@ -345,9 +367,10 @@ class ToolExecutor:
                 python_exe, tmp_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                env=cls._child_env(owner_id),
+                env=alloc.env(cls._child_env(owner_id)),
                 **no_window_kwargs(),
             )
+            alloc.attach_pid(proc.pid)
             try:
                 if timeout is None:
                     stdout, stderr = await proc.communicate()
@@ -377,6 +400,7 @@ class ToolExecutor:
                 pass
             raise
         finally:
+            get_allocator().release(alloc)
             os.unlink(tmp_path)
 
     # ── 同步执行（用于非 async 上下文） ──
@@ -389,6 +413,7 @@ class ToolExecutor:
         timeout: float = None,
         code: str = None,
         owner_id: str | None = None,
+        device: str | None = None,
     ) -> dict:
         """同步执行工具。内部实现与 execute() 完全一致，仅使用同步 subprocess。
 
@@ -397,6 +422,7 @@ class ToolExecutor:
             params: 执行参数字典
             timeout: 超时秒数
             code: 可选，直接传入代码字符串
+            device: 可选，手动指定设备（cpu / gpu / gpu:N）
             owner_id: 可选，资源归属标识（注入子进程环境，语义同 execute）
 
         Returns:
@@ -419,6 +445,11 @@ class ToolExecutor:
         tool_dir = str(impl_dir)
         script = cls._build_script(code, params, tool_dir, project_root)
 
+        try:
+            alloc = cls._allocate(tool_id, code, device)
+        except (RequirementsError, AllocationError) as e:
+            return cls._unschedulable(e)
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding='utf-8') as f:
             f.write(script)
             tmp_path = f.name
@@ -428,7 +459,7 @@ class ToolExecutor:
                 [python_exe, tmp_path],
                 capture_output=True, text=True, timeout=timeout,
                 encoding='utf-8', errors='replace',
-                env=cls._child_env(owner_id),
+                env=alloc.env(cls._child_env(owner_id)),
                 **no_window_kwargs(),
             )
             result = cls._parse_output(proc.stdout.strip())
@@ -436,4 +467,5 @@ class ToolExecutor:
                 result.setdefault("stderr", proc.stderr[:500])
             return result
         finally:
+            get_allocator().release(alloc)
             os.unlink(tmp_path)

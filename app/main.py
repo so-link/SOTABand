@@ -22,6 +22,7 @@ from app.api.routes.config_routes import router as config_router
 from app.api.routes.data_routes import router as data_router
 from app.api.routes.file_routes import router as file_router
 from app.api.routes.llm_routes import router as llm_router
+from app.api.routes.device_routes import router as device_router
 from app.api.routes.me_routes import router as me_router
 from app.api.routes.migrate_routes import router as migrate_router
 from app.api.routes.model_routes import router as model_router
@@ -61,6 +62,10 @@ async def lifespan(app: FastAPI):
 
     yield  # 应用运行中
 
+    # 关闭时：清理
+    from core.scheduler.monitor import close_device_monitor
+
+    await close_device_monitor()
     # 关闭时：停止所有 Agent 子进程
     for agent_id in list(getattr(agent_factory, "_processes", {}).keys()):
         try:
@@ -139,6 +144,7 @@ from core.auth.ownership import (  # noqa: E402 - 需在 app 创建后集中注�
 _tool_deps = [Depends(get_auth_context), Depends(require_tool_write_access)]
 _agent_deps = [Depends(get_auth_context), Depends(require_agent_write_access)]
 
+app.include_router(device_router, prefix="/api/devices", tags=["device"], dependencies=_auth)
 app.include_router(chat_router, prefix="/api/chat", tags=["chat"], dependencies=_auth)
 app.include_router(agent_router, prefix="/api/agent", tags=["agent"], dependencies=_agent_deps)
 app.include_router(tool_router, prefix="/api/tool", tags=["tool"], dependencies=_tool_deps)

@@ -11,6 +11,7 @@ import pytest
 
 #: 未登录必须 401 的代表性端点（覆盖每组业务路由）
 PROTECTED = [
+    ("GET", "/api/devices"),
     ("GET", "/api/data/list"),
     ("GET", "/api/file/list"),
     ("GET", "/api/tool/list"),

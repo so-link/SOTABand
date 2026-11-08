@@ -1,11 +1,19 @@
 import { useResourceStore } from '@/stores/resource-store'
 import { useFileTreeStore } from '@/stores/file-tree-store'
+import { useDeviceStore } from '@/stores/device-store'
+import { DeviceDetail } from '@/components/devices/DeviceDetail'
 import { ResourceProperties } from './ResourceProperties'
 import { Info } from 'lucide-react'
 
 export function RightPanel() {
   const selectedResource = useResourceStore((s) => s.selectedResource)
   const selectedFile = useFileTreeStore((s) => s.selectedFile)
+  const selectedDevice = useDeviceStore((s) => s.selectedDevice)
+
+  // 设备选中后，再选资源 / 文件会自动取消设备选中（见 device-store）
+  if (selectedDevice) {
+    return <DeviceDetail device={selectedDevice} />
+  }
 
   // Priority: selected resource > selected file task status
   if (selectedResource) {

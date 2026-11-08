@@ -2227,6 +2227,7 @@ async def execute_tool(
         tool_id=tool_id,
         params=req.params,
         timeout=None,
+        device=req.device,
         owner_id=resolve_owner_id(ctx),
     )
     return {"status": "success", "result": result}

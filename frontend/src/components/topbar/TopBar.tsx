@@ -1,9 +1,10 @@
-import { PanelLeft, PanelRight, Bell, Settings, Activity, Cpu, Sun, Moon } from 'lucide-react'
+import { PanelLeft, PanelRight, Bell, Settings, Cpu, Sun, Moon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip } from '@/components/ui/tooltip'
 import { UserMenu } from '@/components/topbar/UserMenu'
 import { useUIStore } from '@/stores/ui-store'
+import { DeviceStatusChip } from '@/components/devices/DeviceStatusChip'
 
 export function TopBar() {
   const { leftPanelOpen, rightPanelOpen, toggleLeftPanel, toggleRightPanel, theme, toggleTheme, setActiveView } = useUIStore()
@@ -41,10 +42,7 @@ export function TopBar() {
       </div>
 
       <div className="flex items-center gap-3 justify-self-center">
-        <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded border border-maia-border-glow bg-maia-accent-light/30">
-          <Activity className="h-3 w-3 text-maia-success" />
-          <span className="text-[10px] text-maia-text-muted tracking-wider font-mono">SYS.ONLINE · GPU:0</span>
-        </div>
+        <DeviceStatusChip />
       </div>
 
       <div className="flex items-center gap-0.5 justify-self-end">

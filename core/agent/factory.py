@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import json
+import os
 import re
 import secrets
 import sys
@@ -12,6 +13,8 @@ import time
 from pathlib import Path
 from typing import AsyncGenerator
 
+from core.scheduler.allocator import Allocation, AllocationError, allocate_in_thread, get_allocator
+from core.scheduler.requirements import RequirementsError, resolve_agent_requirements
 from core.proc_utils import no_window_kwargs
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -26,6 +29,10 @@ class AgentFactory:
 
     def __init__(self):
         self._processes: dict[str, asyncio.subprocess.Process] = {}
+        # 设备调度（todo §12.3）：运行中 Agent 的设备预留、用户手动指定的设备（重启时沿用）
+        self._allocations: dict[str, Allocation] = {}
+        self._devices: dict[str, str | None] = {}
+        self._watchers: set[asyncio.Task] = set()
         # web-service Agent 的 HTTP 服务信息：{agent_id: {"host":..., "port":..., "apis":[...]}}
         self._services: dict[str, dict] = {}
         # 引擎 ↔ Agent Web 服务之间的共享令牌（防本机其它进程/外部直连调用）
@@ -191,8 +198,12 @@ class AgentFactory:
                         return str(impl_dir)
         return None
 
-    async def start(self, agent_id: str, impl_path: str = None) -> dict:
-        """启动 Agent 子进程。若代码缺失则尝试从 spec 自动重新生成。"""
+    async def start(self, agent_id: str, impl_path: str = None, device: str | None = None) -> dict:
+        """启动 Agent 子进程。若代码缺失则尝试从 spec 自动重新生成。
+
+        启动前按资源需求匹配设备（device 可手动指定 cpu / gpu / gpu:N），
+        预留从启动保持到进程退出（停止或崩溃）。
+        """
         if agent_id in self._processes and self._processes[agent_id].returncode is None:
             return {"agent_id": agent_id, "status": "already_running"}
 
@@ -238,6 +249,13 @@ class AgentFactory:
         entrypoint = str(PROJECT_ROOT / "core" / "agent" / "entrypoint.py")
 
         try:
+            req = await asyncio.to_thread(resolve_agent_requirements, agent_id)
+            alloc = await allocate_in_thread(get_allocator(), f"agent:{agent_id}", req, device)
+        except (RequirementsError, AllocationError) as e:
+            return {"agent_id": agent_id, "status": "failed", "error": str(e)}
+        self._devices[agent_id] = device
+
+        try:
             # 每次启动生成新的引擎共享令牌（重启即轮换），经环境变量注入子进程；
             # WebServiceHost 用它校验除 /_health 外的所有请求（P1-13）。
             http_token = secrets.token_urlsafe(24)
@@ -249,10 +267,15 @@ class AgentFactory:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(PROJECT_ROOT),
-                env={**__import__("os").environ, "SOTABAND_AGENT_HTTP_TOKEN": http_token},
+                env=alloc.env({**os.environ, "SOTABAND_AGENT_HTTP_TOKEN": http_token}),
                 **no_window_kwargs(),
             )
+            alloc.attach_pid(proc.pid)
             self._processes[agent_id] = proc
+            self._allocations[agent_id] = alloc
+            watcher = asyncio.create_task(self._release_on_exit(agent_id, proc, alloc))
+            self._watchers.add(watcher)
+            watcher.add_done_callback(self._watchers.discard)
             self._http_tokens[agent_id] = http_token
 
             # 等待子进程初始化
@@ -277,6 +300,7 @@ class AgentFactory:
                         err_text = ""
                 detail = (stderr_text + err_text)[:300].strip() or "进程异常退出"
                 self._processes.pop(agent_id, None)
+                self._release(agent_id, alloc)
                 return {"agent_id": agent_id, "status": "failed", "running": False, "error": detail}
 
             # 仅对 web-service 类型尝试捕获 service_ready 事件。
@@ -295,6 +319,7 @@ class AgentFactory:
                     # → 明确回报，避免留下"状态 running 但服务不可用"的假象
                     err = self._startup_errors.pop(agent_id, "")
                     self._processes.pop(agent_id, None)
+                    self._release(agent_id, alloc)
                     return {
                         "agent_id": agent_id,
                         "status": "failed",
@@ -302,12 +327,30 @@ class AgentFactory:
                         "error": err or f"Agent 进程启动后立即退出（code={proc.returncode}）",
                     }
 
-            result = {"agent_id": agent_id, "status": "started", "running": True, "role": role}
+            result = {"agent_id": agent_id, "status": "started", "running": True, "role": role, "device": alloc.device}
             if agent_id in self._services:
                 result["service"] = self._services[agent_id]
             return result
         except Exception as e:
+            self._release(agent_id, alloc)
             return {"agent_id": agent_id, "status": "failed", "error": str(e)}
+
+    async def _release_on_exit(self, agent_id: str, proc: asyncio.subprocess.Process, alloc: Allocation) -> None:
+        """进程以任何方式退出（停止 / 崩溃 / 被杀）后释放设备预留"""
+        try:
+            await proc.wait()
+        finally:
+            self._release(agent_id, alloc)
+
+    def _release(self, agent_id: str, alloc: Allocation) -> None:
+        get_allocator().release(alloc)  # 幂等
+        if self._allocations.get(agent_id) is alloc:
+            del self._allocations[agent_id]
+
+    def device_of(self, agent_id: str) -> str | None:
+        """运行中 Agent 被分配的设备（cpu / gpu:N）；未运行返回 None"""
+        alloc = self._allocations.get(agent_id)
+        return alloc.device if alloc and self.is_running(agent_id) else None
 
     def _resolve_role(self, agent_id: str, impl_path: str | None = None) -> str:
         """解析 Agent 角色：``interactive`` / ``task`` / ``web-service``。
@@ -624,6 +667,11 @@ class AgentFactory:
                     await asyncio.wait_for(proc.wait(), timeout=5)
                 except asyncio.TimeoutError:
                     proc.kill()
+                    await proc.wait()
+        # 退出监听也会释放；这里同步释放，保证 stop 返回时预留已归还
+        alloc = self._allocations.get(agent_id)
+        if alloc is not None:
+            self._release(agent_id, alloc)
         return {"agent_id": agent_id, "status": "stopped"}
 
     async def restart(self, agent_id: str) -> dict:
@@ -633,7 +681,7 @@ class AgentFactory:
 
         # 在内置 + 私有资源根中重新定位实现目录后启动
         impl_path = self._resolve_impl_path(agent_id)
-        return await self.start(agent_id, impl_path)
+        return await self.start(agent_id, impl_path, device=self._devices.get(agent_id))
 
     async def execute(
         self, agent_id: str, content: str

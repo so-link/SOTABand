@@ -61,3 +61,5 @@ class ModifyAndDebugRequest(BaseModel):
 class ExecuteToolRequest(BaseModel):
     """调用工具"""
     params: dict = Field(default_factory=dict)
+    # 手动指定运行设备：cpu / gpu / gpu:N；不传则由调度器按资源需求自动匹配
+    device: str | None = None
