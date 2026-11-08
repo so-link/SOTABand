@@ -51,21 +51,39 @@ def current_role() -> str:
     return "admin" if is_superuser_uid(u.id) else "user"
 
 
+def is_system_identity() -> bool:
+    """当前请求是否以系统用户（uid=100）身份执行。
+
+    系统身份只能经 ``POST /api/auth/act-as-system`` 领取的短时令牌获得
+    （超管专属入口）。uid=0 超管令牌本身**不算**系统身份——写公共层的
+    唯一通道是 act-as 换发的 uid=100 令牌，这样公共层写入在审计里始终以
+    系统用户署名，超管本人也不例外。
+    """
+    from core.auth import is_system_uid
+
+    u = get_current_user()
+    return u is not None and is_system_uid(u.id)
+
+
 def ensure_can_touch_builtin(layer_hit: str | None, *, action: str = "修改") -> None:
-    """内置层资源的写/删闸门：仅超级用户可以修改或删除内置版本。
+    """公共层资源的写/删闸门：必须系统身份（act-as 令牌）才能修改或删除。
 
     ``layer_hit`` 传 registry 合并视图命中层（条目 ``source`` 派生字段）：
     - ``"private"``：个人定制版，任何登录用户都可以改自己的副本，直接放行；
-    - ``"builtin"``（或未标注）：内置版本，非超管一律 403。
+    - ``"system"``（及旧名 ``"builtin"``/``"shared"``、未标注）：公共层版本，
+      非系统身份一律 403——超管令牌也不例外（严格闸门，2026-11 定）；
+      单用户模式匿名即 uid=0，同样需要先 act-as。
 
     普通用户的出路是「复制为我的副本」——fork 端点写的是私有根，不受本
-    闸门限制。``action`` 只影响提示文案（修改/删除）。
+    闸门限制。超管代管公共层的正道是 act-as-system 领 1 小时令牌。
+    ``action`` 只影响提示文案（修改/删除）。
     """
     if layer_hit == "private":
         return
-    if current_role() == "admin":
+    if is_system_identity():
         return
     raise HTTPException(
         status_code=403,
-        detail=f"内置资源仅超级用户可以{action}；你可以「复制为我的副本」后修改自己的版本",
+        detail=f"公共资源仅系统身份可以{action}；超级用户请先 act-as-system 领取令牌，"
+               "普通用户可以「复制为我的副本」后修改自己的版本",
     )

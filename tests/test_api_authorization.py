@@ -315,6 +315,12 @@ def _make_bob():
     return issue_token(authenticate("bob", "bob-password"))
 
 
+def _system_token():
+    """系统用户短时令牌（act-as-system 发放的同款）——公共层写身份。"""
+    from core.auth import issue_system_token
+    return issue_system_token()
+
+
 def test_normal_user_agent_is_private(client, tokens):
     """普通用户创建的 Agent 仅自己可见/可用，别人一律 404。"""
     bob = _make_bob()
@@ -336,16 +342,28 @@ def test_normal_user_agent_is_private(client, tokens):
     assert client.delete("/api/agent/agent-alice", headers=_bearer(bob)).status_code == 404
 
 
-def test_superuser_agent_is_public(client, tokens):
-    """超管创建的 Agent 供全员使用。"""
+def test_superuser_agent_is_private_without_act_as(client, tokens):
+    """严格闸门：超管令牌建的 Agent 是私有的——发公共 Agent 必须 act-as。"""
     bob = _make_bob()
-    r = _register_agent(client, tokens["root"], "agent-root")
+    r = _register_agent(client, tokens["root"], "agent-root-priv")
+    assert r.status_code == 200, r.text
+    assert r.json()["entry"]["visibility"] == "private"
+
+    ids = [a["id"] for a in client.get("/api/agent/list", headers=_bearer(bob)).json()["agents"]]
+    assert "agent-root-priv" not in ids
+
+
+def test_system_identity_agent_is_public(client, tokens):
+    """系统身份（act-as 令牌）创建的 Agent 供全员使用。"""
+    bob = _make_bob()
+    sys_token = _system_token()
+    r = _register_agent(client, sys_token, "agent-system")
     assert r.status_code == 200, r.text
     assert r.json()["entry"]["visibility"] == "public"
 
     ids = [a["id"] for a in client.get("/api/agent/list", headers=_bearer(bob)).json()["agents"]]
-    assert "agent-root" in ids
-    assert client.get("/api/agent/agent-root", headers=_bearer(bob)).status_code == 200
+    assert "agent-system" in ids
+    assert client.get("/api/agent/agent-system", headers=_bearer(bob)).status_code == 200
 
 
 def test_public_agent_visible_to_normal_user(client, tokens):
@@ -367,16 +385,12 @@ def test_public_agent_visible_to_normal_user(client, tokens):
 
 
 def test_public_agent_written_to_system_root(client, tokens):
-    """公共 Agent 落系统用户目录——私有根是每用户独立的，不落公共层就没人读得到。
-
-    注：写闸门换轨为「仅系统身份」（act-as 令牌）在 ③b 落地；本用例只锁
-    写入位置，与当期的超管角色闸门兼容。
-    """
+    """公共 Agent 落系统用户目录——私有根是每用户独立的，不落公共层就没人读得到。"""
     import json as _json
 
     from core.resource import paths
 
-    assert _register_agent(client, tokens["root"], "agent-system-root").status_code == 200
+    assert _register_agent(client, _system_token(), "agent-system-root").status_code == 200
 
     system_reg = paths.system_space_dir("agents") / "registry.json"
     assert system_reg.exists()
@@ -391,13 +405,21 @@ def test_public_agent_written_to_system_root(client, tokens):
         ]
 
 
-def test_normal_user_cannot_modify_shared_agent(client, tokens):
-    """共享 Agent 只有超管能改：普通用户保存规范 403。"""
+def test_normal_user_cannot_modify_public_agent(client, tokens):
+    """公共 Agent 只有系统身份能改：普通用户与超管本人保存规范都 403。"""
     bob = _make_bob()
-    assert _register_agent(client, tokens["root"], "agent-no-edit").status_code == 200
+    assert _register_agent(client, _system_token(), "agent-no-edit").status_code == 200
     r = client.post("/api/agent/agent-no-edit/save-spec", headers=_bearer(bob),
                     json={"spec_md": "# 改\n"})
     assert r.status_code == 403, (r.status_code, r.text)
+    # 严格闸门：超管令牌也不例外，必须先 act-as 领系统令牌
+    r2 = client.post("/api/agent/agent-no-edit/save-spec", headers=_bearer(tokens["root"]),
+                     json={"spec_md": "# 改\n"})
+    assert r2.status_code == 403, (r2.status_code, r2.text)
+    # 系统身份可以改
+    r3 = client.post("/api/agent/agent-no-edit/save-spec", headers=_bearer(_system_token()),
+                     json={"spec_md": "# 改\n"})
+    assert r3.status_code == 200, (r3.status_code, r3.text)
 
 
 # ── 数据集归属隔离 ──

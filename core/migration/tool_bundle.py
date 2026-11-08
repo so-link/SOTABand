@@ -96,15 +96,15 @@ def _current_user() -> str:
 
 
 def _import_visibility(declared: object) -> str:
-    """导入条目的可见性：仅超管可保留 public，其余一律 private。
+    """导入条目的可见性：仅系统身份可保留 public，其余一律 private。
 
-    与 agent_routes 注册路径（current_role() 判定）保持一致：导入不是
+    与 agent_routes 注册路径（is_system_identity() 判定）保持一致：导入不是
     发布通道，普通用户不应经由迁移包把资源标成全员可见。
     """
     if str(declared or "") == "public":
         try:
-            from app.api.deps import current_role
-            if current_role() == "admin":
+            from app.api.deps import is_system_identity
+            if is_system_identity():
                 return "public"
         except Exception:
             pass
@@ -114,8 +114,8 @@ def _import_visibility(declared: object) -> str:
 def _find_entry(tool_id: str) -> tuple[dict | None, Path | None]:
     """按「私有覆盖内置」的优先级找注册条目，并返回它来自哪个根。"""
     reg = _registry()
-    # resource_roots() 已是「私有 > 共享 > 内置」的优先序（2026-11-04 定），
-    # 直接按序命中即可，不能再 reversed()——那会翻回内置优先，导出时混版。
+    # resource_roots() 已是「私有 > 系统（公共）」的优先序，直接按序命中即可，
+    # 不能再 reversed()——那会翻回公共层优先，导出时混版。
     for root in paths.resource_roots():
         for e in reg.read_from(root):
             if isinstance(e, dict) and e.get("id") == tool_id:

@@ -1,8 +1,9 @@
-"""内置层写/删闸门：内置版工具和 Agent 仅超级管理员可修改或删除。
+"""公共层写/删闸门：公共版工具和 Agent 仅系统身份（act-as 令牌）可修改或删除。
 
 覆盖 app.api.deps.ensure_can_touch_builtin 与 gateway._role_of 的核心语义：
 - 命中私有层（个人定制版）→ 任何身份放行
-- 命中内置层 → 超管放行、普通用户 403、匿名按单用户模式视为超管放行
+- 命中公共层 → 系统用户（uid=100）放行；超管令牌也不例外（严格闸门）；
+  普通用户 403；匿名（单用户模式注入 uid=0）同样 403，需先 act-as
 - 网关注入身份的角色按 uid 判定（唯一 admin = .env 超管 uid=0）
 """
 
@@ -49,18 +50,23 @@ def test_private_layer_open_to_everyone():
         _assert_gate(user, "private")
 
 
-def test_builtin_layer_superuser_only():
-    """内置版：超管与匿名（单用户模式）放行，普通用户 403。"""
-    _assert_gate(AuthUser(id="0", username="root", role="admin"), "builtin")
-    _assert_gate(None, "builtin")  # 匿名 = 单用户兼容模式，中间件会注入超管
+def test_public_layer_system_identity_only():
+    """公共版：仅系统用户（uid=100）放行；超管与普通用户 403。"""
+    _assert_gate(AuthUser(id="100", username="system", role="user"), "system")
+    _assert_gate(AuthUser(id="100", username="system", role="user"), "builtin")  # 旧名兼容
+    _assert_gate(AuthUser(id="100", username="system", role="user"), "shared")   # 旧名兼容
+    _assert_gate(AuthUser(id="0", username="root", role="admin"),
+                 "system", should_pass=False)
+    _assert_gate(None, "system", should_pass=False)  # 匿名 = 单用户模式注入 uid=0，同样须 act-as
     _assert_gate(AuthUser(id="1000", username="alice", role="user"),
-                 "builtin", should_pass=False, action="删除")
+                 "system", should_pass=False, action="删除")
 
 
-def test_unknown_source_treated_as_builtin():
-    """source 缺失（异常数据）按内置对待——保守拒绝普通用户。"""
+def test_unknown_source_treated_as_public_layer():
+    """source 缺失（异常数据）按公共层对待——保守拒绝非系统身份。"""
     _assert_gate(AuthUser(id="1000", username="alice", role="user"),
                  None, should_pass=False)
+    _assert_gate(AuthUser(id="100", username="system", role="user"), None)
 
 
 def test_gateway_role_of_superuser_and_regular():

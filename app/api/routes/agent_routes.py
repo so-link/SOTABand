@@ -30,8 +30,9 @@ registry = AgentRegistry()
 async def _visible_agent(agent_id: str) -> dict:
     """按 id 取 Agent 并校验可见性。
 
-    普通用户创建的 Agent 是私有的（仅属主可用），只有超管创建的（public）
-    与内置 Agent 对所有人可见。跨用户访问一律 404，避免泄露条目是否存在。
+    普通用户创建的 Agent 是私有的（仅属主可用），公共层 Agent
+    （visibility=public，落系统用户目录）对所有人可见。
+    跨用户访问一律 404，避免泄露条目是否存在。
     """
     entry = await registry.get(agent_id)
     if not entry or not registry.is_visible(entry, get_current_user_id()):
@@ -648,12 +649,13 @@ async def register_agent(req: RegisterAgentRequest):
     except Exception:
         tool_ids = []
 
-    # 可见性按创建者角色决定：超管建的供全员使用，普通用户建的仅自己可用。
-    # 不接受客户端传值——否则任何人都能把自己的 Agent 开放给全部用户。
-    from app.api.deps import current_role
+    # 可见性按创建者身份决定：系统身份（act-as 令牌）建的供全员使用，
+    # 其他人建的仅自己可用。不接受客户端传值——否则任何人都能把自己的
+    # Agent 开放给全部用户。超管想发公共 Agent，先 act-as-system 领令牌。
+    from app.api.deps import is_system_identity
     from core.user_context import VISIBILITY_PRIVATE, VISIBILITY_PUBLIC
 
-    visibility = VISIBILITY_PUBLIC if current_role() == "admin" else VISIBILITY_PRIVATE
+    visibility = VISIBILITY_PUBLIC if is_system_identity() else VISIBILITY_PRIVATE
     resource = {
         "id": agent_id,
         "name": req.agent_name,
@@ -669,7 +671,7 @@ async def register_agent(req: RegisterAgentRequest):
     entry = await registry.get(registered_id)
 
     # 保存生成的代码到 implementations 目录（已在注册前通过静态安全审查）。
-    # 与 registry 条目同根：public 落共享根（全员可用），private 落私有根。
+    # 与 registry 条目同根：public 落系统用户目录（全员可用），private 落私有根。
     if req.code.strip():
         impl_dir = registry._get_impl_dir(visibility) / registered_id
         impl_dir.mkdir(parents=True, exist_ok=True)
@@ -1232,14 +1234,14 @@ async def restart_agent(agent_id: str):
 
 @router.delete("/{agent_id}")
 async def delete_agent(agent_id: str):
-    """删除 Agent（按命中层生效，内置与个人定制版互不牵连）。
+    """删除 Agent（按命中层生效，公共与个人定制版互不牵连）。
 
     规则：
     - 命中私有层（我的副本 / 我创建的 Agent）→ 删除私有文件与私有条目；
-      fork 副本删除后合并视图回落到内置原样，内置条目与文件都不受影响；
-    - 命中内置层（无个人副本的内置 Agent）→ **仅超级管理员可删**，且只
-      移除内置 registry 条目——内置文件随 git 分发，不落删除，重新注册
-      （或 git 恢复条目）即可挂回；普通用户要改内置请先复制为我的副本；
+      fork 副本删除后合并视图回落到公共原样，公共条目与文件都不受影响；
+    - 命中公共层（无个人副本的公共 Agent）→ **仅系统身份（act-as 令牌）
+      可删**，删除文件与条目、对所有用户生效；恢复出厂 = 重跑种子脚本。
+      普通用户要改公共版本请先复制为我的副本；
     - 文件删除失败时返回明确的 500 错误，前端可提示，而不是裸 traceback。
     """
     entry = await _visible_agent(agent_id)
@@ -1264,24 +1266,20 @@ async def delete_agent(agent_id: str):
             "removed_tasks": task_history.delete_by_agent(agent_id),
         }
 
-    if entry.get("source") == "builtin":
-        # 内置层：只移内置 registry 条目，git 管理的内置文件保留原处
-        await registry.unregister(agent_id, scope="builtin")
-        return {"deleted": agent_id, "scope": "builtin", **_purge_history()}
-
-    if entry.get("source") == "shared":
-        # 共享层（超管发布）：删共享文件与共享条目，对所有用户生效
-        shared_dir = resource_paths.shared_space_dir("agents")
+    if entry.get("source") != "private":
+        # 公共层（系统用户目录）：删文件与条目，对所有用户生效。
+        # 闸门已过（必须系统身份），删除是真删——恢复出厂 = 重跑种子脚本。
+        sys_dir = resource_paths.system_space_dir("agents")
         try:
-            _remove_tree(shared_dir / "implementations" / agent_id)
-            for f in (shared_dir / "definitions" / f"{agent_id}.md",
-                      shared_dir / "definitions" / f"{agent_id}-demand.md"):
+            _remove_tree(sys_dir / "implementations" / agent_id)
+            for f in (sys_dir / "definitions" / f"{agent_id}.md",
+                      sys_dir / "definitions" / f"{agent_id}-demand.md"):
                 if f.exists():
                     f.unlink()
         except OSError as e:
             raise HTTPException(500, f"删除 Agent '{agent_id}' 的文件失败：{type(e).__name__}: {e}")
-        await registry.unregister(agent_id, scope="shared")
-        return {"deleted": agent_id, "scope": "shared", **_purge_history()}
+        await registry.unregister(agent_id, scope="system")
+        return {"deleted": agent_id, "scope": "system", **_purge_history()}
 
     private_dir = resource_paths.private_space_dir("agents")
     private_spec = private_dir / "definitions" / f"{agent_id}.md"

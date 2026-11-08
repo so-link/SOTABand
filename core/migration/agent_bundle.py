@@ -16,8 +16,8 @@ Agent 在磁盘上同样是「三元组」：
     implementations/<id>/**
 
 安全策略与工具迁移一致：拒绝 zip slip、限制大小与成员数、落盘前过静态
-安全审查；落盘根默认私有资源根，仅超管导入 public 条目时落共享根（与
-AgentRegistry.register 同规则）。
+安全审查；落盘根默认私有资源根，仅系统身份（act-as 令牌）导入 public
+条目时落系统用户目录（与 AgentRegistry.register 同规则）。
 """
 
 from __future__ import annotations

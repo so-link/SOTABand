@@ -74,26 +74,25 @@ async def get_model(model_id: str):
 async def purge_missing_models():
     """清理模型文件已不存在的僵尸注册条目（历史条目多指向他人机器的绝对路径）。
 
-    与内置模型删除同属全局操作，仅超级用户可执行。
+    与公共层模型删除同属全局操作，仅系统身份（act-as 令牌）可执行。
     """
-    from app.api.deps import current_role
+    from app.api.deps import is_system_identity
 
-    if current_role() != "admin":
-        raise HTTPException(403, "仅超级用户可批量清理模型")
+    if not is_system_identity():
+        raise HTTPException(403, "批量清理模型需系统身份（超级用户请先 act-as-system）")
     removed = await registry.purge_missing()
     return {"removed": removed, "count": len(removed)}
 
 
 @router.delete("/{model_id}")
 async def delete_model(model_id: str):
-    """删除模型（注册条目 + 规范文档 + 产物文件；内置模型写全局删除掩码）"""
+    """删除模型（注册条目 + 规范文档 + 产物文件；公共层真删，恢复出厂=重跑种子脚本）"""
     from app.api.deps import ensure_can_touch_builtin
 
     model = await registry.get(model_id)
     if not model:
         raise HTTPException(404, f"Model '{model_id}' not found")
-    # 内置模型删除对全员生效（共享层掩码），普通用户只能删自己的私有模型
-    private_ids = {e.get("id") for e in registry._read_private()}
-    ensure_can_touch_builtin("private" if model_id in private_ids else None, action="删除")
+    # 公共层模型删除对全员生效，普通用户只能删自己的私有模型
+    ensure_can_touch_builtin(model.get("source"), action="删除")
     await registry.unregister(model_id)
     return {"message": f"Model '{model_id}' deleted"}

@@ -861,12 +861,13 @@ async def create_agent(args: CreateAgentArgs, ctx: CallContext) -> dict:
     except Exception:
         pass
     reg = agent_routes.registry
-    # 可见性按创建者角色：超管建的供全员使用，普通用户建的仅自己可用
-    # （与 REST 注册接口同一规则，避免对话入口绕过）
-    from core.chat_control.gateway import _role_of
+    # 可见性按创建者身份：系统身份（会话归属 uid=100）建的供全员使用，
+    # 其他人建的仅自己可用（与 REST 注册接口同一规则，避免对话入口绕过；
+    # 超管想发公共 Agent 请经 act-as 令牌走 REST 注册）
+    from core.user_paths import SYSTEM_UID
     from core.user_context import VISIBILITY_PRIVATE, VISIBILITY_PUBLIC
 
-    visibility = (VISIBILITY_PUBLIC if _role_of(ctx.owner) == "admin"
+    visibility = (VISIBILITY_PUBLIC if ctx.owner == SYSTEM_UID
                   else VISIBILITY_PRIVATE)
     registered_id = await reg.register({
         "id": agent_id, "name": name, "version": "0.1.0", "role": role,
@@ -1191,14 +1192,15 @@ async def delete_resource(args: DeleteResourceArgs, ctx: CallContext) -> dict:
         if not entry:
             return {"error": f"工具不存在: {rid}"}
         # 与 DELETE /api/tool/{id} 一致：取消收藏语义，按命中的层删除——
-        # 只注销条目、实现保留在仓库；内置与个人定制版互不牵连。
-        # 内置层仅超级管理员可删（网关内 current_role 按会话归属人查表）。
-        from app.api.deps import current_role
+        # 只注销条目、实现保留在系统用户目录；公共与个人定制版互不牵连。
+        # 公共层必须系统身份（会话归属 uid=100）才可删——与 HTTP 闸门
+        # 同口径；超管在网关内也不例外，代管公共层请走 act-as 令牌的 HTTP 接口。
+        from core.user_paths import SYSTEM_UID
         source = entry.get("source")
-        if source != "private" and current_role() != "admin":
-            return {"error": f"'{rid}' 是内置工具，仅超级用户可删除；"
+        if source != "private" and ctx.owner != SYSTEM_UID:
+            return {"error": f"'{rid}' 是公共工具，仅系统身份可删除；"
                              "你可以先「复制为我的副本」再管理自己的版本"}
-        scope = "private" if source == "private" else "builtin"
+        scope = "private" if source == "private" else "system"
         await _tools.unregister(rid, scope=scope)
         return {"deleted": rid, "type": "tool", "scope": scope}
 
@@ -1206,18 +1208,16 @@ async def delete_resource(args: DeleteResourceArgs, ctx: CallContext) -> dict:
         entry = await _models.get(rid)
         if not entry:
             return {"error": f"模型不存在: {rid}"}
-        # 内置模型是随 git 分发的系统资产，删除是全局生效（共享层掩码），
-        # 因此仅超级用户可删——与普通用户可自删的私有模型区分开。
-        private_ids = {e.get("id") for e in _models._read_private()}
-        if rid not in private_ids:
-            from core.chat_control.gateway import _role_of
-            if _role_of(ctx.owner) != "admin":
-                return {"error": f"'{rid}' 是内置模型，仅超级用户可删除"}
+        # 公共层模型删除是全局生效（真删），必须系统身份（会话归属
+        # uid=100）——与普通用户可自删的私有模型区分开。
+        from core.user_paths import SYSTEM_UID
+        if entry.get("source") != "private" and ctx.owner != SYSTEM_UID:
+            return {"error": f"'{rid}' 是公共模型，仅系统身份可删除"}
         await _models.unregister(rid)
         return {"deleted": rid, "type": "model"}
 
     if rtype == "agent":
-        from core.chat_control.gateway import _role_of
+        from core.user_paths import SYSTEM_UID
         from core.resource import fork as _fork
 
         entry = await _agents.get(rid)
@@ -1228,11 +1228,11 @@ async def delete_resource(args: DeleteResourceArgs, ctx: CallContext) -> dict:
         source = entry.get("source")
         await agent_factory.stop(rid)
 
-        if source == "system":
-            # 公共层（系统用户目录）：闸门在 ③b 换轨为「必须系统身份」，
-            # 过渡期仍按 admin 角色把关。删除对所有用户生效。
-            if _role_of(ctx.owner) != "admin":
-                return {"error": f"'{rid}' 是系统级 Agent，仅超级用户可删除；"
+        if source != "private":
+            # 公共层（系统用户目录）：必须系统身份（会话归属 uid=100）；
+            # 删除对所有用户生效（真删，恢复出厂 = 重跑种子脚本）。
+            if ctx.owner != SYSTEM_UID:
+                return {"error": f"'{rid}' 是系统级 Agent，仅系统身份可删除；"
                                  "你可以先「复制为我的副本」再管理自己的版本"}
             _fork.drop_copy("agents", rid, root="system")
             await _agents.unregister(rid, scope="system")

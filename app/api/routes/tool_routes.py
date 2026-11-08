@@ -35,12 +35,13 @@ discoverer = ToolDiscoverer()
 llm = create_gen_llm_client()
 
 
-# ── 写路径解析（内置资源就地更新）──────────────────────────────
-# 读走 registry.find_def_file/find_impl_dir：内置根优先，找不到再查私有根。
+# ── 写路径解析（公共层资源就地更新）──────────────────────────────
+# 读走 registry.find_def_file/find_impl_dir：私有根优先，公共层兜底。
 # 而写此前一律落 registry._get_def_dir()/_get_impl_dir()（私有根）。
-# 后果：编辑**内置工具**时，改动写进私有根，读仍命中内置根那份 →
+# 后果：编辑**公共层工具**时，改动写进私有根，读仍命中公共层那份 →
 # 界面「保存成功」但内容没变（表现为改了没生效）。
-# 因此写入前统一询问：原文件在哪个根就地写回；确实不存在才落私有根新建。
+# 因此写入前统一询问：原文件在哪个根就地写回（写公共层须过系统身份闸门）；
+# 确实不存在才落私有根新建。
 
 def _def_text_write_path(tool_id: str, suffix: str) -> _Path:
     """按后缀定位定义类文件（-demand.md / -reference.md）的写入路径。"""
@@ -2342,19 +2343,19 @@ async def search_tools(q: str = "", tags: str = ""):
 async def delete_tool(tool_id: str):
     """删除工具（取消收藏语义：只移除注册条目，不删磁盘文件）。
 
-    按合并视图命中的层删除，内置与个人定制版互不影响：
-    - 命中内置（未 fork）→ **仅超级管理员可删**，只移除内置 registry 条目，
-      代码留在仓库，可通过「添加到工具空间」重新挂回
+    按合并视图命中的层删除，公共与个人定制版互不影响：
+    - 命中公共层（未 fork）→ **仅系统身份（act-as 令牌）可删**，只移除
+      公共 registry 条目，实现保留在系统用户目录，可重新挂回
     - 命中私有（我的副本 / 我创建的工具）→ 只移除私有条目；「我的副本」
-      删除后合并视图回落到内置原样，内置条目与文件都不动。
+      删除后合并视图回落到公共原样，公共条目与文件都不动。
     若工具不存在于任何 registry 则返回 404。
     """
     entry = await registry.get(tool_id)
     if not entry:
         raise HTTPException(404, f"Tool '{tool_id}' not found")
 
-    # source 是 _read 注入的派生字段：private=个人层命中，builtin=内置命中
-    scope = "private" if entry.get("source") == "private" else "builtin"
+    # source 是 _read 注入的派生字段：private=个人层命中，system=公共层命中
+    scope = "private" if entry.get("source") == "private" else "system"
     from app.api.deps import ensure_can_touch_builtin
     ensure_can_touch_builtin(entry.get("source"), action="删除")
     await registry.unregister(tool_id, scope=scope)
