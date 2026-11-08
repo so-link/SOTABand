@@ -129,3 +129,21 @@ def test_combine_takes_upper_bound():
     c = combine([a, b], reason="tools")
     assert (c.gpu, c.min_vram_gb, c.min_ram_gb, c.cpu_cores) == ("required", 4, 8, 2)
     assert combine([], reason="none").gpu == "none"
+
+
+def test_private_tool_requirements_override_builtin(monkeypatch, tmp_path):
+    from core.resource import paths
+
+    builtin = tmp_path / "builtin"
+    private = tmp_path / "private"
+    monkeypatch.setattr(rq, "TOOLS_DIR", builtin)
+    monkeypatch.setattr(paths, "PRIVATE_ROOT", private)
+    (builtin / "definitions").mkdir(parents=True)
+    (builtin / "definitions" / "trainer.md").write_text(SPEC_WITH_RESOURCES)
+    impl = private / "tools" / "implementations" / "trainer"
+    impl.mkdir(parents=True)
+    (impl / "spec.md").write_text("---\nresources:\n  gpu: none\n---\n")
+    assert resolve_tool_requirements("trainer").gpu == "none"
+    (impl / "spec.md").write_text("# 无显式声明")
+    (impl / "tool.py").write_text("import torch\n")
+    assert resolve_tool_requirements("trainer").gpu == "optional"

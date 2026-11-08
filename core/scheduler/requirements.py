@@ -113,15 +113,34 @@ def infer_from_code(code: str) -> ResourceRequirements:
     return req
 
 
+def _resource_dirs(space: str, builtin: Path) -> list[Path]:
+    """与执行器保持一致：私有资源优先，回退内置目录。"""
+    from core.resource.paths import BUILTIN_ROOT, read_roots
+
+    return [root / space for root in read_roots() if root != BUILTIN_ROOT] + [builtin]
+
+
+def _resource_file(space: str, builtin: Path, *candidates: Path) -> Path:
+    for directory in _resource_dirs(space, builtin):
+        for relative in candidates:
+            path = directory / relative
+            if path.is_file():
+                return path
+    return builtin / candidates[0]
+
+
 def resolve_tool_requirements(tool_id: str, code: str | None = None) -> ResourceRequirements:
     """工具的资源需求：spec 声明优先，否则推断 code（未传入时读取已注册的实现）"""
-    spec = TOOLS_DIR / "definitions" / f"{tool_id}.md"
+    spec = _resource_file(
+        "tools", TOOLS_DIR, Path("definitions") / f"{tool_id}.md",
+        Path("implementations") / tool_id / "spec.md",
+    )
     if spec.is_file():
         declared = read_declared(spec.read_text(encoding="utf-8"))
         if declared is not None:
             return declared
     if code is None:
-        impl = TOOLS_DIR / "implementations" / tool_id / "tool.py"
+        impl = _resource_file("tools", TOOLS_DIR, Path("implementations") / tool_id / "tool.py")
         if not impl.is_file():
             return ResourceRequirements(reason="未找到工具代码")
         code = impl.read_text(encoding="utf-8")
