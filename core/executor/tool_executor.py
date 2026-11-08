@@ -415,14 +415,43 @@ class ToolExecutor:
             line = line.strip()
             if line.startswith("{") and line.endswith("}"):
                 try:
-                    return json.loads(line)
+                    return cls._strip_runtime_noise(json.loads(line))
                 except json.JSONDecodeError:
                     continue
         # 尝试整个输出作为 JSON
         try:
-            return json.loads(stdout)
+            return cls._strip_runtime_noise(json.loads(stdout))
         except json.JSONDecodeError:
             return {"status": "failed", "message": stdout[:500]}
+
+    # 解释器/第三方库启动阶段自行设置的环境变量（OpenBLAS 线程池、
+    # MKL/OMP 等），不是工具行为，不应该混进用户可见的结果里。
+    _BENIGN_ENV_PREFIXES = ("OPENBLAS_", "OMP_", "MKL_", "NUMEXPR_", "VECLIB_",
+                            "BLIS_", "GOTO_", "TBB_", "KMP_")
+
+    @classmethod
+    def _strip_runtime_noise(cls, result):
+        """剔除工具结果中的运行时噪音字段。
+
+        ``_security_violations`` 里 ENV_MODIFY 记录的是 import numpy/pandas
+        时 OpenBLAS 设置自身线程环境变量——每个用到科学计算库的工具都会
+        命中，属于误报噪音。此前它会原样出现在 run_tool 回执里，被
+        LLM/界面当成安全告警展示。其余违规（网络、子进程等）仍然保留。
+        """
+        if not isinstance(result, dict):
+            return result
+        violations = result.get("_security_violations")
+        if not isinstance(violations, list):
+            return result
+        kept = [v for v in violations
+                if not (isinstance(v, str) and v.startswith("ENV_MODIFY:")
+                        and v.split(":", 1)[1].strip().lstrip("b").strip().strip("'\"")
+                        .startswith(cls._BENIGN_ENV_PREFIXES))]
+        if kept:
+            result["_security_violations"] = kept
+        else:
+            result.pop("_security_violations", None)
+        return result
 
     # ── 异步执行（用于 FastAPI async 上下文） ──
 

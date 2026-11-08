@@ -594,6 +594,8 @@ class AgentCodeBuilder(BaseBuilder):
         api_refs = self._extract_api_refs(raw_md)
         inputs = self._parse_spec_inputs(raw_md)
         flow = _extract_fenced_json(raw_md, "flow") or []
+        flow = self._normalize_flow_refs(flow) if isinstance(flow, list) else []
+        flow = self._dedupe_flow_steps(flow) if isinstance(flow, list) else []
         apis = _extract_fenced_json(raw_md, "apis") or []
         cls_name = self._to_class_name(agent_id)
 
@@ -621,7 +623,25 @@ class AgentCodeBuilder(BaseBuilder):
             if on_token is not None and execute_body:
                 on_token(execute_body)
         elif role == "task" and isinstance(flow, list) and flow:
-            execute_body = self._build_task_body(inputs)
+            # 工具展示名（用户可读）→ 内部 id 的映射：优先用工具真实中文名；
+            # 规范里若写的本身就是显示名，取该名字。步骤面板展示的是业务动作，
+            # 不该出现 etth1-ot-period-stats_1794053078 这样的实现细节。
+            from core.resource.registry.tool_registry import ToolRegistry
+
+            try:
+                by_id = {t.get("id"): t.get("name") for t in ToolRegistry()._read()}
+            except Exception:
+                by_id = {}
+            step_names: dict[str, str] = {}
+            for step in flow:
+                tid = step.get("tool") if isinstance(step, dict) else ""
+                if tid:
+                    step_names[tid] = by_id.get(tid) or tid
+            execute_body = self._build_task_body(
+                inputs,
+                tool_names=step_names,
+                summary_hint=self._extract_flow_summary_hint(raw_md),
+            )
             if on_token is not None and execute_body:
                 on_token(execute_body)
         else:
@@ -655,18 +675,110 @@ class AgentCodeBuilder(BaseBuilder):
     # ══════════════════════════════════════════════════════════
 
     @staticmethod
+    def _normalize_flow_refs(flow: list) -> list:
+        """把 flow 里的单花括号引用统一成双花括号。
+
+        规范提示词示例里输入变量写作 ``{dataset_id}``，而流程执行器只把
+        ``{{dataset_id}}`` 当变量引用；单花括号会被当成字面量，解析为空串后
+        参数被丢弃，工具静默回退到默认值（实测 dataset_id 变成 etth1）。
+        已存在的 ``{{...}}`` 不受影响。
+        """
+        import re as _re
+
+        def _conv(v):
+            if isinstance(v, str):
+                return _re.sub(r"(?<!\{)\{([A-Za-z_][\w.]*)\}(?!\})",
+                               r"{{\1}}", v)
+            if isinstance(v, dict):
+                return {k: _conv(x) for k, x in v.items()}
+            if isinstance(v, list):
+                return [_conv(x) for x in v]
+            return v
+
+        out = []
+        for step in flow or []:
+            if isinstance(step, dict):
+                out.append({**step, "params": _conv(step.get("params") or {})})
+            else:
+                out.append(step)
+        return out
+
+    @staticmethod
+    def _dedupe_flow_steps(flow: list) -> list:
+        """去掉「同工具 + 同参数」的重复步骤。
+
+        规范里的「校验结果 / 汇总点评 / 输出结果」是非工具步骤，LLM 常把它们
+        也翻译成一次工具调用（甚至拿同一个工具、同样的参数凑数），导致执行
+        时同一份数据被跑两遍、界面出现两张一模一样的表格卡。
+        这里按 (tool, params) 去重，保留第一次出现的顺序。
+        """
+        seen = set()
+        out = []
+        for step in flow or []:
+            if not isinstance(step, dict):
+                continue
+            tool = step.get("tool")
+            if not tool:
+                # 非工具步骤（无 tool）直接丢弃：汇总由确定性收尾负责
+                continue
+            key = (tool, json.dumps(step.get("params") or {}, sort_keys=True,
+                                    ensure_ascii=False))
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(step)
+        return out
+
+    @staticmethod
     def _required_names(inputs: list[dict]) -> list[str]:
         return [i["name"] for i in (inputs or []) if i.get("required")]
 
-    def _build_task_body(self, inputs: list[dict]) -> str:
-        """任务式 execute 体：启动参数 → 按 spec.flow 逐步执行 → done。
+    @staticmethod
+    def _extract_flow_summary_hint(raw_md: str) -> str:
+        """从 MD 规范里抽「汇总要求」，作为任务式 Agent 收尾结论的提示词。
+
+        取「## 7. 执行流程」中总述汇总的那一条（形如「汇总成…结论」「并给出…」），
+        去掉步骤编号，最长 300 字。抽不到就返回空（收尾用通用提示词）。
+        """
+        import re as _re
+
+        text = raw_md or ""
+        blocks = _re.split(r"^##\s+", text, flags=_re.MULTILINE)
+        section = next((b for b in blocks if b.lstrip().startswith("7.")
+                        or "执行流程" in b.split("\n", 1)[0]), "")
+        if not section:
+            return ""
+        keys = ("汇总", "结论", "总结", "给出", "输出一段", "生成一段")
+        for line in section.split("\n"):
+            s = line.strip()
+            if not s or len(s) > 400 or not any(k in s for k in keys):
+                continue
+            s = _re.sub(r"^[-\d.、)\s]+", "", s)
+            s = _re.sub(r"\*\*[^*]*\*\*[:：]?", "", s).strip("：: -")
+            if len(s) >= 8:
+                return s[:300]
+        return ""
+
+    def _build_task_body(self, inputs: list[dict], tool_names: dict | None = None,
+                         summary_hint: str = "") -> str:
+        """任务式 execute 体：启动参数 → 按 spec.flow 逐步执行 → 汇总 → done。
 
         与 MD 声明的 ` {{input.xxx}} ` / ` {{stepN.data.xxx}} ` 引用语法配合，
         启动参数一律按名字从 kwargs 取（不做 content 猜测）。
         每步同时产出 `step` 事件（前端「工作流程」时间线）与 `_log_step` 日志。
+
+        展示层约定（面向用户，而非开发者）：
+        - 步骤文案用工具的中文名，不暴露内部工具 id；
+        - 表格/图片/文件类结果以卡片渲染，不把 columns/rows 当文本刷屏；
+        - 收尾按 MD 规范里的汇总要求给一段结论文本（streaming delta），
+          而不是只回显最后一行的 message；
+        - 只做一次 LLM 汇总，失败时回退到「关键字段摘要」，绝不整轮报错。
         """
         required = json.dumps(self._required_names(inputs), ensure_ascii=False)
         declared = json.dumps([i["name"] for i in inputs], ensure_ascii=False)
+        names_map = json.dumps(tool_names or {}, ensure_ascii=False)
+        hint = (summary_hint or "").strip()
+        hint_literal = json.dumps(hint, ensure_ascii=False)
         return f'''
         # ── 框架契约：启动参数按 MD「## 输入」声明的名字从 kwargs 获取 ──
         _declared = {declared}
@@ -677,6 +789,8 @@ class AgentCodeBuilder(BaseBuilder):
             yield {{"event": "done", "data": {{"messageId": ctx.session_id}}}}
             return
 
+        _TOOL_NAMES = {names_map}
+
         # 执行作用域：启动参数（input.*）+ 各步骤输出（stepN.*）
         scope: dict = {{"input": dict(kwargs), **kwargs}}
         flow = self.spec.flow or []
@@ -685,20 +799,22 @@ class AgentCodeBuilder(BaseBuilder):
             yield {{"event": "done", "data": {{"messageId": ctx.session_id}}}}
             return
 
+        _step_outputs = []
         for idx, step in enumerate(flow, start=1):
             tool_id = step.get("tool", "")
+            tool_label = _TOOL_NAMES.get(tool_id) or step.get("label") or "数据处理"
             params = self.resolve_refs(step.get("params") or {{}}, scope)
             if isinstance(params, dict):
                 # 未取到值的可选参数不下传（避免把 "" 传给 int/float 形参）
                 params = {{k: v for k, v in params.items() if v not in (None, "")}}
-            yield self._step(f"step{{idx}}", f"调用工具 {{tool_id}}", "running")
+            yield self._step(f"step{{idx}}", f"执行：{{tool_label}}", "running")
             self._log_step(f"步骤{{idx}}", f"调用工具 {{tool_id}}", {{"params": params}})
             try:
                 result = await self.call_tool(tool_id, params)
             except Exception as e:
                 self._log_step(f"步骤{{idx}}", "工具调用异常", {{"error": str(e)}})
-                yield self._step(f"step{{idx}}", "工具调用异常", "error")
-                yield {{"event": "error", "data": {{"message": f"步骤 {{idx}} 调用工具失败: {{e}}"}}}}
+                yield self._step(f"step{{idx}}", f"{{tool_label}} 失败", "error")
+                yield {{"event": "error", "data": {{"message": f"「{{tool_label}}」执行异常：{{e}}"}}}}
                 yield {{"event": "done", "data": {{"messageId": ctx.session_id}}}}
                 return
 
@@ -706,31 +822,64 @@ class AgentCodeBuilder(BaseBuilder):
             if status == "failed":
                 msg = result.get("message", "未知错误") if isinstance(result, dict) else ""
                 self._log_step(f"步骤{{idx}}", "工具执行失败", {{"message": msg}})
-                yield self._step(f"step{{idx}}", "工具执行失败", "error")
-                yield {{"event": "error", "data": {{"message": f"步骤 {{idx}} 执行失败: {{msg}}"}}}}
+                yield self._step(f"step{{idx}}", f"{{tool_label}} 失败", "error")
+                yield {{"event": "error", "data": {{"message": f"「{{tool_label}}」执行失败：{{msg}}"}}}}
                 yield {{"event": "done", "data": {{"messageId": ctx.session_id}}}}
                 return
 
             bind = step.get("output_bind") or f"step{{idx}}"
             scope[bind] = result if isinstance(result, dict) else {{"data": result}}
             scope[f"step{{idx}}"] = scope[bind]
+            _step_outputs.append({{"step": idx, "label": tool_label, "result": scope[bind]}})
             self._log_step(f"步骤{{idx}}", "完成", {{"status": status}})
-            yield self._step(f"step{{idx}}", f"{{tool_id}} 完成", "done")
-            yield {{"event": "content", "data": {{"text": f"[步骤 {{idx}}/{{len(flow)}}] {{tool_id}} 完成"}}}}
+            yield self._step(f"step{{idx}}", f"{{tool_label}} 完成", "done")
+            # 表格/图片/文件结果立即以卡片呈现（前端有对应渲染器）
+            _fmt = result.get("output_format") if isinstance(result, dict) else None
+            if _fmt in ("table", "image", "file"):
+                yield {{"event": "card", "data": {{
+                    "type": "result-summary",
+                    "title": tool_label,
+                    "summary": str(result.get("message") or ""),
+                    "data": {{"result": result}}}}}}
 
-        # 收尾：把末步的可读结果回显（旧实现由 LLM 汇总，这里直接取工具输出，
-        # 避免确定性流程丢失最终结论；没有可读文本时不额外输出）
-        _last = scope.get(f"step{{len(flow)}}")
-        _text = ""
-        if isinstance(_last, dict):
-            _data = _last.get("data")
-            if isinstance(_data, dict):
-                _text = str(_data.get("text") or _data.get("message") or "")
-            _text = _text or str(_last.get("message") or "")
-        if _text:
-            yield {{"event": "content", "data": {{"text": _text}}}}
+        # 收尾：按 MD 的汇总要求生成一段结论（流式），失败则回退关键字段摘要
+        _FLOW_SUMMARY_HINT = {hint_literal}
+        yield self._step("summary", "汇总结果", "running")
+        _payload = json.dumps(_step_outputs, ensure_ascii=False, default=str)[:8000]
+        _summary = ""
+        _prompt = (
+            "下面是一个多步任务各步骤的执行结果（JSON）。请用简体中文给用户写一段简短的结论，"
+            "直接给结论和数据要点，不要复述步骤过程，不要输出 JSON，不要提工具名或 id。"
+            "【禁止输出任何表格】原始明细已由界面表格卡片展示，这里只写 2-4 句结论。"
+        )
+        if _FLOW_SUMMARY_HINT:
+            _prompt += "\\n本次汇总的具体要求：" + _FLOW_SUMMARY_HINT
+        try:
+            async for token in self._get_llm().chat_stream(
+                messages=[
+                    {{"role": "system", "content": _prompt}},
+                    {{"role": "user", "content": "步骤执行结果：\\n" + _payload}},
+                ],
+                max_tokens=1200,
+            ):
+                _summary += token
+                yield {{"event": "delta", "data": {{"text": token}}}}
+        except Exception as e:
+            self._log_step("汇总", "LLM 汇总失败，改用关键字段摘要", {{"error": str(e)}})
+            _summary = ""
+        if not _summary.strip():
+            _lines = []
+            for _o in _step_outputs:
+                _r = _o.get("result") or {{}}
+                _msg = _r.get("message") if isinstance(_r, dict) else ""
+                if _msg:
+                    _lines.append(f"- {{_o['label']}}：{{_msg}}")
+            _summary = "\\n".join(_lines) or "任务已完成。"
+            yield {{"event": "content", "data": {{"text": _summary}}}}
+        yield self._step("summary", "汇总完成", "done")
 
         yield {{"event": "done", "data": {{"messageId": ctx.session_id}}}}'''
+
 
     def _build_web_service_body(self, apis: list[dict]) -> str:
         """Web 服务式 execute 体：api_name/params → flow → result 事件。

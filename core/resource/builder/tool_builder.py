@@ -259,6 +259,37 @@ def _dataset_dir(dataset_id: str) -> str:
     entry = _run_async(DataRegistry().get(dataset_id)) or {}
     return entry.get("data_path", "") or ""
 
+def _dataset_file(dataset_id: str, name: str = "", ext: str = "") -> str:
+    """从数据空间取数据集里的**一个具体文件**的绝对路径（找不到返回 ""）。
+
+    name 给定时先按文件名匹配（不区分大小写，可省略扩展名）；否则/找不到时
+    按 ext（如 "csv"）取目录下第一个该类型文件；都未指定则取目录下第一个文件。
+    数据集目录里有多少文件、叫什么名字是运行期事实，不能在代码里假设。
+    """
+    import os as _os
+    d = _dataset_dir(dataset_id)
+    if not d or not _os.path.isdir(d):
+        return ""
+    files = sorted(
+        _os.path.join(d, f) for f in _os.listdir(d)
+        if _os.path.isfile(_os.path.join(d, f))
+    )
+    if ext:
+        files = [f for f in files if f.lower().endswith("." + ext.lower().lstrip("."))]
+    if name:
+        want = _os.path.basename(name).lower()
+        want_noext = _os.path.splitext(want)[0]
+        for f in files:
+            base = _os.path.basename(f).lower()
+            if base == want:
+                return f
+        for f in files:
+            base = _os.path.basename(f).lower()
+            if _os.path.splitext(base)[0] == want_noext:
+                return f
+        return ""
+    return files[0] if files else ""
+
 # ── 文件路径辅助 ──
 def _resolve_path(path: str) -> str:
     """将相对/绝对路径转为绝对路径（基于 _PROJECT_ROOT）。
@@ -640,7 +671,7 @@ CRITICAL RULES:
        _out_dir(...)  create & return _DATA_DIR/<subdir> (preferred for outputs)
        _tool_dir      this tool's own directory (static assets shipped with it)
    - Writing: use _out_dir("xxx") / _DATA_DIR / ... . NEVER write under _PROJECT_ROOT (it is the git-distributed system area) and never mutate resources/ or resources-private/.
-   - Reading a file the user provided: pass the path through _resolve_path(path) (handles relative/absolute/~ cross-platform). Reading a registered dataset/model: use _dataset_dir(id) / _model_data(id) — NEVER reconstruct those paths yourself.
+   - Reading a file the user provided: pass the path through _resolve_path(path) (handles relative/absolute/~ cross-platform). Reading a registered dataset/model: use _dataset_file(id, name="", ext="csv") for a dataset FILE, _dataset_dir(id) for a dataset DIRECTORY, _model_data(id) for model contents — NEVER reconstruct those paths yourself, and NEVER assume how many files a dataset directory holds or what they are named (a dataset usually has many CSVs, e.g. one per stock/entity).
    - Default parameter values must be portable too: default to "" or a relative name and resolve at runtime, not a machine-specific absolute path.
 6b. File artifacts & IDs: put every produced file path in a ``*_path`` field of ``data`` (e.g. image_path, file_path, output_path). The platform auto-registers any ``*_path`` pointing inside the user home and injects a ``file_id`` for the UI — NEVER call file APIs or construct download URLs yourself, just return the path fields.
 7. API calls: use the EXACT api_id and param names from the SYSTEM API CALLS section above
@@ -683,7 +714,12 @@ CRITICAL RULES:
       三者都缺失时返回 status:"failed"（说明模型未完成训练），**禁止**用硬编码默认系数继续给出预测。
     - 写：训练型工具必须在 model.json 顶层写入 `coefficients`（预测实际使用的系数），可另存 evaluated_coefficients / final_coefficients 供审计。
     原因：训练工具与预测工具由不同会话生成，字段漂移会让预测工具读不到系数、静默输出常量结果。
-20. Output ONLY Python code, no markdown, no explanation"""
+20. Output ONLY Python code, no markdown, no explanation
+
+21. Time-series / timestamp parsing: NEVER hand-write strptime format guessing loops. Read the time column ONCE with pandas: `ts = pd.to_datetime(df[time_col], errors="coerce")`, then derive fields with `ts.dt.hour` / `.dt.date` / `.dt.month` etc. Count `ts.isna()` as unparsable rows and drop them explicitly (report how many were dropped). NEVER silently fall back to "guess by row index" when parsing fails — that turns a data problem into plausible-looking wrong numbers. If no time column exists and the spec needs time buckets, return status:"failed" telling the user which column is required.
+22. Statistics on numeric columns: coerce with `pd.to_numeric(df[col], errors="coerce")`, drop NaN (`dropna()`), and derive count/mean/max/min from that single Series. Do not hand-roll float()/sum()/min() loops over raw values — they are slower and silently skip/drift on bad rows. An empty group must return count 0 with mean/max/min as None (JSON null), never 0.0 posing as a real measurement.
+23. Every input parameter that names something inside the data (dataset id, column name, file name) must be validated against the real data: unknown column → status:"failed" listing the available columns; missing dataset/file → status:"failed" explaining which id/name was looked up. NEVER invent a fallback column or file and continue.
+24. Output ONLY Python code, no markdown, no explanation"""
 
         # 多模式规则：仅当 MD 声明了多个模式时注入
         modes = self.parse_modes(spec_md)
@@ -711,6 +747,17 @@ MULTI-MODE RULES (this tool declares multiple modes, MUST follow):
 4. Modes may share module-level helpers/constants (e.g. model file path under _DATA_DIR).
 5. The train mode MUST save the model file to a stable path under _DATA_DIR; other modes load from that same path.
 """
+        # 末尾再压一遍最容易反复出错的硬约束（长提示词中段容易被稀释，
+        # 模型对结尾指令的遵循度最高）。
+        prompt += '''
+FINAL CHECKLIST (verify before output):
+- Read dataset files via _dataset_file(id, name=..., ext="csv") / _dataset_dir(id); no path guessing, no assuming file names.
+- Timestamps via pd.to_datetime(..., errors="coerce").dt.*; no strptime format loops, no "row index % 24" fallbacks.
+- Numbers via pd.to_numeric(..., errors="coerce") + dropna(); empty group = count 0 with None stats.
+- Unknown column / dataset / file: return status:"failed" with the real available options, never a silent fallback.
+- Lookback windows ("近90日/最近N天/N个交易日") must slice the LAST N rows/period — never use the first row of the file as the window base. If history is shorter than N, use all rows and report the actual count in the output.
+- execute() is SYNC, returns {status, output_format, message, data}, all errors include traceback.
+'''
         return prompt
 
     @staticmethod
