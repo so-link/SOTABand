@@ -12,6 +12,7 @@ import { MarkdownPreview } from './MarkdownPreview'
 import { TextPreview } from './TextPreview'
 import { datasetFileUrl } from '@/types/workspace'
 import { authedUrl } from '@/services/api/auth'
+import { MediaPreviewModal } from '@/components/ui/media-preview-modal'
 import type { DataResource } from '@/types/resources'
 
 const BASE_URL = ''
@@ -51,6 +52,8 @@ export function DataPreviewView({ datasetId }: { datasetId?: string }) {
   const setPreviewFiles = useResourceStore((s) => s.setPreviewFiles)
   // MD 文档（说明文档 / spec）默认收起，只显示数据预览，与工具详情一致
   const [showDoc, setShowDoc] = useState(false)
+  // 图片放大预览：模态框内可跨页翻页，-1 表示未打开
+  const [previewImage, setPreviewImage] = useState(-1)
 
   useEffect(() => {
     if (!dataset) return
@@ -251,14 +254,16 @@ export function DataPreviewView({ datasetId }: { datasetId?: string }) {
               <div className="grid grid-cols-4 gap-2">
                 {pageImages.map((img, i) => {
                   const imgRel = (img.path as string) || (img.name as string)
-                  // <img>/window.open 原生请求：追加 ?auth_token= 供多用户模式鉴权
+                  // <img> 原生请求：追加 ?auth_token= 供多用户模式鉴权
                   const imgUrl = imgRel ? authedUrl(datasetFileUrl(dataset.id, imgRel)) : ''
+                  const globalIdx = (safePage - 1) * pageSize + i
                   return (
                     <div
                       key={i}
                       className="aspect-square rounded border border-maia-border bg-maia-bg overflow-hidden group cursor-pointer hover:border-maia-accent/40 transition-colors"
+                      title="点击放大预览"
                       onClick={() => {
-                        if (imgUrl) window.open(imgUrl, '_blank')
+                        if (imgUrl) setPreviewImage(globalIdx)
                       }}
                     >
                       {imgUrl ? (
@@ -313,9 +318,9 @@ export function DataPreviewView({ datasetId }: { datasetId?: string }) {
 
         {/* 表格预览：CSV / Excel / Parquet 统一表格组件，布局一致。
             宽度与「我的文件」CSV 预览（max-w-5xl）对齐撑满中栏，
-            不受上方文档区 max-w-2xl 单栏约束 */}
+            不受上方文档区 max-w-2xl 单栏约束；上下留 p-6 同款边距 */}
         {tableFiles.length > 0 && (
-          <div className="px-4 pb-4 max-w-5xl mx-auto w-full">
+          <div className="p-6 max-w-5xl mx-auto w-full">
             <DataTablePreview datasetId={dataset.id} tableFiles={tableFiles} activeIndex={activeCsv} onActiveChange={setActiveCsv} />
           </div>
         )}
@@ -327,6 +332,20 @@ export function DataPreviewView({ datasetId }: { datasetId?: string }) {
           </div>
         )}
       </div>
+
+      {/* 图片放大预览（页内模态框，跨页连续翻页）。
+          不做过滤：数组下标必须与画廊 globalIdx 一一对应，否则翻页会错位 */}
+      {previewImage >= 0 && imageFiles.length > 0 && (
+        <MediaPreviewModal
+          items={imageFiles.map((img) => {
+            const rel = (img.path as string) || (img.name as string)
+            return { url: rel ? authedUrl(datasetFileUrl(dataset.id, rel)) : '', name: (img.name as string) || '' }
+          })}
+          index={Math.min(previewImage, imageFiles.length - 1)}
+          onIndexChange={setPreviewImage}
+          onClose={() => setPreviewImage(-1)}
+        />
+      )}
     </div>
   )
 }

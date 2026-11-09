@@ -25,8 +25,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { DatasetImportDialog } from './DatasetImportDialog'
-import { nodeFileUrl, type FileTreeNode, type FileCategory } from '@/types/workspace'
-import { authedUrl } from '@/services/api/auth'
+import { type FileTreeNode, type FileCategory } from '@/types/workspace'
 import { useUIStore } from '@/stores/ui-store'
 import { useAuthStore } from '@/stores/auth-store'
 import { alertDialog } from '@/components/ui/confirm-dialog'
@@ -114,22 +113,21 @@ export function WorkspaceFileTree() {
     selectFile(node)
     if (node.type !== 'file') return
 
-    // PDF 文件：直接用浏览器打开（按 file_id 访问）
-    const ext = (node.format || node.name.split('.').pop() || '').toLowerCase()
-    if (ext === 'pdf') {
-      // window.open 是原生请求，带不了 Authorization 头：追加 ?auth_token=
-      const url = nodeFileUrl(node)
-      if (url) window.open(authedUrl(url), '_blank')
-      return
-    }
-
-    // 其他文件（图片/视频/MD/CSV 等）：切换到文件预览视图
+    // 所有文件（图片/视频/PDF/MD/CSV 等）统一走中栏文件预览视图内嵌展示，
+    // 不再对 PDF 单独 window.open 新开浏览器窗口
     useFileTreeStore.getState().setPreviewFile(node)
     useUIStore.getState().setActiveView('file-preview')
   }
 
   const handleDelete = async () => {
     if (!deleteTarget) return
+    // 数据集节点只是「我的文件」里的引用，删除与「清空」同语义：
+    // 仅从列表移除，数据空间中的数据集与数据本身保留（要删请到数据空间）。
+    if (isDatasetNode(deleteTarget)) {
+      useFileTreeStore.getState().removeNode(deleteTarget.id)
+      setDeleteTarget(null)
+      return
+    }
     setDeleting(true)
     try {
       const res = await fetch(`/api/file/${encodeURIComponent(deleteTarget.fileId || '')}`, {
@@ -261,27 +259,43 @@ export function WorkspaceFileTree() {
         />
       )}
 
-      {/* 删除文件确认弹窗 */}
+      {/* 删除确认弹窗（文件 / 数据集两种文案） */}
       {deleteTarget && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40" onClick={() => !deleting && setDeleteTarget(null)}>
           <div className="bg-maia-surface rounded-xl shadow-xl w-[400px] flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="flex items-center gap-2 px-4 py-3 border-b border-maia-border">
               <Trash2 className="h-4 w-4 text-maia-danger" />
-              <span className="text-sm font-semibold text-maia-text-heading">删除文件</span>
+              <span className="text-sm font-semibold text-maia-text-heading">
+                {isDatasetNode(deleteTarget) ? '从列表移除' : '删除文件'}
+              </span>
             </div>
             <div className="px-4 py-4">
-              <p className="text-[13px] text-maia-text leading-relaxed">
-                确定要永久删除文件 <span className="font-semibold text-maia-danger">{deleteTarget.name}</span> 吗？
-              </p>
-              <p className="text-[12px] text-maia-text-muted mt-2 flex items-center gap-1">
-                <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
-                此操作将从文件系统中永久删除该文件，且无法恢复。
-              </p>
+              {isDatasetNode(deleteTarget) ? (
+                <>
+                  <p className="text-[13px] text-maia-text leading-relaxed">
+                    确定要将数据集 <span className="font-semibold">{deleteTarget.name}</span> 从「我的文件」列表移除吗？
+                  </p>
+                  <p className="text-[12px] text-maia-text-muted mt-2 flex items-center gap-1">
+                    <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                    只是从列表移除，数据空间中的数据集和数据本身保留；如需删除数据集请到数据空间操作。
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-[13px] text-maia-text leading-relaxed">
+                    确定要永久删除文件 <span className="font-semibold text-maia-danger">{deleteTarget.name}</span> 吗？
+                  </p>
+                  <p className="text-[12px] text-maia-text-muted mt-2 flex items-center gap-1">
+                    <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                    此操作将从文件系统中永久删除该文件，且无法恢复。
+                  </p>
+                </>
+              )}
             </div>
             <div className="flex items-center justify-end gap-2 px-4 py-2.5 border-t border-maia-border bg-maia-bg/50">
               <Button variant="outline" size="sm" onClick={() => setDeleteTarget(null)} disabled={deleting} className="text-[12px] h-7">取消</Button>
               <Button variant="danger" size="sm" onClick={handleDelete} disabled={deleting} className="text-[12px] h-7">
-                {deleting ? <><Loader2 className="h-3 w-3 animate-spin" />删除中...</> : '确认删除'}
+                {deleting ? <><Loader2 className="h-3 w-3 animate-spin" />删除中...</> : isDatasetNode(deleteTarget) ? '确认移除' : '确认删除'}
               </Button>
             </div>
           </div>
@@ -316,6 +330,11 @@ export function WorkspaceFileTree() {
       )}
     </div>
   )
+}
+
+/** 数据集引用节点（导入自数据空间的目录）：fileId 为 dataset:<id> */
+function isDatasetNode(node: FileTreeNode): boolean {
+  return node.type === 'directory' && !!node.fileId?.startsWith('dataset:')
 }
 
 /** 统计树中的平台文件数（不含数据集节点） */
@@ -399,19 +418,20 @@ function FileTreeItem({
           </span>
         )}
 
-        {/* 删除按钮（仅文件） */}
-        {node.type === 'file' && (
+        {/* 删除按钮：平台文件删单个文件；数据集节点注销整个数据集。
+            数据集内的子文件不提供删除（后端无按相对路径删文件的端点） */}
+        {(!node.fileId?.startsWith('dataset:') && node.type === 'file') || isDatasetNode(node) ? (
           <button
             onClick={(e) => {
               e.stopPropagation()
               onDelete(node)
             }}
             className="shrink-0 p-0.5 rounded text-maia-text-muted hover:text-maia-danger hover:bg-red-500/10 opacity-0 group-hover/tree-item:opacity-100 transition-opacity"
-            title="删除文件"
+            title={isDatasetNode(node) ? '从列表移除（不影响数据空间）' : '删除文件'}
           >
             <Trash2 className="h-3 w-3" />
           </button>
-        )}
+        ) : null}
       </div>
 
       {/* Children */}
