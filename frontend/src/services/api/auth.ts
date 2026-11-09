@@ -23,6 +23,7 @@ export interface MeResponse {
   authenticated: boolean
   user?: AuthUser
   identity?: string
+  /** 仅未登录时返回：是否配置了超级用户密码（决定首屏是否必须弹登录框）。 */
   superuser_configured?: boolean
 }
 

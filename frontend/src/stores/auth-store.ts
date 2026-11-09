@@ -96,7 +96,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       const me = await authApi.me()
       const user = me.authenticated && me.user ? me.user : null
-      set({ user, checked: true })
+      // 配了管理员密码却拿不到身份（刷新后本地没有令牌 / 令牌已失效）：
+      // 首屏直接把登录框摆出来，而不是让人对着一片空界面自己找登录入口。
+      // 没配密码时后端匿名即返回超管身份（user 非空），刷新后自动登录。
+      const mustLogin = !user && me.superuser_configured === true
+      set({ user, checked: true, loginOpen: mustLogin, error: mustLogin ? '请先登录' : '' })
       // 已配置管理员密码且未登录：清空所有按账号加载的内容与标签，首屏保持空。
       // 单用户模式（未配密码）后端会直接返回超管身份，不会走到这里。
       if (!user) await clearUserScopedData()
