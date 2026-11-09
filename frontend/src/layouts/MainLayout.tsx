@@ -17,15 +17,18 @@ import { useChatStore } from '@/stores/chat-store'
 import { useWorkspaceToolStore } from '@/stores/workspace-tool-store'
 
 const STORAGE_KEY = 'maia-layout'
+// 布局数据的结构/默认值版本。调整下面的 DEFAULT_LAYOUT 时必须一并 bump，
+// 否则老浏览器里存着旧默认值的人永远看不到新默认（前端更新不会动 localStorage）。
+const LAYOUT_VERSION = 2
 
 // 侧栏用固定像素宽度，把剩余空间全部留给中间工作区。
 // 之前用 38/40/22 百分比，窗口一宽侧栏就跟着膨胀（2048 宽时左栏约 778px），
 // 中间栏反而被挤到 819px，Agent 审阅/代码区两侧出现大片空白。
-const DEFAULT_LAYOUT = { left: 240, right: 360 }
+const DEFAULT_LAYOUT = { left: 240, right: 280 }
 // 与 Panel 的 minSize 保持一致：历史数据里若存过 0 或过小的宽度，
 // 恢复后会得到一个「已经是折叠态」的面板，与 leftPanelOpen 的 true 自相矛盾。
-// 左栏默认即最小宽度（DEFAULT_LAYOUT.left === MIN_LAYOUT.left）：
-// 左栏只放文件树/资源清单，窄一点能把空间让给中间工作区。
+// 两侧默认即最小宽度（DEFAULT === MIN）：侧栏只放清单/文件列表，
+// 窄一点能把空间让给中间工作区。
 const MIN_LAYOUT = { left: 240, right: 280 }
 
 function loadLayout(): { left: number; right: number } {
@@ -33,13 +36,11 @@ function loadLayout(): { left: number; right: number } {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw)
-      // 兼容旧版百分比数组：不能直接当像素用，丢弃后走新默认值
-      if (parsed && !Array.isArray(parsed) && typeof parsed.left === 'number' && typeof parsed.right === 'number') {
-        // 历史默认值是 320：没拖过栏的人存的就是这个旧默认，
-        // 一律迁移到新默认（最小宽度），否则"默认为最小宽度"在老浏览器上不生效
-        const left = parsed.left === 320 ? MIN_LAYOUT.left : parsed.left
+      // 版本不符（旧版默认值 / 更早的百分比数组）直接丢弃，用当前默认值重建
+      if (parsed?.v !== LAYOUT_VERSION) return DEFAULT_LAYOUT
+      if (typeof parsed.left === 'number' && typeof parsed.right === 'number') {
         return {
-          left: left >= MIN_LAYOUT.left ? left : DEFAULT_LAYOUT.left,
+          left: parsed.left >= MIN_LAYOUT.left ? parsed.left : DEFAULT_LAYOUT.left,
           right: parsed.right >= MIN_LAYOUT.right ? parsed.right : DEFAULT_LAYOUT.right,
         }
       }
@@ -50,7 +51,7 @@ function loadLayout(): { left: number; right: number } {
 
 function saveLayout(layout: { left: number; right: number }) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(layout))
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ v: LAYOUT_VERSION, ...layout }))
   } catch { /* ignore */ }
 }
 
