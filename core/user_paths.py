@@ -30,9 +30,10 @@
 登录后（core/auth）取登录用户 id；无登录态读环境变量 SOTABAND_USER_ID；
 都没有就是超管 "0"。
 
-**系统级例外（不放用户目录）**：
+**系统级例外（不属于任何用户）**：
 - ``users.json`` / ``secret.key``（登录用户表与令牌密钥）：平台级实体，
-  验证任何用户的令牌都需要同一把密钥 → SYSTEM_ROOT/storage/auth/。
+  验证任何用户的令牌都需要同一把密钥 → USER_HOME_ROOT/_platform/auth/。
+  源码目录（SYSTEM_ROOT）只放代码，不放运行数据。
 - 公共资源归属系统用户 "100"（内置资源运行期安装进系统目录后，
   owner 统一为 "100"）。
 """
@@ -113,5 +114,8 @@ def runtime_env(extra: dict | None = None) -> dict:
 
 
 def auth_dir() -> Path:
-    """系统级认证目录（用户表 + 令牌密钥）：平台实体，不随用户走。"""
-    return SYSTEM_ROOT / "storage" / "auth"
+    """系统级认证目录（用户表 + 令牌密钥）：平台实体，不随用户走。
+
+    放用户根下的 _platform/（非数字目录一律不是用户），不落源码目录。
+    """
+    return USER_HOME_ROOT / "_platform" / "auth"

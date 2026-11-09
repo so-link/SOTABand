@@ -20,7 +20,7 @@ uid 由系统从 **1000** 起顺序分配且**不可修改**——uid 就是用�
   HMAC-SHA256 签名令牌（格式 ``<payload_b64url>.<sig_b64url>``），
   避免在现有环境引入 passlib/pyjwt 等新包。
 - 用户数据是**平台级实体**（验证任何用户的令牌都需要同一把密钥），
-  写 ``SYSTEM_ROOT/storage/auth/users.json``，不进任何用户的目录。
+  写 ``USER_HOME_ROOT/_platform/auth/users.json``，不进源码目录也不进任何用户的目录。
 - 令牌密钥 ``secret.key`` 首次使用自动生成（0600）。
   可通过环境变量 ``SOTABAND_AUTH_SECRET`` 显式指定（多实例共享密钥时使用）。
 - 本模块只做身份原语，不做路由挂载。
@@ -43,7 +43,7 @@ from core.user_paths import DEFAULT_UID, SYSTEM_UID, auth_dir, user_home
 from core.resource.json_store import write_json_atomic
 
 # 系统级例外：登录用户表与令牌密钥是**平台级实体**（验证任何用户的令牌
-# 都需要同一把密钥），放 SYSTEM_ROOT/storage/auth/，不随用户目录走。
+# 都需要同一把密钥），放 USER_HOME_ROOT/_platform/auth/，不落源码目录。
 USERS_DIR = auth_dir()
 USERS_FILE = USERS_DIR / "users.json"
 SECRET_FILE = USERS_DIR / "secret.key"
