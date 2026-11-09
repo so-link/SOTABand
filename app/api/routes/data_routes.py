@@ -64,29 +64,93 @@ def _get_first_sentence(dataset_id: str, data_path: str, description: str) -> st
     return ""
 
 
+def _spec_column_roles(headers: list[str]) -> list[str]:
+    """按表头文字判定每一列的语义，返回 role 列表（name/format/size/desc/'')。
+
+    规范文档里的文件表格是人手/LLM 写的，列序和列数都不固定：既有
+    `| 文件 | 格式 | 大小 | 说明 |`，也有把两组文件并排的
+    `| 文件 | 标的 | 文件 | 标的 |`。按固定下标取列会把"标的"当成格式，
+    前端据此判定文件类型就会全部失配，所以必须按表头语义映射。
+    """
+    roles = []
+    for h in headers:
+        t = h.strip()
+        if re.search(r"文件|文件名|名称|^file$|路径|path", t, re.I):
+            roles.append("name")
+        elif re.search(r"大小|体积|size", t, re.I):
+            roles.append("size")
+        elif re.search(r"格式|format|扩展名|ext$", t, re.I):
+            roles.append("format")
+        elif re.search(r"标的|说明|描述|备注|description|desc|用途|内容", t, re.I):
+            roles.append("desc")
+        else:
+            roles.append("")
+    return roles
+
+
+def _spec_col_value(role: str, value: str, rec: dict) -> None:
+    """把一列的文本写进当前文件记录。
+
+    表头写"格式"但填的是中文标的名的（LLM 常这么写），按说明处理，
+    避免把「上证50ETF华夏」当成文件扩展名。
+    """
+    v = value.strip()
+    if not v:
+        return
+    if role == "size":
+        m = re.match(r"^([\d.]+)\s*(GB|MB|KB|B)?$", v, re.I)
+        if m:
+            unit = (m.group(2) or "B").upper()
+            factor = {"B": 1, "KB": 1024, "MB": 1048576, "GB": 1073741824}[unit]
+            rec["size"] = int(float(m.group(1)) * factor)
+    elif role == "format":
+        if re.fullmatch(r"[A-Za-z0-9]{1,8}", v):
+            rec["format"] = v.lower()
+        else:
+            rec["description"] = rec["description"] or v
+    elif role == "desc":
+        rec["description"] = rec["description"] or v
+
+
 def _parse_files_from_spec(spec_md: str) -> list[dict]:
-    """从 MD 规范的"数据格式"表格中解析文件列表"""
-    files = []
-    in_table = False
+    """从 MD 规范的「数据格式」表格中解析文件列表（列序按表头语义识别）"""
+    files: list[dict] = []
+    in_section = False
+    roles: list[str] = []
     for line in spec_md.split("\n"):
-        if "数据格式" in line:
-            in_table = True
+        if not in_section:
+            if "数据格式" in line:
+                in_section = True
             continue
-        if in_table and line.startswith("##"):
+        if line.startswith("##"):
             break
-        if in_table and line.startswith("|") and "文件" not in line and "---" not in line:
-            parts = [p.strip() for p in line.split("|")[1:-1]]
-            if len(parts) >= 3 and parts[0]:
-                try:
-                    size_str = parts[2].replace("KB", "").replace("MB", "").replace("B", "").strip()
-                    size = float(size_str) * 1024 if "KB" in parts[2] else float(size_str) * 1048576 if "MB" in parts[2] else float(size_str) if size_str else 0
-                except ValueError:
-                    size = 0
-                files.append({
-                    "name": parts[0], "format": parts[1].lower() if len(parts) > 1 else "",
-                    "size": int(size), "description": parts[3] if len(parts) > 3 else "",
-                })
-    return files
+        if not line.startswith("|"):
+            continue
+        parts = [p.strip() for p in line.split("|")[1:-1]]
+        if not parts or all(not p for p in parts):
+            continue
+        # 分隔行 |---|---|
+        if all(re.fullmatch(r":?-{2,}:?", p) for p in parts):
+            continue
+        # 首个表格行是表头：据此确定列语义，后续行按语义填字段
+        if not roles:
+            roles = _spec_column_roles(parts)
+            if "name" not in roles:
+                return []
+            continue
+        rec: dict | None = None
+        for i, cell in enumerate(parts):
+            role = roles[i] if i < len(roles) else ""
+            if role == "name":
+                # 并排多组文件：遇到新的文件列就另起一条记录
+                if not cell:
+                    continue
+                rec = {"name": cell, "format": "", "size": 0, "description": ""}
+                files.append(rec)
+            elif rec is not None:
+                _spec_col_value(role, cell, rec)
+    # 丢掉不像文件名的行（例如把表说明误判成文件列）
+    return [f for f in files if "." in f["name"] or "/" in f["name"]]
 
 
 from core.resource.discoverer.data_discoverer import DataDiscoverer
@@ -758,19 +822,27 @@ async def preview_dataset(dataset_id: str):
     spec_path = registry._get_def_dir() / f"{dataset_id}.md"
     spec_md = spec_path.read_text(encoding="utf-8") if spec_path.exists() else ""
 
-    # 从 MD 文档的"数据格式"表格中解析文件列表
+    # 文件清单以**实际目录扫描**为准：只有扫出来的条目才带 path，前端取文件
+    # 内容要靠它拼 URL；规范表格里的清单是人写的，可能缺文件、多文件、
+    # 列序错位，只用来补充「说明」这一栏。
     files = _parse_files_from_spec(spec_md)
-
-    # 如果 MD 中没有文件信息，扫描实际目录
-    if not files:
-        data_path = registry.resolve_data_path(entry.get("data_path", ""))
-        if data_path.exists():
-            for f in data_path.rglob("*"):
-                if f.is_file():
-                    files.append({
-                        "name": str(f.relative_to(data_path)), "format": f.suffix.lstrip("."),
-                        "size": f.stat().st_size, "description": "",
-                    })
+    meta = {f["name"]: f for f in files}
+    data_path = registry.resolve_data_path(entry.get("data_path", ""))
+    scanned = []
+    if data_path.exists():
+        for f in sorted(data_path.rglob("*")):
+            if not f.is_file():
+                continue
+            rel = str(f.relative_to(data_path))
+            info = meta.get(rel) or meta.get(f.name) or {}
+            scanned.append({
+                "name": f.name, "path": rel,
+                "format": f.suffix.lstrip(".").lower(),
+                "size": f.stat().st_size,
+                "description": info.get("description", ""),
+            })
+    if scanned:
+        files = scanned
 
     # 预览工具：优先用缓存，没有缓存则跳过（避免每次点击都调 LLM）
     preview_tool = entry.get("preview_tool")
