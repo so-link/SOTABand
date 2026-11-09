@@ -22,9 +22,9 @@ def allowed_roots() -> list[Path]:
 
     多用户规划（2026-11）：用户数据在 USER_HOME=<SOTABAND_HOME>/<uid>/，
     这里按当前请求身份动态解析——只放行当前用户自己的目录，其他用户目录
-    即使在同一台机器上也算越界。系统资产（resources/、storage/）整体放行
-    是刻意的——平台的资源与数据本就托管在这里；真正要挡的是这两者之外
-    的任意文件系统。
+    即使在同一台机器上也算越界。系统工作区（PROJECT_ROOT，代码 + 出厂种子
+    包 + storage 暂存）整体放行是刻意的——平台的代码与资源本就托管在这里；
+    真正要挡的是这两者之外的任意文件系统。
     """
     from core.user_paths import user_home
 

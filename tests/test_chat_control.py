@@ -261,6 +261,7 @@ def test_symlink_escape_rejected(tmp_path):
     if link.is_symlink() or link.exists():
         os.unlink(link)
     try:
+        link.parent.mkdir(parents=True, exist_ok=True)
         link.symlink_to("/etc")
         with pytest.raises(PathNotAllowed):
             resolve_allowed_path(str(link / "passwd"))
