@@ -145,7 +145,8 @@ class ModelRegistry(BaseRegistry):
                 "status": "registered",
                 "spec_path": f"definitions/{model_id}.md",
                 "framework": resource.get("framework", ""),
-                "model_path": resource.get("model_path", f"models/{model_id}/"),
+                "model_path": self._norm_model_path(
+                    resource.get("model_path", f"models/{model_id}/"), model_id),
                 "input_format": resource.get("input_format", ""),
                 "output_format": resource.get("output_format", ""),
                 "tags": resource.get("tags", []),
@@ -268,6 +269,28 @@ class ModelRegistry(BaseRegistry):
         for e in removed:
             await self.unregister(e["id"])
         return removed
+
+    @staticmethod
+    def _norm_model_path(model_path: str, model_id: str) -> str:
+        """把落在资源根 models/ 下的绝对路径归一为相对路径。
+
+        读取端（_artifact_exists、工具侧 _model_data）一律按「资源根 / models / 相对路径」
+        解析，只有相对路径能在用户目录迁移、私有根变更后继续解析成功；绝对路径会被
+        固化为某台机器的历史位置，资源目录一挪就读不到模型产物。
+        """
+        raw = str(model_path or "").strip()
+        if not raw:
+            return f"models/{model_id}/"
+        p = Path(raw.replace("\\", "/"))
+        if not p.is_absolute():
+            return raw
+        for root in paths.resource_roots():
+            base = Path(str(root)) / "models"
+            try:
+                return str(p.relative_to(base))
+            except ValueError:
+                continue
+        return raw
 
     @staticmethod
     def _artifact_exists(entry: dict) -> bool:
