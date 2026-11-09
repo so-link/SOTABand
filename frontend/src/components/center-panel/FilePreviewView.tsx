@@ -1,19 +1,21 @@
 import { useState, useEffect } from 'react'
 import {
   File, FileText, Image, Film, Loader2, ExternalLink, Download,
-  FolderOpen, Table2, ChevronLeft, ChevronRight,
+  FolderOpen, Table2,
 } from 'lucide-react'
 import { useFileTreeStore } from '@/stores/file-tree-store'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { nodeFileUrl } from '@/types/workspace'
 import { authedUrl } from '@/services/api/auth'
+import { MediaPreviewModal } from '@/components/ui/media-preview-modal'
+import { TableView } from './TableView'
 
 const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'ico'])
 const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'm4v'])
 const MD_EXTENSIONS = new Set(['md', 'markdown'])
 const CSV_EXTENSIONS = new Set(['csv'])
-const TABLE_PAGE_OPTIONS = [8, 16, 32, 64, 100]
+const PDF_EXTENSIONS = new Set(['pdf'])
 
 /** 原生 CSV 行解析 */
 function parseCSVLine(line: string): string[] {
@@ -94,19 +96,19 @@ export function FilePreviewView() {
   const [mdHtml, setMdHtml] = useState<string | null>(null)
   const [csvData, setCsvData] = useState<{ headers: string[]; rows: string[][] } | null>(null)
   const [loading, setLoading] = useState(false)
-  const [csvPage, setCsvPage] = useState(1)
-  const [csvPageSize, setCsvPageSize] = useState(16)
 
   const ext = previewFile ? getExtension(previewFile.name) : ''
   const isImage = IMAGE_EXTENSIONS.has(ext)
   const isVideo = VIDEO_EXTENSIONS.has(ext)
   const isMarkdown = MD_EXTENSIONS.has(ext)
   const isCsv = CSV_EXTENSIONS.has(ext)
+  const isPdf = PDF_EXTENSIONS.has(ext)
+  // 点击图片在页内模态框放大（不新开窗口）
+  const [zoomOpen, setZoomOpen] = useState(false)
   // 内容一律按 file_id（或数据集相对路径）解析，前端不再拼路径
   const contentUrl = previewFile ? nodeFileUrl(previewFile) : null
 
   useEffect(() => {
-    setCsvPage(1)
     if (previewFile && contentUrl && isMarkdown) {
       setLoading(true)
       setMdHtml(null)
@@ -179,9 +181,6 @@ export function FilePreviewView() {
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <Button variant="outline" size="sm" className="text-[12px] h-7" onClick={() => window.open(downloadUrl, '_blank')}>
-            <ExternalLink className="h-3 w-3" />浏览器打开
-          </Button>
           <a href={downloadUrl} download={previewFile.name}>
             <Button variant="outline" size="sm" className="text-[12px] h-7">
               <Download className="h-3 w-3" />下载
@@ -194,7 +193,20 @@ export function FilePreviewView() {
       <div className="flex-1 min-h-0 overflow-auto">
         {isImage && (
           <div className="flex items-center justify-center p-6 bg-maia-bg/30">
-            <img src={imageUrl} alt={previewFile.name} className="max-w-full max-h-[calc(100vh-200px)] object-contain rounded shadow-lg" />
+            <img
+              src={imageUrl}
+              alt={previewFile.name}
+              title="点击放大预览"
+              onClick={() => setZoomOpen(true)}
+              className="max-w-full max-h-[calc(100vh-200px)] object-contain rounded shadow-lg cursor-zoom-in"
+            />
+          </div>
+        )}
+
+        {isPdf && (
+          <div className="h-full min-h-[60vh] p-2 bg-maia-bg/30">
+            {/* iframe 内嵌渲染 PDF，避免 window.open 新开浏览器窗口 */}
+            <iframe title={previewFile.name} src={imageUrl} className="h-full w-full min-h-[60vh] rounded border border-maia-border bg-white" />
           </div>
         )}
 
@@ -227,73 +239,36 @@ export function FilePreviewView() {
             ) : !csvData ? (
               <div className="text-[13px] text-maia-text-muted py-8 text-center">无法解析 CSV 文件</div>
             ) : (
-              (() => {
-                const { headers, rows } = csvData
-                const totalPages = Math.max(1, Math.ceil(rows.length / csvPageSize))
-                const safePage = Math.min(csvPage, totalPages)
-                const pageRows = rows.slice((safePage - 1) * csvPageSize, safePage * csvPageSize)
-                return (
+              <TableView
+                // 切换文件时重置分页/倒序（TableView 内部状态）
+                key={previewFile.fileId}
+                headers={csvData.headers}
+                rows={csvData.rows}
+                heading={
                   <>
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-1.5">
-                        <Table2 className="h-3.5 w-3.5 text-maia-success" />
-                        <span className="text-[13px] font-medium text-maia-text-secondary">
-                          CSV 表格预览（{rows.length} 条记录，{headers.length} 列）
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[12px] text-maia-text-muted">每页</span>
-                        <select value={csvPageSize} onChange={e => { setCsvPageSize(Number(e.target.value)); setCsvPage(1) }}
-                          className="h-6 rounded border border-maia-border bg-maia-bg text-[12px] text-maia-text px-1 outline-none focus:border-maia-accent/40">
-                          {TABLE_PAGE_OPTIONS.map(n => (<option key={n} value={n}>{n} 条</option>))}
-                        </select>
-                        <div className="flex items-center gap-1 ml-2">
-                          <Button size="sm" variant="outline" className="h-6 w-6 p-0" disabled={safePage <= 1}
-                            onClick={() => setCsvPage(p => Math.max(1, p - 1))}><ChevronLeft className="h-3 w-3" /></Button>
-                          <span className="text-[12px] text-maia-text-muted min-w-[40px] text-center">{safePage}/{totalPages}</span>
-                          <Button size="sm" variant="outline" className="h-6 w-6 p-0" disabled={safePage >= totalPages}
-                            onClick={() => setCsvPage(p => Math.min(totalPages, p + 1))}><ChevronRight className="h-3 w-3" /></Button>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="overflow-auto max-h-[600px] border border-maia-border rounded">
-                      <table className="w-full text-[12px] border-collapse">
-                        <thead className="sticky top-0 z-10">
-                          <tr className="bg-maia-bg">
-                            <th className="text-left px-2 py-1.5 text-maia-text-muted font-medium border-b border-maia-border whitespace-nowrap w-10 text-[12px]">#</th>
-                            {headers.map((h, i) => (
-                              <th key={i} className="text-left px-2 py-1.5 text-maia-text-muted font-medium border-b border-maia-border whitespace-nowrap">{h}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {pageRows.map((row, ri) => (
-                            <tr key={ri} className="hover:bg-maia-bg/50">
-                              <td className="px-2 py-1 text-maia-text-muted border-b border-maia-border/50 text-[12px]">{(safePage - 1) * csvPageSize + ri + 1}</td>
-                              {row.map((cell, ci) => (
-                                <td key={ci} className="px-2 py-1 text-maia-text border-b border-maia-border/50 max-w-[300px] truncate" title={cell}>{cell}</td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                    <Table2 className="h-3.5 w-3.5 text-maia-success shrink-0" />
+                    <span className="text-[13px] font-medium text-maia-text-secondary shrink-0">表格预览</span>
+                    <span className="text-[12px] text-maia-text-muted shrink-0">
+                      {csvData.rows.length} 条记录
+                    </span>
+                    <span className="text-[12px] text-maia-text-muted truncate min-w-0" title={previewFile.name}>
+                      {previewFile.name}
+                    </span>
                   </>
-                )
-              })()
+                }
+              />
             )}
           </div>
         )}
 
-        {!isImage && !isVideo && !isMarkdown && !isCsv && (
+        {!isImage && !isVideo && !isMarkdown && !isCsv && !isPdf && (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-maia-text-muted p-6">
             <File className="h-12 w-12 opacity-20" />
             <p className="text-sm">该文件类型暂不支持内嵌预览</p>
             <p className="text-[12px] text-maia-text-muted">文件 ID：<span className="font-mono">{previewFile.fileId}</span></p>
             <div className="flex gap-2 mt-2">
-              <Button variant="outline" size="sm" className="text-[12px]" onClick={() => window.open(downloadUrl, '_blank')}>
-                <ExternalLink className="h-3 w-3" />浏览器打开
+              <Button variant="outline" size="sm" className="text-[12px]" onClick={() => setZoomOpen(true)}>
+                <ExternalLink className="h-3 w-3" />预览
               </Button>
               <a href={downloadUrl} download={previewFile.name}>
                 <Button variant="outline" size="sm" className="text-[12px]">
@@ -304,6 +279,16 @@ export function FilePreviewView() {
           </div>
         )}
       </div>
+
+      {/* 图片放大 / 无法内嵌类型的页内模态框（不新开浏览器窗口） */}
+      {zoomOpen && (
+        <MediaPreviewModal
+          items={[{ url: imageUrl || downloadUrl, name: previewFile.name }]}
+          index={0}
+          onIndexChange={() => {}}
+          onClose={() => setZoomOpen(false)}
+        />
+      )}
     </div>
   )
 }
