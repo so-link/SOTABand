@@ -12,7 +12,7 @@
 运行期解析顺序 ``resource_roots()`` = **[私有根, 系统根]**，先命中者胜出
 （覆盖层语义：fork 出的私有副本覆盖公共资源）。
 
-``SYSTEM_ROOT/resources/`` 降级为**出厂种子包**（git 分发，经
+``PROJECT_ROOT/resources/`` 降级为**出厂种子包**（git 分发，经
 scripts/seed_system_resources.py 幂等导入系统用户目录），不再参与运行期
 解析；``BUILTIN_ROOT`` 常量保留仅作为种子包定位与 fork 升级哈希的参照。
 
@@ -24,13 +24,10 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from core.user_paths import SYSTEM_ROOT, SYSTEM_UID, current_uid, user_home
-
-# 项目根：保留旧名以兼容既有引用（语义 = SYSTEM_ROOT）
-PROJECT_ROOT = SYSTEM_ROOT
+from core.user_paths import PROJECT_ROOT, SYSTEM_UID, current_uid, user_home
 
 # 出厂种子包根（git 分发；运行期不解析，仅导入/哈希比对时引用）
-BUILTIN_ROOT = SYSTEM_ROOT / "resources"
+BUILTIN_ROOT = PROJECT_ROOT / "resources"
 
 
 def private_root(uid: str | None = None) -> Path:

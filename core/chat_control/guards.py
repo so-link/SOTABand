@@ -18,7 +18,7 @@ class PathNotAllowed(Exception):
 
 
 def allowed_roots() -> list[Path]:
-    """允许读写的根目录：当前用户数据区（USER_HOME）+ 系统工作区（SYSTEM_ROOT）。
+    """允许读写的根目录：当前用户数据区（USER_HOME）+ 项目根（PROJECT_ROOT）。
 
     多用户规划（2026-11）：用户数据在 USER_HOME=<SOTABAND_HOME>/<uid>/，
     这里按当前请求身份动态解析——只放行当前用户自己的目录，其他用户目录

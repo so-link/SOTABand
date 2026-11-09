@@ -8,7 +8,7 @@
   data/uploads/*                  → /root/SB-USER/0/uploads/*
   storage/workspace_tools.json    → /root/SB-USER/0/workspace_tools.json
   storage/workspace_tree.json     → /root/SB-USER/0/workspace_tree.json
-  <私有根>/users/{users.json,secret.key} → SYSTEM_ROOT/storage/auth/（系统级例外）
+  <私有根>/users/{users.json,secret.key} → _platform/auth/（平台级例外，见 auth_dir）
 
 迁移后把用户侧 registry 条目与数据集 data_path 中的旧私有根前缀改写，
 并把历史 owner（local-xxx / 登录 id）统一改写为 "0"（默认用户）。
@@ -26,7 +26,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from core.user_paths import USER_HOME_ROOT, SYSTEM_ROOT, DEFAULT_UID  # noqa: E402
+from core.user_paths import USER_HOME_ROOT, DEFAULT_UID, auth_dir  # noqa: E402
 
 OLD_PRIVATE = Path("/root/resources-private")
 NEW_PRIVATE = USER_HOME_ROOT / DEFAULT_UID / "resources-private"
@@ -65,15 +65,15 @@ def main() -> None:
     for name in ("platform.db", "platform.db-wal", "platform.db-shm"):
         move_data(ROOT / "storage" / name, NEW_HOME / name)
 
-    # 2) 认证（系统级例外：SYSTEM_ROOT/storage/auth）
-    auth_dir = SYSTEM_ROOT / "storage" / "auth"
+    # 2) 认证（平台级例外：_platform/auth，与运行时 auth_dir() 一致）
+    _adir = auth_dir()
     for name in ("users.json", "secret.key"):
         for old_root in (OLD_PRIVATE, LEGACY_PRIVATE):
             src = old_root / "users" / name
-            if src.exists() and not (auth_dir / name).exists():
-                auth_dir.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(src), str(auth_dir / name))
-                moved.append(f"{src} → {auth_dir / name}")
+            if src.exists() and not (_adir / name).exists():
+                _adir.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(src), str(_adir / name))
+                moved.append(f"{src} → {_adir / name}")
 
     # 3) 私有资源根（含 4 个 registry + implementations + usage.json + 数据集文件）
     move_data(OLD_PRIVATE, NEW_PRIVATE)

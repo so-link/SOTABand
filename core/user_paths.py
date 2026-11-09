@@ -1,14 +1,15 @@
-"""系统根 / 用户目录解析（多用户路径规划的单一实现）
+"""项目根 / 用户目录解析（多用户路径规划的单一实现）
 
 规划（2026-11 确认）：
 
-- **SYSTEM_ROOT**（默认 = 项目根 /root/SOTABand）：系统资产——内置工具、
-  内置模型/Agent/示例数据集（resources/）、代码、.env 配置。随 git 分发。
+- **PROJECT_ROOT**（默认 = 项目根 /root/SOTABand）：代码仓库——代码、
+  .env 配置、出厂种子包（resources/，运行期不解析，仅导入/哈希参照）。
+  随 git 分发，只读用途，不放运行数据。
 - **USER_HOME**（默认根 /root/SB-USER，可用环境变量 SOTABAND_HOME 覆盖）：
-  用户数据一律落在 ``<USER_HOME_ROOT>/<uid>/`` 下：
+  用户数据一律落在 ``<USER_HOME_ROOT>/<uid>/`` 下（扁平布局，无中间层）：
 
       platform.db          会话/消息/任务历史/cron/审计/个人偏好（SQLite）
-      resources-private/   用户自建的工具/Agent/数据集/模型
+      tools/ agents/ data/ models/   用户的工具/Agent/数据集/模型（资源空间）
       uploads/             对话附件与工作区上传
       plots/               工具绘图产物
       workspace_tools.json 工具空间清单
@@ -33,7 +34,7 @@
 **系统级例外（不属于任何用户）**：
 - ``users.json`` / ``secret.key``（登录用户表与令牌密钥）：平台级实体，
   验证任何用户的令牌都需要同一把密钥 → USER_HOME_ROOT/_platform/auth/。
-  源码目录（SYSTEM_ROOT）只放代码，不放运行数据。
+  源码目录（PROJECT_ROOT）只放代码，不放运行数据。
 - 公共资源归属系统用户 "100"（内置资源运行期安装进系统目录后，
   owner 统一为 "100"）。
 """
@@ -44,10 +45,8 @@ import os
 import re
 from pathlib import Path
 
-# 系统根：core/user_paths.py → core → 项目根
-SYSTEM_ROOT = Path(__file__).resolve().parent.parent
-# 兼容旧名（paths.py / guards.py 等以 PROJECT_ROOT 引用）
-PROJECT_ROOT = SYSTEM_ROOT
+# 项目根：代码仓库目录（只放代码与出厂种子包，不放运行数据）
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # 用户目录根：默认 /root/SB-USER；可用 SOTABAND_HOME 覆盖
 USER_HOME_ROOT = Path(os.environ.get("SOTABAND_HOME", "/root/SB-USER"))
@@ -99,12 +98,12 @@ def runtime_env(extra: dict | None = None) -> dict:
     也不允许 ``Path(__file__).parents[N]`` 反推根目录（资源搬到任何深度、
     换用户目录、复制到系统目录或换机器，反推都会算错）。
 
-    - ``SOTABAND_ROOT``      系统根（代码 + 内置资源），只读用途
+    - ``SOTABAND_ROOT``      项目根（代码 + 出厂种子包），只读用途
     - ``SOTABAND_USER_HOME`` 当前用户目录，一切产物写这里
     - ``SOTABAND_USER_ID``   当前用户 ID
     """
     env = {
-        "SOTABAND_ROOT": str(SYSTEM_ROOT),
+        "SOTABAND_ROOT": str(PROJECT_ROOT),
         "SOTABAND_USER_HOME": str(user_home()),
         "SOTABAND_USER_ID": current_uid(),
     }
