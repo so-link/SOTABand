@@ -294,3 +294,85 @@ def test_gen_tools_get_stricter_limit():
     for _ in range(5):
         assert gateway.rate_check(owner, "create_tool") == ""
     assert "生成类" in gateway.rate_check(owner, "create_tool")
+
+
+# ── 写路径审计强制（评审 H-4：审计挂了写操作照常执行且无痕）──
+
+def test_pending_card_requires_audit_receipt(monkeypatch):
+    """审计不可用时写请求不受理：不发确认卡、不留 pending。"""
+    async def _never(args, ctx):
+        raise AssertionError("handler 不应被执行")
+
+    tool = reg.get("run_tool")
+    original_handler = tool.handler
+    tool.handler = _never
+    try:
+        def boom(uid=None):
+            raise RuntimeError("db locked")
+        monkeypatch.setattr(audit, "_db", boom)
+        r = run_coro(gateway.platform_call(
+            "run_tool", {"tool_id": "any-tool", "params": {"a": 1}},
+            owner="alice", session_id="s-strict-card"))
+        assert r["status"] == "error" and "审计" in r["error"]
+        assert confirm.pending_for("s-strict-card") is None
+    finally:
+        tool.handler = original_handler
+
+
+def test_confirm_execute_requires_audit_receipt(monkeypatch):
+    """确认执行前拿不到审计回执 → 不执行；操作收尾 failed，重试不可绕过。"""
+    executed = []
+
+    async def _fake_run_tool(args, ctx):
+        executed.append(args.tool_id)
+        return {"status": "success", "message": "ok", "data": {}}
+
+    tool = reg.get("run_tool")
+    original_handler = tool.handler
+    tool.handler = _fake_run_tool
+    try:
+        r1 = run_coro(gateway.platform_call(
+            "run_tool", {"tool_id": "any-tool", "params": {"a": 1}},
+            owner="alice", session_id="s-strict-exec"))
+        assert r1["status"] == "pending"
+        card = r1["confirm"]
+
+        def boom(uid=None):
+            raise RuntimeError("disk full")
+        monkeypatch.setattr(audit, "_db", boom)
+        r2 = run_coro(gateway.confirm_op(
+            card["op_id"], owner="alice", token=card["token"],
+            fingerprint=card["fingerprint"]))
+        assert r2["status"] == "error" and "未执行" in r2["error"]
+        assert executed == []
+
+        # 重试：幂等缓存返回首次失败，绝不绕过审计再次执行
+        r3 = run_coro(gateway.confirm_op(
+            card["op_id"], owner="alice", token=card["token"],
+            fingerprint=card["fingerprint"]))
+        assert r3["status"] == "failed"
+        assert executed == []
+    finally:
+        tool.handler = original_handler
+
+
+def test_read_path_audit_stays_lenient(monkeypatch):
+    """只读路径：审计失败仍正常返回结果（对话可用性优先）。"""
+    import core.chat_control.registry as _reg
+
+    class _Empty(StrictArgs):
+        pass
+
+    @platform_tool(name="strict_demo_read", description="d", args_model=_Empty, risk=RISK_READ)
+    async def _demo(args, ctx):
+        return {"items": []}
+
+    try:
+        def boom(uid=None):
+            raise RuntimeError("db locked")
+        monkeypatch.setattr(audit, "_db", boom)
+        r = run_coro(gateway.platform_call(
+            "strict_demo_read", {}, owner="alice", session_id="s-strict-read"))
+        assert r["status"] == "ok"
+    finally:
+        _reg._REGISTRY.pop("strict_demo_read", None)

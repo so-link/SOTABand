@@ -156,8 +156,16 @@ async def platform_call(
             args_view=reg.args_view_for(tool, clean),
             owner=owner, session_id=session_id,
         )
-        audit.record(op_id=op.op_id, session_id=session_id, owner=owner, tool=name,
-                     args=clean, risk=tool.risk, status="pending")
+        # 待确认卡本身就是审计回执：审计落不进就撤回卡片——没有回执的
+        # 写操作不允许存在可确认的入口。
+        try:
+            audit.record(op_id=op.op_id, session_id=session_id, owner=owner,
+                         tool=name, args=clean, risk=tool.risk, status="pending",
+                         strict=True)
+        except audit.AuditUnavailable as e:
+            confirm.cancel(op.op_id, owner)
+            return {"status": "error", "tool": name,
+                    "error": f"审计服务不可用，操作未受理：{e}"}
         return {"status": "pending", "tool": name, "confirm": op.public(),
                 "hint": "已向用户发出确认卡片。请告知用户在卡片上确认；"
                         "在用户确认前该操作不会执行，也不要声称已执行。"}
@@ -212,8 +220,16 @@ async def confirm_op(op_id: str, *, owner: str, token: str,
                      risk="write", status="confirm_rejected", error=str(e))
         return {"status": "error", "op_id": op_id, "error": str(e)}
 
-    audit.record(op_id=op_id, session_id=op.session_id, owner=owner, tool=op.tool,
-                 args=op.args, risk=op.risk, status="confirmed")
+    # 执行前必须拿到 confirmed 回执：审计挂了就不执行，并把操作收尾为
+    # failed，防止重试时绕过这道闸再次执行。
+    try:
+        audit.record(op_id=op_id, session_id=op.session_id, owner=owner,
+                     tool=op.tool, args=op.args, risk=op.risk,
+                     status="confirmed", strict=True)
+    except audit.AuditUnavailable as e:
+        confirm.finish(op_id, "failed", error=f"审计不可用，未执行: {e}")
+        return {"status": "error", "op_id": op_id,
+                "error": f"审计服务不可用，操作未执行：{e}"}
     out = await execute_confirmed(op, emit=emit)
     confirm.finish(op_id, "executed" if out["status"] == "ok" else "failed",
                    result=out.get("result"), error=out.get("error", ""))
