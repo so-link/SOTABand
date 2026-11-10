@@ -52,7 +52,7 @@
 - 覆盖全球 1.4 亿+ 专利文献
 - 免费注册即用，每日 5000 次请求
 - 注册地址：https://www.lens.org/lens/user/subscriptions
-- API Token 目前没有对应的「获取 Lens API KEY」系统 API，需在工具运行环境（如 `.env` / 环境变量）中配置（现有密钥类系统 API 仅 `api-doubao-get-key` / `api-deepseek-get-key`）
+- API Token 目前没有对应的「获取 Lens API KEY」系统 API，需在工具运行环境（如 `.env` / 环境变量）中配置（系统不提供明文密钥类 API，LLM 密钥统一走平台代理通道）
 
 ## 实现要点
 

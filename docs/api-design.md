@@ -18,24 +18,23 @@ API 子系统是核心层对外的**统一接口抽象层**。将核心层中的
 core/api/
 ├── __init__.py                       # get_api() 统一入口
 ├── registry.py                       # ApiRegistry — 注册中心
-├── registry.json                     # 19个API注册表
+├── registry.json                     # 18个API注册表
 ├── discoverer.py                     # ApiDiscoverer — 发现器
 ├── base.py                           # BaseApi 基类（同步/异步双模式调用）
-├── definitions/                      # MD 规范文档（19个）
+├── definitions/                      # MD 规范文档（18个）
 │   ├── api-data-register.md / api-data-delete.md / api-data-list.md / api-data-get.md
 │   ├── api-tool-register.md / api-tool-list.md
 │   ├── api-llm-chat.md / api-llm-chat-stream.md / api-llm-chat-with-config.md
-│   ├── api-llm-get-config.md / api-llm-list-providers.md
+│   ├── api-llm-get-config.md / api-llm-images.md / api-llm-list-providers.md
 │   ├── api-llm-test-config.md / api-llm-test-connection.md
-│   ├── api-deepseek-get-key.md / api-doubao-get-key.md
 │   ├── api-agent-start.md / api-agent-stop.md
 │   └── api-model-register.md / api-model-get.md
 └── implementations/                  # Python 实现（5个文件）
     ├── api_data.py                   # 数据集: register / delete / list / get（强制按 owner 过滤）
     ├── api_tool.py                   # 工具: register / list
-    ├── api_llm.py                    # LLM: chat / chat_stream / chat_with_config / get_config /
-    │                                 #     list_providers / test_config / test_connection /
-    │                                 #     deepseek / doubao key 获取
+    ├── api_llm.py                    # LLM: chat / chat_stream / chat_with_config / get_config（掩码）/
+    │                                 #     images（图片生成/编辑代理）/
+    │                                 #     list_providers / test_config / test_connection
     ├── api_model.py                  # 模型: register / get
     └── api_agent.py                  # Agent: start / stop
 ```
@@ -219,18 +218,17 @@ result = _call_tool("tool-name", param1=value1, ...)
 | api-llm-chat | LLM对话API | llm | api_llm.py |
 | api-llm-chat-stream | LLM流式对话API | llm | api_llm.py |
 | api-llm-chat-with-config | 自定义配置LLM对话API | llm | api_llm.py |
-| api-llm-get-config | LLM配置获取API | llm | api_llm.py |
+| api-llm-get-config | LLM配置获取API（掩码视图） | llm | api_llm.py |
+| api-llm-images | 图片生成/编辑API | llm | api_llm.py |
 | api-llm-list-providers | LLM服务商列表API | llm | api_llm.py |
 | api-llm-test-config | LLM配置测试API | llm | api_llm.py |
 | api-llm-test-connection | LLM连接测试API | llm | api_llm.py |
-| api-deepseek-get-key | 获取DeepSeek API KEY | llm | api_llm.py |
-| api-doubao-get-key | 获取豆包API KEY | llm | api_llm.py |
 | api-agent-start | Agent启动API | resource | api_agent.py |
 | api-agent-stop | Agent停止API | resource | api_agent.py |
 | api-model-register | 模型注册API | resource | api_model.py |
 | api-model-get | 模型详情API | resource | api_model.py |
 
-> **密钥安全提示**：`api-llm-get-config` / `api-deepseek-get-key` / `api-doubao-get-key` 返回明文 Key，仅供本机工具使用。工具生成 Prompt 已明确禁止 LLM 生成的代码调用 get-key 类 API（应改用 `_llm_chat` / `api-llm-chat-with-config`，密钥不经过工具代码），但这些约束只作用于生成代码，不构成运行时隔离——注册工具本身即可执行任意代码，与项目「单机可信」前提一致。
+> **密钥安全提示**：明文密钥 API（`api-deepseek-get-key` / `api-doubao-get-key`）已于 2026-11 下线，`api-llm-get-config` 改为只返回掩码视图。工具发起 LLM 调用的正确通道：文本对话 `_llm_chat` / `api-llm-chat`，指定服务商的对话（如多模态）`api-llm-chat-with-config`（只报 provider，密钥由服务端按 `.env` 解析），图片生成/编辑 `api-llm-images`——密钥全程不进工具代码与工具进程。工具生成 Prompt 同步禁止任何读取密钥或直连服务商端点的写法。
 
 ---
 
