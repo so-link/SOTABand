@@ -295,7 +295,7 @@ def execute(**kwargs) -> dict[str, Any]:
         if data_path is None:
             return {"status": "failed", "message": "无法创建唯一的时间戳目录"}
 
-        os.makedirs(data_path, exist_ok=False)
+        data_path.mkdir(parents=True, exist_ok=False)
 
         # ── 3. 构建 Lens API 搜索请求 ──
         encoded_req = urllib.parse.quote_plus(req.strip())

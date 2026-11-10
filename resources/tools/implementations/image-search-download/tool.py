@@ -83,7 +83,6 @@ def _resolve_path(path: str) -> str:
 
 # === 头部结束，以下由 LLM 生成 ===
 
-import shutil
 from datetime import datetime
 from bing_image_downloader import downloader
 
@@ -119,7 +118,7 @@ def execute(**kwargs) -> dict[str, Any]:
         # 生成时间戳目录
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
         download_dir = _DOWNLOADS_DIR / timestamp
-        os.makedirs(download_dir, exist_ok=True)
+        download_dir.mkdir(parents=True, exist_ok=True)
 
         # 调用 bing-image-downloader 下载图片
         # 注意：该库会在 output_dir 下自动创建一个以搜索词命名的子目录
@@ -156,7 +155,7 @@ def execute(**kwargs) -> dict[str, Any]:
         for f in source_subdir.iterdir():
             if f.is_file():
                 dest = download_dir / f.name
-                shutil.move(str(f), str(dest))
+                f.rename(dest)
                 image_files.append(dest)
         source_subdir.rmdir()  # 删除空子目录
 

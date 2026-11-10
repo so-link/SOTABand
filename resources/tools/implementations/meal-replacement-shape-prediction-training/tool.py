@@ -187,7 +187,7 @@ def execute(**kwargs) -> Dict[str, Any]:
 
     # 12. 保存模型
     try:
-        os.makedirs(output_dir, exist_ok=True)
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
         model_path = os.path.join(output_dir, 'model.pkl')
         joblib.dump(model, model_path)
         abs_path = os.path.abspath(model_path)

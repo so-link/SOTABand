@@ -133,7 +133,7 @@ def execute(**kwargs) -> dict[str, Any]:
             # 转换失败，保留 aiff 格式
             import shutil
             output_path = _DATA_DIR / f"tts_{int(time.time())}.aiff"
-            shutil.copy(tmp_path, str(output_path))
+            shutil.copyfile(tmp_path, str(output_path))
         finally:
             Path(tmp_path).unlink(missing_ok=True)
 
