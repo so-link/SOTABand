@@ -74,6 +74,15 @@ async def lifespan(app: FastAPI):
             f"配置该密码并重启即可启用多用户（强制登录 + 用户管理）"
         )
 
+    # 非回环监听 + 未设超管密码：匿名即可达的超管面，醒目警告（不阻断启动，
+    # 反向代理/隧道部署有意绑非回环地址时由运维自行判断）
+    if not _is_loopback_host(settings.app.api_host) and not superuser_password_configured():
+        print(
+            f"[SOTABand] ⚠⚠ 安全警告：监听 {settings.app.api_host}（非回环）且未配置 "
+            f"SOTABAND_ROOT_PASSWORD——网络可达的任意访客即以超级用户身份使用平台"
+            f"（含代码执行/文件接口）。请设置超管密码，或改绑 127.0.0.1 经反向代理访问。"
+        )
+
     # .env 含 API Key 等凭据；历史版本写入时未收紧权限，启动自检兜底
     if ENV_FILE.exists() and ENV_FILE.stat().st_mode & 0o077:
         print(
