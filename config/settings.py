@@ -527,12 +527,6 @@ class Settings:
     observability: ObservabilityConfig = field(default_factory=ObservabilityConfig)
     chat: ChatConfig = field(default_factory=ChatConfig)
 
-    @classmethod
-    def from_env(cls) -> "Settings":
-        """从环境变量加载配置。"""
-        # TODO: 实现环境变量加载逻辑
-        return cls()
-
 
 # 全局单例
 settings = Settings()
