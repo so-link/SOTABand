@@ -32,7 +32,10 @@ export function SettingsView() {
   const [saveError, setSaveError] = useState('')
   // 运行参数（可在界面调整，保存后写入 .env 并即时生效）
   const [llmTimeout, setLlmTimeout] = useState('1200')
-  const [maxConcurrency, setMaxConcurrency] = useState('1')
+  // LLM 并发三池：chat（对话主链路）/ gen（长生成链）/ aux（后台短任务）
+  const [maxConcurrency, setMaxConcurrency] = useState('2')
+  const [genConcurrency, setGenConcurrency] = useState('1')
+  const [auxConcurrency, setAuxConcurrency] = useState('4')
   const [debugExecTimeout, setDebugExecTimeout] = useState('60')
   const [debugMaxRounds, setDebugMaxRounds] = useState('10')
   // Agent 轮次防卡死（0 = 不限制）
@@ -61,7 +64,9 @@ export function SettingsView() {
         // 不填入脱敏后的 key，保持空；placeholder 提示「已配置，输入新值以替换」
         setApiKey('')
         setLlmTimeout(String(cfg.timeout ?? 1200))
-        setMaxConcurrency(String(cfg.max_concurrency ?? 1))
+        setMaxConcurrency(String(cfg.max_concurrency ?? 2))
+        setGenConcurrency(String(cfg.gen_concurrency ?? 1))
+        setAuxConcurrency(String(cfg.aux_concurrency ?? 4))
         setDebugExecTimeout(String(cfg.debug_exec_timeout ?? 60))
         setDebugMaxRounds(String(cfg.debug_max_rounds ?? 10))
         setAgentRoundTimeout(String(cfg.agent_round_timeout ?? 7200))
@@ -95,6 +100,8 @@ export function SettingsView() {
         api_key: apiKey.trim(),
         timeout: Number(llmTimeout) || undefined,
         max_concurrency: Number(maxConcurrency) || undefined,
+        gen_concurrency: Number(genConcurrency) || undefined,
+        aux_concurrency: Number(auxConcurrency) || undefined,
         debug_exec_timeout: Number(debugExecTimeout) || undefined,
         debug_max_rounds: Number(debugMaxRounds) || undefined,
         // 防卡死参数允许 0（= 不限制），不能用 `|| undefined` 把 0 吃掉
@@ -299,7 +306,7 @@ export function SettingsView() {
                     </p>
                   </div>
                   <div>
-                    <label className="block text-[12px] text-maia-text-muted mb-1">LLM 并发上限</label>
+                    <label className="block text-[12px] text-maia-text-muted mb-1">对话并发上限（chat 池）</label>
                     <Input
                       type="number" min={1} max={16}
                       value={maxConcurrency}
@@ -307,7 +314,34 @@ export function SettingsView() {
                       className="font-mono"
                     />
                     <p className="text-[11px] text-maia-text-muted mt-1">
-                      网关仅支持串行时保持 1；环境变量 <span className="font-mono">LLM_MAX_CONCURRENCY</span>
+                      对话/工具调用主链路；网关仅支持串行时保持 1；环境变量{' '}
+                      <span className="font-mono">LLM_MAX_CONCURRENCY</span>
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-[12px] text-maia-text-muted mb-1">生成并发上限（gen 池）</label>
+                    <Input
+                      type="number" min={1} max={16}
+                      value={genConcurrency}
+                      onChange={(e) => setGenConcurrency(e.target.value)}
+                      className="font-mono"
+                    />
+                    <p className="text-[11px] text-maia-text-muted mt-1">
+                      规格/代码/图片等长生成链；环境变量{' '}
+                      <span className="font-mono">LLM_GEN_MAX_CONCURRENCY</span>
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-[12px] text-maia-text-muted mb-1">后台短任务并发上限（aux 池）</label>
+                    <Input
+                      type="number" min={1} max={16}
+                      value={auxConcurrency}
+                      onChange={(e) => setAuxConcurrency(e.target.value)}
+                      className="font-mono"
+                    />
+                    <p className="text-[11px] text-maia-text-muted mt-1">
+                      标题摘要/标签/工具匹配等秒级小调用，独立排队不被长生成拖累；环境变量{' '}
+                      <span className="font-mono">LLM_AUX_MAX_CONCURRENCY</span>
                     </p>
                   </div>
                   <div>

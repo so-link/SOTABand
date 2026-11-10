@@ -12,7 +12,7 @@ async def _auto_generate_model_tags(model_id: str, name: str, spec_md: str):
         from app.api.routes.data_routes import _extract_tags_json
         import re
 
-        llm = create_llm_client()
+        llm = create_llm_client(pool="aux")
         prompt = f"""根据以下模型信息，生成3-5个简短的中文标签（每个2-4字），用于模型分类和检索。直接返回 JSON 数组。
 
 模型名称: {name}

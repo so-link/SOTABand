@@ -36,7 +36,12 @@ export interface LLMConfig {
   base_url: string
   supported_models: SupportedModel[]
   timeout: number
+  /** chat 池并发上限（对话/工具调用主链路） */
   max_concurrency: number
+  /** gen 池并发上限（规格/代码/图片长生成链） */
+  gen_concurrency: number
+  /** aux 池并发上限（标题/标签/匹配等后台短任务） */
+  aux_concurrency: number
   debug_exec_timeout: number
   debug_max_rounds: number
   agent_round_timeout: number
@@ -50,7 +55,12 @@ export interface LLMConfigUpdatePayload {
   model: string
   api_key: string
   timeout?: number
+  /** chat 池并发上限 */
   max_concurrency?: number
+  /** gen 池并发上限 */
+  gen_concurrency?: number
+  /** aux 池并发上限 */
+  aux_concurrency?: number
   debug_exec_timeout?: number
   debug_max_rounds?: number
   /** Agent 单轮硬超时（秒）；0 = 不限制 */

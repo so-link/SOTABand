@@ -91,7 +91,8 @@ async def _summarize_title(session_id: str) -> str:
         if not convo:
             return ""
         from core.llm.client import create_llm_client
-        title = await create_llm_client().chat([
+        # 标题摘要是秒级后台短任务，走 aux 池，不被对话长流排队拖累
+        title = await create_llm_client(pool="aux").chat([
             {"role": "system",
              "content": "你是会话标题生成器。根据对话内容生成一个不超过 20 个字的中文标题，"
                         "概括用户想做的事。只输出标题本身，不要引号、标点或解释。"},

@@ -163,6 +163,8 @@ discoverer = DataDiscoverer()
 tool_registry = ToolRegistry()
 tool_discoverer = ToolDiscoverer()
 llm = create_llm_client()
+# 标签/预览工具选择/工具匹配等秒级短任务走 aux 池，与规格生成流互不排队
+aux_llm = create_llm_client(pool="aux")
 
 
 async def _owned_dataset(dataset_id: str) -> dict:
@@ -316,7 +318,7 @@ async def generate_spec(req: GenerateDataSpecRequest):
             # 同时生成标签（小调用，非流式，在 done 里返回）
             tags = []
             try:
-                tag_response = await llm.chat(
+                tag_response = await aux_llm.chat(
                     messages=[{
                         "role": "user",
                         "content": f"""根据以下数据集信息，生成3-5个简短的中文标签（每个2-4字），用于数据集分类和检索。只输出 JSON 数组，不要输出任何其他内容。
@@ -443,7 +445,7 @@ async def _match_preview_tool(dataset_id: str, spec_md: str):
 {{"tool_id": "xxx" 或 null, "reason": "..."}}
 只返回 JSON。"""
 
-        response = await llm.chat(
+        response = await aux_llm.chat(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3, max_tokens=100000,
         )
@@ -458,15 +460,13 @@ async def _match_preview_tool(dataset_id: str, spec_md: str):
 async def _auto_generate_dataset_tags(dataset_id: str, name: str, spec_md: str):
     """LLM 自动生成数据集标签，更新到 registry"""
     try:
-        from core.llm.client import create_llm_client
-        llm = create_llm_client()
         prompt = f"""根据以下数据集信息，生成3-5个简短的中文标签（每个2-4字），用于数据集分类和检索。只输出 JSON 数组，不要输出任何其他内容。
 
 数据集名称: {name}
 数据集描述: {spec_md[:500]}
 
 返回格式: ["标签1", "标签2", "标签3"]"""
-        response = await llm.chat(
+        response = await aux_llm.chat(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3, max_tokens=1000, timeout=30,
         )
@@ -716,7 +716,7 @@ async def match_tools(req: MatchToolsRequest):
 如果没有匹配工具，返回: {{"matches": [], "reason": "说明"}}
 只返回 JSON。"""
 
-    response = await llm.chat(
+    response = await aux_llm.chat(
         messages=[{"role": "user", "content": prompt}],
         temperature=0.3, max_tokens=100000,
     )

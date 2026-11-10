@@ -53,7 +53,9 @@ class LLMConfigUpdate(BaseModel):
     model: str   # 下拉选项的 value（<provider>:<默认模型>）
     api_key: str = ""  # 为空表示保留现有 key，不更新
     timeout: int | None = None            # LLM 请求超时（秒）
-    max_concurrency: int | None = None    # LLM 并发上限
+    max_concurrency: int | None = None    # LLM 并发上限（chat 池：对话/工具调用）
+    gen_concurrency: int | None = None    # 生成链并发上限（gen 池：规格/代码/图片）
+    aux_concurrency: int | None = None    # 后台短任务并发上限（aux 池：标题/标签/匹配）
     debug_exec_timeout: float | None = None  # 调试单轮执行超时（秒）
     debug_max_rounds: int | None = None      # 调试最大轮数
     # Agent 轮次防卡死（None = 本次不改动）
@@ -116,6 +118,15 @@ def _gen_snapshot() -> dict:
         "base_url": cfg.base_url,
         "api_key": _mask_key(cfg.api_key),
         "has_api_key": bool(cfg.api_key),
+    }
+
+
+def _concurrency_snapshot() -> dict:
+    """三池并发上限当前值（chat/gen/aux），供 GET 与 POST 响应复用"""
+    return {
+        "max_concurrency": get_llm_concurrency("chat"),
+        "gen_concurrency": get_llm_concurrency("gen"),
+        "aux_concurrency": get_llm_concurrency("aux"),
     }
 
 
@@ -278,7 +289,7 @@ async def get_llm_config():
         "base_url": settings.llm.base_url,
         "supported_models": options,
         "timeout": settings.llm.timeout,
-        "max_concurrency": get_llm_concurrency(),
+        **_concurrency_snapshot(),
         "debug_exec_timeout": get_debug_exec_timeout(),
         "debug_max_rounds": get_debug_max_rounds(),
         "agent_round_timeout": int(os.getenv("AGENT_ROUND_TIMEOUT", "7200") or 7200),
@@ -327,6 +338,10 @@ async def update_llm_config(payload: LLMConfigUpdate):
         env["LLM_TIMEOUT"] = str(max(30, min(7200, int(payload.timeout))))
     if payload.max_concurrency is not None:
         env["LLM_MAX_CONCURRENCY"] = str(max(1, min(16, int(payload.max_concurrency))))
+    if payload.gen_concurrency is not None:
+        env["LLM_GEN_MAX_CONCURRENCY"] = str(max(1, min(16, int(payload.gen_concurrency))))
+    if payload.aux_concurrency is not None:
+        env["LLM_AUX_MAX_CONCURRENCY"] = str(max(1, min(16, int(payload.aux_concurrency))))
     if payload.debug_exec_timeout is not None:
         env["DEBUG_EXEC_TIMEOUT"] = str(max(5, min(1800, int(payload.debug_exec_timeout))))
     if payload.debug_max_rounds is not None:
@@ -359,9 +374,15 @@ async def update_llm_config(payload: LLMConfigUpdate):
     if "LLM_TIMEOUT" in env:
         settings.llm.timeout = int(env["LLM_TIMEOUT"])
         os.environ["LLM_TIMEOUT"] = env["LLM_TIMEOUT"]
-    if "LLM_MAX_CONCURRENCY" in env:
-        set_llm_concurrency(int(env["LLM_MAX_CONCURRENCY"]))
-        os.environ["LLM_MAX_CONCURRENCY"] = env["LLM_MAX_CONCURRENCY"]
+    for pool, key in (("chat", "LLM_MAX_CONCURRENCY"),
+                      ("gen", "LLM_GEN_MAX_CONCURRENCY"),
+                      ("aux", "LLM_AUX_MAX_CONCURRENCY")):
+        if key in env:
+            try:
+                set_llm_concurrency(int(env[key]), pool)
+            except ValueError:
+                pass  # .env 里写了非数字：保持当前池值，不阻断其他配置保存
+            os.environ[key] = env[key]
     if "DEBUG_EXEC_TIMEOUT" in env:
         os.environ["DEBUG_EXEC_TIMEOUT"] = env["DEBUG_EXEC_TIMEOUT"]
     if "DEBUG_MAX_ROUNDS" in env:
@@ -396,7 +417,7 @@ async def update_llm_config(payload: LLMConfigUpdate):
         "api_key": _mask_key(final_key),
         "has_api_key": bool(final_key),
         "timeout": settings.llm.timeout,
-        "max_concurrency": get_llm_concurrency(),
+        **_concurrency_snapshot(),
         "debug_exec_timeout": get_debug_exec_timeout(),
         "debug_max_rounds": get_debug_max_rounds(),
         "agent_round_timeout": int(os.getenv("AGENT_ROUND_TIMEOUT", "7200") or 7200),

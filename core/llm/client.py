@@ -35,27 +35,50 @@ def _parse_tool_calls(raw, stream_shape: bool = False) -> list[dict]:
     return out
 
 
-# 全局 LLM 并发锁：后端 LLM 网关通常不支持并发，默认同一时间只允许 1 个请求。
-# 上限可在「系统设置」中调整（写入 .env 的 LLM_MAX_CONCURRENCY），运行时即时生效。
-_LLM_CONCURRENCY = max(1, int(os.getenv("LLM_MAX_CONCURRENCY", "1") or "1"))
-_LLM_SEMAPHORE = asyncio.Semaphore(_LLM_CONCURRENCY)
+# LLM 并发锁按用途分三池，避免长生成把短任务「堵车」（评审 M-1）：
+#   chat —— 对话/工具调用主链路（默认 2）
+#   gen  —— 规格/代码/图片等长生成链（默认 1：单次生成重，网关并发容忍度低）
+#   aux  —— 标题摘要、标签、工具匹配等秒级后台短任务（默认 4：不被长任务饿死）
+# 上限可在「系统设置」中调整（.env：LLM_MAX_CONCURRENCY / LLM_GEN_MAX_CONCURRENCY /
+# LLM_AUX_MAX_CONCURRENCY），运行时即时生效。
+LLM_POOLS = ("chat", "gen", "aux")
+_POOL_ENV_VARS = {
+    "chat": ("LLM_MAX_CONCURRENCY", "2"),
+    "gen": ("LLM_GEN_MAX_CONCURRENCY", "1"),
+    "aux": ("LLM_AUX_MAX_CONCURRENCY", "4"),
+}
 
 
-def get_llm_concurrency() -> int:
-    """当前 LLM 并发上限"""
-    return _LLM_CONCURRENCY
+def _pool_default(pool: str) -> int:
+    env_var, fallback = _POOL_ENV_VARS[pool]
+    try:
+        return max(1, int(os.getenv(env_var, fallback) or fallback))
+    except ValueError:
+        return max(1, int(fallback))
 
 
-def set_llm_concurrency(limit: int) -> int:
-    """动态调整 LLM 并发上限。
+_LLM_CONCURRENCY: dict[str, int] = {p: _pool_default(p) for p in LLM_POOLS}
+_LLM_SEMAPHORES: dict[str, asyncio.Semaphore] = {
+    p: asyncio.Semaphore(_LLM_CONCURRENCY[p]) for p in LLM_POOLS
+}
 
-    重建信号量：已持有旧信号量的请求继续在旧对象上释放，新请求使用新信号量。
+
+def get_llm_concurrency(pool: str = "chat") -> int:
+    """指定池的当前 LLM 并发上限"""
+    return _LLM_CONCURRENCY[pool]
+
+
+def set_llm_concurrency(limit: int, pool: str = "chat") -> int:
+    """动态调整指定池的 LLM 并发上限。
+
+    重建该池信号量：已持有旧信号量的请求继续在旧对象上释放，新请求使用新信号量。
     调用方在 acquire 前应先把当前信号量取到局部变量，避免 finally 里读到新对象。
     """
-    global _LLM_CONCURRENCY, _LLM_SEMAPHORE
-    _LLM_CONCURRENCY = max(1, int(limit))
-    _LLM_SEMAPHORE = asyncio.Semaphore(_LLM_CONCURRENCY)
-    return _LLM_CONCURRENCY
+    if pool not in LLM_POOLS:
+        raise ValueError(f"未知 LLM 池: {pool}（可选 {LLM_POOLS}）")
+    _LLM_CONCURRENCY[pool] = max(1, int(limit))
+    _LLM_SEMAPHORES[pool] = asyncio.Semaphore(_LLM_CONCURRENCY[pool])
+    return _LLM_CONCURRENCY[pool]
 
 
 class LLMClient(ABC):
@@ -128,8 +151,14 @@ class OpenAICompatibleClient(LLMClient):
     通过 base_url + api_key + model 即可接入。
     """
 
-    def __init__(self, config: LLMConfig = None, config_resolver=None):
+    def __init__(self, config: LLMConfig = None, config_resolver=None,
+                 pool: str = "chat"):
         self._config = config
+        # 并发池：chat/gen/aux（见模块级 LLM_POOLS）。信号量在每次 acquire 时
+        # 经 _pool_semaphore() 现查，不在构造时捕获，保证设置页调整后即时生效。
+        if pool not in LLM_POOLS:
+            raise ValueError(f"未知 LLM 池: {pool}（可选 {LLM_POOLS}）")
+        self._pool = pool
         # 动态配置来源：
         #   config_resolver 优先（如「生成模型」按 LLM_GEN_* 每次现算）；
         #   其次 config=None 表示每次读 settings.llm，
@@ -147,6 +176,10 @@ class OpenAICompatibleClient(LLMClient):
         if self._resolver is not None:
             return self._resolver()
         return settings.llm
+
+    def _pool_semaphore(self) -> asyncio.Semaphore:
+        """现查本池当前信号量（运行时调整并发后指向新对象）"""
+        return _LLM_SEMAPHORES[self._pool]
 
     def _build_client(self) -> AsyncOpenAI:
         cfg = self.config
@@ -170,9 +203,9 @@ class OpenAICompatibleClient(LLMClient):
         原生字段名为 ``reasoning_content``，部分网关则用 ``reasoning``
         （openai SDK 会把它放进 ``delta.model_extra``）。两者都兼容。
         """
-        # 全局并发锁：网关不支持并发，排队等待（先取局部引用，
+        # 本池并发锁：网关对单 Key 并发容忍度低，池内排队等待（先取局部引用，
         # 避免运行时并发上限被调整后 finally 释放到新信号量上）
-        sem = _LLM_SEMAPHORE
+        sem = self._pool_semaphore()
         await sem.acquire()
         try:
             client = self._build_client()
@@ -237,7 +270,7 @@ class OpenAICompatibleClient(LLMClient):
         "finish_reason": str}``；arguments 为 json 解析后的 dict，
         解析失败时保留原始字符串（由调用方判错）。
         """
-        sem = _LLM_SEMAPHORE
+        sem = self._pool_semaphore()
         await sem.acquire()
         try:
             client = self._build_client()
@@ -270,7 +303,7 @@ class OpenAICompatibleClient(LLMClient):
         arguments 逐段拼接、流末统一 json 解析后以
         ``("tool_calls", [...])`` 收尾（无 tool_calls 则不 yield 该事件）。
         """
-        sem = _LLM_SEMAPHORE
+        sem = self._pool_semaphore()
         await sem.acquire()
         try:
             client = self._build_client()
@@ -331,8 +364,7 @@ class OpenAICompatibleClient(LLMClient):
 
     async def chat(self, messages: list[dict], **kwargs) -> str:
         """非流式对话，返回完整响应"""
-        # 全局并发锁：网关不支持并发，排队等待
-        sem = _LLM_SEMAPHORE
+        sem = self._pool_semaphore()
         await sem.acquire()
         try:
             client = self._build_client()
@@ -356,9 +388,10 @@ class OpenAICompatibleClient(LLMClient):
         """图片生成/编辑（OpenAI 兼容 /images/generations），返回图片 URL 列表。
 
         豆包 Ark 等兼容端点支持该路由；Ark 专有的 watermark 等参数经
-        extra_body 透传。并发与 chat 同一把锁：网关对单 Key 的并发容忍度低。
+        extra_body 透传。图片生成属长生成负载，恒走 gen 池排队，
+        不占用客户端自身所属池（通常是 chat）的名额。
         """
-        sem = _LLM_SEMAPHORE
+        sem = _LLM_SEMAPHORES["gen"]
         await sem.acquire()
         try:
             client = self._build_client()
@@ -409,18 +442,20 @@ def create_llm_client_for(provider: str, model: str = None,
     return create_llm_client(cfg)
 
 
-def create_llm_client(config: LLMConfig = None) -> LLMClient:
+def create_llm_client(config: LLMConfig = None, pool: str = "chat") -> LLMClient:
     """工厂函数：根据配置创建对应的 LLM 客户端
 
     - 所有 OpenAI 兼容协议的服务商统一走 OpenAICompatibleClient
       （provider 由 LLMConfig 携带，配置在 config/settings.py 的 PROVIDER_PRESETS）
     - 未来接入 Anthropic Claude / Google Gemini 等非兼容协议时，
       在此新增对应 Client 子类分支即可，调用方无需改动。
+    - pool 指定并发池（chat/gen/aux）：对话主链路用默认 chat，
+      标题/标签/匹配等秒级后台短任务用 pool="aux"，避免被长生成排队拖累。
     """
     cfg = config or settings.llm
     # if cfg.provider == "claude": return ClaudeClient(cfg)
     # if cfg.provider == "gemini": return GeminiClient(cfg)
-    return OpenAICompatibleClient(cfg)
+    return OpenAICompatibleClient(cfg, pool=pool)
 
 
 def create_gen_llm_client() -> LLMClient:
@@ -430,8 +465,8 @@ def create_gen_llm_client() -> LLMClient:
     依赖它），而生成规范/写代码更适合用不并发调用、但推理更强的模型。
     本工厂返回的客户端**每次调用时**才解析配置（见 resolve_gen_llm_config），
     因此设置页保存后立即生效；未配置 LLM_GEN_PROVIDER 时自动回退全局对话模型，
-    行为与 create_llm_client() 完全一致。
+    行为与 create_llm_client() 完全一致。并发恒走 gen 池，不与对话互相排队。
     """
     from config.settings import resolve_gen_llm_config
 
-    return OpenAICompatibleClient(config_resolver=resolve_gen_llm_config)
+    return OpenAICompatibleClient(config_resolver=resolve_gen_llm_config, pool="gen")
