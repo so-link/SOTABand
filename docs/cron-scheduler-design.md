@@ -131,7 +131,7 @@ CREATE INDEX IF NOT EXISTS idx_cron_runs_job ON cron_runs(job_id, started_at DES
 - 代价：解析器需自带测试覆盖边界（`0 17 * * 1-5`、步进、跨月等）。
 
 ### 6.2 后台任务的身份（最容易踩的坑）
-`auth_identity_middleware`（`app/main.py:149-192`）通过 contextvar `set_current_user` 设置当前用户；而 `ToolRegistry` / `DataRegistry.register` / `ToolExecutor` 都依赖 `get_current_user_id()` 做归属与可见性判断（如 `data_registry.py` 中 `owner` 强制取当前用户）。定时触发发生在后台任务中，**无 HTTP 请求上下文，contextvar 为空**。
+`auth_identity_middleware`（`app/main.py`）通过 contextvar `set_current_user` 设置当前用户；而 `ToolRegistry` / `DataRegistry.register` / `ToolExecutor` 都依赖 `get_current_user_id()` 做归属与可见性判断（如 `data_registry.py` 中 `owner` 强制取当前用户）。定时触发发生在后台任务中，**无 HTTP 请求上下文，contextvar 为空**。
 
 处理：`cron/runner.py` 触发前显式
 ```python

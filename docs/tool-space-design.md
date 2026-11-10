@@ -27,8 +27,8 @@
 
 | 概念 | 定义 | 存储位置 | 类比 |
 |------|------|---------|------|
-| **工具仓库** | 系统中所有已创建工具的全局注册中心，可删除 | 「内置 + 私有」双资源根的 registry.json + implementations/ | npm registry |
-| **工具空间** | 当前工作区加载的工具子集，按需从仓库导入 | 后端 `storage/workspace_tools.json`（前端 zustand store 镜像，localStorage 仅作降级缓存） | `package.json` dependencies |
+| **工具仓库** | 系统中所有已创建工具的全局注册中心，可删除 | 「私有 + 公共系统根」双层资源根的 registry.json + implementations/ | npm registry |
+| **工具空间** | 当前工作区加载的工具子集，按需从仓库导入 | 后端 `<USER_HOME>/<uid>/workspace_tools.json`（每用户一份；前端 zustand store 镜像，localStorage 仅作降级缓存） | `package.json` dependencies |
 | **工具标签** | 分类筛选元数据，创建时 LLM 自动生成 + 用户可修改 | registry.json 中 tools[].tags | npm keywords |
 
 工具空间早期只存 localStorage，换浏览器/无痕窗口后清单丢失，因此真实状态源已迁到后端（`GET/POST/DELETE /api/tool/workspace`），前端 store 启动时以后端为准并做一次性本地数据上传迁移。
@@ -374,8 +374,9 @@
 ### 5.5 从仓库删除工具
 
 `DELETE /api/tool/{id}` 是「取消收藏」语义：只移除注册记录，不删磁盘文件。
-删除**按合并视图命中的层生效**，内置与个人定制版互不牵连；**内置层仅超级
-管理员可删**（非超管 403，前端对普通用户隐藏内置工具的删除入口）：
+删除**按合并视图命中的层生效**，公共层与个人定制版互不牵连；**公共层仅系统
+身份可删**（须先经 `POST /api/auth/act-as-system` 领取短时令牌，超管令牌也不
+例外；普通用户 403，前端对普通用户隐藏公共工具的删除入口）：
 
 ```
 用户在仓库浏览页工具卡片上点击 [🗑️ 删除]
@@ -383,27 +384,29 @@
   → 用户点击 "确定"
   → 调用 DELETE /api/tool/{id}
   → 后端: registry.get() 命中层决定 scope（source 派生字段）
-      · 命中内置（未 fork）→ 闸门 ensure_can_touch_builtin：非超管 403；
-        超管 unregister(scope="builtin")——只移除内置 registry 条目
+      · 命中公共层（未 fork）→ 闸门 ensure_can_touch_builtin：非系统身份
+        403（超管令牌也不例外，须先 act-as-system 领短时令牌）；
+        unregister(scope="system")——只移除公共 registry 条目
       · 命中私有（我的副本 / 我的工具）→ unregister(scope="private")：
-        只移除私有条目；「我的副本」删除后合并视图回落到内置原样，
-        内置条目与文件都不受影响
+        只移除私有条目；「我的副本」删除后合并视图回落到公共原样，
+        公共条目与文件都不受影响
       · implementations/{id}/ 目录与 definitions/ 定义文件一律保留原处
   → 前端:
-      · 仓库列表移除该工具（内置删除后若仍有我的副本，列表显示我的副本）
+      · 仓库列表移除该工具（公共删除后若仍有我的副本，列表显示我的副本）
       · 如果该工具已加载到工作空间，自动从空间移除
       · 刷新标签统计
 ```
 
 保存类端点（save-code / save-spec / save-step1 / 注册覆盖 / 表格与文档
-refine 系列）同样是「命中层就地写」：内置层仅超级管理员可改（403 文案引导
-先 fork），普通用户对内置资源的编辑入口在详情页就会先触发「复制为我的
+refine 系列）同样是「命中层就地写」：公共层仅系统身份可改（403 文案引导
+先 fork），普通用户对公共资源的编辑入口在详情页就会先触发「复制为我的
 副本」。
 
-unregister 的 scope 三态：`builtin`（只删内置条目）、`private`（只删私有
-条目）、`all`（两层全删，保留给彻底清除 id 的场景；当前无调用方）。
+unregister 的 scope 三态：`system`（只删公共层条目，兼容旧名 `builtin`）、
+`private`（只删私有条目）、`all`（默认值，两层全删，保留给彻底清除 id 的
+场景；HTTP 与网关调用方都显式传前两者）。
 「删除后刷新又出现」是旧 bug，当年用两层连坐删除修复过头——那会让删除
-内置时连个人定制版一起消失，违背覆盖层模型的独立性约定。
+公共工具时连个人定制版一起消失，违背覆盖层模型的独立性约定。
 
 保留在磁盘的代码不会自动重新出现在仓库列表（仓库列表来自 registry）；重新
 挂回需再次注册（如经导入工具包或 register 接口指向保留的实现目录）。
@@ -418,17 +421,22 @@ unregister 的 scope 三态：`builtin`（只删内置条目）、`private`（�
 
 ### 5.7 导出 / 导入工具包
 
-导出（内置与私有工具均可）：
+导出（公共与私有工具均可，`.sotatool.zip` 迁移包格式，见
+`core/migration/tool_bundle.py`）：
 
 ```
 用户在仓库工具卡片上点击 [⬇ 导出]（或详情页头部 [⬇ 导出]）
   → GET /api/tool/{id}/export
-  → 浏览器下载 {id}.zip，包含:
-      manifest.json（格式标记/归档版本/工具 id/导出时间）
-      registry.json（精选注册表字段，丢弃 usage_count/created_at/owner）
-      definitions/{id}.md + {id}-demand.md + {id}-reference.md（存在才带）
-      impl/（tool.py、spec.md、requirements.txt、tests/、资产文件）
-    排除 .venv 与 __pycache__（虚拟环境由 uv 按 requirements.txt 秒级重建）
+  → 浏览器直接下载内存构建的 zip，文件名
+    tool-{id}-{version}-{时间戳}.sotatool.zip，包含:
+      manifest.json（格式标记/格式版本/导出时间/来源层/工具元数据/
+        依赖清单/逐文件 sha256 校验和）
+      registry_entry.json（原注册条目整体携带，导入时以此为基础重建）
+      definitions/{id}.md（定义文件，存在才带）
+      implementations/{id}/**（tool.py、spec.md、requirements.txt、
+        tests/、常见二进制资产如 .xml/.onnx/.pt）
+    排除 .venv 与 __pycache__（虚拟环境由 uv 按 requirements.txt 秒级重建）；
+    超过单文件大小上限的文件跳过并记入 manifest.skipped
 ```
 
 导入：
@@ -436,15 +444,20 @@ unregister 的 scope 三态：`builtin`（只删内置条目）、`private`（�
 ```
 用户点击仓库头部 [⬆ 导入工具包]，选择 .zip
   → POST /api/tool/import（multipart: file, overwrite）
-  → 后端校验: manifest/registry/tool.py 必含、tool_id 白名单、
-    manifest 与 registry id 一致、成员路径防 zip-slip、zip 炸弹上限
-  → 同名冲突（内置或私有）未带 overwrite → 409
-      → 前端 confirm 确认覆盖 → 带 overwrite=true 重试
+  → 后端校验: manifest.json 必含且格式标记/版本匹配、tool_id 白名单
+    （^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$）、成员路径防 zip-slip、
+    成员数量与解压总量上限
+  → 冲突只看私有层: 私有已有同 id 未带 overwrite → 409
+      → 前端 confirm 确认覆盖 → 带 overwrite=true 重试（旧文件备份为
+        .bak.<时间戳>）
+    公共层同 id 不算冲突: 私有副本按覆盖层模型遮蔽公共版本，
+    响应带 overrode_builtin=true 由前端警示
   → 写入私有根（等同重新注册）: registry.json + definitions + implementations
+  → 可见性: 仅系统身份可保留包内 public 声明，普通用户导入一律 private
   → 包内全部 .py 成员过静态安全审查（命中阻断项 → 400 不落盘）；
-    非标准库导入未在 requirements.txt 声明 → import_warnings（不阻断）
+    非标准库导入未在依赖清单声明 → import_warnings（不阻断）
   → 前端提示「导入成功，依赖尚未安装，运行时自动提示安装」；
-    内置同名遮蔽警示与依赖声明提示（import_warnings）追加在同一提示条
+    公共同名遮蔽警示与依赖声明提示（import_warnings）追加在同一提示条
 ```
 
 依赖不在导入时安装，与注册语义一致，由 check-deps / install-deps 懒安装接管。
@@ -510,8 +523,8 @@ unregister 的 scope 三态：`builtin`（只删内置条目）、`private`（�
 | `GET` | `/api/tool/workspace` | 工作区间已加载工具清单 |
 | `POST` | `/api/tool/workspace` | 添加工具到工作区间 |
 | `DELETE` | `/api/tool/workspace/{tool_id}` | 从工作区间移除 |
-| `GET` | `/api/tool/{id}/export` | 导出工具为 zip 工具包（附件下载） |
-| `POST` | `/api/tool/import` | 导入 zip 工具包到私有根（冲突返回 409） |
+| `GET` | `/api/tool/{id}/export` | 导出工具为 .sotatool.zip 迁移包（附件下载） |
+| `POST` | `/api/tool/import` | 导入迁移包到私有根（仅私有层同名冲突返回 409） |
 
 ### 7.1 `POST /api/tool/{id}/tags`
 
@@ -676,7 +689,7 @@ interface WorkspaceTool {
 | 能力 | 状态 | 落点 |
 |------|------|------|
 | 仓库浏览页（搜索/标签筛选/排序/分页/删除） | ✅ 已实现 | `RepositoryView.tsx` + `repository-store.ts` + `GET /api/tool/repository` |
-| 工具空间左边栏（已加载列表 + 仓库/创建入口） | ✅ 已实现 | `ResourceBrowser.tsx` + `workspace-tool-store.ts`（后端 `storage/workspace_tools.json` 为真实状态源） |
+| 工具空间左边栏（已加载列表 + 仓库/创建入口） | ✅ 已实现 | `ResourceBrowser.tsx` + `workspace-tool-store.ts`（后端 `<USER_HOME>/<uid>/workspace_tools.json` 为真实状态源） |
 | 从仓库导入 / 新建自动加入空间 | ✅ 已实现 | `repository-store.importToWorkspace`；`tool-editor-store` 注册成功后 `addTool` |
 | 标签系统（LLM 自动打标 + 手动编辑） | ✅ 已实现 | 注册后异步打标；`POST /api/tool/{id}/tags`；`ToolDetailView` 编辑 UI |
 | 工作区间工具依赖检测 | ✅ 已实现（超出本设计） | 添加到工作空间时 `GET /{id}/check-deps` 提示缺失依赖 |

@@ -474,5 +474,33 @@ D1 修复前后对比（同一环境错误）：
 - **C2/C4（未认证 RCE / 非沙箱子进程）方向未变**：执行侧仍是同用户子进程，`scan_code` 仍是黑名单 AST 扫描；新增的仅是执行前 choke point 统一复查（`ToolExecutor._security_gate`）与对话内平台控制网关的独立审计（`chat_ops` 表，见 docs/chat-platform-control-design.md）。
 - 端口/入口未变（8201/8200）；`storage/platform.db` 新增 `chat_sessions`/`chat_messages`/`cron_jobs`/`cron_runs`/`chat_ops` 表，审计中「SQLite 仅 task_history/chat_store 两 store」的描述已扩展。
 
+## 十二、后续变化（2026-11-09 增补，不改写上文审计结论）
+
+上文（含第十一节）之后代码又发生变化，与第十一节描述不再一致处列出备查：
+
+- **鉴权中间件换轨**：`_is_sensitive_endpoint` 端点名单已不存在。现按 `.env` 是否配置
+  `SOTABAND_ROOT_PASSWORD` 分两种模式：**多用户模式**下 `/api/*` 一律要求有效令牌
+  （仅 `/api/health` 与 `/api/auth/login|me|logout` 匿名放行，`_is_anonymous_allowed`
+  白名单），第十一节「GET 类资源列表仍允许匿名回退实例身份」在多用户模式下不再成立；
+  **单用户兼容模式**（未配置密码）下匿名请求直接注入超级用户（uid=0）身份放行——本机
+  即用属设计取舍，但 `api_host` 改为非回环监听即等同向网络开放超管权限（新增债务 N3）。
+  只读文件类 GET 端点（`/api/file/{id}`、数据集 raw/preview/archive、工具/Agent 导出）
+  允许 `?auth_token=` 查询参数携带同一枚令牌（`_QUERY_TOKEN_GET_PATTERNS` 白名单，
+  校验链与 Bearer 完全相同，仅凭证来源不同）。
+- **平台数据库改每用户一库**：`storage/platform.db` 不再是唯一库；task_history /
+  chat_store / cron / chat_ops 经 `core/user_db.py` 按当前身份落
+  `<USER_HOME>/<uid>/platform.db`（第十一节末条的表清单语义不变，落库位置变了）。
+- **公共（原内置）资源层写闸门换轨**：公共层资源的写/删必须持系统身份令牌
+  （超管经 `POST /api/auth/act-as-system` 领 1 小时短时令牌），超管长期令牌也不例外
+  （`app/api/deps.py` `ensure_can_touch_builtin`）。
+- **目录枚举面收敛**：`POST /api/data/scan-directory` 已限当前用户目录内
+  （空/根路径只扫 `uploads`、`plots` 受控子目录），第十一节 P0-3 语境的
+  「仍可对任意路径 rglob」已修。
+- **C2/C4 方向仍不变，纵深增强**：执行侧仍是同用户子进程并继承全部环境变量；
+  新增 `core/security/review.py` core API 约束线（默认 audit 只记录）与工具子进程
+  `sys.addaudithook` 运行时审计（写白名单拦截/系统调用拦截/网络记录）。审计要防的
+  「Key 出进程」问题（LLM Key 仍在工具子进程环境里）未变，仍是沙箱项（P0-1）的
+  核心目标。
+
 
 

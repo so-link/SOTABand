@@ -148,9 +148,11 @@ SSE card: {type:'platform-confirm', op_id, tool, summary, args_view, risk}
 ### 6.2 参数校验（网关侧，不信任 LLM 输出）
 - **路径白名单**：所有 path 类参数（dataset path、model_path、directoryPath、
   dataset_dir）经 `guards.resolve_allowed_path()`：相对路径按项目根解析，
-  realpath 后必须位于允许根内——私有资源根（`paths.PRIVATE_ROOT`，默认
-  `../resources-private/`）与项目工作区根（`paths.PROJECT_ROOT`，storage/
-  即在其内）；拒绝符号链接逃逸（realpath 后再前缀匹配）。
+  realpath 后必须位于允许根内——当前用户数据区（`user_home()`，
+  `<SOTABAND_HOME>/<uid>/`，按当前请求身份动态解析，其他用户的目录即使
+  同机也算越界）与项目工作区根（`paths.PROJECT_ROOT`，代码 + 出厂种子包 +
+  storage 暂存即在其内，整体放行是刻意的）；拒绝符号链接逃逸（realpath 后
+  再前缀匹配）。
 - **schema 校验**：每个平台工具在网关注册 Pydantic 模型，LLM 给错类型/多余键
   直接拒绝并回错误给 LLM 自我修正。
 - **输出截断**：只读工具返回给 LLM 的内容截断（如 spec_md 4000 字符），限制

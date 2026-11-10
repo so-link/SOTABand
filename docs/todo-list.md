@@ -9,7 +9,7 @@
 
 ## 2. 工具全生命周期
 
-- 2.1 ✅ 工具导出和导入（zip 工具包：`GET /api/tool/{id}/export` / `POST /api/tool/import`，含依赖清单 pin、排除 .venv、zip-slip 防护、同名 409 覆盖确认）
+- 2.1 ✅ 工具导出和导入（`.sotatool.zip` 迁移包：`GET /api/tool/{id}/export` / `POST /api/tool/import`，含依赖清单与逐文件校验和、排除 .venv、zip-slip 防护、静态安全审查前置、私有层同名 409 覆盖确认（公共层同名不算冲突，私有副本遮蔽并警示））
 - 2.2 ✅ 工具跨平台稳定运行（依赖环境由 uv 按工具独立管理并 pin 到 requirements.txt，跨机可精确重建；平台边界已收口：解释器解析兼容 Unix `bin/python` 与 Windows `Scripts/python.exe`（执行器与模板内工具间调用同规则）；模板 `_resolve_path` 统一处理 `~` 展开、反斜杠归一、`.`/`..` 消除与引号剥离；源码编译类安装失败确定性回退 `--only-binary` 预编译 wheel（不消耗 LLM 分析轮次，成功即续、失败照常进 LLM 建议重试）；静态审查对硬编码单一平台路径（POSIX 绝对路径开头 / `~/` / 盘符）给 warning，回流自动调试提示改用 `_PROJECT_ROOT` / `TOOL_DIR` / `Path.home()`）
 - 2.3 🔶 自动调试的效率提高（已落地：跨轮修复对话记忆——首轮全量上下文、后续轮增量补发，LLM 不再重复试错；执行/token 消费事件驱动化，停止即时生效；安全阻断经 3.2 静态审查前置拦截。规划中：结构化失败上下文、更多错误模式分类、跨工具修复经验复用）
 
@@ -17,13 +17,13 @@
 
 - 3.1 代码安全约束：工具或 Agent 代码中所有涉及本地文件操作、系统调用的，一律只能通过 core 中定义的 API 接口完成
 - 3.2 ✅ 静态安全审查：对自动调试中 LLM 生成的代码进行静态审查（`core/security/code_scan.py` AST 两级扫描——阻断 shell/动态执行/删除原语/ctypes/socket/动态导入，警告 subprocess/open/联网/`../` 上跳路径/指向本机内网的 URL/无退出死循环与巨量分配/无守卫自递归（函数无条件调用自身且体内无 if/try/assert 出口；互递归静态不可判、接受漏报）；落盘前闸门（工具注册/保存/导入 + Agent 注册/保存）+ 执行前 choke point（`ToolExecutor.execute/execute_sync` 统一复查，对话执行/沙箱测试/Agent 调用共享），命中即拒绝或回流自动调试重写；导入模块白名单（warning 级，导入时校验非标准库/非平台导入须在工具 requirements.txt 中有声明，提示依赖漂移））
-- 3.3 运行时安全审查：对自动调试中 LLM 生成的代码进行运行时动态审查
+- 3.3 🔶 运行时安全审查：工具子进程注入 `sys.addaudithook` 审计钩子（一经注册 Python 层不可移除）——文件写入白名单（自动追加当前用户目录）越界即拦截、系统调用拦截、网络连接记录；配套 rlimit 四项默认 0=关闭。规划中：网络白名单强制、审计事件回流自动调试
 
 ## 4. 智能体（Agent）
 
 - 4.1 ✅ 消息路由智能体：Web 服务式 Agent（web-service 角色）可组合调用工具对外提供 HTTP API；内置 `message-router-agent` 提供通用「接收 Web 请求路由到本地工具」能力（`POST /route` 显式指定工具或自然语言意图三级匹配 explicit/llm/keyword，`GET /tools` 列出可路由工具空间）
 - 4.2 🔶 任务编排：Agent 代码可机械辅助函数调用工具；跨 Agent 委派编排首版落地——内置 `orchestrator-agent`（web-service）接收声明式步骤（DAG 线性特例），经本地总线（4.5 `call_agent`）逐步委派给运行中子 Agent，`{stepN.x}`/`{param.x}` 引用传递数据并聚合结果（`POST /plan`、`POST /call`、`GET /agents`）；自然语言自动生成编排文件与并行 DAG 执行为规划中
-- 4.3 ✅ 智能体代码自动调试：`POST /api/agent/auto-debug`（SSE）复用工具编辑器同款循环——沙箱试运行（entrypoint 子进程，按角色语义验证：task/interactive 走 execute 事件流、web-service 走回环 HTTP 逐 API 验证）→ LLM 分析错误整文件重写 → 再跑，默认最多 10 轮（`DEBUG_MAX_ROUNDS`/系统设置可调，上限 100），单轮试运行带执行超时（Agent 默认 180 秒）；每轮重写后重跑静态安全审查，事件名与工具调试一致，前端 Agent 编辑器第 3 步提供「自动调试/停止调试」
+- 4.3 ✅ 智能体代码自动调试：`POST /api/agent/auto-debug`（SSE）复用工具编辑器同款循环——沙箱试运行（entrypoint 子进程，按角色语义验证：task/interactive 走 execute 事件流、web-service 走回环 HTTP 逐 API 验证）→ LLM 分析错误整文件重写 → 再跑，默认最多 10 轮（`DEBUG_MAX_ROUNDS`/系统设置可调，上限 100），单轮试运行带执行超时（`DEBUG_EXEC_TIMEOUT` 统一默认 60 秒，工具与 Agent 同口径）；每轮重写后重跑静态安全审查，事件名与工具调试一致，前端 Agent 编辑器第 3 步提供「自动调试/停止调试」
 - 4.4 ✅ 智能体独立进程运行（全部 Agent 以独立子进程 + stdin/stdout JSON-line 协议运行，工厂负责启停/健康检查/自动重建）
 - 4.5 🔶 智能体通信机制：本地通信已落地——主进程消息路由（工厂后台 reader 分流 v1 通信帧）+ Agent 侧 `self._bus`（Pub/Sub 订阅发布 + RPC 调用 call_agent），对外经 `POST /api/agent/bus/publish|call`、`GET /api/agent/bus/status` 接入；远程智能体通信（跨机 gRPC/WebSocket）为规划中
 - 4.6 智能体发布：可发布到智能体集市，或发布到虚拟局部网络中供对应成员发现和使用
@@ -49,7 +49,7 @@
 
 ## 8. 用户空间与用户网络
 
-- 8.1 🔶 用户注册与登录（本地身份层已提供：`/api/auth/register|login|me|logout|users`，PBKDF2 密码散列 + HMAC 签名令牌，Bearer 请求级身份接入资源归属，CORS 收紧为默认仅同源；规划中：密码重置、OAuth、租户/配额、审计日志。全局服务器统一账号体系见 7.1）
+- 8.1 🔶 用户注册与登录（本地身份层已提供：`/api/auth/login|me|logout|password|users`（自助注册已移除，普通用户由超管创建），PBKDF2 密码散列 + HMAC 签名令牌，Bearer 请求级身份接入资源归属，超管可经 act-as-system 领短时令牌代管公共层，CORS 收紧为默认仅同源；规划中：密码重置、OAuth、租户/配额、审计日志。全局服务器统一账号体系见 7.1）
 - 8.2 用户组网：构成虚拟局部网络，用户可在网络中共享工具、数据，Agent 之间可相互通信
 
 ## 9. 工具虚拟化

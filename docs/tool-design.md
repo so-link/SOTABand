@@ -224,9 +224,13 @@ created: {日期}
 import os, sys, json, time, requests
 from pathlib import Path
 
-# 项目根路径：优先读 TOOL_DIR 环境变量（执行器注入），否则按 __file__ 回溯
-_PROJECT_ROOT = ...
-_DATA_DIR = _PROJECT_ROOT / "data"
+# 运行目录（平台经 runtime_env 注入环境变量，禁止写死绝对路径或按 __file__ 层级反推）：
+# SOTABAND_ROOT=系统根（只读）、SOTABAND_USER_HOME=当前用户目录、TOOL_DIR=本工具实现目录
+_PROJECT_ROOT = ...   # 优先读 SOTABAND_ROOT，兜底按特征文件向上回溯
+_USER_HOME = ...      # 优先读 SOTABAND_USER_HOME，env 缺失按 SOTABAND_HOME 根 + uid 还原
+_DATA_DIR = _USER_HOME / "data"   # 产物一律落用户目录，系统根随 git 分发不可写脏
+
+def _out_dir(*parts) -> Path: ...  # 本工具产物目录 USER_HOME/data/<子目录>/，自动创建
 
 # API 调用辅助：from core.api import get_api; api.call(**params)
 def _call_api(api_name: str, **params) -> dict: ...
@@ -235,8 +239,8 @@ def _call_api(api_name: str, **params) -> dict: ...
 # 禁止 LLM 生成的代码硬编码服务商端点/模型名或调用 get-key 类 API
 def _llm_chat(messages, **kwargs) -> str: ...
 
-# 工具间调用：在「内置+私有」双资源根的 registry.json 中查 id/name
-# （私有根优先），双根中定位 tool.py，用「工具 .venv（Unix bin/ 与
+# 工具间调用：在「私有 + 公共系统根」双层资源根的 registry.json 中查 id/name
+# （私有根优先），双层根中定位 tool.py，用「工具 .venv（Unix bin/ 与
 # Windows Scripts/ 均探测）→ 当前解释器」的子进程执行，固定 30s 超时
 def _call_tool(tool_name: str, **params) -> dict: ...
 
@@ -387,53 +391,58 @@ def _resolve_path(path: str) -> str: ...
 ```
 ToolRegistry.register(resource)
     │
-    ├── 1. 写入条目到私有根 registry.json（读时合并内置根，同 id 私有覆盖内置）
+    ├── 1. 写入条目到私有根 registry.json（读时按私有→系统根合并，同 id 私有覆盖公共）
     │      字段: id/name/version/type/language/status/spec_path/impl_path/
-    │            input_schema/output_schema/param_meta/modes/tags/usage_count/
+    │            input_schema/output_schema/param_meta/modes/tags/
     │            created_at/owner/visibility=public
     ├── 2. MD 规范保存到私有根 definitions/{tool-id}.md
     └── 3. 代码保存到私有根 implementations/{tool-id}/tool.py，
            同时写 spec.md 副本与可选 tests/test_*.json 测试数据
 ```
 
-条目中的 `param_meta`（从 MD 输入规范解析的参数元数据）与 `modes`（多模式工具的 `parse_modes` 结果，单模式工具为空）供前端渲染执行表单。`owner` 记录创建者，`visibility=public`——工具是共享代码资产，不做归属隔离。未传 `tags` 时注册后异步调 LLM 生成 3-5 个中文标签。
+条目中的 `param_meta`（从 MD 输入规范解析的参数元数据）与 `modes`（多模式工具的 `parse_modes` 结果，单模式工具为空）供前端渲染执行表单。`owner` 记录创建者，`visibility=public`——工具条目不做 owner 过滤；用户新建的工具落其私有 registry.json，物理上仅本人可见，公共工具（系统用户目录）全员可用。使用计数 `usage_count` 不写 registry 条目，单独存私有目录的 `usage.json`（内置与私有条目同一套计数，读取时注入合并）。未传 `tags` 时注册后异步调 LLM 生成 3-5 个中文标签。
 
-### 8.2 存储结构（双资源根）
+register 撞公共层同名 id 时先过覆盖闸门（`ensure_can_touch_builtin`）：非系统身份不得在私有根写影子副本遮蔽公共工具（403 提示先 fork），堵住「详情视图命中层与实际执行代码不一致」的缺口。
+
+### 8.2 存储结构（双层资源根）
 
 ```
-resources/tools/                      # 内置根（随仓库分发，含预置工具）
-├── registry.json                     # 内置工具注册表
+SB-USER/100/tools/                    # 公共系统根（系统用户目录，内置工具经种子脚本导入）
+├── registry.json                     # 公共工具注册表
 ├── definitions/{tool-id}.md          # MD 规范文档
 └── implementations/{tool-id}/
     ├── tool.py                       # 工具实现
     └── spec.md                       # MD 规范文档副本
 
-<USER_HOME>/<uid>/resources-private/tools/  # 私有根（USER_HOME 默认 /root/SB-USER，SOTABAND_HOME 可覆盖）
+<USER_HOME>/<uid>/tools/              # 私有根（USER_HOME 默认 /root/SB-USER，SOTABAND_HOME 可覆盖）
 ├── registry.json                     # 新注册工具一律写这里
+├── usage.json                        # 使用计数（与 registry 条目分离）
 └── implementations/{tool-id}/
     ├── .venv/                        # 工具独立虚拟环境（uv 管理，装依赖时自动创建）
     └── requirements.txt                # uv freeze 的精确依赖 pin（存在即可重建 .venv）
+
+resources/tools/                      # 出厂种子包（随仓库分发，运行期不解析，仅供种子导入/哈希参照）
 ```
 
-读取（发现、执行、代码查看）合并两个根，同 id 以私有为准；写入只进私有根。执行器与 `_call_tool` 都在双根中定位 `tool.py`，`_call_tool` 查 id 时同样双根都查、私有根优先。
+读取（发现、执行、代码查看）按私有→系统根顺序合并，同 id 以私有为准；普通用户写入只进私有根。执行器与 `_call_tool` 都在双层根中定位 `tool.py`，`_call_tool` 查 id 时同样两层都查、私有根优先。
 
 ### 8.3 导出与导入（zip 工具包）
 
-`core/resource/tool_package.py` 定义跨机流转的归档格式（`{tool-id}.zip`）：
+`core/migration/tool_bundle.py` 定义跨机流转的迁移包格式（`tool-{tool-id}-{version}-{时间戳}.sotatool.zip`，Agent 侧同族实现在 `agent_bundle.py`）：
 
 ```
-manifest.json                  # format=sotaband-tool / archive_version / tool_id / created_at
-registry.json                  # 精选注册表字段（丢弃 usage_count/created_at/owner/status，导入时重新生成）
-definitions/{tool-id}.md       # 必含；{tool-id}-demand.md / -reference.md 存在才带
-impl/tool.py                   # 必含
-impl/spec.md                   # MD 规范副本
-impl/requirements.txt          # uv freeze 精确 pin（环境真相来源）
-impl/tests/test_*.json         # 测试数据
-impl/<assets>                  # 资产文件（如人脸检测的 cascade XML）
+manifest.json                      # format=sotaband-tool-bundle / format_version / 工具元数据 / 依赖清单 / 逐文件 sha256 校验和
+registry_entry.json                # 原注册条目（导入时以此为基础重建）
+definitions/{tool-id}.md           # 必含；{tool-id}-demand.md / -reference.md 存在才带
+implementations/{tool-id}/tool.py  # 必含
+implementations/{tool-id}/spec.md  # MD 规范副本
+implementations/{tool-id}/requirements.txt  # uv freeze 精确 pin（环境真相来源）
+implementations/{tool-id}/tests/test_*.json # 测试数据
+implementations/{tool-id}/<assets>          # 资产文件（如人脸检测的 cascade XML）
 ```
 
-- **导出** `GET /api/tool/{id}/export`：内置与私有工具均可；`.venv`/`__pycache__` 永不进包（虚拟环境由 uv 按 `requirements.txt` 秒级重建，包体仅含源码、文档与资产）。
-- **导入** `POST /api/tool/import`（multipart `file` + `overwrite`）：校验 manifest/registry/`tool.py` 必含、`tool_id` 白名单（`^[a-z0-9][a-z0-9_-]*$`）、manifest 与 registry id 一致、成员路径防 zip-slip、未压缩体积与成员数上限（zip 炸弹）。通过后复用 `register()` 落私有根——与重新注册语义一致；同名冲突未带 `overwrite` 返回 409，由 UI 确认后重试。导入内置同名 id 时私有副本遮蔽内置（响应 `overrode_builtin=true`，UI 警示；删除私有副本即恢复）。
+- **导出** `GET /api/tool/{id}/export`：公共与私有工具均可（公共只读打包）；`.venv`/`__pycache__` 等噪声目录永不进包（虚拟环境由 uv 按 `requirements.txt` 秒级重建，包体仅含源码、文档与资产）。导出在内存打包、经浏览器直链下载，不写服务器磁盘。
+- **导入** `POST /api/tool/import`（multipart `file` + `overwrite`）：校验 `manifest.json`/`registry_entry.json`/`tool.py` 必含与 format/format_version、`tool_id` 白名单（`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`）、成员路径防 zip-slip（拒绝 `..`、绝对路径、反斜杠、符号链接）、包大小/解压总量/单文件/成员数上限（zip 炸弹）。通过后落私有资源根——与重新注册语义一致；同名冲突未带 `overwrite` 返回 409，由 UI 确认后重试。导入公共同名 id 时私有副本遮蔽公共版本（响应 `overrode_builtin=true`，UI 警示；删除私有副本即恢复）。
 - 依赖不在导入时安装，与注册一致，由 check-deps / install-deps 懒安装接管。导入时对包内全部 `.py` 成员做静态审查（危险调用阻断返回 400 不落盘），并校验非标准库导入是否在 `requirements.txt` 中声明——未声明项以 `import_warnings` 随 200 响应返回（依赖漂移提示，不阻断），UI 在导入成功提示条中透明展示。
 
 ---
@@ -555,12 +564,12 @@ core/resource/registry/tool_registry.py     # ToolRegistry
 core/resource/discoverer/tool_discoverer.py # ToolDiscoverer
 core/resource/builder/tool_builder.py       # ToolCodeBuilder（模板 + LLM 生成）
 core/resource/builder/builder_base.py       # BaseBuilder
-core/resource/tool_package.py               # zip 工具包导出/导入（归档格式 + 安全校验）
+core/migration/tool_bundle.py               # .sotatool.zip 迁移包导出/导入（包格式 + 安全校验）
 app/api/schemas/tool_schemas.py             # Tool Pydantic 模型
 app/api/routes/tool_routes.py               # /api/tool/* 端点
-resources/tools/registry.json              # 内置根：预置工具注册表
-resources/tools/definitions/               # MD 规范文档
-resources/tools/implementations/           # 工具代码（.venv / requirements.txt 在私有根按需创建）
+resources/tools/registry.json              # 出厂种子包：预置工具注册表（运行期不解析，经种子脚本导入系统用户目录）
+resources/tools/definitions/               # MD 规范文档出厂种子
+resources/tools/implementations/           # 工具代码出厂种子（.venv / requirements.txt 在私有根按需创建）
 
 # 前端
 frontend/src/components/center-panel/ToolEditorView.tsx

@@ -154,19 +154,21 @@ eeg-subject-001/
 
 ## 三、数据集注册与存储
 
-### 3.1 存储结构（双资源根）
+### 3.1 存储结构（双层资源根）
 
-数据集遵循全局的**双资源根**模型（`core/resource/paths.py`）：读取时合并内置根与私有根，写入只进私有根。**数据文件不做复制**——注册只登记元数据，`data_path` 指向数据的原始位置（本机任意绝对路径）。
+数据集遵循全局的**双层资源根**模型（`core/resource/paths.py`）：读取时按私有根→公共系统根合并，写入只进私有根。**数据文件不做复制**——注册只登记元数据，`data_path` 指向数据的原始位置（注册时 `sourceFiles` resolve 后必须仍在当前用户目录内，任意绝对路径会被 400 拒绝，防止任意路径枚举）。
 
 ```
-resources/data/                       # 内置根（随仓库分发，通常为空注册表）
+SB-USER/100/data/                     # 公共系统根（系统用户目录，内置数据集经种子脚本导入）
 ├── registry.json
 ├── definitions/
 └── datasets/                         # 仅为兼容保留的目录，注册流程不向其复制数据
 
-<USER_HOME>/<uid>/resources-private/data/   # 私有根（USER_HOME 默认 /root/SB-USER，SOTABAND_HOME 可覆盖）
+<USER_HOME>/<uid>/data/               # 私有根（USER_HOME 默认 /root/SB-USER，SOTABAND_HOME 可覆盖）
 ├── registry.json                     # 新注册条目一律写这里
 └── definitions/{id}.md               # MD 规范文档写入私有根
+
+resources/data/                       # 出厂种子包（随仓库分发，运行期不解析，仅供种子导入参照）
 ```
 
 注册表条目字段：`id / name / version / type / status / spec_path / data_path / file_count / total_size / formats / tags / quality_score / created_at / owner / visibility / storage`。其中 `owner`（当前用户，不接受调用方传入）、`visibility`（一律 `private`）、`storage`（`local`/`remote`）由注册中心强制注入。
@@ -464,7 +466,7 @@ POST /api/data/match-tools {dataset_id, request}
 
 | 端点 | 方法 | 说明 |
 |------|------|------|
-| `/api/data/scan-directory` | POST | 扫描目录，返回文件列表、总数、格式与逐个文件大小 |
+| `/api/data/scan-directory` | POST | 扫描目录（限当前用户目录内，空串/根路径只扫 uploads/plots），返回文件列表、总数、格式与逐个文件大小 |
 | `/api/data/generate-spec` | POST (SSE) | NL + 文件信息（含描述）→ MD 数据集描述 + 3-5 个标签（流式） |
 | `/api/data/register` | POST | 注册数据集（文件保持原位置不复制；后台匹配预览工具） |
 | `/api/data/repository` | GET | 数据集仓库列表，含标签统计与缩略图/首句预览 |
@@ -499,9 +501,9 @@ POST /api/data/match-tools {dataset_id, request}
 后端：
 
 ```
-core/resource/registry/data_registry.py       # 数据注册中心（双根读合并/写私有、归属与可用性校验）
+core/resource/registry/data_registry.py       # 数据注册中心（双层根读合并/写私有、归属与可用性校验）
 core/resource/discoverer/data_discoverer.py    # 数据发现器（search / get_by_tags / get_by_format）
-core/resource/paths.py                         # 双资源根：内置根 + 私有根解析
+core/resource/paths.py                         # 双层资源根：私有根 + 公共系统根解析
 core/user_context.py                           # 当前用户标识、可见性/归属判定、storage 探测
 app/api/schemas/data_schemas.py                # 数据 Pydantic 模型
 app/api/routes/data_routes.py                  # 数据 API 路由

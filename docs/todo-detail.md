@@ -2,11 +2,13 @@
 # 工作任务详细说明
 
 > 基于 SOTABand 四层架构（应用层 → 核心层 → 资源层 → 存储层）对 todo-list.md 中各工作任务的内涵进行详细说明。
-> 核心层当前已落地的能力为：资源管理、多 Agent 协作、工具执行、系统 API、LLM 接入、密钥脱敏；
-> 工作流引擎、调度算力、可观测性为规划中的预留模块（`core/engine/`、`core/scheduler/`、`core/observability/` 仅占位）。
+> 核心层当前已落地的能力为：资源管理、多 Agent 协作、工具执行、系统 API、LLM 接入、密钥脱敏、
+> 定时任务调度（`core/cron/`）与任务/对话历史持久化（`core/observability/` 的 `task_history.py`、`chat_store.py`）；
+> 工作流引擎与跨机调度算力为规划中的预留模块（`core/engine/`、`core/scheduler/` 仅占位）。
 > 本文「关联架构」中提到的 `lifecycle.py`、`sandbox.py`、`verifier.py`、`watchdog.py`、`audit.py`、
-> `coordinator.py`、`protocol.py`、`intent_parser.py`、`flow_compiler.py`、`heterogeneous.py` 等文件
-> 均为**目标设计中的模块**，当前代码库中尚不存在，实现时需新建。
+> `coordinator.py`、`intent_parser.py`、`flow_compiler.py`、`heterogeneous.py` 等文件
+> 均为**目标设计中的模块**，当前代码库中尚不存在，实现时需新建（`bus.py`、`protocol.py`
+> 已由 4.5 本地通信机制落地，位于 `core/agent/`）。
 
 ---
 
@@ -30,13 +32,13 @@
 
 **所属子系统**：资源生命周期管理（`core/resource/`）→ 工具空间（`resources/tools/`）
 
-**内涵**：实现工具在不同 SOTABand 实例之间的迁移能力（已落地）。工具以标准化 zip 归档流通：`core/resource/tool_package.py` 定义归档格式（manifest.json + registry.json + definitions/ + impl/，排除 `.venv`/`__pycache__`，含 zip-slip、zip 炸弹、非法 id 防护），`GET /api/tool/{id}/export` 导出（内置与私有工具均可，内置为只读导出），`POST /api/tool/import` 导入到私有根并复用 `registry.register()` 自动完成注册登记；同名冲突返回 409，前端确认后带 `overwrite` 重试。依赖清单 `requirements.txt`（uv 精确 pin）随包走，导入不自动安装、首次运行时按既有 check-deps/install-deps 链路懒安装。这是工具空间从「单机孤岛」走向「可流通资产」的关键一步。
+**内涵**：实现工具在不同 SOTABand 实例之间的迁移能力（已落地）。工具以标准化 `.sotatool.zip` 迁移包流通：`core/migration/tool_bundle.py` 定义归档格式（manifest.json 含格式版本/依赖清单/逐文件 sha256 + registry_entry.json 原注册条目 + definitions/{id}.md + implementations/{id}/**，排除 `.venv`/`__pycache__`，含 zip-slip、zip 炸弹、非法 id 防护），`GET /api/tool/{id}/export` 导出（内存构建、浏览器直接下载，公共与私有工具均可，公共层为只读导出），`POST /api/tool/import` 导入到私有根并在响应中重建注册条目；私有层同名冲突返回 409，前端确认后带 `overwrite` 重试（旧文件备份为 `.bak.<时间戳>`），公共层同 id 不算冲突——私有副本按覆盖层模型遮蔽公共版本，响应带 `overrode_builtin` 警示；包内全部 `.py` 成员先过静态安全审查，命中阻断项不落盘。依赖清单（manifest 依赖 + `requirements.txt`，uv 精确 pin）随包走，导入不自动安装、首次运行时按既有 check-deps/install-deps 链路懒安装。这是工具空间从「单机孤岛」走向「可流通资产」的关键一步。
 
 **关联架构**：
-- 工具空间（`resources/tools/`）：管理工具的元数据、代码存储位置、版本信息
-- 归档模块（`core/resource/tool_package.py`）：打包/解包与安全校验
+- 工具空间（双层资源根：公共 `SB-USER/100/tools/` + 私有 `<uid>/tools/`，出厂种子包 `resources/tools/`）：管理工具的元数据、代码存储位置、版本信息
+- 迁移包模块（`core/migration/tool_bundle.py`，与 Agent 侧 `agent_bundle.py` 同族）：打包/解包与安全校验
 - 资源注册中心（`core/resource/registry/tool_registry.py`）：导入时自动完成注册登记（写只进私有根，按 id 替换）
-- 版本冲突处理：导入端 409 + `overwrite` 覆盖重试；覆盖内置同名工具时响应 `overrode_builtin` 提示遮蔽关系（独立的 `lifecycle.py` 生命周期管理器为规划中的目标模块，当前冲突与合并策略由导入端点直接实现）
+- 版本冲突处理：导入端私有层 409 + `overwrite` 覆盖重试；遮蔽公共层同名工具时响应 `overrode_builtin` 提示遮蔽关系（独立的 `lifecycle.py` 生命周期管理器为规划中的目标模块，当前冲突与合并策略由导入端点直接实现）
 
 ### 2.2 工具跨平台稳定运行
 
@@ -94,12 +96,14 @@
 
 **所属子系统**：安全与治理子系统 → 沙箱引擎（`sandbox.py`）+ 看门狗（`watchdog.py`）
 
-**内涵**：代码在沙箱中执行时，进行实时行为监控。与静态审查互补——静态审查检查代码「写了什么」，运行时审查检查代码「做了什么」。监控维度：(1) CPU 和内存使用上限（防止资源耗尽）；(2) 文件操作审计（读取/写入了哪些路径，是否超出授权目录）；(3) 网络连接监控（发起了哪些网络请求，目标 IP 和端口）；(4) 执行超时自动终止（当前 30 秒，可按工具类型差异化配置）；(5) 子进程链追踪（防止 fork 炸弹等进程爆炸攻击）。
+**内涵**：代码在沙箱中执行时，进行实时行为监控。与静态审查互补——静态审查检查代码「写了什么」，运行时审查检查代码「做了什么」。
+
+**落地形态（运行时审计钩子已落地）**：`ToolExecutor` 在工具子进程注入 `sys.addaudithook` 审计钩子（一经注册 Python 层不可移除，恶意代码也拆不掉），监控维度：(1) 文件写入白名单——白名单外路径的写/追加即拦截（白名单自动追加当前用户目录 `SOTABAND_USER_HOME`，多用户产物约定）；(2) 危险系统调用拦截（`os.system`/`posix_spawn`/`pty.spawn`/非模板特征的 `subprocess.Popen`——模板 `_call_tool` 的工具间调用按命令特征放行）；(3) 网络连接监控（`socket.connect` 取主机名，配置白名单时非白名单主机按 `runtime_enforce_network` 决定拦截或仅记录，无白名单时只记录）；(4) 环境变量篡改记录；违规事件合并进结果 `_security_violations` 透明回传，`review_mode=enforce` 时 enforceable 项抛 PermissionError。资源限制配套 rlimit 四项默认 0=关闭（`RLIMIT_AS` 会误杀 torch 类工具、`RLIMIT_NPROC` 按 uid 全局计数会掐断 `_call_tool`，与「0=不限制」超时体系一致）。执行超时自动终止由既有超时体系统一承担（`DEBUG_EXEC_TIMEOUT` 默认 60 秒、`TOOL_EXEC_TIMEOUT` 全局兜底 0=不限制）；子进程隔离执行即沙箱边界。尚未落地：CPU/内存硬配额、子进程链追踪、独立看门狗进程。
 
 **关联架构**：
-- 沙箱引擎（`sandbox.py`）：隔离执行，限制系统资源
+- 沙箱引擎（`sandbox.py`）：隔离执行，限制系统资源（独立沙箱引擎为规划中的目标模块；当前由 `ToolExecutor` 子进程 + 审计钩子 + rlimit 框架承担）
 - 看门狗（`watchdog.py`）：异常行为检测和自动恢复
-- 审计日志（`audit.py`）：记录所有操作，支持事后追溯
+- 审计日志（`audit.py`）：记录所有操作，支持事后追溯（运行时违规随执行结果回传；一般性操作审计仍为规划项）
 
 ---
 
@@ -301,14 +305,14 @@
 
 ### 8.1 用户注册与登录
 
-**所属子系统**：用户空间（`<私有根>/users/`）
+**所属子系统**：用户空间（平台目录 `SB-USER/_platform/auth/` + 每用户数据目录 `SB-USER/<uid>/`）
 
 **内涵**：建立本地用户身份体系，包括注册、登录、会话管理。用户空间记录用户身份、租户信息、角色权限（管理员/普通用户/访客）、资源配额（工具数量、数据容量、Agent 数量等）、操作审计日志。这是多用户协作和权限管控的前提，也是后续对接全局服务器统一认证的基础。
 
-**落地形态（本地身份层已提供）**：`core/auth/` 提供用户存储（users.json 落私有根，PBKDF2 散列，零第三方依赖）与 HMAC 签名令牌；`/api/auth/register|login|me|logout|users` 提供注册/登录/当前身份/登出/用户列表；HTTP 中间件解析 `Authorization: Bearer` 写入请求级身份，登录用户的资源 `owner` 随登录者变化，数据集私有隔离自此按真实身份生效。角色为 admin（首用户）/ user 两级；密码重置、OAuth、租户/配额、审计日志尚未实现。
+**落地形态（本地身份层已提供）**：`core/auth/` 提供用户存储（`users.json` 落平台目录 `USER_HOME_ROOT/_platform/auth/`，不进源码目录也不进任何用户目录；PBKDF2 散列，零第三方依赖）与 HMAC 签名令牌（密钥 `secret.key` 首次使用自动生成，0600；令牌校验回查用户表）；`/api/auth/login|me|logout|password|users` 等提供登录/当前身份/登出/改密/用户管理——自助注册端点已移除，普通用户由超级用户经 `/api/auth/users` 创建；HTTP 中间件解析 `Authorization: Bearer` 写入请求级身份，登录用户的资源 `owner` 随登录者变化，数据集私有隔离自此按真实身份生效。身份三种：超级用户（id=0，密码只在 `.env`，唯一 admin）、系统用户（uid=100，不可密码登录，超管经 `POST /api/auth/act-as-system` 领短时令牌代管公共资源）、普通用户（uid 从 1000 起，role=user）；uid<1000 为保留段。密码重置（自助找回）、OAuth、租户/配额、审计日志尚未实现。
 
 **关联架构**：
-- 用户空间（`<私有根>/users/`）：用户身份、角色权限；租户信息、资源配额为设计目标
+- 用户空间（`SB-USER/_platform/auth/users.json` + 每用户目录 `SB-USER/<uid>/`）：用户身份、角色权限；租户信息、资源配额为设计目标
 - 审计日志（`audit.py`）：记录用户操作，支持合规审查（规划中）
 
 ### 8.2 用户组网

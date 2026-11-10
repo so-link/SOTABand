@@ -47,11 +47,12 @@
 │  │ 安全治理  │ 可观测性  │          │          │      │
 │  └──────────┴──────────┴──────────┴──────────┘      │
 ├─────────────────────────────────────────────────────┤
-│  资源层 (resources/)                                 │
+│  资源层 (系统用户根 SB-USER/100/ + 各用户家目录 SB-USER/<uid>/) │
 │  数据空间 │ 工具空间 │ 模型空间 │ Agent空间 │ 用户空间 │ 任务空间 │
+│  （resources/ 为出厂种子包，运行期不解析）              │
 ├─────────────────────────────────────────────────────┤
-│  存储层 (storage/ + 用户目录 SB-USER/<uid>/ + 私有资源根) │
-│  文件存储 + SQLite：平台级实体在 storage/auth/          │
+│  存储层 (SB-USER/_platform/ + 用户目录 SB-USER/<uid>/) │
+│  文件存储 + SQLite：平台级实体在 SB-USER/_platform/auth/ │
 │  （用户表 users.json、令牌密钥 secret.key）；每用户一库  │
 │  SB-USER/<uid>/platform.db（对话、任务历史、定时任务、   │
 │  平台操作审计、个人偏好）；缓存为规划项                  │
@@ -68,7 +69,7 @@
 
 | 组件 | 文件 | 职责 |
 |------|------|------|
-| 资源路径模型 | `paths.py` | 双资源根：内置根 `resources/`（随仓库分发，只读系统资产）+ 用户私有根 `<USER_HOME>/<uid>/resources-private/`（USER_HOME 默认 `/root/SB-USER`，`SOTABAND_HOME` 可覆盖）；读取时私有优先合并（覆盖层语义，fork 副本覆盖内置），写入只进私有根 |
+| 资源路径模型 | `paths.py` | 双层资源根（`core/user_paths.py` 为唯一实现，本模块是薄封装）：用户私有根 = 家目录 `<USER_HOME>/<uid>/`（扁平布局，空间目录直接落顶层；USER_HOME 默认 `/root/SB-USER`，`SOTABAND_HOME` 可覆盖）+ 公共系统根 = 系统用户家目录 `<USER_HOME>/100/`；读取时私有优先合并（覆盖层语义，fork 副本覆盖公共版本），普通用户写入只进私有根。仓库内 `resources/` 降级为出厂种子包（经 `scripts/seed_system_resources.py` 幂等导入系统用户目录），不再参与运行期解析，仅作种子导入与 fork 升级哈希的参照 |
 | 资源构建器 | `builder/tool_builder.py` | 根据用户需求自动生成工具代码，沙箱自测 + 自动调试循环，核验后注册 |
 | Agent 构建器 | `builder/agent_builder.py` | MD 规范文档 → Agent Python 代码 |
 | API 文档构建器 | `builder/api_doc_builder.py` | 为 Web 服务式 Agent 生成对外 API 文档 |
@@ -77,7 +78,7 @@
 | Agent 注册中心 | `registry/agent_registry.py` | Agent 注册登记 |
 | 数据注册中心 | `registry/data_registry.py` | 数据集注册登记（按 owner 隔离） |
 | 模型注册中心 | `registry/model_registry.py` | 模型注册登记 |
-| 注册基类 | `registry/registry_base.py` | 读合并 / 写私有的注册存储模型 |
+| 注册基类 | `registry/registry_base.py` | 注册器抽象基类（register / unregister / get / list_all / update）；各具体注册表实现「读按根顺序合并、写落当前身份可写层」的存储模型 |
 | 资源发现器 | `discoverer/tool_discoverer.py`、`discoverer/data_discoverer.py` | 按能力、类型、标签等维度查询和获取资源 |
 | 规格大纲 | `spec_outline.py` | 工具/Agent MD 规格文档的大纲解析 |
 
@@ -116,18 +117,20 @@
 | 组件 | 文件 | 职责 |
 |------|------|------|
 | 密钥防护 | `secrets.py` | 密钥脱敏（mask/scrub/redact），防止 API Key 出现在调试日志与 LLM 提示词中 |
-| 代码核验器 | `code_scan.py` | AST 静态安全审查（todo 3.2）：两级结论——阻断 shell/动态执行/删除原语/ctypes/socket/动态导入，警告 subprocess/open/联网/`../` 上跳/内网 URL/无退出死循环/巨量分配/无守卫自递归/硬编码单一平台路径；未声明导入校验（依赖漂移提示）。落盘前闸门（工具/Agent 注册、保存、导入）+ 执行前 choke point（`ToolExecutor` 统一复查） |
+| 代码核验器（底线闸门） | `code_scan.py` | AST 静态安全审查（todo 3.2）：两级结论——阻断 shell/动态执行/删除原语/ctypes/socket/动态导入，警告 subprocess/open/联网/`../` 上跳/内网 URL/无退出死循环/巨量分配/无守卫自递归/硬编码单一平台路径；未声明导入校验（依赖漂移提示）。落盘前闸门（工具/Agent 注册、保存、导入）+ 执行前 choke point（`ToolExecutor` 统一复查） |
+| 静态审查（core API 约束线） | `review.py` | AST 级审查（block/warn 两级：BANNED_CALL 危险调用名单含系统命令/子进程/文件目录增删/权限与链接操作/代码执行原语，OBFUSCATED_CALL getattr 拼名绕过，DYNAMIC_IMPORT 动态导入，RAW_OPEN_WRITE 裸 open 写文件；另语法错误直接 block）：本地文件操作/子进程/目录增删必须走 core API 或 `_call_tool`，策略严于 code_scan 底线名单；默认 `review_mode=audit` 只记录，enforce 切换前需先清零存量内置工具命中。注册接口 enforce 时 400 拒绝，自动调试 round0 初审 + LLM 新代码先审后采纳 |
+| 运行时审计 | 子进程注入（`ToolExecutor`） | 工具子进程注入 audit hook：写白名单（自动追加当前用户目录 `SOTABAND_USER_HOME`）/系统调用拦截/网络记录；配套 rlimit 四项默认 0=关闭（与「0=不限制」超时体系一致） |
 
-看门狗为设计目标，尚未实现；对话内平台操作有独立审计流水（`core/chat_control/audit.py`），一般性操作审计仍为规划项。沙箱隔离当前由子进程执行 + 超时 + 代码核验器 + 用户核验环节共同承担。
+看门狗为设计目标，尚未实现；对话内平台操作有独立审计流水（`core/chat_control/audit.py`），一般性操作审计仍为规划项。沙箱隔离当前由子进程执行 + 超时 + 静态审查双闸门（code_scan 底线 + review 约束线）+ 运行时审计 + 用户核验环节共同承担。
 
 ### 4.6 LLM 接入子系统 (`core/llm/`)
 
 | 组件 | 文件 | 职责 |
 |------|------|------|
-| 客户端 | `client.py` | OpenAI 兼容协议的统一 LLM 客户端 |
+| 客户端 | `client.py` | OpenAI 兼容协议的统一 LLM 客户端（`create_llm_client()` 对话模型 / `create_gen_llm_client()` 生成模型，后者每次调用时才解析 `LLM_GEN_*` 配置，设置页保存即生效） |
 | 服务商预设 | `providers.py` | 多服务商端点/模型预设，按 Key 前缀自动选择端点 |
 
-由 `.env` 的 `LLM_PROVIDER` / `LLM_API_KEY` 统一配置，DeepSeek 仅为默认项，可切换 MiMo / OpenAI / Kimi / 智谱 / 通义 / 豆包等任意 OpenAI 兼容服务。
+对话链路由 `.env` 的 `LLM_PROVIDER` / `LLM_API_KEY` 统一配置，DeepSeek 仅为默认项，可切换 MiMo / OpenAI / Kimi / 智谱 / 通义 / 豆包等任意 OpenAI 兼容服务。规格/代码生成链路可用 `LLM_GEN_PROVIDER / LLM_GEN_MODEL / LLM_GEN_API_KEY / LLM_GEN_BASE_URL` 单独指定推理更强的「生成模型」（`create_gen_llm_client()`，未配置时自动回退全局对话模型），与对话模型分离。
 
 ### 4.7 可观测性子系统 (`core/observability/`)
 
@@ -161,58 +164,63 @@
 
 ## 五、资源层六空间
 
-工具与 Agent 分**系统内置**与**个人定制版**两层，全空间统一遵循覆盖层模型
-（`core/resource/fork.py`，方案 C）：
+工具与 Agent 分**公共（系统用户层）**与**个人定制版**两层，全空间统一遵循
+覆盖层模型（`core/resource/fork.py`，方案 C）：
 
-- **内置**（`resources/`，随 git 分发）：默认只读使用。个人把内置工具/Agent
-  添加进空间后不做修改，就是直接使用内置实现；**修改或删除内置版本仅超级
-  管理员可以**（`app/api/deps.ensure_can_touch_builtin` 按 registry 合并视图
-  命中层判定，非超管 403；对话内平台网关同源收口）；
-- **个人定制版**：普通用户要改内置资源，先「复制为我的副本」（fork 到私有
+- **公共层**（系统用户目录 `SB-USER/100/`，内置资源经 `scripts/seed_system_resources.py`
+  从出厂种子包 `resources/` 运行期导入，owner=100、visibility=public）：默认
+  只读使用。个人把公共工具/Agent 添加进空间后不做修改，就是直接使用公共
+  实现；**修改或删除公共层版本必须是系统身份**（uid=100，经
+  `POST /api/auth/act-as-system` 领取短时令牌；超管令牌也不例外，
+  `app/api/deps.ensure_can_touch_builtin` 按 registry 合并视图命中层判定，
+  非系统身份 403；对话内平台网关同源收口）；
+- **个人定制版**：普通用户要改公共资源，先「复制为我的副本」（fork 到私有
   根，registry 条目记 `forked_from` 血缘哈希），此后编辑与执行都命中私有
-  副本（读取私有优先），内置版本不受影响；内置被上游升级时按哈希比对提示
-  「内置已更新」；
-- **两层独立**：删除任一层不牵连另一层——删除内置登记不影响个人定制版
-  （合并视图继续命中私有副本），丢弃/删除个人副本回落到直接使用内置。
-  registry `unregister` 的 scope 三态（builtin/private/all）即此语义的实现。
+  副本（读取私有优先），公共版本不受影响；公共层被系统身份升级时按哈希比对
+  提示「内置已更新，重新复制」；
+- **两层独立**：删除任一层不牵连另一层——删除公共层登记不影响个人定制版
+  （合并视图继续命中私有副本），丢弃/删除个人副本回落到直接使用公共版本。
+  registry `unregister` 的 scope 三态（system/private/all，system 兼容旧名
+  builtin）即此语义的实现。
 
-### 5.1 数据空间 (`resources/data/`)
+### 5.1 数据空间 (`<uid>/data/`，公共层 `SB-USER/100/data/`)
 
 - **管理内容**: 多源异构数据（文本/图像/视频/EEG/fMRI/传感器等）的元数据及存储位置，以及 Memory 和 Result
 - **记录信息**: 数据格式、Schema、版本、存储路径、血缘关系、生成时间、访问权限
 - **资源描述**: 标准化描述（名称、类型、来源、格式、时间范围、质量评分等）
 - **可见性**: 数据集是**私有**资源——数据目录指向本机路径，默认 `visibility=private`，按 `owner` 隔离；共享工具经系统 API 访问数据集时在 API 层强制按 owner 过滤
 
-### 5.2 工具空间 (`resources/tools/`)
+### 5.2 工具空间 (`<uid>/tools/`，公共层 `SB-USER/100/tools/`)
 
 - **管理内容**: 数据处理工具、算法库、存储读写工具、特征提取工具、代码生成工具等（含用户探索生成的本地工具）
-- **记录信息**: 工具名称、类型、调用接口定义、版本、代码存储位置、创建时间、使用次数
-- **特殊规则**: 用户探索生成的本地工具经核验后注册入库
-- **可见性**: 工具是**共享**资源（代码资产随仓库分发），默认 `visibility=public`，不做归属隔离
+- **记录信息**: 工具名称、类型、调用接口定义、版本、代码存储位置、创建时间、使用次数（计数存私有目录 `usage.json`，与 registry 条目分离，读取时注入合并）
+- **特殊规则**: 用户探索生成的本地工具经核验后注册入库；register 撞公共层同名 id 时非系统身份被前置拦截（防私有影子遮蔽公共工具），改公共工具须先 fork
+- **可见性**: 工具条目默认 `visibility=public`、不做 owner 过滤——公共工具（出厂种子导入系统用户目录）全员可见可用；用户新建的工具落其私有 registry，物理上仅本人可见
 
-### 5.3 模型空间 (`resources/models/`)
+### 5.3 模型空间 (`<uid>/models/`，公共层 `SB-USER/100/models/`)
 
 - **管理内容**: 多模态模型（LLM/ViT/3D-CNN/时序模型等）
-- **记录信息**: 模型名称、框架类型、输入输出格式、权重文件路径、版本、部署状态、关联工具ID
+- **记录信息**: 模型名称、框架类型、输入输出格式、权重文件路径（落库归一为相对资源根路径，避免绝对路径把位置固化在某台机器上）、版本、部署状态、关联工具ID
 - **关联关系**: 每个AI模型对应工具空间中的调用工具
 
-### 5.4 智能体空间 (`resources/agents/`)
+### 5.4 智能体空间 (`<uid>/agents/`，公共层 `SB-USER/100/agents/`)
 
 - **管理内容**: 多智能体定义，包括交互Agent、任务Agent、Web服务Agent三类
 - **记录信息**: 唯一标识、能力描述（Markdown格式）、角色类型、依赖工具列表、协作协议、健康状态
-- **可见性**: Agent 与工具同为共享代码资产，默认全局可见
-- **实现位置**: 实现在 `resources/agents/implementations/`（非 `core/agent/`，后者是运行时框架）
+- **可见性**: 系统身份注册的 Agent `visibility=public`（落系统用户目录，全员可用）；普通用户注册的 Agent `visibility=private`，仅属主可见可用
+- **实现位置**: 实现在各资源根的 `agents/implementations/`（非 `core/agent/`，后者是运行时框架）
 
-### 5.5 用户空间 (`storage/auth/` + `<USER_HOME>/<uid>/`)
+### 5.5 用户空间 (`SB-USER/_platform/auth/` + `<USER_HOME>/<uid>/`)
 
-- **管理内容**: 本地多用户身份与每用户数据根。身份层在 `core/auth/`：注册/登录（PBKDF2-HMAC-SHA256 密码散列 + HMAC 签名令牌，零第三方依赖）；用户表与令牌密钥是**平台级实体**，存 `storage/auth/users.json` / `secret.key`（0600，可用 `SOTABAND_AUTH_SECRET` 覆盖）。每用户数据根 `<USER_HOME>/<uid>/`（USER_HOME 默认 `/root/SB-USER`，`SOTABAND_HOME` 可覆盖）：platform.db（对话/任务/cron/审计/偏好）、resources-private/、uploads/、工作区清单等
+- **管理内容**: 本地多用户身份与每用户数据根。身份层在 `core/auth/`：注册/登录（PBKDF2-HMAC-SHA256 密码散列 + HMAC 签名令牌，零第三方依赖）；用户表与令牌密钥是**平台级实体**，存 `<USER_HOME_ROOT>/_platform/auth/users.json` / `secret.key`（0600，可用 `SOTABAND_AUTH_SECRET` 覆盖）。每用户数据根 `<USER_HOME>/<uid>/`（USER_HOME 默认 `/root/SB-USER`，`SOTABAND_HOME` 可覆盖）：platform.db（对话/任务/cron/审计/偏好）、资源空间目录（tools/agents/data/models，扁平布局）、uploads/、工作区清单等
+- **三种身份**: 超级用户 uid=0（`.env` 密码登录）之外，还有**系统用户 uid=100**——公共资源（内置数据集/工具/模型/Agent、系统定时任务）的归属层，不可登录、无密码，仅超管经 `POST /api/auth/act-as-system` 领取短时令牌代管，公共层写入一律以系统身份署名
 - **两种模式**（由 `.env` 是否配置 `SOTABAND_ROOT_PASSWORD` 决定）：**单用户兼容模式**（未配置）——匿名请求直接以超级用户（uid=0）身份执行，本机打开就用；**多用户模式**（已配置）——除登录/探活外的 `/api` 请求一律要求携带有效令牌，携带无效/过期令牌直接 401，不静默降级
-- **账号模型**: 超级用户类比 Linux root——密码只存 `.env`（用户表中有行但无散列，验证走独立通道），uid 固定 `0`，是唯一能管理用户、改系统配置的角色；用户名/显示名存用户表，界面上可改。普通用户 uid 从 1000 起顺序分配、**永不回填**（uid 即用户目录名），只能登录、改自己的密码、保存自己的偏好
+- **账号模型**: 超级用户类比 Linux root——密码只存 `.env`（用户表中有行但无散列，验证走独立通道），uid 固定 `0`，是唯一能管理用户、改系统配置的角色；用户名/显示名存用户表，界面上可改。普通用户 uid 从 1000 起顺序分配、**永不回填**（uid 即用户目录名），只能登录、改自己的密码、保存自己的偏好；uid < 1000 全部是保留位（0=超管、100=系统用户）
 - **记录信息**: 用户标识、用户名、显示名、角色（admin/user）、builtin 标记；对话内平台操作按 owner 落各自库的 `chat_ops` 审计流水；租户信息与资源配额为设计目标，尚未实现
 
 ### 5.6 任务空间 (`resources/tasks/`)
 
-- **管理内容**: 智能处理流程定义及任务实例的运行时状态（`resources/tasks/` 仍为占位；运行时任务历史已由 `core/observability/task_history.py` 落 `task_history` 表，经 `/api/task/list`、`/api/task/{id}` 等接口供任务空间浏览，Agent 运行与对话会话各聚合为一条任务记录）
+- **管理内容**: 智能处理流程定义及任务实例的运行时状态（`resources/tasks/` 仍为占位；运行时任务历史已由 `core/observability/task_history.py` 落 `task_history` 表，经 `/api/task/list`、`/api/task/recent-agents` 等接口供任务空间浏览，Agent 运行与对话会话各聚合为一条任务记录）
 - **记录信息（目标）**: 流程定义、任务状态（Pending/Running/Done/Failed）、当前步骤、进度、起止时间、关联资源ID列表、执行日志
 
 ---

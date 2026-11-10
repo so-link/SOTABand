@@ -540,7 +540,8 @@ POST /api/agent/{id}/test-api  { api_name, params }
 
 ## 九、注册表结构
 
-`resources/agents/registry.json` 每条记录的实际字段：
+Agent 注册表（公共层 `SB-USER/100/agents/registry.json`，私有层
+`SB-USER/<uid>/agents/registry.json`，读合并、私有优先）每条记录的实际字段：
 
 ```json
 {
@@ -561,7 +562,7 @@ POST /api/agent/{id}/test-api  { api_name, params }
 ```
 
 - `role` ∈ interactive / task / web-service；`flow` / `apis` / `server` 等内容写在 MD 规范文档中，不复制进注册表
-- `visibility` 默认 `public`（Agent 是共享代码资产）；`owner` 记录创建者
+- `visibility` 由注册身份决定：系统身份（act-as 令牌）注册为 `public` 落系统用户根，普通用户与超管令牌注册一律 `private` 落私有根；`owner` 记录创建者
 - web-service 的运行期端口等信息只存在于 `AgentFactory._services` 内存态，不落注册表
 
 ---

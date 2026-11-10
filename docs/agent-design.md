@@ -48,7 +48,7 @@ agent_factory.execute_stream("interactive-agent", params, context)
 主进程逐行读 stdout → SSE 流 → 前端 fetch+getReader → store → 界面流式显示
 ```
 
-对话可中断：`POST /api/chat/stop` 置停止标志，主进程在下一次 yield 时发出 `stopped` 事件并结束 SSE。对话不设总超时（长耗时工具如模型训练可能数分钟无中间输出），空闲容忍度取 600s～3600s。
+对话可中断：`POST /api/chat/stop` 置停止标志，主进程在下一次 yield 时发出 `stopped` 事件并结束 SSE。对话链路不设短总超时（长耗时工具如模型训练可能数分钟无中间输出），由 `AGENT_ROUND_TIMEOUT`（默认 7200s）兜底硬超时、每 `AGENT_IDLE_TIMEOUT`（默认 300s）无输出做一次心跳探活，探活失败才判定卡死并强制重启。
 
 ---
 
@@ -113,7 +113,7 @@ agent_factory.execute_stream("interactive-agent", params, context)
 
 - **Step 1 描述需求**：自然语言输入，选择角色类型（interactive / task / web-service，带模板确认对话框）
 - **Step 2 审阅 MD 规范文档**：LLM 生成的 MD 全文可编辑，确认后进入代码生成
-- **Step 3 沙箱测试 & 自动调试**：展示生成代码与静态校验结果列表（通过/失败），并提供按规范文档（task 输入规范表 / web-service ```apis 声明）解析出的测试参数表单，一键「自动调试」——后端沙箱试运行 Agent 子进程（单轮超时 `DEBUG_EXEC_TIMEOUT`，Agent 默认 180 秒）→ LLM 分析错误重写代码 → 再跑（SSE 流式展示每轮结果，默认最多 10 轮，可经系统设置/`DEBUG_MAX_ROUNDS` 调整，上限 100）；可随时停止（前端 AbortController 断流 + `POST /api/agent/auto-debug/stop` 兜底）；`agent-detail` 视图另行提供「AI 辅助修改」通道
+- **Step 3 沙箱测试 & 自动调试**：展示生成代码与静态校验结果列表（通过/失败），并提供按规范文档（task 输入规范表 / web-service ```apis 声明）解析出的测试参数表单，一键「自动调试」——后端沙箱试运行 Agent 子进程（单轮超时 `DEBUG_EXEC_TIMEOUT`，与工具统一默认 60 秒）→ LLM 分析错误重写代码 → 再跑（SSE 流式展示每轮结果，默认最多 10 轮，可经系统设置/`DEBUG_MAX_ROUNDS` 调整，上限 100）；可随时停止（前端 AbortController 断流 + `POST /api/agent/auto-debug/stop` 兜底）；`agent-detail` 视图另行提供「AI 辅助修改」通道
 - **Step 4 注册 & 启动**：注册到 Agent 空间，可立即启动进程并做健康检查
 
 ### 3.3 Agent 编辑器状态机
@@ -191,12 +191,15 @@ frontmatter（id / name / version / role / status）+ 正文段落：功能概�
 ### 4.4 MD 文档存储
 
 ```
-resources/agents/definitions/            # 内置根（随仓库分发）
-├── interactive-agent.md                 # 系统预置，开机自启
-├── {agent-name}.md                      # 用户通过 Agent 编辑器生成
+SB-USER/100/agents/definitions/            # 公共系统根（系统用户目录，内置资源经种子脚本导入）
+├── interactive-agent.md                   # 系统预置，开机自启
 └── ...
 
-../resources-private/agents/definitions/ # 私有根（用户新写/修改的规格写入此处，读取时与内置根合并）
+SB-USER/<uid>/agents/definitions/          # 私有根（用户新写/修改的规格写入此处，读取时私有优先合并）
+
+resources/agents/definitions/              # 出厂种子包（随仓库分发，运行期不解析，仅供导入/哈希参照）
+├── {agent-name}.md
+└── ...
 ```
 
 ---
@@ -232,7 +235,7 @@ resources/agents/definitions/            # 内置根（随仓库分发）
 **生成物目录：**
 
 ```
-resources/agents/implementations/{agent-id}/   （内置根；用户生成的写入私有根）
+SB-USER/<uid>/agents/implementations/{agent-id}/   （用户生成的写入私有根；公共 Agent 在系统根 SB-USER/100/ 下同构）
 ├── __init__.py
 ├── agent.py         # 继承 BaseAgent
 └── config.yaml      # 运行时配置
@@ -263,17 +266,18 @@ execute 体逐 token 流式展示（reasoning / delta 事件）
     ↓
 POST /api/agent/register（agent_routes）
     ├── 1. Agent ID 取自 MD frontmatter 的 id 字段（缺省 custom-agent），
-    │      经 RESOURCE_ID_RE 校验拒绝路径穿越；代码先过静态安全审查
-    ├── 2. AgentRegistry.register 写入私有根 registry.json
+    │      经 RESOURCE_ID_RE 校验拒绝路径穿越；代码先过静态安全审查；
+    │      id 已命中公共层时非系统身份被拦截（防影子遮蔽，改公共 Agent 先 fork）
+    ├── 2. AgentRegistry.register 写入对应根 registry.json
     │      （含从【【工具名】】引用解析出的 required_tools）
-    ├── 3. 路由写入实现目录（agent.py / spec.md / config.yaml，私有根）
+    ├── 3. 路由写入实现目录（agent.py / spec.md / config.yaml，与条目同根）
     └── 4. Web 服务式 Agent 注册后自动生成对外 API 文档
          （api_doc_builder，见 /api/agent/{id}/api-doc）
     ↓
 Agent 空间自动刷新 → 前端左侧面板可看到新 Agent
 ```
 
-注册采用「读合并 / 写私有」模型：读取时合并内置根与私有根，注册写入只落私有根。例外是 `save-spec` / `save-code`：它们优先写回文件的原位置（内置资产就地更新），原位置不存在时才写私有根。注册与 save-code 的代码先过 `core/security/code_scan.py` 静态安全审查（与工具同一闸门，todo 3.2），命中阻断项返回 400、不落盘。
+注册采用「读合并 / 按身份写」模型：读取时按私有根→系统根顺序合并，写入根由创建者身份决定——系统身份（act-as 令牌）注册的 Agent `visibility=public` 落系统用户目录（全员可用），其他用户注册的 `visibility=private` 落私有根（仅自己可用）；visibility 不接受客户端传值。例外是 `save-spec` / `save-code`：它们优先写回文件的原位置（公共层资产就地更新，须系统身份），原位置不存在时才写私有根；命中公共层时先过 `ensure_can_touch_builtin` 闸门，非系统身份 403。注册与 save-code 的代码先过 `core/security/code_scan.py` 静态安全审查（与工具同一闸门，todo 3.2），命中阻断项返回 400、不落盘。
 
 ---
 
@@ -302,8 +306,8 @@ Agent 空间自动刷新 → 前端左侧面板可看到新 Agent
 ### 7.2 超时与中断语义
 
 - `/api/chat/send` 的对话流 `timeout=None`：不设总超时，由用户通过停止按钮（`/api/chat/stop`）主动中断
-- `AgentFactory.execute_stream` 默认总超时 120s，空闲容忍 `max(600s, timeout)`；长任务场景由调用方显式传 `timeout=None`
-- 自动调试的单轮沙箱试运行超时与最大轮数为运行参数：`DEBUG_EXEC_TIMEOUT`（Agent 默认 180 秒）、`DEBUG_MAX_ROUNDS`（默认 10，上限 100），可在系统设置页调整并写入 `.env` 热生效
+- `AgentFactory.execute_stream` 默认总超时 120s，此时空闲容忍取 `max(60s, timeout)`；对话链路显式传 `timeout=None`，改由 `AGENT_ROUND_TIMEOUT`（默认 7200s）兜底硬超时、每 `AGENT_IDLE_TIMEOUT`（默认 300s）无输出做一次心跳探活，探活失败才判定卡死并强制重启（长耗时工具不会被误杀）
+- 自动调试的单轮沙箱试运行超时与最大轮数为运行参数：`DEBUG_EXEC_TIMEOUT`（工具与 Agent 统一默认 60 秒）、`DEBUG_MAX_ROUNDS`（默认 10，上限 100），可在系统设置页调整并写入 `.env` 热生效
 - 主进程退出（lifespan shutdown）时遍历停止全部 Agent 子进程
 
 ### 7.3 自动重建
@@ -356,6 +360,9 @@ model   : 代码赋值 > LLM_MODEL（仅默认 provider）> <PROVIDER>_MODEL > �
 | `/api/agent/{id}/save-spec` | POST | 保存规格修改 | 前端编辑器 |
 | `/api/agent/{id}/save-code` | POST | 保存代码修改 | 前端编辑器 |
 | `/api/agent/{id}/sync-spec-from-code` | POST | 从代码反向同步规格 | 前端编辑器 |
+| `/api/agent/{id}/fork-status` | GET | fork 状态（是否有副本、上游是否有更新） | 前端详情页 |
+| `/api/agent/{id}/fork` `/fork` (DELETE) | POST / DELETE | 复制为我的副本 / 丢弃副本 | 前端详情页 |
+| `/api/agent/{id}/export` | GET | 导出 Agent 迁移包（zip 直链下载） | 前端详情页 |
 | `/api/agent/{id}/status` | GET | Agent 进程状态查询 | 前端/监控 |
 | `/api/agent/{id}/start` `/stop` `/restart` | POST | 进程启停 | 前端资源空间 |
 | `/api/agent/{id}/execute` | POST (SSE) | 手动运行 Agent（任务式） | 前端详情页 |
@@ -377,11 +384,11 @@ model   : 代码赋值 > LLM_MODEL（仅默认 provider）> <PROVIDER>_MODEL > �
 
 ```
 core/resource/
-├── paths.py                       # 双资源根模型（内置根 + 私有根）
+├── paths.py                       # 双层资源根模型（私有根 + 公共系统根；resources/ 为出厂种子包）
 ├── spec_outline.py                # MD 规格文档大纲解析
 │
 ├── registry/                      # 注册中心层
-│   ├── registry_base.py           #   BaseRegistry — 所有注册器的抽象基类（读合并/写私有）
+│   ├── registry_base.py           #   BaseRegistry — 所有注册器的抽象基类（读合并/按身份写）
 │   ├── agent_registry.py          #   AgentRegistry
 │   ├── data_registry.py           #   DataRegistry（按 owner 隔离）
 │   ├── tool_registry.py           #   ToolRegistry
@@ -411,7 +418,7 @@ core/resource/
 
 1. 在 `registry/` 下新建 `task_registry.py`，实现 `BaseRegistry`
 2. （可选）在 `discoverer/`、`builder/` 下按同规则新增
-3. 注册与实现文件遵循「读合并 / 写私有」模型，无需改动已有文件
+3. 注册与实现文件遵循「读合并 / 按身份写」模型，无需改动已有文件
 
 ---
 
@@ -444,8 +451,8 @@ app/api/routes/chat_routes.py       # /api/chat/send (SSE)、/api/chat/stop
 app/api/routes/agent_routes.py      # /api/agent/* (Agent 管理)
 
 # Agent 资产
-resources/agents/definitions/       # MD 规范文档（内置根；私有根同构）
-resources/agents/implementations/   # agent.py + config.yaml（内置根；私有根同构）
+resources/agents/definitions/       # MD 规范文档出厂种子（运行期不解析；公共层与私有根同构）
+resources/agents/implementations/   # agent.py + config.yaml 出厂种子（公共层与私有根同构）
 ```
 
 ---
@@ -461,4 +468,4 @@ resources/agents/implementations/   # agent.py + config.yaml（内置根；私�
 | 5 | 角色体系 | 三类：interactive / task / web_service（早期四类设计中的 orchestrator/observer 已收敛为角色类型，不再单设；内置 `orchestrator-agent` 只是承担编排职责的 web_service 角色普通实例，不是第四种角色） |
 | 6 | 进程模型 | **所有 Agent 统一独立子进程**，stdin/stdout JSON-line 协议，交互 Agent 不再内嵌主进程 |
 | 7 | MD → 代码 | 固定模板 + 机械辅助方法 + LLM 生成 execute 体（按角色差异化 Prompt），静态校验 + 自动修正 |
-| 8 | 资源存储 | 双根模型：内置根 `resources/`（随仓库）+ 私有根 `../resources-private/`；读合并、写私有 |
+| 8 | 资源存储 | 双层根模型：私有根 `<USER_HOME>/<uid>/` + 公共系统根 `<USER_HOME>/100/`；读合并（私有优先）、写按身份；`resources/` 为出厂种子包（随仓库，运行期不解析） |

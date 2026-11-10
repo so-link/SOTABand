@@ -2,11 +2,12 @@
 # 模型注册与获取 API 设计文档
 
 > 参照「数据集注册 API」和「获取数据集 API」的设计模式，为模型空间新增「注册模型」和「获取模型」两个 API。
-> 状态：**已实现**（`api-model-register` / `api-model-get` 已登记到 `core/api/registry.json`，实现见 `core/api/implementations/api_model.py`；内置根 `resources/models/registry.json` 已有数十条真实注册记录，权重多为训练机绝对路径）。
+> 状态：**已实现**（`api-model-register` / `api-model-get` 已登记到 `core/api/registry.json`，实现见 `core/api/implementations/api_model.py`；出厂种子包 `resources/models/registry.json` 现为空——历史幽灵条目与他机绝对路径僵尸条目已经清理，`POST /api/model/purge-missing` 还能随时兜底清理「条目在、产物不在本机」的僵尸注册）。
 > 与本文档设计稿的差异：
-> 1. `ModelRegistry` 采用双资源根（读合并内置+私有、写只进私有根 registry.json），注册表 MD 与权重目录也解析到私有根；
-> 2. 注册时若模型名与已有条目重名，自动追加递增序号 `_1`/`_2`… 确保名称唯一（`api-model-get` 的模糊匹配仍可命中原始名称片段）；
-> 3. `api-model-get` 经 `ModelRegistry._read()` 合并读取双根，注册后立即可查，与 `api-data-get` 行为一致。
+> 1. `ModelRegistry` 采用双层资源根（读合并「私有 + 公共系统用户根」且私有优先；register/update 写私有根 registry.json，公共层运行期也可写/删——须系统身份，闸门在路由层），注册表 MD 与权重目录同样按资源根解析；
+> 2. `api-model-register` 会自动在模型名后追加毫秒级时间戳后缀避免同名冲突；`ModelRegistry.register` 层另有同名兜底——与已有条目重名时追加递增序号 `_1`/`_2`…（`api-model-get` 的模糊匹配仍可命中原始名称片段）；
+> 3. `api-model-get` 经 `ModelRegistry._read()` 合并读取双层根，注册后立即可查，与 `api-data-get` 行为一致；
+> 4. 注册时 `model_path` 若为资源根 `models/` 下的绝对路径，会归一为相对路径落库——相对路径能在用户目录迁移、私有根变更后继续解析，绝对路径会被固化成某台机器的历史位置。
 
 ---
 
@@ -139,9 +140,9 @@
 |------|------|
 | `core/resource/registry/model_registry.py` | 模型注册中心，继承 BaseRegistry |
 | `core/api/implementations/api_model.py` | 模型 API 实现（ApiModelRegister + ApiModelGet） |
-| `resources/models/registry.json` | 模型注册表（随训练产物持续积累记录，权重路径多为训练机绝对路径） |
-| `resources/models/definitions/` | 模型 MD 规范文档目录 |
-| `resources/models/models/` | 模型权重文件存储目录 |
+| `resources/models/registry.json` | 模型注册表的出厂种子（现为空；运行期条目落私有根 `<uid>/models/registry.json`，公共层在系统用户根 `SB-USER/100/models/`） |
+| `resources/models/definitions/` | 模型 MD 规范文档目录（出厂种子；运行期写入解析到私有根） |
+| `resources/models/models/` | 模型权重文件存储目录（出厂种子；运行期写入解析到私有根） |
 | `core/api/definitions/api-model-register.md` | 注册模型 API 的 MD 规范文档 |
 | `core/api/definitions/api-model-get.md` | 获取模型 API 的 MD 规范文档 |
 
