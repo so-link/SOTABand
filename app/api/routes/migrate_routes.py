@@ -159,6 +159,10 @@ async def install_agent_deps(agent_id: str, req: dict,
     安装目标是全体用户共享的项目 venv，因此限超管（与 config/llm 等平台
     资产同级），并逐条通过 _DEP_SPEC_RE 白名单后才进 argv。
     """
+    from core.resource.registry.agent_registry import AgentRegistry
+
+    if not await AgentRegistry().get(agent_id):
+        raise HTTPException(404, f"Agent '{agent_id}' not found")
     dependencies = req.get("dependencies", [])
     if not dependencies:
         raise HTTPException(400, "dependencies 不能为空")
