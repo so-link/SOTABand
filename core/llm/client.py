@@ -352,6 +352,32 @@ class OpenAICompatibleClient(LLMClient):
         finally:
             sem.release()
 
+    async def images_generate(self, model: str, prompt: str, **kwargs) -> list[str]:
+        """图片生成/编辑（OpenAI 兼容 /images/generations），返回图片 URL 列表。
+
+        豆包 Ark 等兼容端点支持该路由；Ark 专有的 watermark 等参数经
+        extra_body 透传。并发与 chat 同一把锁：网关对单 Key 的并发容忍度低。
+        """
+        sem = _LLM_SEMAPHORE
+        await sem.acquire()
+        try:
+            client = self._build_client()
+            params: dict = {
+                "model": model,
+                "prompt": prompt,
+                "size": kwargs.get("size") or "2K",
+                "response_format": "url",
+                "n": int(kwargs.get("n") or 1),
+            }
+            if kwargs.get("image"):
+                params["image"] = kwargs["image"]
+            if "watermark" in kwargs:
+                params["extra_body"] = {"watermark": bool(kwargs["watermark"])}
+            resp = await client.images.generate(**params)
+            return [d.url for d in (resp.data or []) if getattr(d, "url", None)]
+        finally:
+            sem.release()
+
 
 # 向后兼容别名：历史生成的 Agent 代码可能直接引用 DeepSeekClient
 DeepSeekClient = OpenAICompatibleClient

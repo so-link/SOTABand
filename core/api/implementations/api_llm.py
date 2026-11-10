@@ -499,29 +499,68 @@ class ApiLlmChatStream:
 
 
 class ApiLlmGetConfig:
-    """api-llm-get-config: 获取 LLM 配置"""
+    """api-llm-get-config: 获取 LLM 配置（掩码视图）
+
+    api_key 只返回脱敏值：调用方没有任何合法场景需要明文密钥——对话走
+    api-llm-chat / api-llm-chat-with-config，图片生成走 api-llm-images。
+    明文密钥族（api-doubao-get-key、api-deepseek-get-key）已于 2026-11
+    下线（评审 C-3：任何注册工具可稳定读取平台全部 LLM 密钥）。
+    """
 
     @staticmethod
     def call(**kwargs) -> dict:
         provider = kwargs.get("provider", "deepseek")
-        return get_llm_api_config(provider)
+        cfg = get_llm_api_config(provider)
+        cfg["api_key_configured"] = bool(cfg.get("api_key"))
+        cfg["api_key"] = mask_secret(cfg.get("api_key", ""))
+        return cfg
 
 
-class ApiDoubaoGetKey:
-    """api-doubao-get-key: 获取豆包 API Key"""
+class ApiLlmImages:
+    """api-llm-images: 图片生成/编辑（密钥不出主进程的代理通道）
+
+    与 api-llm-chat-with-config 同属替代 get-key 的代理通道：工具只传
+    prompt/image/model，端点与 Key 由服务端按 provider 解析（默认豆包
+    Ark，OpenAI 兼容 /images/generations）。返回图片 URL 列表，密钥与
+    完整端点细节不随结果外泄。
+
+    【必填/选填】
+    - 必填：prompt；model（图像模型名，如 doubao-seedream-5-0-lite-260128）
+    - 选填：provider（默认 doubao）、image（编辑场景的 base64 data URI）、
+      size（默认 2K）、watermark（默认 False）、n（生成张数，默认 1）
+    """
 
     @staticmethod
-    def call(**kwargs) -> dict:
-        config = get_llm_api_config("doubao")
-        return {"api_key": config.get("api_key", "")}
+    async def call(**kwargs) -> dict:
+        provider = (kwargs.get("provider") or "doubao").strip()
+        model = (kwargs.get("model") or "").strip()
+        prompt = (kwargs.get("prompt") or "").strip()
+        if not prompt:
+            return {"error": "prompt 不能为空"}
+        if not model:
+            return {"error": "未提供 model"}
 
+        cfg = LLMConfig(provider=provider)
+        if not cfg.api_key:
+            return {"error": f".env 未配置 {provider.upper()}_API_KEY，图片生成不可用"}
 
-class ApiDeepseekGetKey:
-    """api-deepseek-get-key: 获取 DeepSeek API Key 和模型名称（从 .env 读取）"""
-
-    @staticmethod
-    def call(**kwargs) -> dict:
-        return get_llm_api_config("deepseek")
+        client = None
+        try:
+            client = create_llm_client(cfg)
+            urls = await client.images_generate(
+                model=model, prompt=prompt,
+                image=kwargs.get("image"), size=kwargs.get("size"),
+                n=kwargs.get("n"), watermark=kwargs.get("watermark", False),
+            )
+            return {"images": urls, "model": model}
+        except Exception as e:  # noqa: BLE001
+            return {"error": f"图片生成失败: {scrub_text(str(e), max_len=500)}"}
+        finally:
+            if client is not None:
+                try:
+                    await client.aclose()
+                except Exception:
+                    pass
 
 
 class ApiLlmTestConnection:

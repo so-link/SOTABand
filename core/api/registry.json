@@ -326,7 +326,7 @@
   {
     "id": "api-llm-get-config",
     "name": "LLM配置获取API",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "category": "llm",
     "status": "active",
     "spec_path": "definitions/api-llm-get-config.md",
@@ -339,6 +339,7 @@
     },
     "output_schema": {
       "api_key": "string",
+      "api_key_configured": "bool",
       "base_url": "string",
       "model": "string",
       "provider": "string"
@@ -351,52 +352,37 @@
     "created_at": "2026-07-06T00:00:00Z"
   },
   {
-    "id": "api-doubao-get-key",
-    "name": "获取豆包API KEY",
+    "id": "api-llm-images",
+    "name": "LLM图片生成API",
     "version": "1.0.0",
     "category": "llm",
     "status": "active",
-    "spec_path": "definitions/api-doubao-get-key.md",
+    "spec_path": "definitions/api-llm-images.md",
     "impl_module": "core.api.implementations.api_llm",
-    "impl_class": "ApiDoubaoGetKey",
+    "impl_class": "ApiLlmImages",
     "impl_method": "call",
-    "is_async": false,
-    "input_schema": {},
-    "output_schema": {
-      "api_key": "string"
-    },
-    "tags": [
-      "LLM",
-      "豆包",
-      "密钥"
-    ],
-    "created_at": "2026-07-25T00:00:00Z"
-  },
-  {
-    "id": "api-deepseek-get-key",
-    "name": "获取DeepSeek API KEY",
-    "version": "1.0.0",
-    "category": "llm",
-    "status": "active",
-    "spec_path": "definitions/api-deepseek-get-key.md",
-    "impl_module": "core.api.implementations.api_llm",
-    "impl_class": "ApiDeepseekGetKey",
-    "impl_method": "call",
-    "is_async": false,
-    "input_schema": {},
-    "output_schema": {
+    "is_async": true,
+    "input_schema": {
+      "prompt": "string",
+      "model": "string",
       "provider": "string",
-      "api_key": "string",
-      "base_url": "string",
-      "model": "string"
+      "image": "string",
+      "size": "string",
+      "watermark": "bool",
+      "n": "int"
+    },
+    "output_schema": {
+      "images": "list",
+      "model": "string",
+      "error": "string"
     },
     "tags": [
       "LLM",
-      "DeepSeek",
-      "密钥",
-      "配置"
+      "图片生成",
+      "图片编辑",
+      "AI"
     ],
-    "created_at": "2026-07-26T00:00:00Z"
+    "created_at": "2026-11-10T00:00:00Z"
   },
   {
     "id": "api-llm-test-connection",
