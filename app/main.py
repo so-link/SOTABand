@@ -18,7 +18,7 @@ from app.api.routes.tool_routes import router as tool_router
 from app.api.routes.data_routes import router as data_router
 from app.api.routes.file_routes import router as file_router
 from app.api.routes.model_routes import router as model_router
-from app.api.routes.config_routes import router as config_router
+from app.api.routes.config_routes import router as config_router, ENV_FILE
 from app.api.routes.api_routes import router as api_list_router
 from app.api.routes.llm_routes import router as llm_router
 from app.api.routes.auth_routes import router as auth_router
@@ -72,6 +72,13 @@ async def lifespan(app: FastAPI):
             f"[SOTABand] 单用户模式：未配置 SOTABAND_ROOT_PASSWORD，"
             f"匿名访问即以超级用户（uid={SUPERUSER_UID}）身份使用。"
             f"配置该密码并重启即可启用多用户（强制登录 + 用户管理）"
+        )
+
+    # .env 含 API Key 等凭据；历史版本写入时未收紧权限，启动自检兜底
+    if ENV_FILE.exists() and ENV_FILE.stat().st_mode & 0o077:
+        print(
+            f"[SOTABand] ⚠ {ENV_FILE} 对其他用户可读（mode={oct(ENV_FILE.stat().st_mode)[-3:]}），"
+            f"已包含 API Key 等凭据，建议执行 chmod 600"
         )
 
     # 定时任务模块：建表 + 载入启用任务开始调度（失败不阻塞主服务启动）

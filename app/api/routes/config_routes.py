@@ -178,6 +178,8 @@ def _write_env(env: dict[str, str], remove_keys: list[str] | None = None) -> Non
             lines.append(f"{key}={val}")
 
     ENV_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # .env 含 LLM API Key 等凭据，落盘即收紧权限（对照 secret.key 的 0600）
+    os.chmod(ENV_FILE, 0o600)
 
 
 def _refresh_settings(
