@@ -378,9 +378,10 @@ async def test_tool(
     from core.security.review import review_code as _review, block_violations as _blocks
     from config.settings import settings as _settings
 
-    _violations = _review(code) if _settings.security.review_mode != "off" else []
+    _mode = _settings.security.review_mode_for(tool_id or None)
+    _violations = _review(code) if _mode != "off" else []
     _blocks_found = _blocks(_violations)
-    if _blocks_found and _settings.security.review_mode == "enforce":
+    if _blocks_found and _mode == "enforce":
         async def _denied_stream():
             yield {
                 "event": "security_violation",
@@ -650,9 +651,10 @@ async def register_tool(req: RegisterToolRequest):
     from core.security.review import review_code as _review, block_violations as _blocks
     from config.settings import settings as _settings
 
-    _violations = _review(code) if _settings.security.review_mode != "off" else []
+    _mode = _settings.security.review_mode_for(req.tool_id)
+    _violations = _review(code) if _mode != "off" else []
     _blocks_found = _blocks(_violations)
-    if _blocks_found and _settings.security.review_mode == "enforce":
+    if _blocks_found and _mode == "enforce":
         from fastapi.responses import JSONResponse
         return JSONResponse(status_code=400, content={
             "detail": f"安全审查未通过：{len(_blocks_found)} 项 block 级违规，注册被拒绝",

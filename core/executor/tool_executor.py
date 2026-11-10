@@ -183,7 +183,7 @@ class ToolExecutor:
         return text
 
     @classmethod
-    def _security_preamble(cls, tool_dir: str, project_root: str) -> str:
+    def _security_preamble(cls, tool_dir: str, project_root: str, tool_id: str | None = None) -> str:
         """构造运行时安全审查前导代码（审计钩子 + 资源限制）。
 
         在 exec 工具代码之前注入子进程：
@@ -191,14 +191,16 @@ class ToolExecutor:
           （audit hook 一旦注册无法被 Python 层移除，恶意代码也拆不掉）
         - resource.setrlimit 限制 CPU / 内存 / 文件大小 / 进程数；
           配置值为 0 表示该项不限制（默认全部关闭，可配置启用）
-        策略来自 config.settings.SecurityConfig；review_mode=off 时整段跳过。
+        策略来自 config.settings.SecurityConfig.review_mode_for(tool_id)
+        （全局 audit 时可按 REVIEW_ENFORCE_TOOLS 对单个工具升级 enforce）；
+        review_mode=off 时整段跳过。
 
         与上游版本的差异（多用户适配）：写白名单除配置目录/工具目录/临时目录
         外，追加**当前用户目录**——本分支的工具产物约定就是写
         SOTABAND_USER_HOME，不加这一条会把合法写入全部误判为违规。
         """
         sec = _settings.security
-        mode = sec.review_mode if sec.review_mode in ("enforce", "audit") else "off"
+        mode = sec.review_mode_for(tool_id)
         if mode == "off":
             # 兜底 result dict 仍需可合并，给出恒等实现
             return (
@@ -348,7 +350,8 @@ class ToolExecutor:
         )
 
     @classmethod
-    def _build_script(cls, code: str, params: dict, tool_dir: str, project_root: str) -> str:
+    def _build_script(cls, code: str, params: dict, tool_dir: str, project_root: str,
+                      tool_id: str | None = None) -> str:
         """构造统一的临时执行脚本。
 
         与自动调试 sandbox_execute 使用完全相同的模板结构，
@@ -375,7 +378,7 @@ class ToolExecutor:
             f"sys.path.insert(0, {_safe_dumps(project_root)})\n"
             f"# 屏蔽 sys.argv 防止代码中误用 argparse 等 CLI 参数\n"
             f"sys.argv = [sys.argv[0]]\n"
-            + cls._security_preamble(tool_dir, project_root) +
+            + cls._security_preamble(tool_dir, project_root, tool_id) +
             f"code = {_safe_dumps(code)}\n"
             f"try:\n"
             f"    exec(code)\n"
@@ -493,7 +496,7 @@ class ToolExecutor:
             return blocked
 
         tool_dir = str(impl_dir)
-        script = cls._build_script(code, params, tool_dir, project_root)
+        script = cls._build_script(code, params, tool_dir, project_root, tool_id)
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding='utf-8') as f:
             f.write(script)
@@ -582,7 +585,7 @@ class ToolExecutor:
             return blocked
 
         tool_dir = str(impl_dir)
-        script = cls._build_script(code, params, tool_dir, project_root)
+        script = cls._build_script(code, params, tool_dir, project_root, tool_id)
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding='utf-8') as f:
             f.write(script)

@@ -413,9 +413,31 @@ class SecurityConfig:
     # enforce: 静态违规阻止注册/执行，运行时违规强制失败
     # audit:   只记录违规，不拦截（首版默认，灰度观察误报率）
     # off:     完全关闭
-    # 注意：静态名单比 code_scan.py 严（subprocess.run/os.mkdir 等均 block），
-    # enforce 切换前需先清零内置工具命中，否则重注册会被拒。
-    review_mode: str = "audit"
+    # 静态名单比 code_scan.py 严（subprocess.run/os.mkdir 等均 block）；
+    # 内置工具命中已清零（回归测试锁定），可经 .env REVIEW_MODE 全局切 enforce，
+    # 或先用 REVIEW_ENFORCE_TOOLS 按工具灰度（见 review_mode_for）。
+    review_mode: str = field(default_factory=lambda: os.getenv("REVIEW_MODE", "audit"))
+    # 分工具逐步 enforce（C-1 过渡形态）：全局 audit 时，此处列出的工具单独升级
+    # enforce。逗号分隔工具 id，`*` = 全部。每次解析现读环境变量，改 .env 即生效。
+    review_enforce_tools: str = field(
+        default_factory=lambda: os.getenv("REVIEW_ENFORCE_TOOLS", ""))
+
+    def review_mode_for(self, tool_id: str | None = None) -> str:
+        """解析某工具实际生效的审查模式（off | audit | enforce）。
+
+        优先级：全局 off / enforce 直接生效（off 保持一键全关语义）；
+        全局 audit 时命中 REVIEW_ENFORCE_TOOLS（含 `*`）的工具升级为 enforce。
+        每次调用现读环境变量，运行中调整即生效。
+        """
+        mode = (os.getenv("REVIEW_MODE", "") or self.review_mode or "audit").strip().lower()
+        if mode in ("off", "enforce"):
+            return mode
+        if tool_id:
+            raw = os.getenv("REVIEW_ENFORCE_TOOLS", "") or self.review_enforce_tools
+            entries = {t.strip() for t in raw.split(",") if t.strip()}
+            if "*" in entries or tool_id in entries:
+                return "enforce"
+        return "audit"
     # 运行时文件写入白名单（绝对路径或相对项目根）。
     # 用户目录 <USER_HOME>/<uid>/ 与系统临时目录由执行器自动追加，
     # 不必在此声明（本地工具产物按多用户模型必须落用户目录）。

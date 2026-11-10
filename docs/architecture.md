@@ -118,7 +118,7 @@
 |------|------|------|
 | 密钥防护 | `secrets.py` | 密钥脱敏（mask/scrub/redact），防止 API Key 出现在调试日志与 LLM 提示词中 |
 | 代码核验器（底线闸门） | `code_scan.py` | AST 静态安全审查（todo 3.2）：两级结论——阻断 shell/动态执行/删除原语/ctypes/socket/动态导入，警告 subprocess/open/联网/`../` 上跳/内网 URL/无退出死循环/巨量分配/无守卫自递归/硬编码单一平台路径；未声明导入校验（依赖漂移提示）。落盘前闸门（工具/Agent 注册、保存、导入）+ 执行前 choke point（`ToolExecutor` 统一复查） |
-| 静态审查（core API 约束线） | `review.py` | AST 级审查（block/warn 两级：BANNED_CALL 危险调用名单含系统命令/子进程/文件目录增删/权限与链接操作/代码执行原语，OBFUSCATED_CALL getattr 拼名绕过，DYNAMIC_IMPORT 动态导入，RAW_OPEN_WRITE 裸 open 写文件；另语法错误直接 block）：本地文件操作/子进程/目录增删必须走 core API 或 `_call_tool`，策略严于 code_scan 底线名单；默认 `review_mode=audit` 只记录，enforce 切换前需先清零存量内置工具命中。注册接口 enforce 时 400 拒绝，自动调试 round0 初审 + LLM 新代码先审后采纳 |
+| 静态审查（core API 约束线） | `review.py` | AST 级审查（block/warn 两级：BANNED_CALL 危险调用名单含系统命令/子进程/文件目录增删/权限与链接操作/代码执行原语，OBFUSCATED_CALL getattr 拼名绕过，DYNAMIC_IMPORT 动态导入，RAW_OPEN_WRITE 裸 open 写文件；另语法错误直接 block）：本地文件操作/子进程/目录增删必须走 core API 或 `_call_tool`，策略严于 code_scan 底线名单；默认 `review_mode=audit` 只记录；内置工具 block 命中已清零（回归测试锁定），可经 `.env` `REVIEW_ENFORCE_TOOLS` 按工具灰度升级 enforce，或 `REVIEW_MODE=enforce` 全局切换。注册接口 enforce 时 400 拒绝，自动调试 round0 初审 + LLM 新代码先审后采纳 |
 | 运行时审计 | 子进程注入（`ToolExecutor`） | 工具子进程注入 audit hook：写白名单（自动追加当前用户目录 `SOTABAND_USER_HOME`）/系统调用拦截/网络记录；配套 rlimit 四项默认 0=关闭（与「0=不限制」超时体系一致） |
 
 看门狗为设计目标，尚未实现；对话内平台操作有独立审计流水（`core/chat_control/audit.py`），一般性操作审计仍为规划项。沙箱隔离当前由子进程执行 + 超时 + 静态审查双闸门（code_scan 底线 + review 约束线）+ 运行时审计 + 用户核验环节共同承担。

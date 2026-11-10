@@ -187,7 +187,7 @@ class ToolRuntime:
                 _home.mkdir(parents=True, exist_ok=True)
                 script = (
                     _WORKER_PRELUDE
-                    + ToolExecutor._security_preamble(tool_dir, str(self.project_root))
+                    + ToolExecutor._security_preamble(tool_dir, str(self.project_root), tool_id)
                     + _WORKER_TAIL
                 )
                 env = dict(
