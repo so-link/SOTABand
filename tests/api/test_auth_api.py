@@ -166,7 +166,9 @@ def test_superuser_can_set_display_name(backend_url, superuser_token, temp_user)
     status, body = _call(backend_url, superuser_token,
                          f"/api/auth/users/{temp_user['id']}/display-name", "PUT",
                          {"displayName": "测试显示名"})
-    assert status == 200 and body["user"].get("displayName") == "测试显示名", body
+    # 请求体是 camelCase（UserDisplayName 模型），响应体是用户表公开视图的
+    # snake_case display_name——前端 UsersView 同样读 display_name。
+    assert status == 200 and body["user"].get("display_name") == "测试显示名", body
 
 
 def test_superuser_can_reset_password(backend_url, superuser_token, temp_user):
@@ -188,11 +190,11 @@ def test_superuser_delete_user(backend_url, superuser_token):
     assert not _login(backend_url, username, "Temp123456"), "删除后账号仍能登录"
 
 
-def test_normal_user_cannot_manage_users(backend_url, backend_token):
+def test_normal_user_cannot_manage_users(backend_url, normal_user_token):
     for method, path in (("PUT", "/api/auth/users/1"),
                          ("PUT", "/api/auth/users/1/display-name"),
                          ("PUT", "/api/auth/users/1/password"),
                          ("DELETE", "/api/auth/users/1")):
-        status, body = _call(backend_url, backend_token, path, method,
+        status, body = _call(backend_url, normal_user_token, path, method,
                              {"username": "x", "displayName": "x", "password": "x"})
         assert status == 403, f"{method} {path} 普通用户可调用: {status} {body}"

@@ -129,22 +129,6 @@ class FakeLLM:
         yield ("done", "")
 
 
-@pytest.fixture
-def fake_llm() -> FakeLLM:
-    return FakeLLM()
-
-
-@pytest.fixture
-def client():
-    """进程内应用实例（单用户模式：匿名请求按超管执行）。"""
-    from fastapi.testclient import TestClient
-
-    from app.main import app
-
-    with TestClient(app) as c:
-        yield c
-
-
 def patch_llm(monkeypatch, module, llm):
     """把假客户端挂到路由模块与它的 builder（两处各自持有 llm 实例）。"""
     monkeypatch.setattr(module, "llm", llm, raising=False)

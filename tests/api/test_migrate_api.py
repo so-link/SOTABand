@@ -155,8 +155,8 @@ def test_agent_import_upload_rejects_garbage(backend_url, backend_token):
 
 # ────────────────────────── 依赖安装白名单 ──────────────────────────
 
-def test_install_deps_requires_superuser(backend_url, backend_token):
-    status, body = _call(backend_url, backend_token,
+def test_install_deps_requires_superuser(backend_url, normal_user_token):
+    status, body = _call(backend_url, normal_user_token,
                          f"/api/migrate/agent/{AGENT_ID}/install-deps", "POST",
                          {"dependencies": ["requests"]})
     assert status == 403, f"普通用户可以装依赖到共享 venv: {status} {body}"

@@ -27,7 +27,6 @@ import pytest
 pytestmark = pytest.mark.api
 
 BUILTIN_AGENT = "message-router-agent"   # 内置 web-service：声明了 API，用于只读用例
-SHARED_AGENT = "etf-target-price-agent"  # 共享 Agent：只读，不写
 
 # 临时私有 Agent 的规范：合法 id + 交互式角色，代码只需通过静态审查
 TEMP_SPEC = """---
@@ -230,12 +229,17 @@ def test_fork_status_on_builtin_without_copy(backend_url, backend_token):
     assert body.get("forked") is False or body.get("has_copy") is True
 
 
-def test_fork_rejects_non_builtin(backend_url, backend_token):
-    """共享 / 私有 Agent 不是内置资源，fork 直接 400 并提示就地编辑。"""
+def test_fork_rejects_non_public_agent(backend_url, backend_token, temp_agent):
+    """非公共层 Agent（本例：刚注册的私有 Agent）不可 fork：400 提示就地编辑。
+
+    用自建 temp_agent 而非写死某个环境里的共享 Agent：私有 Agent 必然不在
+    出厂上游根里，断言与开发环境里恰好装了哪些资源无关（原先写死的
+    etf-target-price-agent 已被删除，导致用例 404）。
+    """
     status, body, _ = _call(backend_url, backend_token,
-                            f"/api/agent/{SHARED_AGENT}/fork", "POST")
-    assert status == 400 and "内置" in str(body.get("detail", "")), \
-        f"非内置 Agent 不应允许 fork: {status} {body}"
+                            f"/api/agent/{temp_agent.id}/fork", "POST")
+    assert status == 400 and "公共" in str(body.get("detail", "")), \
+        f"非公共 Agent 不应允许 fork: {status} {body}"
 
 
 def test_fork_status_of_fresh_private_agent(backend_url, backend_token, temp_agent):
