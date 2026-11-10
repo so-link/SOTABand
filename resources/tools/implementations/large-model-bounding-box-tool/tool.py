@@ -83,8 +83,7 @@ def _resolve_path(path: str) -> str:
 
 # === 头部结束，以下由 LLM 生成 ===
 
-# 豆包大模型 API 地址（Ark/火山引擎）
-DOUBAO_API_ENDPOINT = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
+# 豆包视觉模型（端点与密钥由平台按 provider 解析，不进工具代码）
 DOUBAO_MODEL = "doubao-seed-2-0-lite-260428"
 
 # 目标检测 Prompt 模板
@@ -122,25 +121,7 @@ def execute(**kwargs) -> dict[str, Any]:
         if not img_path.exists():
             return {"status": "failed", "output_format": "text", "message": f"图片文件不存在: {img_path}", "data": {}}
 
-        # 3. 获取豆包 API Key
-        api_key_result = _call_api("api-doubao-get-key")
-        if not api_key_result or api_key_result.get("status") == "failed":
-            return {
-                "status": "failed",
-                "output_format": "text",
-                "message": "获取豆包 API Key 失败，请检查系统密钥配置",
-                "data": {}
-            }
-        api_key = api_key_result.get("api_key")
-        if not api_key:
-            return {
-                "status": "failed",
-                "output_format": "text",
-                "message": "API Key 为空，无法请求大模型",
-                "data": {}
-            }
-
-        # 4. 加载图片并获取原始尺寸
+        # 3. 加载图片并获取原始尺寸
         try:
             original_img = Image.open(img_path)
             # 确保为 RGB 模式，避免 PNG 的 RGBA 导致保存 JPEG 出错
@@ -150,7 +131,7 @@ def execute(**kwargs) -> dict[str, Any]:
         except Exception as e:
             return {"status": "failed", "output_format": "text", "message": f"无法打开图片文件: {str(e)}", "data": {}}
 
-        # 5. 压缩图片：保持宽高比，短边缩放至 640px
+        # 4. 压缩图片：保持宽高比，短边缩放至 640px
         max_size = 640
         w, h = original_img.size
         if min(w, h) > max_size:
@@ -162,21 +143,17 @@ def execute(**kwargs) -> dict[str, Any]:
         else:
             compressed_img = original_img.copy()
 
-        # 6. 将压缩图片转为 base64
+        # 5. 将压缩图片转为 base64
         buffer = io.BytesIO()  # 修复：使用 io.BytesIO 而非 tempfile.BytesIO
         # 保存为 JPEG 格式以加快传输
         compressed_img.save(buffer, format="JPEG", quality=85)
         img_base64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
         data_url = f"data:image/jpeg;base64,{img_base64}"
 
-        # 7. 调用豆包大模型 API
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}"
-        }
-        payload = {
-            "model": DOUBAO_MODEL,
-            "messages": [
+        # 6. 经平台统一通道调用豆包视觉模型（密钥不进工具进程）
+        result = _call_api(
+            "api-llm-chat-with-config",
+            messages=[
                 {"role": "system", "content": DETECTION_SYSTEM_PROMPT},
                 {
                     "role": "user",
@@ -186,30 +163,23 @@ def execute(**kwargs) -> dict[str, Any]:
                     ]
                 }
             ],
-            "temperature": 0.0,
-            "max_tokens": 1024
-        }
-
-        try:
-            resp = requests.post(DOUBAO_API_ENDPOINT, headers=headers, json=payload, timeout=60)
-            resp.raise_for_status()
-        except requests.exceptions.RequestException as e:
-            return {"status": "failed", "output_format": "text", "message": f"大模型 API 请求失败: {str(e)}", "data": {}}
-
-        try:
-            resp_data = resp.json()
-        except json.JSONDecodeError:
-            return {"status": "failed", "output_format": "text", "message": "大模型返回数据格式错误", "data": {}}
-
-        # 提取模型返回的文本内容
-        choices = resp_data.get("choices", [])
-        if not choices:
-            return {"status": "failed", "output_format": "text", "message": "大模型未返回有效结果", "data": {}}
-        content = choices[0].get("message", {}).get("content", "")
+            provider="doubao",
+            model=DOUBAO_MODEL,
+            temperature=0.0,
+            max_tokens=1024,
+        )
+        if not result or result.get("error"):
+            return {
+                "status": "failed",
+                "output_format": "text",
+                "message": f"大模型调用失败: {(result or {}).get('error', '无返回')}",
+                "data": {}
+            }
+        content = result.get("content", "")
         if not content:
             return {"status": "failed", "output_format": "text", "message": "大模型返回内容为空", "data": {}}
 
-        # 8. 解析边界框 JSON
+        # 7. 解析边界框 JSON
         boxes = []
         try:
             # 模型可能返回的 content 包含 JSON 字符串，可能有前后空白或 Markdown 标记，简单清理
@@ -236,7 +206,7 @@ def execute(**kwargs) -> dict[str, Any]:
         except (json.JSONDecodeError, ValueError, TypeError):
             return {"status": "failed", "output_format": "text", "message": "无法解析大模型返回的边界框数据", "data": {}}
 
-        # 9. 绘制边界框（使用原始尺寸图片）
+        # 8. 绘制边界框（使用原始尺寸图片）
         draw_img = original_img.copy()
         if boxes:
             draw = ImageDraw.Draw(draw_img)
@@ -257,7 +227,7 @@ def execute(**kwargs) -> dict[str, Any]:
             # 没有检测到目标，仍然返回原图
             pass  # draw_img 已经是原始图像的副本
 
-        # 10. 保存结果图片到临时目录
+        # 9. 保存结果图片到临时目录
         output_dir = Path(tempfile.gettempdir())
         output_filename = f"boxed_{uuid.uuid4().hex}.jpg"
         output_path = output_dir / output_filename
@@ -266,7 +236,7 @@ def execute(**kwargs) -> dict[str, Any]:
         except Exception as e:
             return {"status": "failed", "output_format": "text", "message": f"保存结果图片失败: {str(e)}", "data": {}}
 
-        # 11. 构造返回数据
+        # 10. 构造返回数据
         if boxes:
             msg = f"已检测到 {len(boxes)} 个目标并绘制边界框"
         else:

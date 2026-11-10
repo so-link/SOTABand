@@ -83,7 +83,7 @@ def _resolve_path(path: str) -> str:
 
 # === 头部结束，以下由 LLM 生成 ===
 
-DOUBAO_API_BASE = "https://ark.cn-beijing.volces.com/api/v3"
+# 豆包视觉模型（端点与密钥由平台按 provider 解析，不进工具代码）
 DOUBAO_MODEL = "doubao-seed-2-0-lite-260428"
 
 def _image_to_base64(pil_image: Image.Image) -> str:
@@ -91,8 +91,8 @@ def _image_to_base64(pil_image: Image.Image) -> str:
     pil_image.save(buff, format="JPEG")
     return base64.b64encode(buff.getvalue()).decode("utf-8")
 
-def _detect_objects(image: Image.Image, api_key: str, prompt_object: str) -> list:
-    """调用豆包视觉 API，返回归一化边界框列表 [(cid, x, y, w, h), ...]"""
+def _detect_objects(image: Image.Image, prompt_object: str) -> list:
+    """经平台统一通道调用豆包视觉 API，返回归一化边界框列表 [(cid, x, y, w, h), ...]"""
     max_edge = 640
     # 保持长宽比缩放，最长边不超过640
     w, h = image.size
@@ -103,13 +103,9 @@ def _detect_objects(image: Image.Image, api_key: str, prompt_object: str) -> lis
     # 转为base64
     img_b64 = _image_to_base64(resized)
     
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "model": DOUBAO_MODEL,
-        "messages": [
+    result = _call_api(
+        "api-llm-chat-with-config",
+        messages=[
             {
                 "role": "system",
                 "content": f"你是一个物体检测助手。检测图片中的 {prompt_object}。请用YOLO格式输出每个检测框，每行一个，格式为：class_id x_center y_center width height（坐标归一化到0-1之间，相对于缩放后图片的尺寸）。只输出框列表，不要其他文字。"
@@ -130,19 +126,14 @@ def _detect_objects(image: Image.Image, api_key: str, prompt_object: str) -> lis
                 ]
             }
         ],
-        "max_tokens": 2048,
-        "temperature": 0.0
-    }
-    
-    resp = requests.post(
-        f"{DOUBAO_API_BASE}/chat/completions",
-        headers=headers,
-        json=payload,
-        timeout=60
+        provider="doubao",
+        model=DOUBAO_MODEL,
+        max_tokens=2048,
+        temperature=0.0,
     )
-    resp.raise_for_status()
-    data = resp.json()
-    content = data["choices"][0]["message"]["content"].strip()
+    if not result or result.get("error"):
+        raise RuntimeError(f"大模型调用失败: {(result or {}).get('error', '无返回')}")
+    content = (result.get("content") or "").strip()
     
     boxes = []
     for line in content.splitlines():
@@ -171,13 +162,7 @@ def execute(**kwargs) -> dict[str, Any]:
         if not dataset_name or not req or not output_dataset:
             return {"status": "failed", "message": "缺少必要参数 dataset, req, output_dataset"}
         
-        # 1. 获取豆包 API Key
-        key_resp = _call_api("api-doubao-get-key")
-        api_key = key_resp.get("api_key")
-        if not api_key:
-            return {"status": "failed", "message": "无法获取豆包API KEY"}
-        
-        # 2. 获取数据集信息
+        # 1. 获取数据集信息
         ds_resp = _call_api("api-data-get", name=dataset_name)
         dataset_info = ds_resp.get("dataset")
         if not dataset_info:
@@ -187,7 +172,7 @@ def execute(**kwargs) -> dict[str, Any]:
             return {"status": "failed", "message": "数据集不存在或无法访问"}
         src_dir = Path(data_path_src)
         
-        # 3. 创建目标目录
+        # 2. 创建目标目录
         timestamp = time.strftime("%Y%m%d%H%M%S")
         target_dir = _DOWNLOADS_DIR / timestamp
         labeled_dir = target_dir / "labeled"
@@ -210,7 +195,7 @@ def execute(**kwargs) -> dict[str, Any]:
                 W, H = orig_image.size
                 
                 # 调用检测 API
-                boxes = _detect_objects(orig_image, api_key, req)
+                boxes = _detect_objects(orig_image, req)
                 
                 # 绘制标注
                 draw = ImageDraw.Draw(orig_image)

@@ -135,75 +135,30 @@ def _extract_pdf_text(pdf_path: Path) -> str:
     return ""
 
 
-def _call_deepseek_chat(base_url: str, api_key: str, model: str, system_prompt: str, user_prompt: str) -> str:
-    """调用 DeepSeek 兼容接口，优先使用 openai SDK，失败时回退 requests"""
-    # 优先尝试 openai SDK
+def _llm_chat(messages: list, **kwargs) -> str:
+    """同步调用系统统一大模型通道，密钥与端点跟随平台全局配置。"""
+    import asyncio
+    from core.llm.client import create_llm_client
+    client = create_llm_client()
+    loop = asyncio.new_event_loop()
     try:
-        from openai import OpenAI
-        client = OpenAI(api_key=api_key, base_url=base_url)
-        resp = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            max_tokens=100000,
-            temperature=0.3
-        )
-        if resp and resp.choices and resp.choices[0].message:
-            content = resp.choices[0].message.content
-            if content:
-                return content
-    except Exception:
-        pass
+        result = loop.run_until_complete(client.chat(messages, **kwargs))
+        loop.run_until_complete(client.aclose())
+        return result
+    finally:
+        loop.close()
 
-    # 回退到 requests 调用 OpenAI 兼容接口
-    url = base_url.rstrip("/")
-    if url.endswith("/chat/completions"):
-        url = url
-    elif url.endswith("/v1"):
-        url = url + "/chat/completions"
-    else:
-        url = url + "/v1/chat/completions"
 
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "model": model,
-        "messages": [
+def _call_llm_chat(system_prompt: str, user_prompt: str) -> str:
+    """经平台统一 LLM 通道对话（密钥不进工具进程）"""
+    return _llm_chat(
+        [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
+            {"role": "user", "content": user_prompt},
         ],
-        "max_tokens": 100000,
-        "temperature": 0.3
-    }
-    resp = requests.post(url, headers=headers, json=payload, timeout=180)
-    resp.raise_for_status()
-    data = resp.json()
-    return data["choices"][0]["message"]["content"]
-
-
-def _get_deepseek_config() -> dict:
-    """获取 DeepSeek API 配置"""
-    result = _call_api("api-deepseek-get-key")
-    if not isinstance(result, dict):
-        return {}
-
-    if result.get("status") == "failed":
-        return {}
-
-    # 兼容 result.data 嵌套与直接字段两种返回形式
-    data = result.get("data", result)
-    if not isinstance(data, dict):
-        data = result
-
-    return {
-        "api_key": data.get("api_key"),
-        "base_url": data.get("base_url"),
-        "model": data.get("model")
-    }
+        max_tokens=100000,
+        temperature=0.3,
+    )
 
 
 def execute(**kwargs) -> dict[str, Any]:
@@ -247,21 +202,7 @@ def execute(**kwargs) -> dict[str, Any]:
                 "data": {}
             }
 
-        # 3. 获取 DeepSeek API KEY
-        config = _get_deepseek_config()
-        api_key = config.get("api_key")
-        base_url = config.get("base_url") or "https://api.deepseek.com/v1"
-        model = config.get("model") or "deepseek-v4-pro"
-
-        if not api_key:
-            return {
-                "status": "failed",
-                "output_format": "text",
-                "message": "获取 DeepSeek API KEY 失败",
-                "data": {}
-            }
-
-        # 4. 尝试提取 PDF 文本；若失败则使用 Base64 编码作为论文内容
+        # 3. 尝试提取 PDF 文本；若失败则使用 Base64 编码作为论文内容
         # 大模型单次请求的输入长度有限，对超大 PDF 做大小限制，避免触发 API 400 错误
         MAX_PDF_BYTES = 5 * 1024 * 1024  # 5MB
         MAX_CONTENT_CHARS = 400000  # 论文内容最大字符数（约 40 万字符，预留推理空间）
@@ -321,11 +262,8 @@ def execute(**kwargs) -> dict[str, Any]:
 {paper_content}
 """
 
-        # 6. 调用模型
-        review_text = _call_deepseek_chat(
-            base_url=base_url,
-            api_key=api_key,
-            model=model,
+        # 6. 调用模型（平台统一 LLM 通道）
+        review_text = _call_llm_chat(
             system_prompt=system_prompt,
             user_prompt=user_prompt
         )

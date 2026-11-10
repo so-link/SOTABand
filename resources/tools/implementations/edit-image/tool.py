@@ -92,18 +92,8 @@ def execute(**kwargs) -> dict[str, Any]:
         if not output_dataset:
             return {"status": "failed", "message": "缺少参数：output_dataset"}
 
-        # 1. 获取豆包 API KEY 和模型配置
-        try:
-            api_info = _call_api("api-doubao-get-key")
-        except Exception as e:
-            return {"status": "failed", "message": f"无法获取豆包API KEY: {str(e)}"}
-
-        api_key = api_info.get("api_key", "")
-        base_url = api_info.get("base_url", "https://ark.cn-beijing.volces.com/api/v3")
-        model = api_info.get("model", "doubao-seedream-5-0-lite-260128")
-
-        if not api_key:
-            return {"status": "failed", "message": "无法获取豆包API KEY"}
+        # 1. 图片编辑模型（端点与密钥由平台按 provider 解析，不进工具代码）
+        model = "doubao-seedream-5-0-lite-260128"
 
         # 2. 获取数据集信息
         try:
@@ -144,17 +134,6 @@ def execute(**kwargs) -> dict[str, Any]:
         if not image_files:
             return {"status": "failed", "message": f"数据集路径 {data_path} 中没有找到图片文件"}
 
-        # 导入 SDK（可能未安装，提前报错）
-        try:
-            from volcenginesdkarkruntime import Ark
-        except ImportError as e:
-            return {"status": "failed", "message": "缺少依赖包 volcengine-python-sdk[ark]，请安装后重试"}
-
-        client = Ark(
-            base_url=base_url,
-            api_key=api_key,
-        )
-
         # MIME 类型映射
         mime_types = {
             ".png": "image/png",
@@ -177,22 +156,22 @@ def execute(**kwargs) -> dict[str, Any]:
                     img_data = base64.b64encode(f.read()).decode("utf-8")
                 image_param = f"data:{mime};base64,{img_data}"
 
-                # 调用豆包图片编辑 API
-                response = client.images.generate(
+                # 经平台统一通道调用图片编辑（密钥不进工具进程）
+                result = _call_api(
+                    "api-llm-images",
                     model=model,
                     prompt=req,
                     image=image_param,
                     size="2K",
-                    response_format="url",
                     watermark=False,
                 )
 
-                if not response or not response.data or len(response.data) == 0:
-                    raise RuntimeError("API 返回空结果")
-
-                image_url = response.data[0].url
-                if not image_url:
+                if result.get("error"):
+                    raise RuntimeError(result["error"])
+                urls = result.get("images") or []
+                if not urls:
                     raise RuntimeError("API 未返回图片 URL")
+                image_url = urls[0]
 
                 # 下载图片
                 dl_resp = requests.get(image_url, timeout=30)

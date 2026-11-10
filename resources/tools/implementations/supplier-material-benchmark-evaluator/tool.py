@@ -177,25 +177,32 @@ def _extract_json_response(text: str):
         return None
 
 
-def _call_deepseek(api_key: str, base_url: str, model: str, system_prompt: str, user_prompt: str) -> str:
+def _llm_chat(messages: list, **kwargs) -> str:
+    """同步调用系统统一大模型通道，密钥与端点跟随平台全局配置。"""
+    import asyncio
+    from core.llm.client import create_llm_client
+    client = create_llm_client()
+    loop = asyncio.new_event_loop()
     try:
-        from openai import OpenAI
-    except ImportError as exc:
-        raise RuntimeError("缺少 openai 依赖") from exc
+        result = loop.run_until_complete(client.chat(messages, **kwargs))
+        loop.run_until_complete(client.aclose())
+        return result
+    finally:
+        loop.close()
 
-    client = OpenAI(api_key=api_key, base_url=base_url)
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
+
+def _call_llm_chat(system_prompt: str, user_prompt: str) -> str:
+    """经平台统一 LLM 通道对话（密钥不进工具进程）"""
+    content = _llm_chat(
+        [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
         temperature=0.1,
         max_tokens=100000,
     )
-    content = response.choices[0].message.content
     if not content or not content.strip():
-        raise RuntimeError("DeepSeek API 返回空内容")
+        raise RuntimeError("LLM 返回空内容")
     return content.strip()
 
 
@@ -340,19 +347,8 @@ def execute(**kwargs) -> dict[str, Any]:
         if not benchmark_text:
             return _fail("基准文件解析失败：未提取到文本")
 
-        # 1. 获取 DeepSeek API Key
-        key_result = _call_api("api-deepseek-get-key")
-        api_key = key_result.get("api_key")
-        base_url = key_result.get("base_url")
-        model = key_result.get("model") or "deepseek-chat"
-        if not api_key or not base_url:
-            return _fail("获取 DeepSeek API Key 失败：API 返回不完整")
-
-        # 2. 解析基准文件，生成基准比对字段
-        benchmark_response = _call_deepseek(
-            api_key,
-            base_url,
-            model,
+        # 1. 解析基准文件，生成基准比对字段（经平台统一 LLM 通道）
+        benchmark_response = _call_llm_chat(
             "你是食品供应链合规与质量评估专家，擅长从标准文件中提取结构化基准要求。",
             _build_benchmark_prompt(benchmark_text),
         )
@@ -403,10 +399,7 @@ def execute(**kwargs) -> dict[str, Any]:
                 if not supplier_text:
                     raise RuntimeError("PDF 文本提取为空")
 
-                assessment_response = _call_deepseek(
-                    api_key,
-                    base_url,
-                    model,
+                assessment_response = _call_llm_chat(
                     "你是供应商原材料合规评估专家。请基于基准要求，对供应商资料进行吻合度评估，严格输出 JSON。",
                     _build_assessment_prompt(
                         {"dimensions": dimensions},

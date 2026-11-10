@@ -113,16 +113,7 @@ def execute(**kwargs) -> dict[str, Any]:
         if n <= 0:
             return {"status": "failed", "message": "生成数量 n 必须大于 0"}
 
-        # 2. 获取豆包 API KEY
-        key_resp = _call_api("api-doubao-get-key")
-        if key_resp.get("status") == "failed" or not key_resp.get("api_key"):
-            return {
-                "status": "failed",
-                "message": f"获取豆包API KEY失败: {key_resp.get('message', '未知错误')}"
-            }
-        api_key = key_resp["api_key"]
-
-        # 3. 创建时间戳子目录（处理无权限时回退到临时目录）
+        # 2. 创建时间戳子目录（处理无权限时回退到临时目录）
         timestamp = str(int(time.time() * 1000))
         try:
             save_dir = _DOWNLOADS_DIR / timestamp
@@ -131,32 +122,26 @@ def execute(**kwargs) -> dict[str, Any]:
             # 回退到系统临时目录
             save_dir = Path(tempfile.mkdtemp(prefix="image_gen_"))
 
-        # 4. 初始化豆包客户端
-        from volcenginesdkarkruntime import Ark  # 延迟导入，避免缺包时整个工具加载失败
-        client = Ark(
-            base_url="https://ark.cn-beijing.volces.com/api/v3",
-            api_key=api_key,
-        )
-
-        # 5. 循环生成图片并下载
+        # 3. 经平台统一通道循环生成图片并下载（密钥不进工具进程）
         first_image_path = None
         success_count = 0
         fail_messages = []
 
         for i in range(1, n + 1):
             try:
-                imagesResponse = client.images.generate(
-                    model="doubao-seedream-5-0-lite-260128",
+                result = _call_api(
+                    "api-llm-images",
                     prompt=req,
+                    model="doubao-seedream-5-0-lite-260128",
                     size="2K",
-                    response_format="url",
-                    watermark=False
+                    watermark=False,
                 )
-                # 获取图片 URL
-                if hasattr(imagesResponse, 'data') and len(imagesResponse.data) > 0:
-                    image_url = imagesResponse.data[0].url
-                else:
+                if result.get("error"):
+                    raise RuntimeError(result["error"])
+                urls = result.get("images") or []
+                if not urls:
                     raise RuntimeError("生成响应中未包含图片URL")
+                image_url = urls[0]
 
                 # 下载图片
                 img_resp = requests.get(image_url, timeout=30)
@@ -181,7 +166,7 @@ def execute(**kwargs) -> dict[str, Any]:
                 "message": "所有图片生成或下载均失败: " + "; ".join(fail_messages)
             }
 
-        # 6. 注册数据集
+        # 4. 注册数据集
         # 计算总大小与格式
         total_size = sum(f.stat().st_size for f in save_dir.glob("*") if f.is_file())
         formats = ["png"]  # 所有输出固定为 png
@@ -203,7 +188,7 @@ def execute(**kwargs) -> dict[str, Any]:
                 "message": f"数据集注册失败: {register_resp.get('message', '未知错误')}，图片已保存至 {save_dir}"
             }
 
-        # 7. 返回成功结果，包含第一张图片路径
+        # 5. 返回成功结果，包含第一张图片路径
         return {
             "status": "success",
             "output_format": "image",

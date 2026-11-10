@@ -153,8 +153,22 @@ def _parse_llm_json(content: str) -> dict:
         raise
 
 
-def _analyze_single_paper(client, model: str, text: str, filename: str) -> dict:
-    """调用 DeepSeek 分析单篇论文，失败自动重试 2 次"""
+def _llm_chat(messages: list, **kwargs) -> str:
+    """同步调用系统统一大模型通道，密钥与端点跟随平台全局配置。"""
+    import asyncio
+    from core.llm.client import create_llm_client
+    client = create_llm_client()
+    loop = asyncio.new_event_loop()
+    try:
+        result = loop.run_until_complete(client.chat(messages, **kwargs))
+        loop.run_until_complete(client.aclose())
+        return result
+    finally:
+        loop.close()
+
+
+def _analyze_single_paper(text: str, filename: str) -> dict:
+    """调用统一 LLM 通道分析单篇论文，失败自动重试 2 次"""
     prompt = _build_prompt(text, filename)
     messages = [
         {"role": "system", "content": "你是一个学术论文分析助手，始终输出合法 JSON。"},
@@ -165,21 +179,15 @@ def _analyze_single_paper(client, model: str, text: str, filename: str) -> dict:
     max_retries = 2  # 初始尝试失败后再重试 2 次，共 3 次
     for attempt in range(max_retries + 1):
         try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                max_tokens=100000,
-                temperature=0.2,
-            )
-            content = response.choices[0].message.content
+            content = _llm_chat(messages, max_tokens=100000, temperature=0.2)
             if not content:
-                raise ValueError("DeepSeek 返回空内容")
+                raise ValueError("LLM 返回空内容")
             return _parse_llm_json(content)
         except Exception as e:
             last_error = e
             if attempt < max_retries:
                 time.sleep(2 * (attempt + 1))
-    raise RuntimeError(f"DeepSeek API 调用失败（已重试 {max_retries} 次）: {last_error}")
+    raise RuntimeError(f"LLM 调用失败（已重试 {max_retries} 次）: {last_error}")
 
 
 def execute(**kwargs) -> dict[str, Any]:
@@ -198,26 +206,7 @@ def execute(**kwargs) -> dict[str, Any]:
         if not pdf_files:
             return {"status": "failed", "message": f"目录下未找到 PDF 文件: {dir_path}", "output_format": "text", "data": {}}
 
-        # 3. 获取 DeepSeek API KEY
-        try:
-            api_result = _call_api("api-deepseek-get-key")
-        except Exception as e:
-            return {"status": "failed", "message": f"获取 DeepSeek API KEY 失败: {e}", "output_format": "text", "data": {}}
-
-        # 兼容 API 返回可能嵌套在 data 中的情况
-        api_data = api_result.get("data", api_result) if isinstance(api_result, dict) else {}
-        api_key = api_data.get("api_key", "") or api_result.get("api_key", "")
-        base_url = api_data.get("base_url", "") or api_result.get("base_url", "https://api.deepseek.com/v1")
-        model = api_data.get("model", "") or api_result.get("model", "deepseek-v4-pro")
-
-        if not api_key:
-            return {"status": "failed", "message": "获取 DeepSeek API KEY 失败：api_key 为空", "output_format": "text", "data": {}}
-
-        # 4. 初始化 OpenAI 兼容客户端
-        from openai import OpenAI
-        client = OpenAI(api_key=api_key, base_url=base_url)
-
-        # 5. 逐篇分析
+        # 3. 逐篇分析（经平台统一 LLM 通道，密钥不进工具进程）
         table_rows = []
         report_sections = []
         report_sections.append("# 论文摘要报告\n")
@@ -237,7 +226,7 @@ def execute(**kwargs) -> dict[str, Any]:
                     raise ValueError("PDF 文本提取为空")
 
                 # 调用模型分析
-                analysis = _analyze_single_paper(client, model, paper_text, filename)
+                analysis = _analyze_single_paper(paper_text, filename)
 
                 title = analysis.get("title", "未知标题")
                 abstract = analysis.get("abstract", "")
