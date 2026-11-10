@@ -54,6 +54,11 @@ class AgentFactory:
         self._impl_paths: dict[str, str] = {}
         # 同一 Agent 的 execute 轮次串行化（事件流不互相穿插）
         self._exec_locks: dict[str, asyncio.Lock] = {}
+        # 帧身份登记表：{agent_id: 最近一次 execute 投递时的 user_id}。
+        # platform_call / workspace_audit 帧的身份以此为准——帧经子进程
+        # stdout 传回，子进程代码可任意伪造帧内 user_id，不可信。
+        # 保留上一轮值不清理：重启窗口/常驻场景下仍是最新的服务端事实。
+        self._exec_uid: dict[str, str] = {}
         # ── 防卡死：轮次中断状态 ──
         # 子进程对 cancel 的回执（由 _route_reader 拦截，不进事件队列，
         # 避免与并发的 execute_stream 争抢同一个事件）
@@ -188,18 +193,26 @@ class AgentFactory:
         elif t == "workspace_audit":
             # 子进程上报工作空间工具生命周期事件 → 主进程写 chat_ops。
             # 审计是短 SQL，直接同步落库；失败只打印，绝不影响事件路由。
-            self._handle_workspace_audit(frame)
+            self._handle_workspace_audit(frame, src)
 
-    def _handle_workspace_audit(self, frame: dict):
+    def _handle_workspace_audit(self, frame: dict, src: str = ""):
         """把子进程的工作空间工具生命周期事件写入审计表（chat_ops）。
 
-        审计唯一入口在主进程（core.chat_control.audit 模块注释）；落库
-        归属用户取帧内 owner（主进程每轮 execute 注入子进程环境，与
-        platform_call 同一信任模型），uid 显式指定保证落对用户的库。
+        审计唯一入口在主进程（core.chat_control.audit 模块注释）。审计归属
+        以主进程登记表（execute 投递时写入的本轮 user_id）为准——帧内
+        owner 字段经子进程可写的 stdout 通道传回，不可信，仅作为无登记
+        记录时的回退。归属不符不丢事件：照常落库并在 error 标注伪造嫌疑，
+        审计的可追溯性优先于拦截。
         """
         try:
             from core.chat_control import audit
-            owner = str(frame.get("owner") or "default")
+            claimed = str(frame.get("owner") or "default")
+            bound = self._exec_uid.get(src) if src else None
+            owner = bound or claimed
+            forged = ""
+            if bound and claimed and claimed != bound:
+                forged = f"[身份告警] 帧内 owner={claimed} 与执行身份 {bound} 不符（疑似伪造）"
+                print(f"[agent_factory] workspace_audit {forged}")
             audit.record(
                 op_id=str(frame.get("op_id") or ""),
                 session_id=str(frame.get("session_id") or "default"),
@@ -209,7 +222,7 @@ class AgentFactory:
                 risk=str(frame.get("risk") or "write"),
                 status=str(frame.get("status") or ""),
                 result=frame.get("result"),
-                error=str(frame.get("error") or ""),
+                error="; ".join(x for x in (str(frame.get("error") or ""), forged) if x),
                 duration_ms=frame.get("duration_ms"),
                 uid=owner,
             )
@@ -219,19 +232,38 @@ class AgentFactory:
     async def _handle_platform_call(self, src: str, frame: dict):
         """把子进程的 platform_call 帧交给 core.chat_control 网关并回执结果。
 
-        身份取帧内 user_id（= 发起对话的用户），由网关注入 contextvar，
-        因此对话内的权限边界与手工操作一致。异常一律转成结构化错误回给
-        子进程，绝不让读循环侧的异常逃逸。
+        身份以主进程登记表（execute 投递时写入的本轮 user_id）为准，由
+        网关注入 contextvar，因此对话内的权限边界与手工操作一致。帧内
+        user_id 仅作交叉校验：与登记不符即判定伪造并拒绝。异常一律转成
+        结构化错误回给子进程，绝不让读循环侧的异常逃逸。
         """
         from core.agent.protocol import FRAME_PLATFORM_CALL_RESPONSE, make_frame
         req = frame.get("req")
         try:
             from core.chat_control import gateway
-            result = await gateway.platform_call(
-                str(frame.get("tool", "")), frame.get("args") or {},
-                owner=gateway.resolve_owner(frame.get("user_id")),
-                session_id=str(frame.get("session_id") or "default"),
-            )
+            claimed = str(frame.get("user_id") or "").strip()
+            bound = self._exec_uid.get(src)
+            if bound:
+                if claimed and claimed not in gateway.PLACEHOLDER_IDENTITIES and claimed != bound:
+                    print(f"[agent_factory] platform_call 身份伪造: {src} 自报 uid={claimed}，"
+                          f"实际执行 uid={bound}，已拒绝")
+                    result = {"status": "error", "tool": frame.get("tool"),
+                              "error": "平台调用身份与当前执行轮次不符，已拒绝"}
+                else:
+                    result = await gateway.platform_call(
+                        str(frame.get("tool", "")), frame.get("args") or {},
+                        owner=bound,
+                        session_id=str(frame.get("session_id") or "default"),
+                    )
+            else:
+                # 无登记 = 该 Agent 从未在本主进程执行过任务，不存在
+                # 「发起对话的用户」；回退帧内声明或实例身份（匿名单用户
+                # 部署中即为超管，与 REST 路径同口径）。
+                result = await gateway.platform_call(
+                    str(frame.get("tool", "")), frame.get("args") or {},
+                    owner=gateway.resolve_owner(frame.get("user_id")),
+                    session_id=str(frame.get("session_id") or "default"),
+                )
         except Exception as e:
             result = {"status": "error", "tool": frame.get("tool"),
                       "error": f"网关异常: {type(e).__name__}: {e}"}
@@ -274,12 +306,12 @@ class AgentFactory:
         elif not self.is_running(to):
             result = {"ok": False, "error": f"目标 Agent '{to}' 未运行"}
         else:
-            # user_id 透传给被调侧做身份覆写（与 platform_call 同一信任模型：
-            # 子进程环境里的 uid 由主进程每轮 execute 注入，见 entrypoint）。
+            # 被调侧身份覆写取主进程登记表（调用方最近执行轮的 uid），
+            # 不透传帧内自报的 user_id——stdout 通道子进程可任意伪造。
             fwd = make_frame("i", FRAME_AGENT_CALL, req=req,
                              frm=src, method=frame.get("method"),
                              params=frame.get("params") or {},
-                             user_id=frame.get("user_id"))
+                             user_id=self._exec_uid.get(src) or frame.get("user_id"))
             # 先登记再投递：应答帧可能在投递后立即回到本循环，
             # 若彼时 pending 尚未登记，应答会被当作无主帧丢弃、误报超时。
             loop = asyncio.get_event_loop()
@@ -951,6 +983,9 @@ class AgentFactory:
             ctx = {"session_id": "default", "user_id": "default", "agent_id": agent_id}
             if context:
                 ctx.update(context)
+            # 投递前登记本轮执行身份：后续 platform_call / workspace_audit /
+            # agent_call 帧的身份一律以此为准（帧内自报字段不可信）。
+            self._exec_uid[agent_id] = str(ctx.get("user_id") or "default")
 
             # 防卡死重试：子进程里若残留一个未结束的轮次（历史上的「Agent 正忙」
             # 死锁），先中断清理一次再重发，用户无需手工重启 Agent。

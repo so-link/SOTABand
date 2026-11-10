@@ -393,3 +393,84 @@ async def test_entrypoint_rpc_overrides_residual_identity(tmp_path):
     finally:
         proc.kill()
         await proc.wait()
+
+
+# ── 帧身份去信任化（评审 H-1：帧经子进程 stdout 传回，自报 user_id 不可信）──
+
+
+def _collect_frames(f, agent_id):
+    """取 _FakeProc 收到的帧列表。"""
+    return f._processes[agent_id].frames
+
+
+@pytest.mark.asyncio
+async def test_platform_call_forged_uid_rejected():
+    """execute 登记 uid=1000 后，子进程发 user_id=0 的帧必须被拒。"""
+    from core.agent.factory import AgentFactory
+
+    f = AgentFactory()
+    proc = _FakeProc()
+    f._processes["a"] = proc
+    f._exec_uid["a"] = "1000"
+
+    async def drive():
+        await f._handle_platform_call("a", {
+            "v": 1, "dir": "o", "type": "platform_call", "req": "r1",
+            "tool": "list_datasets", "args": {}, "user_id": "0"})
+
+    await asyncio.wait_for(drive(), timeout=10)
+    frame = _collect_frames(f, "a")[0]
+    result = frame["result"]
+    assert result["status"] == "error" and "不符" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_platform_call_bound_uid_authoritative():
+    """登记表 uid 是执行身份：帧内占位/缺省时以登记表为准进网关。"""
+    from core.agent.factory import AgentFactory
+    from core.chat_control import gateway
+
+    seen: dict = {}
+
+    async def fake_platform_call(name, args, *, owner, session_id="default", **kw):
+        seen["owner"] = owner
+        return {"status": "ok", "tool": name, "result": {}}
+
+    orig = gateway.platform_call
+    gateway.platform_call = fake_platform_call
+    try:
+        f = AgentFactory()
+        proc = _FakeProc()
+        f._processes["a"] = proc
+        f._exec_uid["a"] = "1000"
+        await f._handle_platform_call("a", {
+            "v": 1, "dir": "o", "type": "platform_call", "req": "r1",
+            "tool": "list_datasets", "args": {}, "user_id": "default"})
+        assert seen.get("owner") == "1000"
+    finally:
+        gateway.platform_call = orig
+
+
+def test_workspace_audit_owner_rebound_to_registered_uid():
+    """workspace_audit 帧伪造 owner：归属改判为登记表 uid，事件不丢且标注告警。"""
+    from core.agent.factory import AgentFactory
+    from core.chat_control import audit
+
+    recorded: dict = {}
+
+    def fake_record(**kw):
+        recorded.update(kw)
+
+    orig = audit.record
+    audit.record = fake_record
+    try:
+        f = AgentFactory()
+        f._exec_uid["a"] = "1000"
+        f._handle_workspace_audit({
+            "type": "workspace_audit", "op_id": "op1", "session_id": "s1",
+            "owner": "0", "tool": "t", "args": {}, "risk": "write",
+            "status": "executed"}, src="a")
+        assert recorded["owner"] == "1000" and recorded["uid"] == "1000"
+        assert "owner=0" in recorded["error"]
+    finally:
+        audit.record = orig
