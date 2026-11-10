@@ -8,7 +8,8 @@
   或子类覆写的 declared_tool_ids）。
 - **匹配策略**：LLM 语义匹配（读工具 overview/tags）+ 关键词评分兜底。
 - **参数引导**：状态机驱动，逐个引导缺失的必填参数，含类型纠正与校验。
-- **工具调用**：统一走 BaseAgent.call_tool（ToolExecutor 子进程隔离执行）。
+- **工具调用**：有总线时经平台控制网关（run_tool 平台工具，审计落
+  chat_ops）；无总线退回 BaseAgent.call_tool（ToolExecutor 子进程执行）。
 - **多轮会话**：按 session_id 维护对话历史与待办状态。
 
 子类最少只需：
@@ -313,8 +314,39 @@ class InteractiveAgentBase(BaseAgent):
     #  工具执行
     # ══════════════════════════════════════════════════════════════
 
-    async def run_tool(self, tool_id: str, params: dict) -> dict:
-        """统一执行工具（经 ToolExecutor）。失败返回带 status 的 dict。"""
+    _direct_tool_warned = False
+
+    async def run_tool(self, tool_id: str, params: dict,
+                       ctx: AgentContext | None = None) -> dict:
+        """统一执行工具。有总线时经平台控制网关（审计点唯一），
+        无总线（进程内测试/调试）退回直连 ToolExecutor 并声明豁免。
+
+        网关路径以 Agent 身份直执行（run_tool + confirmed=True），不落
+        对话确认卡——基类交互 Agent 没有统一确认门，写审计照常落
+        chat_ops，归属本轮 ctx.user_id。
+        """
+        if getattr(self, "_bus", None) is not None:
+            try:
+                receipt = await self._bus.platform_call(
+                    "run_tool",
+                    {"tool_id": tool_id, "params": params, "confirmed": True},
+                    session_id=(ctx.session_id if ctx else None) or "default",
+                    user_id=(ctx.user_id if ctx else None) or "default",
+                )
+                if receipt.get("status") == "ok":
+                    return receipt.get("result") or {}
+                if receipt.get("status") == "pending":
+                    return {"status": "failed",
+                            "message": "工具执行等待用户确认，本轮未执行"}
+                return {"status": "failed",
+                        "message": str(receipt.get("error") or "平台网关拒绝了该调用")}
+            except Exception as e:
+                return {"status": "failed", "message": f"工具执行异常: {str(e)[:200]}"}
+        # 无总线：直连执行不受对话审计，进程生命周期内只声明一次
+        if not type(self)._direct_tool_warned:
+            type(self)._direct_tool_warned = True
+            print(f"[agent] {self.agent_id}: 未运行在子进程模式（无总线），"
+                  f"工具执行不经平台网关、不落对话审计")
         try:
             return await self.call_tool(tool_id, params)
         except Exception as e:
@@ -440,7 +472,7 @@ class InteractiveAgentBase(BaseAgent):
         # 步骤 1：准备调用工具
         yield {"event": "step", "data": {"id": "call_tool", "text": f"调用工具「{tool_name}」", "status": "running"}}
 
-        result = await self.run_tool(tool_id, params)
+        result = await self.run_tool(tool_id, params, ctx)
 
         if not isinstance(result, dict) or result.get("status") != "success":
             msg = result.get("message") if isinstance(result, dict) else "未知错误"
