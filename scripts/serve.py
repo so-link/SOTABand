@@ -14,7 +14,7 @@ SOTABand 一键安装 / 启动脚本（Windows / macOS / Linux）
     --mirror <url>      pip/uv 统一镜像源 URL（如 https://pypi.tuna.tsinghua.edu.cn/simple）
 
 端口与监听地址在仓库根目录 .env 中配置:
-    SOTABAND_API_HOST / SOTABAND_API_PORT   后端（默认 0.0.0.0:8201）
+    SOTABAND_API_HOST / SOTABAND_API_PORT   后端（默认 127.0.0.1:8201）
     SOTABAND_WEB_PORT                       前端（开发/预览共用，默认 8200）
 """
 
