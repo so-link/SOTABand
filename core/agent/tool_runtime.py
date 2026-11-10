@@ -27,7 +27,10 @@ from pathlib import Path
 
 
 # 常驻 Worker 的宿主脚本：先预热常用重型库，再循环处理任务。
-_WORKER_SCRIPT = r"""
+# 拆成两段：安全前导（审计钩子 + 资源限制，由父进程按策略生成）注入在
+# 预热与工具加载之间，保证工具代码的 import 与执行同受审计——与
+# ToolExecutor 一次性路径的模板结构一致。
+_WORKER_PRELUDE = r"""
 import sys, os, json, io, traceback
 
 # 项目根（由父进程通过环境变量注入）
@@ -52,7 +55,9 @@ try:
     register_all_modules()
 except Exception as e:
     _WARMUP_ERRS.append(f"mmyolo: {e}")
+"""
 
+_WORKER_TAIL = r"""
 # ── 加载工具代码 ──
 _TOOL_CODE = ""
 try:
@@ -94,6 +99,7 @@ for line in sys.stdin:
             result = out if isinstance(out, dict) else {"status": "success", "data": out}
     except Exception as e:
         result = {"status": "failed", "message": f"执行异常: {e}\n{traceback.format_exc()[:800]}"}
+    result = _sec_merge(result)
     sys.stdout.write(json.dumps({"event": "result", "result": result}, ensure_ascii=False) + "\n")
     sys.stdout.flush()
 """
@@ -160,11 +166,30 @@ class ToolRuntime:
             if not self._has_worker_script(tool_id):
                 return {"tool_id": tool_id, "status": "skipped", "reason": "工具实现不存在"}
 
+            # 与 ToolExecutor 同一道执行前静态闸门：常驻路径不得比一次性
+            # 路径宽松——否则被拦截的代码换个预热入口照样能跑。
+            from core.executor.tool_executor import ToolExecutor
+
+            tool_dir_path = self._tool_dir(tool_id)
             try:
-                tool_dir = str(self._tool_dir(tool_id))
+                tool_code = (tool_dir_path / "tool.py").read_text(encoding="utf-8")
+            except Exception as e:
+                return {"tool_id": tool_id, "status": "failed", "error": f"读取工具代码失败: {e}"}
+            blocked = ToolExecutor._security_gate(tool_code)
+            if blocked is not None:
+                return {"tool_id": tool_id, "status": "blocked",
+                        "error": blocked.get("message", "静态安全审查未通过")}
+
+            try:
+                tool_dir = str(tool_dir_path)
                 from core.user_paths import runtime_env, user_home
                 _home = user_home()
                 _home.mkdir(parents=True, exist_ok=True)
+                script = (
+                    _WORKER_PRELUDE
+                    + ToolExecutor._security_preamble(tool_dir, str(self.project_root))
+                    + _WORKER_TAIL
+                )
                 env = dict(
                     **runtime_env({"TOOL_DIR": tool_dir}),
                     PYTHONUNBUFFERED="1",
@@ -172,7 +197,7 @@ class ToolRuntime:
                 )
                 proc = await asyncio.create_subprocess_exec(
                     self._python_exe(tool_id),
-                    "-c", _WORKER_SCRIPT,
+                    "-c", script,
                     stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
