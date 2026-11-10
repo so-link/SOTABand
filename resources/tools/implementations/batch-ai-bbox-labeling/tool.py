@@ -1,9 +1,15 @@
 # === SOTABand 工具标准模板 ===
-import os, sys, json, time, base64, io
+import base64
+import io
+import json
+import os
+import sys
+import time
 from pathlib import Path
 from typing import Any
-import requests
+
 from PIL import Image, ImageDraw
+
 
 # ── 运行目录（由平台注入，禁止写死绝对路径或按 __file__ 层级反推）──
 # SOTABAND_ROOT      系统根：代码 + 内置资源，视为只读
@@ -229,7 +235,7 @@ def execute(**kwargs) -> dict[str, Any]:
                 collected_formats.add(img_path.suffix.lower().lstrip('.'))
                 collected_formats.add("txt")
             except Exception as e:
-                return {"status": "failed", "message": f"图片处理失败 ({img_path.name}): {str(e)}"}
+                return {"status": "failed", "message": f"图片处理失败 ({img_path.name}): {e!s}"}
         
         if processed == 0:
             return {"status": "failed", "message": "没有成功处理任何图片"}
@@ -264,4 +270,4 @@ def execute(**kwargs) -> dict[str, Any]:
             "data": {"image_path": first_labeled_image}
         }
     except Exception as e:
-        return {"status": "failed", "message": f"执行异常: {str(e)}"}
+        return {"status": "failed", "message": f"执行异常: {e!s}"}

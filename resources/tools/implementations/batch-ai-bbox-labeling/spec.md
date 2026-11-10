@@ -40,28 +40,26 @@ created: 2026-07-27
 
 | 依赖 | 版本 | 用途 |
 |------|------|------|
-| requests | >=2.28.0 | 调用豆包大模型 API |
 | Pillow | >=9.0.0 | 图片缩放与绘制检测框 |
 
 ## 5. 运行机制
 
 ### 5.1 执行流程
-1. 通过系统 API `【获取豆包API KEY】` 获取豆包大模型的 `{api_key}`。
-2. 调用系统 API `【获取数据集信息】` 获取数据集 `{dataset}` 的实际路径 `{data_path_src}`。
-3. 在项目目录下创建基于当前时间戳的目录 `./data/download/{timestamp}/`，记作 `{data_path_target}`。
-4. 在 `{data_path_target}` 下创建子目录 `labeled/`。
-5. 遍历 `{data_path_src}` 下的每张图片文件：
+1. 调用系统 API `【获取数据集信息】` 获取数据集 `{dataset}` 的实际路径 `{data_path_src}`。
+2. 在项目目录下创建基于当前时间戳的目录 `./data/download/{timestamp}/`，记作 `{data_path_target}`。
+3. 在 `{data_path_target}` 下创建子目录 `labeled/`。
+4. 遍历 `{data_path_src}` 下的每张图片文件：
    - 保持长宽比缩放图片，使其最长边不超过 640 像素。
-   - 调用豆包大模型 `doubao-seed-2-0-lite-260428`（API Key 为 `{api_key}`），请求检测目标 `{req}`，获得 YOLO 风格的边界框列表（归一化于缩放后的 640 分辨率图像）。
+   - 经系统 API `【LLM自定义配置对话API】`（`api-llm-chat-with-config`，provider 为 doubao）调用豆包视觉模型 `doubao-seed-2-0-lite-260428`，请求检测目标 `{req}`，获得 YOLO 风格的边界框列表（归一化于缩放后的 640 分辨率图像）。密钥由平台按 provider 在服务端解析，不经过工具代码。
    - 根据原始图片尺寸，将归一化边界框逆缩放为原图的像素坐标。
    - 在原始图片上绘制加粗红框，保存至 `{data_path_target}/labeled/` 目录下（文件名与原图相同）。
    - 复制**原始未标注图片**到 `{data_path_target}` 根目录下（作为 YOLO 训练图片）。
    - 按照 YOLO 训练集格式，生成标签文件（每行为 `class_id x_center y_center width height`，坐标归一化于原图宽高），保存至 `{data_path_target}` 目录中。
-6. 全部图片处理完毕后，调用系统 API `【数据集注册API】` 将目录 `{data_path_target}` 注册为数据集 `{output_dataset}`。
-7. 将 `{data_path_target}/labeled/` 下第一张图片的路径封装为输出结果返回。
+5. 全部图片处理完毕后，调用系统 API `【数据集注册API】` 将目录 `{data_path_target}` 注册为数据集 `{output_dataset}`。
+6. 将 `{data_path_target}/labeled/` 下第一张图片的路径封装为输出结果返回。
 
 ### 5.2 错误处理
-- API Key 获取失败 → `status: failed`，返回错误信息 `"无法获取豆包API KEY"`。
+- 大模型调用失败（如 `.env` 未配置 `DOUBAO_API_KEY`）→ `status: failed`，返回 `"大模型调用失败: {错误详情}"`。
 - 数据集信息获取失败或路径不存在 → `status: failed`，返回错误信息 `"数据集不存在或无法访问"`。
 - 图片处理或 API 调用异常 → 捕获详细异常，`status: failed`，返回 `"图片处理失败: {错误详情}"`。
 - 注册数据集失败 → `status: failed`，返回 `"数据集注册失败"`。

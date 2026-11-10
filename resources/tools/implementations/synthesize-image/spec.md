@@ -41,7 +41,6 @@ created: 2025-04-12
 
 | 依赖 | 版本 | 用途 |
 |------|------|------|
-| volcenginesdkarkruntime | >=1.0.0 | 调用豆包大模型生成图片 |
 | requests | >=2.28 | 下载生成的图片 |
 | os | 标准库 | 路径与目录操作 |
 | time | 标准库 | 生成时间戳目录名 |
@@ -49,43 +48,29 @@ created: 2025-04-12
 ## 5. 运行机制
 
 ### 5.1 执行流程
-1. 通过【获取豆包API KEY】获得 `{api_key}`。
-2. 计算当前时间戳 `{xxxx}`，在项目目录下创建子目录 `./data/download/{xxxx}/`，若目录创建失败（权限等）自动回退到系统临时目录。
-3. 利用 `{api_key}` 初始化豆包客户端，循环调用大模型生成 `{n}` 张图片。
-4. 将每张生成图片的 URL 下载至 `./data/download/{xxxx}/` 中。
-5. 调用【数据集注册API】，将目录 `./data/download/{xxxx}/` 注册为名为 `{dataset}` 的合成图片数据集。
-6. 返回状态与第一张生成图片的本地路径。
+1. 计算当前时间戳 `{xxxx}`，在项目目录下创建子目录 `./data/download/{xxxx}/`，若目录创建失败（权限等）自动回退到系统临时目录。
+2. 循环调用系统 API【LLM图片生成API】（`api-llm-images`）生成 `{n}` 张图片。密钥与端点由平台按 provider（默认 doubao）在服务端解析，不经过工具代码。
+3. 将每张生成图片的 URL 下载至 `./data/download/{xxxx}/` 中。
+4. 调用【数据集注册API】，将目录 `./data/download/{xxxx}/` 注册为名为 `{dataset}` 的合成图片数据集。
+5. 返回状态与第一张生成图片的本地路径。
 
-> **说明**：`volcenginesdkarkruntime` 采用延迟导入（在 `execute` 内按需加载），即使环境未安装该依赖，工具本身也能正常加载并给出缺失依赖的失败提示，避免整个工具无法调用。
-
-### 5.2 核心代码参考（豆包图片生成API调用示例）
+### 5.2 核心代码参考（平台图片生成通道调用示例）
 
 ```python
-#调用豆包大模型请参考下面代码：
- import os
-from volcenginesdkarkruntime import Ark
-
-client = Ark(
-    # The base URL for model invocation
-    base_url="https://ark.cn-beijing.volces.com/api/v3",
-    api_key={api_key},
-)
-
-imagesResponse = client.images.generate(
-    # Replace with Model ID
+# 经平台代理通道调用豆包图片生成（密钥不进工具代码）：
+result = _call_api(
+    "api-llm-images",
     model="doubao-seedream-5-0-lite-260128",
     prompt="充满活力的特写编辑肖像，模特眼神犀利，头戴雕塑感帽子，色彩拼接丰富，眼部焦点锐利，景深较浅，具有Vogue杂志封面的美学风格，采用中画幅拍摄，工作室灯光效果强烈。",
     size="2K",
-    output_format="png",
-    response_format="url",
-    watermark=False
+    watermark=False,
 )
+image_url = result["images"][0]   # 失败时 result 含 error 字段
 ```
 
 ### 5.3 错误处理
-- 获取 API KEY 失败 → 返回错误信息并终止。
+- 图片生成调用失败（如 `.env` 未配置 `DOUBAO_API_KEY`）→ 该张计入失败并继续。
 - 目录创建失败 → 返回错误，提示检查文件系统权限。
-- 豆包 API 调用失败 → 返回详细错误信息（网络异常、参数错误、额度不足等）。
 - 图片下载失败 → 记录具体失败张数，其他成功的仍继续注册数据集。
 - 数据集注册失败 → 返回错误信息，但已下载的图片仍保留在目录中。
 

@@ -83,6 +83,7 @@ def test_get_config_unconfigured_flag(monkeypatch):
 
 def test_builtin_tools_have_no_get_key_refs():
     from pathlib import Path
+
     import config.settings as st
     root = Path(getattr(st, "PROJECT_ROOT", Path.cwd())) / "resources" / "tools" / "implementations"
     if not root.is_dir():

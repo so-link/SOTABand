@@ -1,8 +1,11 @@
 # === SOTABand 工具标准模板 ===
-import os, sys, json, time, re
+import json
+import os
+import sys
+import time
 from pathlib import Path
 from typing import Any
-import requests
+
 
 # ── 运行目录（由平台注入，禁止写死绝对路径或按 __file__ 层级反推）──
 # SOTABAND_ROOT      系统根：代码 + 内置资源，视为只读
@@ -180,6 +183,7 @@ def _extract_json_response(text: str):
 def _llm_chat(messages: list, **kwargs) -> str:
     """同步调用系统统一大模型通道，密钥与端点跟随平台全局配置。"""
     import asyncio
+
     from core.llm.client import create_llm_client
     client = create_llm_client()
     loop = asyncio.new_event_loop()
