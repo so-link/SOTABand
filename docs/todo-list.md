@@ -101,3 +101,8 @@
 - 11.3.6 ✅ AI评审（paper-review / paper-review-suggestions / paper-summary）
 - 11.3.7 ✅ 专利查重（lens-patent-downloader；发明人/申请人/IPC/日期筛选未实现）
 - 11.3.8 🔶 专利撰写（patent-translation-tool 提供翻译辅助，撰写未实现）
+
+## 12. 工程债排期（来自 dev-plan-20261103 / 架构评审 20261109）
+
+- 12.1 SSE 断线续流（dev-plan P1-3 / 评审 M-2）：主进程为每个 run 保留带序号的可重放输出缓冲（按 run 生命周期存在、不落盘），前端重连携带最后序号增量续读；断开重开后消息流可续读且不重复
+- 12.2 workspace_tree 乐观锁（dev-plan P2-2 工作项3 / 评审 M-5）：工作区树由整树覆盖写改为 per-tab 读写 + 版本号乐观检查，多标签页并发保存时冲突提示而非后写覆盖前写
