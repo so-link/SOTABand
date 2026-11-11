@@ -92,7 +92,7 @@
 
 | 组件 | 文件 | 职责 |
 |------|------|------|
-| API 注册表 | `registry.json` | 19 个系统 API 的登记（LLM 对话、数据 CRUD、工具/模型注册、Agent 启停等） |
+| API 注册表 | `registry.json` | 18 个系统 API 的登记（LLM 对话、数据 CRUD、工具/模型注册、Agent 启停等）；明文密钥族（doubao/deepseek get-key）已于 2026-11 下线 |
 | API 规范文档 | `definitions/*.md` | 每个系统 API 的 Markdown 规范（供工具生成器与文档构建引用） |
 | API 实现 | `implementations/api_llm.py` 等 5 个模块 | LLM / 数据 / 工具 / 模型 / Agent 五组系统 API 的实现 |
 | 发现器 | `discoverer.py` | 按 id / 类别检索系统 API |
@@ -127,7 +127,7 @@
 
 | 组件 | 文件 | 职责 |
 |------|------|------|
-| 客户端 | `client.py` | OpenAI 兼容协议的统一 LLM 客户端（`create_llm_client()` 对话模型 / `create_gen_llm_client()` 生成模型，后者每次调用时才解析 `LLM_GEN_*` 配置，设置页保存即生效） |
+| 客户端 | `client.py` | OpenAI 兼容协议的统一 LLM 客户端（`create_llm_client()` 对话模型 / `create_gen_llm_client()` 生成模型，后者每次调用时才解析 `LLM_GEN_*` 配置，设置页保存即生效）；并发按用途分 chat/gen/aux 三池信号量（默认 2/1/4，`.env` `LLM_MAX_CONCURRENCY`/`LLM_GEN_MAX_CONCURRENCY`/`LLM_AUX_MAX_CONCURRENCY` 可配），标题/标签/匹配等秒级短任务入 aux 池、图片生成恒走 gen 池，长生成不再把短任务排队阻塞 |
 | 服务商预设 | `providers.py` | 多服务商端点/模型预设，按 Key 前缀自动选择端点 |
 
 对话链路由 `.env` 的 `LLM_PROVIDER` / `LLM_API_KEY` 统一配置，DeepSeek 仅为默认项，可切换 MiMo / OpenAI / Kimi / 智谱 / 通义 / 豆包等任意 OpenAI 兼容服务。规格/代码生成链路可用 `LLM_GEN_PROVIDER / LLM_GEN_MODEL / LLM_GEN_API_KEY / LLM_GEN_BASE_URL` 单独指定推理更强的「生成模型」（`create_gen_llm_client()`，未配置时自动回退全局对话模型），与对话模型分离。
