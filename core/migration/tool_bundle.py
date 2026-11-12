@@ -31,7 +31,7 @@ import json
 import re
 import time
 import zipfile
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from core.resource import paths
 from core.resource.registry.tool_registry import ToolRegistry
@@ -338,11 +338,21 @@ def _safe_member_path(name: str, tool_id: str) -> str | None:
         return None
     if "\\" in name or name.startswith("/") or ".." in name.split("/"):
         raise ValueError(f"包内存在非法路径: {name!r}")
+    # Windows 盘符（如 E:/x.py）在 PurePosixPath 里是普通相对路径，
+    # 但 pathlib 在 Windows 上会把盘符识别为驱动器并重置根目录 —— 写
+    # impl_dir / "E:/x.py" 会落到 E:\x.py。必须显式拒绝（来源 main 的
+    # _validate_member_rel 加固）。
+    if PureWindowsPath(name).drive:
+        raise ValueError(f"包内存在非法路径: {name!r}")
     if name in {"manifest.json", "registry_entry.json"}:
         return None
     prefix = f"implementations/{tool_id}/"
     if name.startswith(prefix):
         rel = name[len(prefix):]
+        # 盘符可能出现在剥离前缀之后（implementations/x/E:/evil.py）：
+        # 完整 name 上检查不到，必须在 rel 上再判一次。
+        if PureWindowsPath(rel).drive:
+            raise ValueError(f"包内存在非法路径: {name!r}")
         return rel or None
     if name == f"definitions/{tool_id}.md":
         return None  # 单独处理

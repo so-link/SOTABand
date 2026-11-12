@@ -26,7 +26,7 @@ import io
 import json
 import time
 import zipfile
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from core.deps import extract_imports
 from core.migration.tool_bundle import (
@@ -233,11 +233,18 @@ def _safe_member(name: str, agent_id: str) -> str | None:
         return None
     if "\\" in name or name.startswith("/") or ".." in name.split("/"):
         raise ValueError(f"包内存在非法路径: {name!r}")
+    # Windows 盘符（如 E:/x.py）会重置 pathlib 的根目录，必须显式拒绝
+    # （来源 main 的 _validate_member_rel 加固）。
+    if PureWindowsPath(name).drive:
+        raise ValueError(f"包内存在非法路径: {name!r}")
     if name in {"manifest.json", "registry_entry.json"}:
         return None
     prefix = f"implementations/{agent_id}/"
     if name.startswith(prefix):
         rel = name[len(prefix):]
+        # 盘符可能出现在剥离前缀之后，必须在 rel 上再判一次
+        if PureWindowsPath(rel).drive:
+            raise ValueError(f"包内存在非法路径: {name!r}")
         return rel or None
     if name == f"definitions/{agent_id}.md":
         return None
