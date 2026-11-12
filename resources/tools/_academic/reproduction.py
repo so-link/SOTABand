@@ -9,6 +9,7 @@ import re
 import shlex
 import shutil
 import statistics
+import subprocess
 import time
 from pathlib import Path
 
@@ -40,22 +41,24 @@ def parse_reproduction_request(value, require_source=True, default_command=""):
             "中的代码，使用1张GPU运行 python train.py，超时120秒"
         )
 
-    quoted_path = re.search(r"[\"'“‘](?P<path>(?:[A-Za-z]:[\\/]|/).+?)[\"'”’]", text)
-    plain_path = re.search(r"(?P<path>[A-Za-z]:[\\/][^\s，。,；;]+|/(?:[^\s，。,；;]+))", text)
-    path_match = quoted_path or plain_path
-    if not path_match and require_source:
-        raise ToolError("任务描述中缺少源码目录；路径含空格时请用引号括起来")
-    source_path = path_match.group("path").strip() if path_match else None
-
     command_match = re.search(
-        r"(?:运行|执行|启动|(?<!\S)run\b)(?:命令)?\s*"
+        r"(?:运行|执行|启动|(?<!\S)run\b)(?:命令)?\s*(?:是|为|:|：)?\s*"
         r"(?P<command>.+?)"
         r"(?=\s*(?:，|,|；|;|。|超时\s*\d|$))",
         text,
         flags=re.IGNORECASE,
     )
+    source_text = text[:command_match.start()] + text[command_match.end():] if command_match else text
+    quoted_path = re.search(r"[\"'“‘](?P<path>(?:[A-Za-z]:[\\/]|/).+?)[\"'”’]", source_text)
+    plain_path = re.search(r"(?P<path>[A-Za-z]:[\\/][^\s，。,；;]+|(?<![A-Za-z0-9_.:/\\-])/(?:[^\s，。,；;]+))", source_text)
+    path_match = quoted_path or plain_path
+    if not path_match and require_source:
+        raise ToolError("请告诉我后端机器上的源码目录，例如“源码在 E:\\projects\\paper-code”。路径含空格时加引号即可，无需 JSON。",
+                        "INPUT_REQUIRED", details={"field": "source_path"})
+    source_path = path_match.group("path").strip() if path_match else None
     if not command_match and not default_command:
-        raise ToolError("任务描述中缺少启动命令，例如：运行 python train.py")
+        raise ToolError("源码目录已收到。请告诉我仓库文档要求的启动命令，可以直接回复“python train.py”；不清楚时请提供 README 中的运行说明，我不会猜测入口。",
+                        "INPUT_REQUIRED", details={"field": "command"})
     command_text = command_match.group("command").strip() if command_match else default_command
     pairs = {"`": "`", '"': '"', "'": "'", "“": "”", "‘": "’"}
     closing = pairs.get(command_text[:1])
@@ -75,25 +78,47 @@ def parse_reproduction_request(value, require_source=True, default_command=""):
     if not command_args:
         raise ToolError("启动命令不能为空")
 
-    gpu_match = re.search(r"(\d+)\s*张?\s*(?:块)?\s*GPU", text, flags=re.IGNORECASE)
-    timeout_match = re.search(r"超时\s*(\d+)\s*(秒|分钟|小时)?", text, flags=re.IGNORECASE)
+    numbers = {word: number for number, word in enumerate("一二三四五六七八九十", 1)}
+    numbers["两"] = 2
+
+    def number(value):
+        if value in numbers:
+            return numbers[value]
+        if value.isascii() and value.isdigit():
+            return int(value)
+        raise ToolError("数量暂无法准确解析，请用阿拉伯数字说明，例如“12张GPU”或“超时30分钟”；不会自动采用默认值。")
+
+    gpu_values = [number(value) for value in re.findall(r"(?<![\d一二两三四五六七八九十百])(\d+|[一二两三四五六七八九十百]+)\s*(?:张|块)?\s*(?:GPU|显卡)", text, re.IGNORECASE)]
+    if re.search(r"(?:\d+\.\d+|半|多|若干|几)\s*(?:张|块)?\s*(?:GPU|显卡)", text, re.IGNORECASE):
+        raise ToolError("请明确使用几张 GPU，数量必须是正整数；例如“两张 GPU”或“2张 GPU”。")
+    if re.search(r"(?:不用|不使用|不要使用)\s*(?:GPU|显卡)|(?:只用|仅用|只使用)\s*CPU", text, re.IGNORECASE):
+        raise ToolError("本工具执行 GPU 复现实验；当前描述要求仅用 CPU，请明确是否需要 GPU 任务后重新提交。")
+    if len(set(gpu_values)) > 1:
+        raise ToolError("描述中有不同的 GPU 数量，请明确要使用几张 GPU。")
+    timeout_matches = re.findall(r"(?:超时|最多(?:运行|跑)?|最长(?:运行|跑)?|运行上限)\s*(\d+|[一二两三四五六七八九十百]+)\s*(秒|分钟|小时)?", text, re.IGNORECASE)
     timeout_seconds = 21600
-    if timeout_match:
-        factor = {"秒": 1, "分钟": 60, "小时": 3600}.get(timeout_match.group(2), 1)
-        timeout_seconds = int(timeout_match.group(1)) * factor
-    memory_match = re.search(r"(?:内存\s*(\d+)|(\d+)\s*(?:GB|G)\s*内存)", text, flags=re.IGNORECASE)
+    if not timeout_matches and re.search(r"超时|最多(?:运行|跑)|最长(?:运行|跑)|运行上限", text):
+        raise ToolError("没有准确解析运行时限，请写成“超时30分钟”等明确数量；不会采用默认时限。")
+    if timeout_matches:
+        timeouts = {number(value) * {"秒": 1, "分钟": 60, "小时": 3600}.get(unit, 1) for value, unit in timeout_matches}
+        if len(timeouts) > 1:
+            raise ToolError("描述中有不同的运行时限，请明确最多运行多久。")
+        timeout_seconds = timeouts.pop()
+    memory_match = re.search(r"(?:内存\s*(\d+|[一二两三四五六七八九十百]+)|(\d+|[一二两三四五六七八九十百]+)\s*(?:GB|G)\s*内存)", text, flags=re.IGNORECASE)
+    if re.search(r"内存\s*[\d.]+\s*(?:MB|TB)|[\d.]+\s*(?:MB|TB)\s*内存", text, re.IGNORECASE):
+        raise ToolError("内存请用 GB 表示，例如“内存4GB”；不会把 MB 或 TB 当作 GB。")
     image_match = re.search(
         r"(?:镜像|image)\s*(?:是|为|:|：)?\s*"
         r"([A-Za-z0-9][A-Za-z0-9._/:@-]*)",
         text,
         flags=re.IGNORECASE,
     )
-    memory_gb = int(next(group for group in memory_match.groups() if group)) if memory_match else 16
+    memory_gb = number(next(group for group in memory_match.groups() if group)) if memory_match else 16
     plan = validate_plan(
         {
             "image": image_match.group(1) if image_match else "sotaband-academic-gpu:1.0",
             "command": command_args,
-            "gpu_count": int(gpu_match.group(1)) if gpu_match else 1,
+            "gpu_count": gpu_values[0] if gpu_values else 1,
             "timeout_seconds": timeout_seconds,
             "memory_gb": memory_gb,
         }
@@ -309,19 +334,44 @@ def prepare_source(store, job):
                 raise ToolError("Source changed while copying", "SOURCE_CHANGED")
         else:
             git = ["git", "-c", "core.autocrlf=false", "-c", "core.eol=lf"]
+            environment = git_environment(snapshot["url"])
             if os.getenv("SOTABAND_ACADEMIC_HTTP_PROXY") == "direct":
                 git += ["-c", "http.proxy="]
             command(
-                [*git, "clone", "--no-checkout", "--", snapshot["url"], str(staging)], timeout=600
+                [*git, "clone", "--no-checkout", "--", snapshot["url"], str(staging)], timeout=600,
+                env=environment,
             )
-            command([*git, "checkout", "--detach", snapshot["commit"]], cwd=staging, timeout=120)
+            command([*git, "checkout", "--detach", snapshot["commit"]], cwd=staging, timeout=120, env=environment)
             if job["plan"].get("submodules"):
                 command(
-                    [*git, "submodule", "update", "--init", "--recursive"], cwd=staging, timeout=600
+                    [*git, "submodule", "update", "--init", "--recursive"], cwd=staging, timeout=600,
+                    env=environment,
                 )
         os.replace(staging, repo)
     (folder / "output").mkdir(exist_ok=True)
     return folder, repo
+
+
+def git_environment(url):
+    """Use the configured route, including Windows system proxy, without changing Git config."""
+    if os.getenv("SOTABAND_ACADEMIC_HTTP_PROXY") == "direct":
+        return None  # The caller explicitly passes -c http.proxy=.
+    from requests.utils import get_environ_proxies, select_proxy
+
+    configured = subprocess.run(
+        ["git", "config", "--get-urlmatch", "http.proxy", url],
+        capture_output=True, text=True, timeout=10, check=False,
+        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+    )
+    if configured.returncode == 0:
+        return None  # Preserve an explicit Git route, including an explicitly empty proxy.
+    if configured.returncode != 1:
+        raise ToolError("Cannot read Git proxy configuration", "COMMAND_FAILED")
+    proxy = select_proxy(url, get_environ_proxies(url))
+    if not proxy:
+        return None
+    # Do not put proxy credentials into command-line arguments or persistent settings.
+    return {**os.environ, "HTTPS_PROXY": proxy, "https_proxy": proxy}
 
 
 def local_snapshot(path):
@@ -547,6 +597,8 @@ def create_plan(store, plan, snapshot):
 
 
 def preflight(store, params):
+    from .github import reproduction_caveats
+
     if bool(params.get("source_path")) == bool(params.get("snapshot_id")):
         raise ToolError("Provide exactly one of source_path or snapshot_id")
     if params.get("source_path"):
@@ -569,20 +621,21 @@ def preflight(store, params):
     entrypoints = [
         path
         for path in files
-        if re.search(r"(^|/)(train|eval|evaluate|infer|predict|main|run)[^/]*\.py$", path)
+        if re.search(r"(^|/)(train|eval|evaluate|infer|predict|main|run|execute)[^/]*\.py$", path)
     ]
     dependencies = [
         path
         for path in files
         if re.search(
-            r"(^|/)(requirements[^/]*\.txt|pyproject\.toml|environment[^/]*\.ya?ml|Dockerfile)$",
+            r"(^|/)(requirements[^/]*\.(txt|ya?ml)|pyproject\.toml|setup\.(py|cfg)|environment[^/]*\.ya?ml|Dockerfile)$",
             path,
             re.IGNORECASE,
         )
     ]
     command_value = str(params.get("command", "")).strip()
     command_args = shlex.split(command_value, posix=True) if command_value else []
-    issues, warnings = [], []
+    issues = []
+    warnings = ["Upstream reproduction limitation: " + text for text in reproduction_caveats(readme)]
     if not entrypoints:
         issues.append("No conventional train/eval/main Python entrypoint was found")
     if not dependencies:
@@ -596,7 +649,7 @@ def preflight(store, params):
     if not command_args:
         warnings.append("No command supplied; select and review an entrypoint before execution")
     if re.search(r"\b(dataset|download data|data preparation)\b", readme, re.IGNORECASE):
-        warnings.append("README mentions external data; mount it explicitly with dataset_path")
+        warnings.append("README mentions datasets; check bundled files and documented paths, and mount dataset_path if external data is required")
     if re.search(r"\b(pretrained|checkpoint|weights)\b", readme, re.IGNORECASE):
         warnings.append("README mentions external weights/checkpoints; verify provenance and paths")
     runtime = None
@@ -609,7 +662,7 @@ def preflight(store, params):
             issues.append(
                 f"Requested {requested} GPUs but only {len(runtime['gpus'])} were detected"
             )
-    suggested = command_args or (["python", entrypoints[0]] if entrypoints else [])
+    suggested = command_args
     return {
         "ready": not issues and bool(suggested),
         "snapshot": snapshot,
@@ -707,9 +760,7 @@ def execute(params):
         snapshot_id = str(params.get("snapshot_id", "")).strip()
         snapshot = store.get("repository", snapshot_id) if snapshot_id else None
         commands = (snapshot or {}).get("reproducibility", {}).get("candidate_commands", [])
-        default_command = commands[0] if commands else ""
-        if snapshot and not default_command and snapshot.get("entrypoints"):
-            default_command = "python " + snapshot["entrypoints"][0]
+        default_command = commands[0] if len(commands) == 1 else ""
         parsed = parse_reproduction_request(
             required(params, "request"),
             require_source=not bool(snapshot),
@@ -726,6 +777,12 @@ def execute(params):
                 "check_runtime": False,
             },
         )
+        if not check["ready"]:
+            raise ToolError(
+                "Reproduction preflight failed: " + "; ".join(check["issues"]),
+                "PREFLIGHT_FAILED",
+                details={"preflight": check},
+            )
         record = create_plan(store, parsed["plan"], selected_snapshot)
         job = submit(store, record, params.get("idempotency_key"))
         current = dict(advance(store, job["id"]))
@@ -749,6 +806,11 @@ def execute(params):
         }
         return result(current, "复现任务已按自然语言描述创建并开始调度")
     if mode == "plan":
+        if not params.get("plan_json"):
+            parsed = parse_reproduction_request(required(params, "request"), require_source=not bool(params.get("snapshot_id")))
+            params = {**params, "plan_json": parsed["plan"]}
+            if parsed["source_path"]:
+                params["source_path"] = parsed["source_path"]
         if bool(params.get("source_path")) == bool(params.get("snapshot_id")):
             raise ToolError("Provide exactly one of source_path or snapshot_id")
         plan = validate_plan(object_arg(required(params, "plan_json"), "plan_json"))

@@ -18,7 +18,7 @@ def response_error(response, url):
         "http_status": response.status_code,
         "content_type": headers.get("content-type", "").split(";")[0][:80],
     }
-    for field in ("x-ratelimit-limit", "x-ratelimit-remaining", "retry-after"):
+    for field in ("x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset", "retry-after"):
         value = headers.get(field, "")
         if str(value).isdigit():
             evidence[field] = int(value)
@@ -39,7 +39,7 @@ def response_error(response, url):
         evidence["verification"] = "OpenReview ChallengeRequiredError" if challenge else "Anubis"
         evidence["action"] = (
             "Complete the site's official verification manually or contact its API operator; "
-            "an API token alone is not a confirmed fix. Use other available sources."
+            "an API token alone is not a confirmed fix. Retry this source only after access is restored."
         )
         if host == "api2.openreview.net":
             evidence["verification_url"] = "https://openreview.net/challenge"
@@ -63,6 +63,16 @@ def response_error(response, url):
         evidence["action"] = (
             "Check account/resource permissions and contact the service; cause is not proven by HTTP 403 alone"
         )
+    elif status == 422 and host == "api.github.com":
+        from core.security.secrets import scrub_text
+
+        code = "SOURCE_QUERY_REJECTED"
+        evidence["message"] = scrub_text(body.get("message", ""), max_len=300)
+        evidence["validation_errors"] = [
+            {key: scrub_text(item[key], max_len=400) for key in ("message", "resource", "field", "code") if key in item}
+            for item in body.get("errors", [])[:10] if isinstance(item, dict)
+        ]
+        evidence["action"] = "Check query syntax, the repository's current owner/name and account permissions"
     return ToolError(
         f"{host}: HTTP {status}", code, status >= 500 or code == "RATE_LIMITED", evidence
     ), evidence

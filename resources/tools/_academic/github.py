@@ -35,6 +35,14 @@ def repository(value):
     return value
 
 
+def reproduction_caveats(readme):
+    """Quote explicit upstream limitations; absence is not proof of reproducibility."""
+    return [
+        line.strip()[:1500] for line in readme.splitlines()
+        if re.search(r"\bnot\s+(?:intended|designed)\s+(?:for\s+(?:the\s+)?reproduction|to\s+reproduce)\b", line, re.IGNORECASE)
+    ][:10]
+
+
 class GitHub:
     def __init__(self, http=None):
         self.http = http or HTTP()
@@ -44,7 +52,11 @@ class GitHub:
         credential = token("github")
         if credential:
             headers["Authorization"] = "Bearer " + credential
-        return self.http.get("https://api.github.com/" + endpoint, params=params, headers=headers)
+        try:
+            return self.http.get("https://api.github.com/" + endpoint, params=params, headers=headers)
+        except ToolError as exc:
+            exc.details = {**exc.details, "endpoint": endpoint[:300]}
+            raise
 
     def search(self, query, limit=10, page=1):
         data = self.get("search/repositories", {"q": query, "per_page": limit, "page": page})
@@ -128,21 +140,24 @@ class GitHub:
             "entrypoints": [
                 f
                 for f in files
-                if re.search(r"(^|/)(train|eval|evaluate|infer|predict|main|run)[^/]*\.py$", f)
+                if re.search(r"(^|/)(train|eval|evaluate|infer|predict|main|run|execute)[^/]*\.py$", f)
             ],
             "dependency_files": [
                 f
                 for f in files
                 if re.search(
-                    r"(^|/)(requirements[^/]*\.txt|pyproject.toml|environment[^/]*\.ya?ml|Dockerfile)$",
+                    r"(^|/)(requirements[^/]*\.(txt|ya?ml)|pyproject\.toml|setup\.(py|cfg)|environment[^/]*\.ya?ml|Dockerfile)$",
                     f,
+                    re.IGNORECASE,
                 )
             ],
             "relationship": relationship,
             "evidence": evidence,
             "warnings": warnings,
             "fetched_at": now(),
+            "upstream_caveats": reproduction_caveats(readme),
         }
+        snapshot["warnings"].extend("Upstream reproduction limitation: " + text for text in snapshot["upstream_caveats"])
         snapshot["reproducibility"] = reproducibility(snapshot)
         return snapshot
 
@@ -220,6 +235,38 @@ def candidate_score(row, snapshot=None):
     return score
 
 
+def paper_metadata_evidence(row, paper_title):
+    """Score cheap GitHub search metadata before spending API calls on inspection."""
+    title_terms = [
+        term
+        for term in re.findall(r"[A-Za-z][A-Za-z0-9-]{2,}", paper_title.casefold())
+        if term not in {"the", "and", "for", "with", "from", "using", "via"}
+    ]
+    metadata = " ".join(
+        str(row.get(field) or "") for field in ("repository", "description")
+    ).casefold()
+    title_hits = [term for term in title_terms if term in metadata]
+    title_matched = bool(title_terms) and len(title_hits) >= max(
+        2, math.ceil(len(title_terms) * 0.7)
+    )
+    official_claim = bool(
+        re.search(r"\bofficial\s+(?:code|implementation|repository)\b", metadata)
+    )
+    if title_matched and official_claim:
+        return "metadata_author_claimed", 50, {
+            "kind": "repository_description_claim",
+            "matched_terms": title_hits,
+            "source": row.get("url"),
+        }
+    if title_matched:
+        return "metadata_title_matched", 20, {
+            "kind": "repository_description_title",
+            "matched_terms": title_hits,
+            "source": row.get("url"),
+        }
+    return "unverified", 0, None
+
+
 def reproduction_handoff(snapshot):
     commands = snapshot.get("reproducibility", {}).get("candidate_commands", [])
     command = commands[0] if commands else ""
@@ -285,21 +332,29 @@ def find_paper_code(client, store, params):
     inspect_limit = integer(params.get("inspect_limit", min(5, limit)), "inspect_limit", 1, limit)
     candidates, meta = client.search(query, limit, 1)
     queries = [query]
-    if not candidates:
-        terms = [
-            term
-            for term in re.findall(r"[A-Za-z][A-Za-z0-9-]{3,}", title)
-            if term.casefold() not in {"with", "from", "using", "based", "towards"}
-        ]
-        query = " ".join([*terms[:8], "in:readme", keywords]).strip()
-        queries.append(query)
-        candidates, meta = client.search(query, limit, 1)
+    # Inspect the strongest title/official-description matches first. GitHub's
+    # unauthenticated core quota is small, so API relevance order alone wastes
+    # calls on popular general-purpose libraries.
+    candidates.sort(
+        key=lambda item: (
+            paper_metadata_evidence(item, title)[1],
+            candidate_score(item),
+        ),
+        reverse=True,
+    )
     ranked = []
     snapshots = {}
+    rate_limit_error = None
     for index, candidate in enumerate(candidates):
         snapshot = None
         error = None
-        if index < inspect_limit:
+        error_code = None
+        error_details = None
+        metadata_relationship, metadata_bonus, metadata_evidence = paper_metadata_evidence(
+            candidate, title
+        )
+        verification_status = "not_inspected"
+        if index < inspect_limit and rate_limit_error is None:
             try:
                 snapshot = client.inspect(
                     candidate["repository"],
@@ -308,43 +363,83 @@ def find_paper_code(client, store, params):
                 )
                 snapshot = store.put("repository", snapshot)
                 snapshots[snapshot["id"]] = snapshot
+                verification_status = "verified"
             except ToolError as exc:
                 error = str(exc)
+                error_code = exc.code
+                error_details = exc.details
+                verification_status = "rate_limited" if exc.code == "RATE_LIMITED" else "failed"
+                if exc.code == "RATE_LIMITED":
+                    rate_limit_error = exc
+        elif index < inspect_limit:
+            verification_status = "skipped_after_rate_limit"
         ranked.append(
             {
                 **candidate,
                 "snapshot_id": snapshot.get("id") if snapshot else None,
                 "commit": snapshot.get("commit") if snapshot else None,
-                "relationship": snapshot.get("relationship", "unverified") if snapshot else "unverified",
+                "relationship": (
+                    snapshot.get("relationship", metadata_relationship)
+                    if snapshot
+                    else metadata_relationship
+                ),
+                "metadata_evidence": metadata_evidence,
                 "reproducibility_score": snapshot.get("reproducibility", {}).get("score") if snapshot else None,
                 "entrypoints": snapshot.get("entrypoints", []) if snapshot else [],
                 "candidate_commands": snapshot.get("reproducibility", {}).get("candidate_commands", []) if snapshot else [],
                 "gaps": snapshot.get("reproducibility", {}).get("gaps", []) if snapshot else [],
+                "verification_status": verification_status,
                 "verification_error": error,
-                "score": candidate_score(candidate, snapshot),
+                "verification_error_code": error_code,
+                "verification_error_details": error_details,
+                "score": candidate_score(candidate, snapshot) + metadata_bonus,
             }
         )
     ranked.sort(key=lambda item: item["score"], reverse=True)
     recommended = next((item for item in ranked if item.get("snapshot_id")), None)
+    provisional = next(
+        (item for item in ranked if item.get("relationship") != "unverified"),
+        None,
+    )
     handoff = reproduction_handoff(snapshots[recommended["snapshot_id"]]) if recommended else None
+    message = (
+        "Completed"
+        if recommended
+        else "Candidate search completed; repository verification is incomplete"
+    )
     return table(
         ranked,
         [
             "repository",
             "score",
             "relationship",
+            "verification_status",
             "reproducibility_score",
             "stars",
             "license",
             "snapshot_id",
+            "verification_error",
             "url",
         ],
+        message=message,
         query=query,
         queries=queries,
         total=meta.get("total_count"),
         incomplete=meta.get("incomplete_results", False),
         recommended=recommended,
+        provisional_recommendation=provisional if not recommended else None,
         reproduction_handoff=handoff,
+        verification_summary={
+            "requested": min(inspect_limit, len(candidates)),
+            "verified": sum(bool(item.get("snapshot_id")) for item in ranked),
+            "rate_limited": rate_limit_error is not None,
+            "authenticated": bool(token("github")),
+        },
+        next_action=(
+            "Configure a GitHub token, then run the same request again to fix commits and assess reproducibility."
+            if rate_limit_error
+            else None
+        ),
         warning="README evidence is repository-authored metadata, not independent authorship proof",
     )
 

@@ -112,7 +112,7 @@ def failure(exc):
     from core.security.secrets import scrub_mapping, scrub_text
 
     data = {
-        "error_code": getattr(exc, "code", "INTERNAL_ERROR"),
+        "error_code": getattr(exc, "code", "FILE_NOT_FOUND" if isinstance(exc, FileNotFoundError) else "INTERNAL_ERROR"),
         "retryable": getattr(exc, "retryable", False),
         "text": scrub_text(str(exc)),
     }
@@ -343,11 +343,12 @@ class HTTP:
                 ) from None
 
 
-def command(args, cwd=None, timeout=60, include_stderr=False):
+def command(args, cwd=None, timeout=60, include_stderr=False, env=None):
     try:
         proc = subprocess.run(
             args,
             cwd=cwd,
+            env=env,
             capture_output=True,
             text=True,
             check=False,
@@ -428,12 +429,23 @@ def register_artifact(folder, name):
     )
 
 
-def invoke(module, params):
+def invoke(module, params, _recovery=None):
     import importlib
 
-    from . import configuration
+    from . import configuration, recovery
 
     try:
+        if params.get("mode") == "recover" or recovery.is_request(params.get("request")):
+            return recovery.execute(module, params)
+        params = recovery.complete_input(module, params)
+        if params.get("request"):
+            mode = params.get("mode")
+            if module == "github" and mode in (None, "search", "inspect") and not params.get("query") and not params.get("repository"):
+                params = {**params, "mode": "find"}
+            elif module == "writing" and mode in (None, "create"):
+                params = {**params, "mode": "compose"}
+            elif module == "reproduction" and mode in (None, "inspect") and not re.search(r"检查|查看|检测|inspect", params["request"], re.IGNORECASE):
+                params = {**params, "mode": "reproduce"}
         if params.get("mode") in ("config_status", "configure", "config_reset"):
             return configuration.execute(params)
         with configuration.using_file(params.get("config_file")):
@@ -450,6 +462,11 @@ def invoke(module, params):
                 response["data"]["registration"] = register_artifact(path.parent, path.stem)
             except Exception as exc:  # noqa: BLE001 - Keep a valid export if platform registration fails.
                 response["data"]["registration_error"] = failure(exc)["message"]
-        return response
+        return recovery.attach(module, params, response, _recovery)
     except Exception as exc:  # noqa: BLE001 - Standard tool boundary must return structured failures.
-        return failure(exc)
+        response = failure(exc)
+        if params.get("mode") == "recover" or recovery.is_request(params.get("request")):
+            return response
+        return recovery.attach(
+            module, params, response, _recovery, getattr(exc, "resume_params", None)
+        )

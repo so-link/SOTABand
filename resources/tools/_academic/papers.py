@@ -25,12 +25,52 @@ from .common import (
     table,
     uid,
 )
-from .configuration import token
 from .openreview_source import call as openreview_call
 from .openreview_source import note_json
 from .openreview_source import session as openreview_session
 
 TOPIC_PROFILES = {
+    "multimodal_reasoning": {
+        "names": ["多模态推理", "视觉推理", "multimodal reasoning", "visual reasoning"],
+        "terms": ["multimodal", "vision language", "visual", "reasoning", "chain of thought"],
+        "required_groups": [
+            ["multimodal", "vision language", "visual", "image text"],
+            ["reasoning", "chain of thought"],
+        ],
+        "venues": ["CVPR", "ICCV", "ECCV", "ACL", "NeurIPS", "ICML", "ICLR"],
+    },
+    "llm_reasoning": {
+        "names": [
+            "大语言模型推理",
+            "大模型推理",
+            "语言模型推理",
+            "llm reasoning",
+            "language model reasoning",
+        ],
+        "terms": [
+            "language model reasoning",
+            "llm reasoning",
+            "reasoning model",
+            "reasoning",
+            "chain of thought",
+            "chain-of-thought",
+            "test-time compute",
+            "test time scaling",
+            "mathematical reasoning",
+            "logical reasoning",
+        ],
+        "required_groups": [
+            ["language model", "llm", "reasoning model"],
+            [
+                "reasoning",
+                "chain of thought",
+                "chain-of-thought",
+                "test-time compute",
+                "test time scaling",
+            ],
+        ],
+        "venues": ["ACL", "EMNLP", "NAACL", "NeurIPS", "ICML", "ICLR", "AAAI"],
+    },
     "time_series": {
         "names": ["时间序列", "时序分析", "time series", "temporal analysis"],
         "terms": [
@@ -178,14 +218,21 @@ def _terms(value):
 
 def topic_profile(topic="", keywords=None, exclude_keywords=None):
     topic = re.sub(r"\s+", " ", str(topic or "")).strip()
-    normalized = catalog.normalize(topic)
+    normalized = re.sub(r"[-_\u2010-\u2015]+", " ", topic.casefold())
     matched_id = None
     definition = {}
+    matches = []
     for ident, candidate in TOPIC_PROFILES.items():
-        aliases = [catalog.normalize(name) for name in candidate["names"]]
-        if normalized and any(alias in normalized or normalized in alias for alias in aliases):
-            matched_id, definition = ident, candidate
-            break
+        aliases = [name.casefold() for name in candidate["names"]]
+        matching = [
+            alias
+            for alias in aliases
+            if normalized and re.search(rf"(?<![a-z]){re.escape(alias)}(?![a-z])", normalized)
+        ]
+        if matching:
+            matches.append((max(len(alias) for alias in matching), ident, candidate))
+    if matches:
+        _, matched_id, definition = max(matches, key=lambda item: item[0])
     positive = [topic] if topic else []
     positive.extend(definition.get("terms", []))
     positive.extend(_terms(keywords))
@@ -197,16 +244,23 @@ def topic_profile(topic="", keywords=None, exclude_keywords=None):
         "label": definition.get("names", [topic or "custom"])[0],
         "terms": positive,
         "exclude_terms": negative,
+        "required_groups": [
+            [term.casefold() for term in group]
+            for group in definition.get("required_groups", [])
+        ],
         "recommended_venues": definition.get("venues", []),
         "source_query": (definition.get("terms") or positive or [""])[0],
     }
 
 
 def score_paper(paper, profile, authors=None):
-    title = str(paper.get("title", "")).casefold()
-    abstract = str(paper.get("abstract", "")).casefold()
+    def normalized(value):
+        return re.sub(r"\s+", " ", re.sub(r"[-_\u2010-\u2015]+", " ", str(value).casefold())).strip()
+
+    title = normalized(paper.get("title", ""))
+    abstract = normalized(paper.get("abstract", ""))
     author_text = " ".join(paper.get("authors", [])).casefold()
-    excluded = [term for term in profile["exclude_terms"] if term in title or term in abstract]
+    excluded = [term for term in profile["exclude_terms"] if normalized(term) in title or normalized(term) in abstract]
     if excluded:
         return None
     author_filters = [a.casefold() for a in _terms(authors)]
@@ -214,10 +268,18 @@ def score_paper(paper, profile, authors=None):
         return None
     matches, score = [], 0
     for term in profile["terms"]:
-        title_hit, abstract_hit = term in title, term in abstract
+        needle = normalized(term)
+        title_hit, abstract_hit = needle in title, needle in abstract
         if title_hit or abstract_hit:
             matches.append(term)
             score += (4 if title_hit else 0) + (2 if abstract_hit else 0)
+    missing_required_groups = [
+        group
+        for group in profile.get("required_groups", [])
+        if not any(normalized(term) in title or normalized(term) in abstract for term in group)
+    ]
+    if missing_required_groups:
+        score = 0
     if author_filters:
         score += 3
     if not profile["terms"]:
@@ -230,7 +292,12 @@ def score_paper(paper, profile, authors=None):
             "relevance_score": score,
             "matched_terms": matches,
             "relevance_reason": (
-                "matched " + ", ".join(matches[:8]) if matches else "no topic term matched"
+                "missing required concepts: "
+                + "; ".join(" / ".join(group) for group in missing_required_groups)
+                if missing_required_groups
+                else "matched " + ", ".join(matches[:8])
+                if matches
+                else "no topic term matched"
             ),
         }
     )
@@ -282,7 +349,7 @@ def parse_tracking_request(value, store=None):
     if not venues:
         raise ToolError("无法从描述中确定会议期刊；请写出会议简称，例如 ICML、ACL 或 CVPR")
     since, until = None, today().isoformat()
-    years = re.search(r"(20\d{2})\s*(?:-|—|至|到)\s*(20\d{2})", text)
+    years = re.search(r"(20\d{2})\s*年?\s*(?:-|—|至|到)\s*(20\d{2})", text)
     after = re.search(r"(20\d{2})\s*年?(?:以来|起)", text)
     recent = re.search(r"近\s*(\d+)\s*(?:年|个月|月)", text)
     if years:
@@ -293,6 +360,8 @@ def parse_tracking_request(value, store=None):
         amount = int(recent.group(1))
         days = amount * (365 if "年" in recent.group(0) else 30)
         since = (today() - timedelta(days=days)).isoformat()
+    elif single_year := re.search(r"(20\d{2})\s*年?", text):
+        since, until = single_year.group(1) + "-01-01", single_year.group(1) + "-12-31"
     else:
         since = (today() - timedelta(days=365)).isoformat()
     interval = 168 if "每周" in text or "一周" in text else 24
@@ -349,8 +418,41 @@ def today():
 
 class Sources:
     def __init__(self, http=None, openreview_client_class=None):
+        self.cache_public_sources = http is None
         self.http = http or HTTP()
         self.openreview_client_class = openreview_client_class
+
+    def cache_path(self, key, suffix):
+        if not self.cache_public_sources:
+            return None
+        folder = Store().folder("source-cache", "public")
+        return folder / (hashlib.sha256(key.encode()).hexdigest() + suffix)
+
+    @staticmethod
+    def cache_fresh(path, ttl_seconds):
+        try:
+            return bool(path and path.exists() and time.time() - path.stat().st_mtime < ttl_seconds)
+        except OSError:
+            return False
+
+    def cached_text(self, url, ttl_seconds=21600):
+        """Cache immutable-ish public conference indexes for responsive repeat searches."""
+        path = self.cache_path(url, ".txt")
+        try:
+            if self.cache_fresh(path, ttl_seconds):
+                return path.read_text(encoding="utf-8")
+        except OSError:
+            pass
+        text = self.http.get(url, raw=True)
+        if path is None:
+            return text
+        try:
+            temporary = path.with_suffix("." + uid("tmp"))
+            temporary.write_text(text, encoding="utf-8")
+            temporary.replace(path)
+        except OSError:
+            temporary.unlink(missing_ok=True)
+        return text
 
     def dblp(self, venue, query, since, until, max_pages=5):
         rows = []
@@ -530,37 +632,58 @@ class Sources:
     def cvf(self, venue, query, since, until, max_pages=5):
         from bs4 import BeautifulSoup
 
+        if venue.get("acronym") not in ("CVPR", "ICCV"):
+            raise ToolError("CVF source supports CVPR and ICCV; select the venue's actual source", "SOURCE_NOT_CONFIGURED")
         rows = []
         for year in range(int(since[:4]), int(until[:4]) + 1):
             if venue["acronym"] == "ICCV" and year % 2 == 0:
                 continue
             url = f"https://openaccess.thecvf.com/{venue['acronym']}{year}?day=all"
-            html = self.http.get(url, raw=True)
-            soup = BeautifulSoup(html, "html.parser")
-            links = soup.select("dt.ptitle a")
-            if not links:
-                raise ToolError(
-                    "CVF list not available for this year or page format changed",
-                    "SOURCE_FORMAT_ERROR",
-                )
-            for link in links:
-                title = link.get_text(" ", strip=True)
+            index_path = self.cache_path("parsed:" + url, ".json")
+            year_rows = None
+            if self.cache_fresh(index_path, 21600):
+                try:
+                    value = json.loads(index_path.read_text(encoding="utf-8"))
+                    if isinstance(value, list):
+                        year_rows = value
+                except (OSError, ValueError):
+                    pass
+            if year_rows is None:
+                html = self.cached_text(url)
+                soup = BeautifulSoup(html, "lxml")
+                links = soup.select("dt.ptitle a")
+                if not links:
+                    raise ToolError(
+                        "CVF list not available for this year or page format changed",
+                        "SOURCE_FORMAT_ERROR",
+                    )
+                year_rows = []
+                for link in links:
+                    title = link.get_text(" ", strip=True)
+                    detail = urljoin(url, link.get("href", ""))
+                    paper = normalize_paper(
+                        {
+                            "title": title,
+                            "year": year,
+                            "url": detail,
+                            "venue": venue["acronym"],
+                            "source": "cvf",
+                            "source_key": detail,
+                            "track": "regular",
+                            "date_precision": "year",
+                        }
+                    )
+                    year_rows.append(catalog.classify(venue, paper))
+                if index_path is not None:
+                    try:
+                        atomic_json(index_path, year_rows)
+                    except OSError:
+                        pass
+            for paper in year_rows:
+                title = paper["title"]
                 if query and not all(w in title.casefold() for w in query.casefold().split()):
                     continue
-                detail = urljoin(url, link.get("href", ""))
-                paper = normalize_paper(
-                    {
-                        "title": title,
-                        "year": year,
-                        "url": detail,
-                        "venue": venue["acronym"],
-                        "source": "cvf",
-                        "source_key": detail,
-                        "track": "regular",
-                        "date_precision": "year",
-                    }
-                )
-                rows.append(catalog.classify(venue, paper))
+                rows.append(paper)
         return rows, False
 
     def anthology(self, venue, query, since, until, max_pages=5):
@@ -570,25 +693,26 @@ class Sources:
         if not key:
             raise ToolError("Venue has no ACL Anthology mapping", "SOURCE_NOT_CONFIGURED")
         rows = []
+        collections_found = 0
         for year in range(int(since[:4]), int(until[:4]) + 1):
             collection = f"{year}.{key}"
-            url = f"https://api.github.com/repos/acl-org/acl-anthology/contents/data/xml/{collection}.xml"
+            # ACL Anthology publishes these XML collections in its official
+            # repository. The raw endpoint avoids GitHub REST API quotas.
+            url = (
+                "https://raw.githubusercontent.com/acl-org/acl-anthology/"
+                f"master/data/xml/{collection}.xml"
+            )
             try:
-                root = ET.fromstring(
-                    self.http.get(
-                        url,
-                        params={"ref": "master"},
-                        headers={
-                            "Accept": "application/vnd.github.raw+json",
-                            **(
-                                {"Authorization": "Bearer " + token("github")}
-                                if token("github")
-                                else {}
-                            ),
-                        },
-                        raw=True,
-                    )
-                )
+                xml = self.cached_text(url)
+            except ToolError as exc:
+                # A future conference collection may not exist yet. Earlier
+                # available years still form a valid result window.
+                if exc.details.get("http_status") == 404:
+                    continue
+                raise
+            collections_found += 1
+            try:
+                root = ET.fromstring(xml)
             except ET.ParseError as exc:
                 raise ToolError("Invalid ACL Anthology XML", "SOURCE_FORMAT_ERROR") from exc
             for volume in root.findall("volume"):
@@ -634,6 +758,11 @@ class Sources:
                         }
                     )
                     rows.append(catalog.classify(venue, paper))
+        if not collections_found:
+            raise ToolError(
+                "No ACL Anthology collection is published for the requested years",
+                "SOURCE_NOT_AVAILABLE",
+            )
         return rows, False
 
     def jmlr(self, venue, query, since, until, max_pages=5):
@@ -644,11 +773,7 @@ class Sources:
         rows = []
         for year in range(int(since[:4]), int(until[:4]) + 1):
             url = f"https://www.jmlr.org/papers/v{year - 1999}/"
-            try:
-                html = self.http.get(url, raw=True)
-            except ToolError:
-                url = f"https://jmlr.org/papers/v{year - 1999}/"
-                html = self.http.get(url, raw=True)
+            html = self.http.get(url, raw=True)
             soup = BeautifulSoup(html, "html.parser")
             entries = soup.select("dl")
             if not entries:
@@ -692,8 +817,8 @@ def search(params, store=None, sources=None, cancel=None):
     max_pages = integer(params.get("max_pages", 3), "max_pages", 1, 100)
     requested_query = str(params.get("query", "")).strip()
     profile = topic_profile(
-        params.get("topic") or requested_query,
-        params.get("keywords"),
+        params.get("topic", ""),
+        ([requested_query] if requested_query else []) + _terms(params.get("keywords")),
         params.get("exclude_keywords"),
     )
     query = requested_query or profile["source_query"]
@@ -730,7 +855,9 @@ def search(params, store=None, sources=None, cancel=None):
         try:
             if source == "dblp" and not venue.get("dblp_key"):
                 raise ToolError("Venue has no DBLP mapping", "SOURCE_NOT_CONFIGURED")
-            items, truncated = method(venue, query, since, until, max_pages)
+            # Full official indexes are filtered locally using the requested profile.
+            source_query = "" if source in ("anthology", "cvf", "jmlr") else query
+            items, truncated = method(venue, source_query, since, until, max_pages)
             ranked = rank_papers(items, profile, minimum, authors)
             rows.extend(ranked)
             health.append(
@@ -754,32 +881,6 @@ def search(params, store=None, sources=None, cancel=None):
                     **failure(exc)["data"],
                 }
             )
-            if automatic and source != "dblp" and venue.get("dblp_key"):
-                try:
-                    items, truncated = sources.dblp(venue, query, since, until, max_pages)
-                    ranked = rank_papers(items, profile, minimum, authors)
-                    rows.extend(ranked)
-                    health.append(
-                        {
-                            "venue": venue["id"],
-                            "source": "dblp",
-                            "fallback": True,
-                            "state": "truncated" if truncated else "success",
-                            "count": len(ranked),
-                            "fetched_count": len(items),
-                        }
-                    )
-                except ToolError as fallback:
-                    health.append(
-                        {
-                            "venue": venue["id"],
-                            "source": "dblp",
-                            "state": "failed",
-                            "error": str(fallback),
-                            "checked_at": now(),
-                            **failure(fallback)["data"],
-                        }
-                    )
     with store.lock("paper-index"):
         saved, health, changes = persist(rows, health, store)
     return saved, health, changes
@@ -973,6 +1074,11 @@ def sync_subscription(store, subscription, sources=None, cancel=None):
 def execute(params):
     mode = params.get("mode", "search")
     store = Store()
+    if mode == "search" and params.get("request"):
+        if re.search(r"持续|订阅|每周|每天|每日|跟踪", params["request"]):
+            mode = "track"
+        else:
+            params = {**parse_tracking_request(params["request"], store), **params}
     if mode == "diagnose_sources":
         from .network import diagnose
 
@@ -1051,6 +1157,7 @@ def execute(params):
                 else "source queries completed"
             ),
             sources=health,
+            interpreted_request={key: params.get(key) for key in ("venues", "since", "until", "topic", "source")},
             changed_ids=changes,
             partial=any(h["state"] != "success" for h in health),
             topic_profile=topic_profile(
@@ -1084,8 +1191,50 @@ def execute(params):
         subscription["seen_paper_ids"] = [paper["id"] for paper in rows]
         subscription["next_run"] = time.time() + subscription["interval_hours"] * 3600
         subscription = store.put("subscription", subscription, expected=subscription["revision"])
+        successful_sources = [
+            item for item in health if item.get("state") in ("success", "truncated")
+        ]
+        retrieval_status = (
+            "failed"
+            if not successful_sources
+            else "partial"
+            if report["partial"]
+            else "complete"
+        )
+        if retrieval_status == "failed":
+            message = (
+                f"Subscription {subscription['id']} was created, but initial paper retrieval "
+                "failed from all sources; the paper count is unknown"
+            )
+        elif retrieval_status == "partial":
+            message = (
+                f"Tracked {settings['topic']} in {', '.join(settings['venues'])}; "
+                f"partial source coverage returned {len(rows)} matching papers and subscription "
+                f"{subscription['id']}"
+            )
+        else:
+            message = (
+                f"Tracked {settings['topic']} in {', '.join(settings['venues'])}; "
+                f"{len(rows)} matching papers and subscription {subscription['id']}"
+            )
+        result_limit = integer(params.get("result_limit", 20), "result_limit", 1, 100)
+        displayed_rows = rows[:result_limit]
+        if len(displayed_rows) < len(rows):
+            message += f"; showing the top {len(displayed_rows)} in chat"
+        subscription_summary = {
+            key: value
+            for key, value in subscription.items()
+            if key != "seen_paper_ids"
+        }
+        subscription_summary["seen_paper_count"] = len(subscription.get("seen_paper_ids", []))
+        report_summary = {
+            key: value
+            for key, value in report.items()
+            if key not in ("paper_ids", "paper_snapshots")
+        }
+        report_summary["paper_count"] = len(report.get("paper_ids", []))
         return table(
-            rows,
+            displayed_rows,
             [
                 "id",
                 "title",
@@ -1095,14 +1244,15 @@ def execute(params):
                 "matched_terms",
                 "url",
             ],
-            message=(
-                f"Tracked {settings['topic']} in {', '.join(settings['venues'])}; "
-                f"{len(rows)} matching papers and subscription {subscription['id']}"
-            ),
-            subscription=subscription,
-            report=report,
+            message=message,
+            subscription=subscription_summary,
+            report=report_summary,
             sources=health,
             partial=report["partial"],
+            retrieval_status=retrieval_status,
+            paper_count_known=bool(successful_sources),
+            total_matches=len(rows),
+            displayed_matches=len(displayed_rows),
             handoffs={
                 "writing": {
                     "tool_id": "paper-writing",

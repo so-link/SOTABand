@@ -82,7 +82,7 @@ def translate_error(exc, operation):
         if methods:
             evidence["available_methods"] = list(methods)
         evidence["action"] = (
-            "Run the local interactive configuration/diagnostic command in a TTY to complete OpenReview MFA"
+            "The tool has no unattended MFA configuration yet; adapt the official MFA flow before retrying"
         )
         return ToolError(
             "OpenReview multi-factor authentication is required", "MFA_REQUIRED", details=evidence

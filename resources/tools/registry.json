@@ -4361,5 +4361,39 @@
     "usage_count": 0,
     "created_at": "2026-10-29T00:00:00Z",
     "visibility": "public"
+  },
+  {
+    "id": "patent-drafting",
+    "name": "专利撰写",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/patent-drafting.md",
+    "impl_path": "implementations/patent-drafting/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "path",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "技术方案描述文件的绝对路径（支持 .txt, .md, .pdf；PDF 将自动提取文本）",
+        "hints": []
+      }
+    ],
+    "modes": [],
+    "tags": [
+      "专利撰写",
+      "技术文档",
+      "LLM辅助",
+      "知识产权",
+      "说明书生成"
+    ],
+    "usage_count": 0,
+    "created_at": "2026-09-30T16:01:37Z",
+    "owner": "",
+    "visibility": "public"
   }
 ]
