@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Users as UsersIcon, Plus, Loader2, AlertCircle, RefreshCw, ShieldCheck,
-  Pencil, Tag, KeyRound, Trash2, X, CheckCircle2,
+  Pencil, Tag, KeyRound, Trash2, X, CheckCircle2, UserCog,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -26,14 +26,28 @@ type DialogKind = 'rename' | 'display' | 'password'
 export function UsersView() {
   const me = useAuthStore((s) => s.user)
   const isAdmin = me?.role === 'admin'
+  const impersonateSystem = useAuthStore((s) => s.impersonateSystem)
 
   const [users, setUsers] = useState<ManagedUser[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
+  const [switching, setSwitching] = useState(false)
   const [dialog, setDialog] = useState<{ kind: DialogKind; user: ManagedUser } | null>(null)
   const [confirmDel, setConfirmDel] = useState<ManagedUser | null>(null)
+
+  /** 切换到系统身份（代管）：令牌换血后本视图会被超管守卫弹出，退出走顶栏横幅。 */
+  const switchToSystem = async () => {
+    setSwitching(true)
+    setError('')
+    try {
+      await impersonateSystem()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '切换到系统身份失败')
+      setSwitching(false)
+    }
+  }
 
   const reload = useCallback(async () => {
     try {
@@ -129,20 +143,37 @@ export function UsersView() {
                 </thead>
                 <tbody>
                   {users.map((u) => {
-                    const builtin = u.builtin === true || u.id === '0'
+                    const isSystem = u.system === true || u.id === '100'
+                    const builtin = !isSystem && (u.builtin === true || u.id === '0')
                     return (
                       <tr key={u.id} className="border-b border-maia-border last:border-0">
                         <td className="px-3 py-2 font-mono text-maia-text">{u.id}</td>
                         <td className="px-3 py-2 text-maia-text">
                           <div className="flex items-center gap-1.5">
                             <span className="truncate">{u.username}</span>
+                            {isSystem && <Badge variant="default" className="text-[11px] shrink-0">系统账号</Badge>}
                             {builtin && <Badge variant="warning" className="text-[11px] shrink-0">内置账号</Badge>}
                           </div>
                         </td>
                         <td className="px-3 py-2 text-maia-text-secondary">{u.display_name || '—'}</td>
-                        <td className="px-3 py-2 text-maia-text-secondary">{u.role === 'admin' ? '超级用户' : '普通用户'}</td>
+                        <td className="px-3 py-2 text-maia-text-secondary">
+                          {isSystem ? '系统用户' : u.role === 'admin' ? '超级用户' : '普通用户'}
+                        </td>
                         <td className="px-3 py-2 text-maia-text-muted font-mono text-[12px]">{fmtCreatedAt(u.created_at)}</td>
                         <td className="px-3 py-2">
+                          {isSystem ? (
+                            <div className="flex items-center justify-end">
+                              <Button variant="outline" size="sm" className="gap-1.5 h-7 text-[12px]"
+                                disabled={switching}
+                                title="以系统用户身份编辑公共层资源（内置工具/数据集/模型/Agent），1 小时后自动失效"
+                                onClick={() => void switchToSystem()}>
+                                {switching
+                                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  : <UserCog className="h-3.5 w-3.5" />}
+                                切换到系统身份
+                              </Button>
+                            </div>
+                          ) : (
                           <div className="flex items-center justify-end gap-0.5">
                             <IconAction title="修改用户名"
                               onClick={() => setDialog({ kind: 'rename', user: u })}>
@@ -161,6 +192,7 @@ export function UsersView() {
                               <Trash2 className="h-3.5 w-3.5" />
                             </IconAction>
                           </div>
+                          )}
                         </td>
                       </tr>
                     )

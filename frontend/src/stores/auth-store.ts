@@ -1,5 +1,8 @@
 import { create } from 'zustand'
-import { authApi, getStoredToken, setStoredToken, setOnUnauthorized, type AuthUser } from '@/services/api/auth'
+import {
+  authApi, getStoredToken, setStoredToken, getSuperToken, setSuperToken,
+  setOnUnauthorized, type AuthUser,
+} from '@/services/api/auth'
 import { startPrefsSync, stopPrefsSync } from '@/services/prefs-sync'
 import { useUIStore } from '@/stores/ui-store'
 
@@ -9,6 +12,10 @@ interface AuthState {
   loginOpen: boolean
   error: string
   busy: boolean
+  /** 代管模式：正在以系统用户（uid=100）短时令牌操作，横幅据此显示。 */
+  impersonating: boolean
+  /** 代管令牌本地推算的到期时间戳（ms），仅供横幅显示剩余时间。 */
+  impersonateExpiresAt: number | null
 
   refresh: () => Promise<void>
   login: (username: string, password: string) => Promise<boolean>
@@ -19,7 +26,14 @@ interface AuthState {
   closeLogin: () => void
   /** 未登录时弹登录框并返回 false；已登录返回 true。用于拦截上传/导入/新建等操作入口。 */
   requireLogin: () => boolean
+  /** 切换到系统用户身份（代管公共资源）。失败抛错由调用方展示。 */
+  impersonateSystem: () => Promise<void>
+  /** 退出代管，切回超管（单用户模式回到匿名超管）。可并发安全重入。 */
+  exitImpersonate: () => Promise<void>
 }
+
+/** 退出代管的并发去重：401 回调可能在同一时刻被多个失败请求同时触发。 */
+let exitInFlight: Promise<void> | null = null
 
 /**
  * 清除所有「按上一个账号」加载的运行时数据。
@@ -85,12 +99,22 @@ async function reloadUserScopedData(): Promise<void> {
   } catch { /* 拉取失败时界面保持空态，可手动刷新 */ }
 }
 
+/** 令牌换血后的统一收尾：丢旧账号数据 → 拉新身份 → 按新身份重灌首屏。
+ *  login / impersonate / exitImpersonate 三条换身份路径共用。 */
+async function swapIdentity(): Promise<void> {
+  await clearUserScopedData()
+  await useAuthStore.getState().refresh()
+  void reloadUserScopedData()
+}
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   checked: false,
   loginOpen: false,
   error: '',
   busy: false,
+  impersonating: false,
+  impersonateExpiresAt: null,
 
   async refresh() {
     try {
@@ -100,7 +124,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // 首屏直接把登录框摆出来，而不是让人对着一片空界面自己找登录入口。
       // 没配密码时后端匿名即返回超管身份（user 非空），刷新后自动登录。
       const mustLogin = !user && me.superuser_configured === true
-      set({ user, checked: true, loginOpen: mustLogin, error: mustLogin ? '请先登录' : '' })
+      // 页面刷新后内存态丢失：代管标记从 /me 回灌（expiresAt 无法得知，
+      // 横幅退化为不显示剩余时间）。
+      set({
+        user, checked: true, loginOpen: mustLogin,
+        error: mustLogin ? '请先登录' : '',
+        impersonating: !!user?.acting_as_system,
+      })
       // 已配置管理员密码且未登录：清空所有按账号加载的内容与标签，首屏保持空。
       // 单用户模式（未配密码）后端会直接返回超管身份，不会走到这里。
       if (!user) await clearUserScopedData()
@@ -129,10 +159,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     stopPrefsSync()
     await authApi.logout()
     setStoredToken('')
+    // 代管中直接登出：超管旁槽令牌一并作废，否则会残留可复用的旧会话
+    setSuperToken('')
     // 登出即换人：所有已打开标签与按旧账号加载的数据全部丢弃；
     // 注意顺序——先 stopPrefsSync 再清理，清理动作不会作为上一用户偏好推给服务端。
     await clearUserScopedData()
-    set({ user: null, loginOpen: true, error: '' })
+    set({ user: null, loginOpen: true, error: '', impersonating: false, impersonateExpiresAt: null })
   },
 
   async changePassword(oldPw, newPw) {
@@ -163,6 +195,27 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
+  async impersonateSystem() {
+    const r = await authApi.actAsSystem()
+    // 超管令牌挪进旁槽暂存（单用户模式没有令牌则为空），活跃槽换发系统令牌
+    setSuperToken(getStoredToken())
+    setStoredToken(r.token)
+    set({ impersonating: true, impersonateExpiresAt: Date.now() + r.expires_in * 1000 })
+    await swapIdentity()
+  },
+
+  async exitImpersonate() {
+    if (exitInFlight) return exitInFlight
+    exitInFlight = (async () => {
+      // 代管令牌作废直接丢；超管令牌从旁槽迁回（单用户模式迁回空 = 匿名超管）
+      setStoredToken(getSuperToken())
+      setSuperToken('')
+      set({ impersonating: false, impersonateExpiresAt: null })
+      await swapIdentity()
+    })()
+    try { await exitInFlight } finally { exitInFlight = null }
+  },
+
   openLogin: () => set({ loginOpen: true, error: '' }),
   closeLogin: () => set({ loginOpen: false, error: '' }),
 
@@ -176,9 +229,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 // 身份变化驱动偏好同步：拿到身份且有令牌（多用户模式）才开启；
 // 身份消失（登出/令牌过期）立即停止并丢弃待推送队列，避免把上一个用户
 // 的偏好推给下一个用户。单用户模式没有令牌，startPrefsSync 内部直接跳过。
+// 代管态（acting_as_system）同样必须停：否则超管在代管期间的界面改动
+// 会被推到系统用户（uid=100）的库里，退出后超管自己的偏好却被推平。
 let syncedUid: string | null = null
 useAuthStore.subscribe((s) => {
-  const uid = s.user?.id ?? null
+  const uid = s.user && !s.user.acting_as_system ? s.user.id : null
   if (uid === syncedUid) return
   syncedUid = uid
   if (uid) startPrefsSync()
@@ -187,6 +242,13 @@ useAuthStore.subscribe((s) => {
 
 // 令牌过期或未登录操作（401）时全局弹出登录框；启动时拉取一次当前身份。
 setOnUnauthorized(({ expired }) => {
+  // 代管态的 401 = 系统短时令牌过期/失效：自动退回超管，而不是把人踢下线
+  if (getSuperToken()) {
+    void useAuthStore.getState().exitImpersonate().then(() => {
+      useAuthStore.setState({ error: '代管已过期，已切回超级用户身份' })
+    })
+    return
+  }
   const hadToken = !!getStoredToken()
   stopPrefsSync()
   setStoredToken('')

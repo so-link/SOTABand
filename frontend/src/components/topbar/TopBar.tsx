@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Settings, Sun, Moon, LogIn, LogOut, User, Users, ChevronDown } from 'lucide-react'
+import { Settings, Sun, Moon, LogIn, LogOut, User, Users, ChevronDown, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip } from '@/components/ui/tooltip'
@@ -71,6 +71,7 @@ export function TopBar() {
 function UserMenu() {
   const user = useAuthStore((s) => s.user)
   const logout = useAuthStore((s) => s.logout)
+  const exitImpersonate = useAuthStore((s) => s.exitImpersonate)
   const setActiveView = useUIStore((s) => s.setActiveView)
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -122,9 +123,15 @@ function UserMenu() {
         <div className="absolute right-0 top-full mt-1 z-50 w-44 rounded-lg border border-maia-border bg-maia-surface shadow-lg py-1">
           <div className="px-2.5 py-1.5 border-b border-maia-border mb-1">
             <div className="text-[12px] font-medium text-maia-text truncate">{user?.displayName || user?.username}</div>
-            <div className="text-[11px] text-maia-text-muted">{user?.role === 'admin' ? '超级用户' : '普通用户'}</div>
+            <div className="text-[11px] text-maia-text-muted">
+              {user?.acting_as_system ? '系统身份代管中' : user?.role === 'admin' ? '超级用户' : '普通用户'}
+            </div>
           </div>
-          {item(<User className="h-3.5 w-3.5" />, '个人设置', () => setActiveView('account'))}
+          {user?.acting_as_system ? (
+            item(<ShieldCheck className="h-3.5 w-3.5" />, '退出系统身份', () => void exitImpersonate())
+          ) : (
+            item(<User className="h-3.5 w-3.5" />, '个人设置', () => setActiveView('account'))
+          )}
           <div className="my-1 border-t border-maia-border" />
           {item(<LogOut className="h-3.5 w-3.5" />, '退出登录', () => void logout(), true)}
         </div>

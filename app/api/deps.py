@@ -84,6 +84,6 @@ def ensure_can_touch_builtin(layer_hit: str | None, *, action: str = "修改") -
         return
     raise HTTPException(
         status_code=403,
-        detail=f"公共资源仅系统身份可以{action}；超级用户请先 act-as-system 领取令牌，"
-               "普通用户可以「复制为我的副本」后修改自己的版本",
+        detail=f"公共资源仅系统身份可以{action}；超级用户请在「用户管理」切换到系统身份"
+               "（或调用 POST /api/auth/act-as-system），普通用户可以「复制为我的副本」后修改自己的版本",
     )

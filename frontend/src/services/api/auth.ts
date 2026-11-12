@@ -7,6 +7,8 @@ export interface AuthUser {
   displayName?: string
   /** 超级用户（凭据来自 .env）为 true，界面上只读。 */
   builtin?: boolean
+  /** 代管模式标记：当前令牌是超管经 act-as-system 换发的系统用户短时令牌。 */
+  acting_as_system?: boolean
 }
 
 /** /users 列表里的用户对象——注意后端这里是 snake_case 的 display_name。 */
@@ -16,6 +18,8 @@ export interface ManagedUser {
   display_name?: string
   role: string
   builtin?: boolean
+  /** 系统用户（uid=100）：公共资源的归属实体，不可登录。 */
+  system?: boolean
   created_at?: string
 }
 
@@ -28,6 +32,9 @@ export interface MeResponse {
 }
 
 const TOKEN_KEY = 'sotaband-token'
+/** 代管期间暂存超管令牌的旁槽：活跃令牌（TOKEN_KEY）被系统令牌占用，
+ *  退出代管时把它迁回。单用户模式超管没有令牌，旁槽为空，退出即清空。 */
+const SUPER_TOKEN_KEY = 'sotaband-super-token'
 
 export function getStoredToken(): string {
   try {
@@ -41,6 +48,21 @@ export function setStoredToken(token: string) {
   try {
     if (token) localStorage.setItem(TOKEN_KEY, token)
     else localStorage.removeItem(TOKEN_KEY)
+  } catch {}
+}
+
+export function getSuperToken(): string {
+  try {
+    return localStorage.getItem(SUPER_TOKEN_KEY) || ''
+  } catch {
+    return ''
+  }
+}
+
+export function setSuperToken(token: string) {
+  try {
+    if (token) localStorage.setItem(SUPER_TOKEN_KEY, token)
+    else localStorage.removeItem(SUPER_TOKEN_KEY)
   } catch {}
 }
 
@@ -117,6 +139,10 @@ export const authApi = {
   },
   async logout() {
     try { await post('/api/auth/logout', {}) } catch { /* 无状态令牌，本地清理即可 */ }
+  },
+  /** 领取系统用户（uid=100）短时令牌，进入代管模式（仅超管，单用户匿名亦可）。 */
+  async actAsSystem(): Promise<{ ok: boolean; token: string; expires_in: number; user: ManagedUser }> {
+    return post('/api/auth/act-as-system', {})
   },
   /** 改自己的显示名（超管 400）。 */
   async updateProfile(displayName: string): Promise<{ user: AuthUser }> {

@@ -442,7 +442,7 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
         : { label: '公共/系统', cls: 'bg-maia-sidebar-active text-maia-text-secondary border-maia-border', title: '公共/系统 Agent（随系统分发）：要修改请先复制为我的副本' }
     }
     if (isPublicAgent) {
-      return { label: '公共/系统', cls: 'bg-maia-accent/10 text-maia-accent border-maia-accent-border', title: '系统公共层资源：全体用户可用（仅系统身份可修改，超级用户需先 act-as-system）' }
+      return { label: '公共/系统', cls: 'bg-maia-accent/10 text-maia-accent border-maia-accent-border', title: '系统公共层资源：全体用户可用（超级用户需在「用户管理」切换到系统身份后可编辑）' }
     }
     if (detailSource === 'private' || forkStatus?.has_copy) {
       return { label: '我的 Agent', cls: 'bg-maia-success-bg text-maia-success border-maia-success/20', title: '我创建的 Agent（私有目录）' }

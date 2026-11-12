@@ -6,6 +6,7 @@ import {
   usePanelRef,
 } from 'react-resizable-panels'
 import { TopBar } from '@/components/topbar/TopBar'
+import { ImpersonationBanner } from '@/components/topbar/ImpersonationBanner'
 import { StatusBar } from '@/components/status-bar/StatusBar'
 import { LeftPanel } from '@/components/left-panel/LeftPanel'
 import { CenterPanel } from '@/components/center-panel/CenterPanel'
@@ -133,6 +134,7 @@ export function MainLayout() {
   return (
     <div className="flex flex-col h-full">
       <TopBar />
+      <ImpersonationBanner />
 
       <div className="flex-1 min-h-0">
         <Group
