@@ -1130,6 +1130,17 @@ class InteractiveAgent(BaseAgent):
             user_id=ctx.user_id or "default",
         )
 
+    def submit_task_result(self, result, tool):
+        """把带 ``task_request`` 的工具结果转成长任务。
+
+        低氧血症等工作流在工具返回 ``data.task_request`` 时调用本方法；
+        main 版本把它挂在 Agent 上，wxbit 原本没有，移植工作流时补回。
+        失败时返回原结果，不阻断对话。
+        """
+        from core.workflow.execution import submit_task_result
+
+        return submit_task_result(result, tool)
+
     @staticmethod
     def _clip_tool_result(result) -> str:
         """工具结果序列化并截断，防止大结果撑爆上下文。"""

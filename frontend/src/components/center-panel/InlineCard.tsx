@@ -63,6 +63,8 @@ export function InlineCard({ card, messageId }: InlineCardProps) {
       return <PlatformConfirmCard cardId={card.id} title={title} summary={summary} data={data} messageId={messageId} />
     case 'platform-result':
       return <PlatformResultCard title={title} summary={summary} data={data} />
+    case 'task-progress':
+      return <TaskProgressCard title={title} summary={summary} data={data} />
     default:
       return null
   }
@@ -235,6 +237,126 @@ function ExecutionProgressCard({ title, summary }: { title: string; summary: str
         <div className="mt-2 h-1.5 bg-maia-border rounded-full overflow-hidden">
           <div className="h-full bg-maia-accent rounded-full animate-pulse" style={{ width: '60%' }} />
         </div>
+      </CardBody>
+    </Card>
+  )
+}
+
+// ---- Task Progress Card（长任务队列，/api/task-jobs）----
+
+type LongTaskState = {
+  id: string
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+  progress: number
+  message?: string
+  phase?: string
+  log_path?: string
+  return_code?: number | null
+  metadata?: Record<string, unknown>
+}
+
+const TASK_STATUS_LABEL: Record<LongTaskState['status'], string> = {
+  queued: '排队中',
+  running: '运行中',
+  completed: '已完成',
+  failed: '失败',
+  cancelled: '已取消',
+}
+
+/**
+ * 长任务进度卡片。
+ *
+ * 后端为 `/api/task-jobs/*`（core.task 的独立 worker 子进程），
+ * 与 `/api/task/*` 的 Agent 执行历史是两套语义，不要混用。
+ */
+function TaskProgressCard({ title, summary, data }: { title: string; summary: string; data: Record<string, unknown> }) {
+  const initialTask = data.task as LongTaskState | undefined
+  const taskId = String(data.task_id || initialTask?.id || '')
+  const [task, setTask] = useState<LongTaskState | null>(initialTask || null)
+  const [pollError, setPollError] = useState('')
+
+  useEffect(() => {
+    if (!taskId) return
+    let cancelled = false
+    let timer: number | undefined
+    const poll = async () => {
+      try {
+        const res = await fetch(authedUrl(`/api/task-jobs/${encodeURIComponent(taskId)}`))
+        if (cancelled) return
+        if (!res.ok) throw new Error(`任务状态获取失败 (${res.status})`)
+        const payload = await res.json()
+        const next = payload.task as LongTaskState
+        setTask(next)
+        setPollError('')
+        if (next.status === 'queued' || next.status === 'running') {
+          timer = window.setTimeout(poll, 1500)
+        }
+      } catch (error) {
+        if (cancelled) return
+        setPollError(error instanceof Error ? error.message : String(error))
+        timer = window.setTimeout(poll, 3000)
+      }
+    }
+    poll()
+    return () => {
+      cancelled = true
+      if (timer) window.clearTimeout(timer)
+    }
+  }, [taskId])
+
+  const stopTask = async () => {
+    if (!taskId) return
+    try {
+      const res = await fetch(authedUrl(`/api/task-jobs/${encodeURIComponent(taskId)}/cancel`), {
+        method: 'POST',
+      })
+      if (res.ok) {
+        const payload = await res.json()
+        setTask(payload.task as LongTaskState)
+      }
+    } catch {
+      /* 取消失败时保持当前状态，由轮询兜底 */
+    }
+  }
+
+  const status = task?.status || 'queued'
+  const progress = Math.max(0, Math.min(100, Number(task?.progress || 0)))
+  const active = status === 'queued' || status === 'running'
+  const failed = status === 'failed' || status === 'cancelled'
+  const badgeVariant = failed ? 'danger' : status === 'completed' ? 'success' : 'default'
+
+  return (
+    <Card className={failed ? 'border-maia-danger' : 'border-maia-border'}>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          {active
+            ? <Activity className="h-4 w-4 text-blue-500 animate-pulse" />
+            : failed
+              ? <XCircle className="h-4 w-4 text-maia-danger" />
+              : <CheckCircle2 className="h-4 w-4 text-emerald-500" />}
+          <span className="text-[13px] font-medium">{title}</span>
+          <Badge variant={badgeVariant}>{TASK_STATUS_LABEL[status]}</Badge>
+        </div>
+      </CardHeader>
+      <CardBody>
+        <p className="text-[13px] text-maia-text-secondary">{task?.message || summary}</p>
+        <div className="mt-2 h-1.5 bg-maia-border rounded-full overflow-hidden">
+          <div
+            className={failed
+              ? 'h-full bg-maia-danger rounded-full'
+              : 'h-full bg-maia-accent rounded-full transition-all'}
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+        <div className="mt-2 flex items-center justify-between text-[12px] text-maia-text-secondary">
+          <span>{progress}%{task?.phase ? ` · ${task.phase}` : ''}</span>
+          {active ? (
+            <Button variant="ghost" size="sm" onClick={stopTask}>
+              <Timer className="h-3.5 w-3.5 mr-1" />停止
+            </Button>
+          ) : null}
+        </div>
+        {pollError ? <p className="mt-1 text-[12px] text-maia-danger">{pollError}</p> : null}
       </CardBody>
     </Card>
   )

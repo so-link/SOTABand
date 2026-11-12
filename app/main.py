@@ -23,6 +23,7 @@ from app.api.routes.api_routes import router as api_list_router
 from app.api.routes.llm_routes import router as llm_router
 from app.api.routes.auth_routes import router as auth_router
 from app.api.routes.task_routes import router as task_router
+from app.api.routes.task_job_routes import router as task_job_router
 from app.api.routes.cron_routes import router as cron_router
 from app.api.routes.migrate_routes import router as migrate_router
 from core.auth import (
@@ -321,6 +322,8 @@ app.include_router(model_router, prefix="/api/model", tags=["model"])
 app.include_router(api_list_router, prefix="/api/apis", tags=["api"])
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(task_router, prefix="/api/task", tags=["task"])
+# 长任务队列（低氧血症等工作流提交的耗时作业），与 Agent 执行历史分开
+app.include_router(task_job_router, prefix="/api/task-jobs", tags=["task-jobs"])
 app.include_router(cron_router, prefix="/api/cron", tags=["cron"])
 app.include_router(migrate_router, prefix="/api/migrate", tags=["migrate"])
 

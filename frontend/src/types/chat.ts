@@ -19,6 +19,7 @@ export type CardType =
   | 'add-workspace-tool'
   | 'platform-confirm'
   | 'platform-result'
+  | 'task-progress'
 
 /** 内联卡片数据 */
 export interface InlineCard {

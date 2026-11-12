@@ -20,3 +20,7 @@
 *.ps1           text eol=crlf
 *.bat           text eol=crlf
 *.cmd           text eol=crlf
+
+# 低氧血症 runtime 交付：vendor 第三方源码统一 LF（来源 main 60d25f7）
+resources/workflows/hypoxemia/runtime/vendor/** text eol=lf
+requirements/*.lock text eol=lf
