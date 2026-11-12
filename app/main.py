@@ -5,7 +5,18 @@
 
 from contextlib import asynccontextmanager
 import re
+import sys
 from urllib.parse import urlsplit
+
+# Windows 中文控制台默认 GBK，编码不了 emoji（启动日志里的 ⚠ 等）：
+# print 抛 UnicodeEncodeError 会直接打断 lifespan，进程起不来。
+# 这里在任何业务 import / print 之前把标准流切到 UTF-8；errors="replace"
+# 兜住终端仍不支持 UTF-8 的情况——最多显示替代符，不会再崩。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, OSError):  # 非 tty（被重定向/被捕获）时无 reconfigure
+        pass
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
