@@ -10,9 +10,25 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 import os
+import re
 from typing import Optional
 
 # 自动加载项目根目录的 .env 文件
+def _strip_inline_comment(value: str) -> str:
+    """剥离 `.env` 行内注释。
+
+    只把「空白 + # 到行尾」视为注释，且不碰被引号包裹的值——避免误伤
+    ``p@ss#word`` 这类合法密码，或 ``"a # b"`` 这种显式引用。
+
+    背景：历史 `.env.example` 把 ``# 超级用户密码…`` 写在 ``=` 同一行，
+    原解析器整段当成值，导致超管密码/用户名被注释文本污染（登录即失败）。
+    """
+    raw = value.strip()
+    if raw.startswith(('"', "'")):
+        return raw
+    return re.sub(r"\s+#.*$", "", raw).strip()
+
+
 def _load_dotenv():
     env_file = Path(__file__).resolve().parent.parent / ".env"
     if env_file.exists():
@@ -22,7 +38,8 @@ def _load_dotenv():
                 if not line or line.startswith("#") or "=" not in line:
                     continue
                 key, _, val = line.partition("=")
-                key, val = key.strip(), val.strip().strip('"').strip("'")
+                key = key.strip()
+                val = _strip_inline_comment(val).strip('"').strip("'")
                 if key and key not in os.environ:
                     os.environ[key] = val
 
