@@ -119,8 +119,14 @@ def _entry_files(entry: dict, space: str) -> list[Path]:
     if isinstance(ip, str) and ip:
         out.append(SEED_ROOT / space / ip)
     dp = entry.get("data_path")
-    if space == "data" and isinstance(dp, str) and dp and not dp.startswith("/"):
-        out.append(SEED_ROOT / space / dp)
+    if space == "data" and isinstance(dp, str) and dp:
+        # 绝对路径不是种子侧相对路径：POSIX 的 /x 与 Windows 的 C:\x 都要排除。
+        # 只判 "/" 会漏掉盘符——而 pathlib 在 Windows 上遇到绝对右侧会**丢弃**
+        # 左侧前缀，于是 SEED_ROOT/"data"/C:\... 变回目标目录自身，后续
+        # relative_to(seed_dir) 直接抛 ValueError（补建的数据集条目正是这种）。
+        is_abs = dp.startswith(("/", "\\")) or (len(dp) > 1 and dp[1] == ":")
+        if not is_abs:
+            out.append(SEED_ROOT / space / dp)
     return out
 
 
@@ -232,7 +238,11 @@ def import_seed() -> None:
             for src in _entry_files(e, space):
                 if not src.exists():
                     continue
-                rel = src.relative_to(seed_dir)
+                try:
+                    rel = src.relative_to(seed_dir)
+                except ValueError:
+                    # 不在种子目录下（补建条目指向导入后的目标路径），无需再复制
+                    continue
                 _copy_into(src, dst_dir / rel)
 
         # registry 合并写回（同 id 保留目标已有——运行期改动优先于出厂值）
