@@ -162,7 +162,11 @@ export function UsersView() {
                         <td className="px-3 py-2 text-maia-text-muted font-mono text-[12px]">{fmtCreatedAt(u.created_at)}</td>
                         <td className="px-3 py-2">
                           {isSystem ? (
-                            <div className="flex items-center justify-end">
+                            <div className="flex items-center justify-end gap-0.5">
+                              <IconAction title="修改显示名"
+                                onClick={() => setDialog({ kind: 'display', user: u })}>
+                                <Tag className="h-3.5 w-3.5" />
+                              </IconAction>
                               <Button variant="outline" size="sm" className="gap-1.5 h-7 text-[12px]"
                                 disabled={switching}
                                 title="以系统用户身份编辑公共层资源（内置工具/数据集/模型/Agent），1 小时后自动失效"
@@ -170,7 +174,7 @@ export function UsersView() {
                                 {switching
                                   ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                                   : <UserCog className="h-3.5 w-3.5" />}
-                                切换到系统身份
+                                切换身份
                               </Button>
                             </div>
                           ) : (
