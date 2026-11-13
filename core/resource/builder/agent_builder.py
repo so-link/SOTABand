@@ -523,6 +523,104 @@ class AgentCodeBuilder(BaseBuilder):
         return AgentCodeBuilder._TOOL_FIELD_RE.sub(_sub, spec_md)
 
     @staticmethod
+    def validate_spec_refs(spec_md: str) -> list[str]:
+        """校验 MD 里的引用能否对上作用域，返回问题清单（空列表=通过）。
+
+        作用域（与生成代码里的 scope 结构一致）：
+          - ``input`` / ``param`` / ``request``：启动参数
+          - ``stepN``：第 N 个工具步骤的**完整返回**（顶层即有 status/message/data）
+
+        静态可判定的两类问题：
+          1. 引用根不是上面任何一种（如 ``{{params.text}}``、``{{step0.x}}``）；
+          2. ``stepN`` 的 N 越界——引用了不存在的步骤（flow 第 i 步只能引用
+             step1..step(i-1)；api 的 response 可引用到该 api 的最后一步）。
+
+        「多写了一层 data」（``{{step1.data.status}}``）静态查不出——它取决于
+        工具的实际返回结构，只能在运行期由 ``resolve_refs_diagnosed`` 告警。
+
+        与 :meth:`normalize_tool_refs` 同一层：在「MD 写入/产出」边界调用
+        （generate-spec、register），让问题在落库前就暴露出来。
+        """
+        if not spec_md or "{" not in spec_md:
+            return []
+        import re as _re
+
+        problems: list[str] = []
+
+        def _refs_in(value):
+            out = []
+            if isinstance(value, str):
+                for m in _re.finditer(r"\{\{([A-Za-z_][\w.]*)\}\}|\{([A-Za-z_][\w.]*)\}", value):
+                    out.append((m.group(1) or m.group(2)).strip())
+            elif isinstance(value, dict):
+                for v in value.values():
+                    out.extend(_refs_in(v))
+            elif isinstance(value, list):
+                for v in value:
+                    out.extend(_refs_in(v))
+            return out
+
+        def _norm_ref(text: str) -> str:
+            """把 ``{{x.y}}`` / ``{x.y}`` 归一为 ``x.y``。
+
+            ``response[].from`` 是**整体**引用（自带花括号），与 flow 里
+            params 值的「内嵌引用」不同——后者由 ``_refs_in`` 提取子串，
+            前者必须先剥壳，否则 ``{{step1.status}}`` 会被当成根名
+            ``{{step1`` 而误判为「引用根无效」。
+            """
+            t = (text or "").strip()
+            if t.startswith("{{") and t.endswith("}}") and t.count("{{") == 1 and t.count("}}") == 1:
+                return t[2:-2].strip()
+            if t.startswith("{") and t.endswith("}") and t.count("{") == 1 and t.count("}") == 1:
+                return t[1:-1].strip()
+            return t
+
+        def _root(ref: str) -> str:
+            return ref.split(".")[0].strip()
+
+        def _step_no(ref: str):
+            r = _root(ref)
+            return int(r[4:]) if r.startswith("step") and r[4:].isdigit() else None
+
+        def _check(ref: str, allowed_steps: int, where: str) -> None:
+            ref = _norm_ref(ref)
+            r = _root(ref)
+            if r in ("input", "param", "request"):
+                return
+            n = _step_no(ref)
+            if n is None:
+                problems.append(f"{where}: 引用根 {r!r} 无效（可用 input / param / request / stepN）")
+            elif n < 1 or n > allowed_steps:
+                problems.append(f"{where}: 引用 step{n} 越界（此处只有 {allowed_steps} 个可引用步骤）")
+
+        top_flow = _extract_fenced_json(spec_md, "flow") or []
+        for i, step in enumerate(top_flow if isinstance(top_flow, list) else [], start=1):
+            if not isinstance(step, dict):
+                continue
+            for ref in _refs_in(step.get("params") or {}):
+                _check(ref, i - 1, f"flow 第{i}步")
+
+        apis = _extract_fenced_json(spec_md, "apis") or []
+        for api in apis if isinstance(apis, list) else []:
+            if not isinstance(api, dict):
+                continue
+            name = api.get("name", "?")
+            aflow = api.get("flow") or []
+            aflow = aflow if isinstance(aflow, list) else []
+            for i, step in enumerate(aflow, start=1):
+                if not isinstance(step, dict):
+                    continue
+                for ref in _refs_in(step.get("params") or {}):
+                    _check(ref, i - 1, f"api[{name}] flow 第{i}步")
+            for item in api.get("response") or []:
+                if not isinstance(item, dict):
+                    continue
+                ref = item.get("from", "")
+                if isinstance(ref, str) and ref.strip():
+                    _check(ref.strip(), len(aflow), f"api[{name}] response[{item.get('name', '')}]")
+        return problems
+
+    @staticmethod
     def _lookup_api(name: str) -> dict:
         api_dir = Path(__file__).resolve().parent.parent.parent / "api"
         registry_file = api_dir / "registry.json"
@@ -764,8 +862,15 @@ class AgentCodeBuilder(BaseBuilder):
                          summary_hint: str = "") -> str:
         """任务式 execute 体：启动参数 → 按 spec.flow 逐步执行 → 汇总 → done。
 
-        与 MD 声明的 ` {{input.xxx}} ` / ` {{stepN.data.xxx}} ` 引用语法配合，
+        与 MD 声明的 ` {{input.xxx}} ` / ` {{stepN.xxx}} ` 引用语法配合，
         启动参数一律按名字从 kwargs 取（不做 content 猜测）。
+
+        引用语义（务必与 scope 的实际结构对齐，别照抄旧注释）：
+        ``scope["stepN"]`` 存的是**工具的完整返回**（顶层就有 status /
+        message / data 三段），所以取顶层字段写 ``{{stepN.status}}``；
+        只有要取工具返回里 ``data`` 段的字段时才写 ``{{stepN.data.xxx}}``。
+        写成 ``{{stepN.data.status}}`` 会去取 ``result["data"]["status"]``——
+        工具的 data 里通常没有这个键，引用解析为空，响应字段全空且不报错。
         每步同时产出 `step` 事件（前端「工作流程」时间线）与 `_log_step` 日志。
 
         展示层约定（面向用户，而非开发者）：
@@ -804,7 +909,12 @@ class AgentCodeBuilder(BaseBuilder):
         for idx, step in enumerate(flow, start=1):
             tool_id = step.get("tool", "")
             tool_label = _TOOL_NAMES.get(tool_id) or step.get("label") or "数据处理"
-            params = self.resolve_refs(step.get("params") or {{}}, scope)
+            params, _missed_params = self.resolve_refs_diagnosed(step.get("params") or {{}}, scope)
+            if _missed_params:
+                # 引用路径不存在 → 显式告警。否则参数被静默丢弃，工具拿默认值跑，
+                # 结果看着「成功」但数据不对（历史踩过：dataset_id 悄悄变成默认值）。
+                self._log_step(f"步骤{{idx}}", "参数引用未解析", {{"unresolved": _missed_params}})
+                yield self._step(f"step{{idx}}", "参数引用未解析：" + "; ".join(_missed_params), "error")
             if isinstance(params, dict):
                 # 未取到值的可选参数不下传（避免把 "" 传给 int/float 形参）
                 params = {{k: v for k, v in params.items() if v not in (None, "")}}
@@ -922,7 +1032,12 @@ class AgentCodeBuilder(BaseBuilder):
         flow = api.get("flow") or []
         for idx, step in enumerate(flow, start=1):
             tool_id = step.get("tool", "")
-            params = self.resolve_refs(step.get("params") or {{}}, scope)
+            params, _missed_params = self.resolve_refs_diagnosed(step.get("params") or {{}}, scope)
+            if _missed_params:
+                # 引用路径不存在 → 显式告警。否则参数被静默丢弃，工具拿默认值跑，
+                # 结果看着「成功」但数据不对（历史踩过：dataset_id 悄悄变成默认值）。
+                self._log_step(f"步骤{{idx}}", "参数引用未解析", {{"unresolved": _missed_params}})
+                yield self._step(f"step{{idx}}", "参数引用未解析：" + "; ".join(_missed_params), "error")
             if isinstance(params, dict):
                 # 未取到值的可选参数不下传（避免把 "" 传给 int/float 形参）
                 params = {{k: v for k, v in params.items() if v not in (None, "")}}
@@ -952,8 +1067,19 @@ class AgentCodeBuilder(BaseBuilder):
 
         # 响应体：按 MD 的 apis[].response 声明组装；未声明则回退到末步 data
         response = {{}}
+        _unresolved = []
         for item in api.get("response") or []:
-            response[item.get("name", "")] = self.resolve_refs(item.get("from", ""), scope)
+            _ref = item.get("from", "")
+            _val, _missed = self.resolve_refs_diagnosed(_ref, scope)
+            response[item.get("name", "")] = _val
+            for _m in _missed:
+                _unresolved.append(f"{{item.get('name', '')}} ← {{_m}}")
+        if _unresolved:
+            # 引用路径不存在（如多写了一层 data）→ 显式告警。
+            # 缺失路径被静默当成空串时，表现是「调用成功、响应字段全空」，
+            # 从响应里完全看不出错在哪（实测踩过）。
+            self._log_step("响应组装", "引用未解析", {{"unresolved": _unresolved}})
+            yield {{"event": "step", "data": {{"id": "response", "text": "响应字段引用未解析：" + "; ".join(_unresolved), "status": "error"}}}}
         if not response:
             last = scope.get(f"step{{max(len(flow), 1)}}")
             if isinstance(last, dict):

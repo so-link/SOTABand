@@ -265,15 +265,81 @@ class BaseAgent(ABC):
 
     @staticmethod
     def _lookup(ref: str, scope: dict):
-        """按点分路径在 scope 中取值，缺失时返回空字符串。"""
+        """按点分路径在 scope 中取值，缺失时返回空字符串。
+
+        委托给 :meth:`_lookup_diagnosed`（复用同一份取值逻辑，避免两处漂移）。
+        """
+        return BaseAgent._lookup_diagnosed(ref, scope)[0]
+
+    @staticmethod
+    def _lookup_diagnosed(ref: str, scope: dict):
+        """按点分路径取值，并报告**第一个缺失的路径段**。
+
+        与 :meth:`_lookup` 的区别：能区分「值本来就是空字符串」与
+        「路径压根不存在」——后者才是引用写错（如多写了一层 ``data``）。
+
+        返回 ``(值, 缺失路径)``；路径缺失时缺失路径非空。
+        """
         cur = scope
-        for part in ref.split("."):
-            part = part.strip()
+        parts = [p.strip() for p in ref.split(".")]
+        for i, part in enumerate(parts):
             if isinstance(cur, dict) and part in cur:
                 cur = cur[part]
             else:
-                return ""
-        return cur
+                return "", ".".join(parts[: i + 1])
+        return cur, ""
+
+    @staticmethod
+    def resolve_refs_diagnosed(value, scope: dict):
+        """解析引用，并额外报告「引用了但路径不存在」的引用路径。
+
+        与 :meth:`resolve_refs` 同语义（同样的取值规则、同样的宽松匹配），
+        区别只在于多返回一个未命中列表。
+
+        为什么需要它：``_lookup`` 对缺失路径静默返回 ``""``（历史行为，不能改——
+        会破坏既有 Agent 对可选参数的宽松匹配），于是「引用多写了一层 data」
+        这类错误在运行期表现为「HTTP 200、响应字段全空」，从响应里完全看不出
+        哪里错了。这个入口把未命中的路径显式交出去，由调用方告警。
+
+        返回：``(解析结果, 未命中引用路径列表)``
+        """
+        missed: list[str] = []
+
+        def _is_whole_ref(text: str) -> bool:
+            t = text.strip()
+            if t.startswith("{{") and t.endswith("}}"):
+                return t.count("{{") == 1 and t.count("}}") == 1
+            if t.startswith("{") and t.endswith("}"):
+                return t.count("{") == 1 and t.count("}") == 1
+            return False
+
+        def _walk(v):
+            if isinstance(v, str):
+                t = v.strip()
+                if _is_whole_ref(t):
+                    ref = t[2:-2].strip() if t.startswith("{{") else t[1:-1].strip()
+                    got, missing = BaseAgent._lookup_diagnosed(ref, scope)
+                    if missing:
+                        missed.append(ref)
+                    return got
+                # 内嵌引用：prefix-{{input.name}}
+                import re as _re
+
+                def _sub(m):
+                    ref = (m.group(1) if m.group(1) is not None else m.group(2)).strip()
+                    got, missing = BaseAgent._lookup_diagnosed(ref, scope)
+                    if missing:
+                        missed.append(ref)
+                    return str(got)
+
+                return _re.sub(r"\{\{([^{}]+)\}\}|\{([^{}]+)\}", _sub, v)
+            if isinstance(v, dict):
+                return {k: _walk(x) for k, x in v.items()}
+            if isinstance(v, list):
+                return [_walk(x) for x in v]
+            return v
+
+        return _walk(value), missed
 
     @abstractmethod
     async def execute(

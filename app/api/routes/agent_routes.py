@@ -324,7 +324,11 @@ async def generate_spec(req: GenerateSpecRequest):
             # 注意：done 事件下发的是归一化后的全文，与前面 delta 增量可能不一致——
             # 前端以 done 的 spec_md 为准整体覆盖。
             spec_md = builder.normalize_tool_refs(full.strip())
-            yield {"event": "done", "data": json.dumps({"spec_md": spec_md}, ensure_ascii=False)}
+            # 引用静态校验：引用根非法 / stepN 越界 → 随结果下发告警（不阻断生成）。
+            # 「多写了一层 data」这类静态查不出，只能运行期告警。
+            ref_warnings = builder.validate_spec_refs(spec_md)
+            yield {"event": "done", "data": json.dumps(
+                {"spec_md": spec_md, "ref_warnings": ref_warnings}, ensure_ascii=False)}
 
         except Exception as exc:
             if isinstance(exc, HTTPException):
@@ -620,6 +624,14 @@ async def register_agent(req: RegisterAgentRequest):
     # 落库前归一化：flow/apis 里的工具显示名 → 真实工具 id，
     # 之后所有引用一律基于归一化后的 spec_md 落库
     spec_md = AgentCodeBuilder.normalize_tool_refs(req.spec_md)
+
+    # 引用静态校验：引用根非法 / stepN 越界 → 落库前拦截。
+    # 与上面的静态安全审查配套：那一条拦代码，这一条拦规范里的引用写错。
+    # （「多写了一层 data」这类静态查不出——取决于工具实际返回结构，
+    #   只能运行期由 resolve_refs_diagnosed 告警。）
+    ref_problems = AgentCodeBuilder.validate_spec_refs(spec_md)
+    if ref_problems:
+        raise HTTPException(400, "规范中的引用存在问题：\n" + "\n".join(ref_problems))
 
     # 从 MD 中提取 agent-id
     for line in spec_md.split("\n"):
