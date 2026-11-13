@@ -163,7 +163,7 @@ export function FilePreviewView() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-maia-surface overflow-hidden">
+    <div data-testid="file-preview" className="flex flex-col h-full bg-maia-surface overflow-hidden">
       {/* Header（固定，不随内容滚动） */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-maia-border bg-maia-bg/50 shrink-0">
         <div className="flex items-center gap-2 min-w-0">

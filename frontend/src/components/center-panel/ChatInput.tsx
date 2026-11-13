@@ -95,6 +95,7 @@ export function ChatInput() {
           <div className="relative shrink-0 mb-0.5">
             <Wand2 className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-maia-text-muted pointer-events-none" />
             <select
+              data-testid="chat-confirm-policy"
               value={confirmPolicy}
               onChange={(e) => setConfirmPolicy(e.target.value as 'manual' | 'auto')}
               disabled={isSending}
@@ -108,6 +109,7 @@ export function ChatInput() {
           </div>
 
           <textarea
+            data-testid="chat-input"
             ref={textareaRef}
             value={inputText}
             onChange={(e) => {
@@ -122,6 +124,7 @@ export function ChatInput() {
           />
           {isSending ? (
             <Button
+              data-testid="chat-stop"
               size="icon"
               onClick={handleSend}
               className="shrink-0 h-8 w-8 rounded-lg bg-maia-danger hover:bg-maia-danger/90 text-white"
@@ -130,6 +133,7 @@ export function ChatInput() {
             </Button>
           ) : (
             <Button
+              data-testid="chat-send"
               size="icon"
               onClick={handleSend}
               disabled={!inputText.trim() && attachedFiles.length === 0 && pathRefs.length === 0}

@@ -392,7 +392,7 @@ export function ResourceBrowser() {
   }
 
   return (
-    <div className="flex flex-col py-2 px-2 gap-0.5">
+    <div data-testid="resource-browser" className="flex flex-col py-2 px-2 gap-0.5">
       {SECTIONS.map((section) => {
         const resources = getResources(section.type)
         const isExpanded = expandedSections.has(section.type)
@@ -406,6 +406,7 @@ export function ResourceBrowser() {
                 button 嵌套 button 是非法 DOM，会触发 React hydration
                 错误并导致点击行为异常。 */}
             <div
+              data-testid={`resource-section-${section.type}`}
               role="button"
               tabIndex={0}
               onClick={() => toggleSection(section.type)}
@@ -433,7 +434,10 @@ export function ResourceBrowser() {
               <span className="flex-1 text-left text-maia-text-secondary">
                 {section.label}
               </span>
-              <span className="text-[12px] text-maia-text-muted bg-maia-bg rounded-full px-1.5 py-0.5">
+              <span
+                data-testid={`resource-count-${section.type}`}
+                className="text-[12px] text-maia-text-muted bg-maia-bg rounded-full px-1.5 py-0.5"
+              >
                 {resources.length}
               </span>
               {section.type === 'agent' && (
@@ -555,6 +559,7 @@ export function ResourceBrowser() {
                   // <button> 里会触发 React 的非法 DOM 嵌套报错
                   <div
                     key={resource.id}
+                    data-testid={`resource-row-${resource.type}-${resource.id}`}
                     role="button"
                     tabIndex={0}
                     onClick={() => handleResourceClick(resource)}
@@ -644,6 +649,7 @@ export function ResourceBrowser() {
 
       {/* 定时任务入口：任务量小、非资源实体，不进 SECTIONS 列表，单独一行 */}
       <div
+        data-testid="cron-jobs-entry"
         role="button"
         tabIndex={0}
         onClick={() => setActiveView('cron-jobs')}

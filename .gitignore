@@ -24,6 +24,8 @@ env/
 
 # Testing
 .pytest_cache/
+dist/e2e-report/
+tests/e2e/.auth/
 .coverage
 htmlcov/
 .tox/

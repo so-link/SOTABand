@@ -660,12 +660,12 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   )
 
   return (
-    <div className="flex flex-col h-full bg-maia-surface">
+    <div data-testid="agent-detail" className="flex flex-col h-full bg-maia-surface">
       {/* Header：第一行是身份与启停，第二行是文档/代码工具条，避免标题与操作挤在一行换行 */}
       <div className="shrink-0 border-b border-maia-border bg-maia-bg/40">
         <div className="flex items-center gap-2 px-4 h-11 min-w-0">
           <Bot className="h-4 w-4 text-maia-accent shrink-0" />
-          <span className="text-[14px] font-semibold text-maia-text-heading truncate min-w-0">
+          <span data-testid="agent-detail-name" className="text-[14px] font-semibold text-maia-text-heading truncate min-w-0">
             {agent.name}
           </span>
           <Badge variant={running ? 'success' : 'default'} className="shrink-0">
@@ -748,6 +748,7 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
             </button>
           )}
           <button
+            data-testid="agent-md-toggle"
             onClick={() => togglePanel('spec')}
             className={cn(
               'inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-[12px] whitespace-nowrap border transition-colors shrink-0',
@@ -760,6 +761,7 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
             {showSpec ? '收起 MD 文档' : 'MD 文档'}
           </button>
           <button
+            data-testid="agent-code-toggle"
             onClick={() => togglePanel('code')}
             className={cn(
               'inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-[12px] whitespace-nowrap border transition-colors shrink-0',

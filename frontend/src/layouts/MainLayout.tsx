@@ -132,7 +132,7 @@ export function MainLayout() {
   }, [leftRef, rightRef])
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full" data-testid="main-layout">
       <TopBar />
       <ImpersonationBanner />
 

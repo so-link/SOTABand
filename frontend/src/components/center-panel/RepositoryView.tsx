@@ -196,12 +196,12 @@ export function RepositoryView() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-maia-surface overflow-auto">
+    <div data-testid="tool-repository" className="flex flex-col h-full bg-maia-surface overflow-auto">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-maia-border bg-maia-bg/50 shrink-0">
         <div className="flex items-center gap-2">
           <span className="text-[13px] font-semibold text-maia-text-heading">
-            工具仓库（共 {tools.length} 个）
+            工具仓库（共 <span data-testid="tool-repository-count">{tools.length}</span> 个）
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -242,6 +242,7 @@ export function RepositoryView() {
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-maia-text-muted" />
             <input
+              data-testid="tool-repository-search"
               value={searchQuery}
               onChange={e => setSearch(e.target.value)}
               placeholder="搜索工具名称、标签..."
@@ -302,7 +303,7 @@ export function RepositoryView() {
               {pageTools.map(tool => {
                 const loaded = isLoaded(tool.id)
                 return (
-                  <Card key={tool.id} className="border-maia-border/60 hover:border-cyan-500/30 hover:shadow-lg hover:shadow-cyan-500/5 transition-all duration-200 cursor-pointer bg-gradient-to-b from-maia-surface to-maia-bg/40 dark:from-maia-surface dark:to-maia-bg/60 h-full flex flex-col"
+                  <Card key={tool.id} data-testid={`tool-repository-card-${tool.id}`} className="border-maia-border/60 hover:border-cyan-500/30 hover:shadow-lg hover:shadow-cyan-500/5 transition-all duration-200 cursor-pointer bg-gradient-to-b from-maia-surface to-maia-bg/40 dark:from-maia-surface dark:to-maia-bg/60 h-full flex flex-col"
                     onClick={() => {
                       selectResource({
                         id: tool.id,

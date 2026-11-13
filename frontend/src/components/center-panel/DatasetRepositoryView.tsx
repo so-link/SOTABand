@@ -96,7 +96,7 @@ export function DatasetRepositoryView() {
   const visibleTags = showAllTags ? tagEntries : tagEntries.slice(0, MAX_TAGS)
 
   return (
-    <div className="flex flex-col h-full bg-maia-bg">
+    <div data-testid="dataset-repository" className="flex flex-col h-full bg-maia-bg">
       {/* 头部 */}
       <div className="flex items-center justify-between px-5 py-3 border-b border-maia-border shrink-0">
         <div className="flex items-center gap-3">

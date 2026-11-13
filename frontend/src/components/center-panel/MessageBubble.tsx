@@ -56,7 +56,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 
   if (role === 'user') {
     return (
-      <div className="flex flex-col items-end gap-1.5 max-w-[90%] ml-auto" data-role="user">
+      <div className="flex flex-col items-end gap-1.5 max-w-[90%] ml-auto" data-testid="chat-message" data-role="user">
         <div className="rounded-xl border border-maia-accent-border bg-maia-chat-user px-3.5 py-2.5 text-[13px] leading-[21px] text-maia-text whitespace-pre-wrap break-words">
           {content}
           {attachments && attachments.length > 0 && (
@@ -79,7 +79,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
   }
 
   return (
-    <div className="flex flex-col gap-2 min-w-0" data-role="agent"
+    <div className="flex flex-col gap-2 min-w-0" data-testid="chat-message" data-role="agent"
       data-msg={timestamp + '|' + message.id}>
       <div className="flex items-center gap-1.5">
         <Bot className="h-3.5 w-3.5 text-maia-accent" />

@@ -139,7 +139,7 @@ export function SettingsView() {
 
   if (!isAdmin) {
     return (
-      <div className="h-full overflow-auto">
+      <div data-testid="settings-view" className="h-full overflow-auto">
         <div className="max-w-2xl mx-auto px-6 py-16 text-center text-[13px] text-maia-text-muted">
           仅超级用户可访问系统设置。
         </div>
@@ -148,7 +148,7 @@ export function SettingsView() {
   }
 
   return (
-    <div className="h-full overflow-auto">
+    <div data-testid="settings-view" className="h-full overflow-auto">
       <div className="max-w-2xl mx-auto px-6 py-6">
         {/* 标题 */}
         <div className="flex items-center gap-3 mb-5">

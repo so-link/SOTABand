@@ -1,0 +1,1449 @@
+{
+  "generated_at": "2026-11-13T05:37:21+00:00",
+  "source": "FastAPI app.openapi()",
+  "routes": {
+    "DELETE /api/agent/{agent_id}": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会删除内置 Agent；需私有 Agent 夹具",
+      "method": "DELETE",
+      "path": "/api/agent/{agent_id}",
+      "tags": [
+        "agent"
+      ]
+    },
+    "DELETE /api/agent/{agent_id}/chat-history": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "DELETE",
+      "path": "/api/agent/{agent_id}/chat-history",
+      "tags": [
+        "agent"
+      ]
+    },
+    "DELETE /api/agent/{agent_id}/fork": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会删除私有 Agent 副本，依赖 fork 前置",
+      "method": "DELETE",
+      "path": "/api/agent/{agent_id}/fork",
+      "tags": [
+        "agent"
+      ]
+    },
+    "DELETE /api/auth/users/{uid}": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "DELETE",
+      "path": "/api/auth/users/{uid}",
+      "tags": [
+        "auth"
+      ]
+    },
+    "DELETE /api/chat/sessions/{session_id}": {
+      "mode": "ui-action",
+      "spec": "test_04_chat.py",
+      "reason": "",
+      "method": "DELETE",
+      "path": "/api/chat/sessions/{session_id}",
+      "tags": [
+        "chat"
+      ]
+    },
+    "DELETE /api/cron/jobs/{job_id}": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "DELETE",
+      "path": "/api/cron/jobs/{job_id}",
+      "tags": [
+        "cron"
+      ]
+    },
+    "DELETE /api/data/{dataset_id}": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "DELETE",
+      "path": "/api/data/{dataset_id}",
+      "tags": [
+        "data"
+      ]
+    },
+    "DELETE /api/file/{file_id}": {
+      "mode": "ui-action",
+      "spec": "test_08_files_tasks.py",
+      "reason": "",
+      "method": "DELETE",
+      "path": "/api/file/{file_id}",
+      "tags": [
+        "file"
+      ]
+    },
+    "DELETE /api/model/{model_id}": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会删除内置模型条目；需私有模型夹具",
+      "method": "DELETE",
+      "path": "/api/model/{model_id}",
+      "tags": [
+        "model",
+        "model"
+      ]
+    },
+    "DELETE /api/task/{task_id}": {
+      "mode": "ui-action",
+      "spec": "test_08_files_tasks.py",
+      "reason": "",
+      "method": "DELETE",
+      "path": "/api/task/{task_id}",
+      "tags": [
+        "task"
+      ]
+    },
+    "DELETE /api/tool/workspace/{tool_id}": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "DELETE",
+      "path": "/api/tool/workspace/{tool_id}",
+      "tags": [
+        "tool"
+      ]
+    },
+    "DELETE /api/tool/{tool_id}": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会删除私有工具夹具；覆盖写接口后由夹具自己清理，不在通用路由用例重复删除",
+      "method": "DELETE",
+      "path": "/api/tool/{tool_id}",
+      "tags": [
+        "tool"
+      ]
+    },
+    "DELETE /api/tool/{tool_id}/fork": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "DELETE",
+      "path": "/api/tool/{tool_id}/fork",
+      "tags": [
+        "tool"
+      ]
+    },
+    "GET /": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/",
+      "tags": []
+    },
+    "GET /api/agent/bus/status": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/agent/bus/status",
+      "tags": [
+        "agent"
+      ]
+    },
+    "GET /api/agent/list": {
+      "mode": "ui-consume",
+      "spec": "test_02_resource_browser.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/agent/list",
+      "tags": [
+        "agent"
+      ]
+    },
+    "GET /api/agent/{agent_id}": {
+      "mode": "ui-consume",
+      "spec": "test_05_tool_agent_detail.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/agent/{agent_id}",
+      "tags": [
+        "agent"
+      ]
+    },
+    "GET /api/agent/{agent_id}/api-doc": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/agent/{agent_id}/api-doc",
+      "tags": [
+        "agent"
+      ]
+    },
+    "GET /api/agent/{agent_id}/api-doc/download": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "导出文件端点依赖具体 Agent 的 API 文档产物；只验证 api-doc 读接口",
+      "method": "GET",
+      "path": "/api/agent/{agent_id}/api-doc/download",
+      "tags": [
+        "agent"
+      ]
+    },
+    "GET /api/agent/{agent_id}/chat-history": {
+      "mode": "ui-consume",
+      "spec": "test_05_tool_agent_detail.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/agent/{agent_id}/chat-history",
+      "tags": [
+        "agent"
+      ]
+    },
+    "GET /api/agent/{agent_id}/export": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/agent/{agent_id}/export",
+      "tags": [
+        "agent"
+      ]
+    },
+    "GET /api/agent/{agent_id}/fork-status": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/agent/{agent_id}/fork-status",
+      "tags": [
+        "agent"
+      ]
+    },
+    "GET /api/agent/{agent_id}/service": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/agent/{agent_id}/service",
+      "tags": [
+        "agent"
+      ]
+    },
+    "GET /api/agent/{agent_id}/status": {
+      "mode": "ui-consume",
+      "spec": "test_05_tool_agent_detail.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/agent/{agent_id}/status",
+      "tags": [
+        "agent"
+      ]
+    },
+    "GET /api/apis/list": {
+      "mode": "ui-consume",
+      "spec": "test_05_tool_agent_detail.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/apis/list",
+      "tags": [
+        "api"
+      ]
+    },
+    "GET /api/auth/me": {
+      "mode": "ui-action",
+      "spec": "test_01_auth.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/auth/me",
+      "tags": [
+        "auth"
+      ]
+    },
+    "GET /api/auth/prefs": {
+      "mode": "ui-consume",
+      "spec": "test_01_auth.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/auth/prefs",
+      "tags": [
+        "auth"
+      ]
+    },
+    "GET /api/auth/superuser": {
+      "mode": "ui-consume",
+      "spec": "test_07_settings_users_cron.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/auth/superuser",
+      "tags": [
+        "auth"
+      ]
+    },
+    "GET /api/auth/users": {
+      "mode": "ui-consume",
+      "spec": "test_07_settings_users_cron.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/auth/users",
+      "tags": [
+        "auth"
+      ]
+    },
+    "GET /api/chat/platform-call/pending": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/chat/platform-call/pending",
+      "tags": [
+        "chat"
+      ]
+    },
+    "GET /api/chat/platform-ops": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/chat/platform-ops",
+      "tags": [
+        "chat"
+      ]
+    },
+    "GET /api/chat/sessions": {
+      "mode": "ui-action",
+      "spec": "test_04_chat.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/chat/sessions",
+      "tags": [
+        "chat"
+      ]
+    },
+    "GET /api/chat/sessions/{session_id}": {
+      "mode": "ui-action",
+      "spec": "test_04_chat.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/chat/sessions/{session_id}",
+      "tags": [
+        "chat"
+      ]
+    },
+    "GET /api/config/llm": {
+      "mode": "ui-consume",
+      "spec": "test_07_settings_users_cron.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/config/llm",
+      "tags": [
+        "config",
+        "config"
+      ]
+    },
+    "GET /api/cron/jobs": {
+      "mode": "ui-consume",
+      "spec": "test_07_settings_users_cron.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/cron/jobs",
+      "tags": [
+        "cron"
+      ]
+    },
+    "GET /api/cron/jobs/{job_id}": {
+      "mode": "ui-consume",
+      "spec": "test_07_settings_users_cron.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/cron/jobs/{job_id}",
+      "tags": [
+        "cron"
+      ]
+    },
+    "GET /api/cron/jobs/{job_id}/runs": {
+      "mode": "ui-consume",
+      "spec": "test_07_settings_users_cron.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/cron/jobs/{job_id}/runs",
+      "tags": [
+        "cron"
+      ]
+    },
+    "GET /api/cron/options": {
+      "mode": "ui-consume",
+      "spec": "test_07_settings_users_cron.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/cron/options",
+      "tags": [
+        "cron"
+      ]
+    },
+    "GET /api/cron/runs/recent": {
+      "mode": "ui-consume",
+      "spec": "test_07_settings_users_cron.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/cron/runs/recent",
+      "tags": [
+        "cron"
+      ]
+    },
+    "GET /api/data/list": {
+      "mode": "ui-consume",
+      "spec": "test_02_resource_browser.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/data/list",
+      "tags": [
+        "data"
+      ]
+    },
+    "GET /api/data/repository": {
+      "mode": "ui-consume",
+      "spec": "test_06_repository.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/data/repository",
+      "tags": [
+        "data"
+      ]
+    },
+    "GET /api/data/search/find": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/data/search/find",
+      "tags": [
+        "data"
+      ]
+    },
+    "GET /api/data/{dataset_id}": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/data/{dataset_id}",
+      "tags": [
+        "data"
+      ]
+    },
+    "GET /api/data/{dataset_id}/archive": {
+      "mode": "ui-action",
+      "spec": "test_03_data_preview.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/data/{dataset_id}/archive",
+      "tags": [
+        "data"
+      ]
+    },
+    "GET /api/data/{dataset_id}/files": {
+      "mode": "ui-consume",
+      "spec": "test_03_data_preview.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/data/{dataset_id}/files",
+      "tags": [
+        "data"
+      ]
+    },
+    "GET /api/data/{dataset_id}/preview": {
+      "mode": "ui-consume",
+      "spec": "test_03_data_preview.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/data/{dataset_id}/preview",
+      "tags": [
+        "data"
+      ]
+    },
+    "GET /api/data/{dataset_id}/raw": {
+      "mode": "ui-consume",
+      "spec": "test_03_data_preview.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/data/{dataset_id}/raw",
+      "tags": [
+        "data"
+      ]
+    },
+    "GET /api/data/{dataset_id}/table": {
+      "mode": "ui-consume",
+      "spec": "test_03_data_preview.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/data/{dataset_id}/table",
+      "tags": [
+        "data"
+      ]
+    },
+    "GET /api/file": {
+      "mode": "ui-action",
+      "spec": "test_08_files_tasks.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/file",
+      "tags": [
+        "file"
+      ]
+    },
+    "GET /api/file/workspace/tree": {
+      "mode": "ui-action",
+      "spec": "test_08_files_tasks.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/file/workspace/tree",
+      "tags": [
+        "file"
+      ]
+    },
+    "GET /api/file/{file_id}": {
+      "mode": "ui-action",
+      "spec": "test_08_files_tasks.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/file/{file_id}",
+      "tags": [
+        "file"
+      ]
+    },
+    "GET /api/health": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/health",
+      "tags": []
+    },
+    "GET /api/llm/config": {
+      "mode": "ui-consume",
+      "spec": "test_07_settings_users_cron.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/llm/config",
+      "tags": [
+        "llm"
+      ]
+    },
+    "GET /api/llm/test-connection": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会向外部服务发起真实网络请求，不属于离线套件",
+      "method": "GET",
+      "path": "/api/llm/test-connection",
+      "tags": [
+        "llm"
+      ]
+    },
+    "GET /api/migrate/info": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/migrate/info",
+      "tags": [
+        "migrate"
+      ]
+    },
+    "GET /api/model/list": {
+      "mode": "ui-consume",
+      "spec": "test_02_resource_browser.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/model/list",
+      "tags": [
+        "model",
+        "model"
+      ]
+    },
+    "GET /api/model/{model_id}": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/model/{model_id}",
+      "tags": [
+        "model",
+        "model"
+      ]
+    },
+    "GET /api/task-jobs/list": {
+      "mode": "ui-action",
+      "spec": "test_08_files_tasks.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/task-jobs/list",
+      "tags": [
+        "task-jobs"
+      ]
+    },
+    "GET /api/task-jobs/{task_id}": {
+      "mode": "ui-action",
+      "spec": "test_08_files_tasks.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/task-jobs/{task_id}",
+      "tags": [
+        "task-jobs"
+      ]
+    },
+    "GET /api/task/list": {
+      "mode": "ui-action",
+      "spec": "test_08_files_tasks.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/task/list",
+      "tags": [
+        "task"
+      ]
+    },
+    "GET /api/task/recent-agents": {
+      "mode": "ui-action",
+      "spec": "test_08_files_tasks.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/task/recent-agents",
+      "tags": [
+        "task"
+      ]
+    },
+    "GET /api/tool/list": {
+      "mode": "ui-consume",
+      "spec": "test_02_resource_browser.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/tool/list",
+      "tags": [
+        "tool"
+      ]
+    },
+    "GET /api/tool/repository": {
+      "mode": "ui-consume",
+      "spec": "test_06_repository.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/tool/repository",
+      "tags": [
+        "tool"
+      ]
+    },
+    "GET /api/tool/search/find": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/tool/search/find",
+      "tags": [
+        "tool"
+      ]
+    },
+    "GET /api/tool/workspace": {
+      "mode": "ui-consume",
+      "spec": "test_02_resource_browser.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/tool/workspace",
+      "tags": [
+        "tool"
+      ]
+    },
+    "GET /api/tool/{tool_id}": {
+      "mode": "ui-consume",
+      "spec": "test_05_tool_agent_detail.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/tool/{tool_id}",
+      "tags": [
+        "tool"
+      ]
+    },
+    "GET /api/tool/{tool_id}/check-deps": {
+      "mode": "ui-consume",
+      "spec": "test_05_tool_agent_detail.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/tool/{tool_id}/check-deps",
+      "tags": [
+        "tool"
+      ]
+    },
+    "GET /api/tool/{tool_id}/export": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/tool/{tool_id}/export",
+      "tags": [
+        "tool"
+      ]
+    },
+    "GET /api/tool/{tool_id}/fork-status": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "GET",
+      "path": "/api/tool/{tool_id}/fork-status",
+      "tags": [
+        "tool"
+      ]
+    },
+    "POST /api/agent/auto-debug": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会启动自动调试循环并反复调用 LLM",
+      "method": "POST",
+      "path": "/api/agent/auto-debug",
+      "tags": [
+        "agent"
+      ]
+    },
+    "POST /api/agent/auto-debug/stop": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "与 auto-debug 成对使用",
+      "method": "POST",
+      "path": "/api/agent/auto-debug/stop",
+      "tags": [
+        "agent"
+      ]
+    },
+    "POST /api/agent/bus/call": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "需要可控 Agent 运行时与 RPC 夹具；避免影响默认 Agent",
+      "method": "POST",
+      "path": "/api/agent/bus/call",
+      "tags": [
+        "agent"
+      ]
+    },
+    "POST /api/agent/bus/publish": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会向 Agent 总线发布消息，影响运行态",
+      "method": "POST",
+      "path": "/api/agent/bus/publish",
+      "tags": [
+        "agent"
+      ]
+    },
+    "POST /api/agent/generate-code": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "代码生成质量需真实 LLM 评估；假 LLM 只能验证连通性",
+      "method": "POST",
+      "path": "/api/agent/generate-code",
+      "tags": [
+        "agent"
+      ]
+    },
+    "POST /api/agent/generate-spec": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "规范生成质量需真实 LLM 评估；假 LLM 只能验证连通性",
+      "method": "POST",
+      "path": "/api/agent/generate-spec",
+      "tags": [
+        "agent"
+      ]
+    },
+    "POST /api/agent/register": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "需要完整 Agent MD/code 夹具与安全审查，后续用私有 Agent 夹具补齐",
+      "method": "POST",
+      "path": "/api/agent/register",
+      "tags": [
+        "agent"
+      ]
+    },
+    "POST /api/agent/{agent_id}/chat-history/migrate": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会迁移历史会话，破坏性写操作",
+      "method": "POST",
+      "path": "/api/agent/{agent_id}/chat-history/migrate",
+      "tags": [
+        "agent"
+      ]
+    },
+    "POST /api/agent/{agent_id}/execute": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会启动真实 Agent 任务，耗时长且改变运行态",
+      "method": "POST",
+      "path": "/api/agent/{agent_id}/execute",
+      "tags": [
+        "agent"
+      ]
+    },
+    "POST /api/agent/{agent_id}/fork": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会复制内置 Agent 到私有目录，产生额外资产",
+      "method": "POST",
+      "path": "/api/agent/{agent_id}/fork",
+      "tags": [
+        "agent"
+      ]
+    },
+    "POST /api/agent/{agent_id}/restart": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会重启内置 Agent，影响后续用例",
+      "method": "POST",
+      "path": "/api/agent/{agent_id}/restart",
+      "tags": [
+        "agent"
+      ]
+    },
+    "POST /api/agent/{agent_id}/save-code": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会改写内置 Agent 代码；需私有夹具",
+      "method": "POST",
+      "path": "/api/agent/{agent_id}/save-code",
+      "tags": [
+        "agent"
+      ]
+    },
+    "POST /api/agent/{agent_id}/save-spec": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会改写内置 Agent 规范；需私有夹具",
+      "method": "POST",
+      "path": "/api/agent/{agent_id}/save-spec",
+      "tags": [
+        "agent"
+      ]
+    },
+    "POST /api/agent/{agent_id}/save-step1": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会改写内置 Agent 需求文档；需私有夹具",
+      "method": "POST",
+      "path": "/api/agent/{agent_id}/save-step1",
+      "tags": [
+        "agent"
+      ]
+    },
+    "POST /api/agent/{agent_id}/start": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会拉起额外 Agent 子进程，影响运行态",
+      "method": "POST",
+      "path": "/api/agent/{agent_id}/start",
+      "tags": [
+        "agent"
+      ]
+    },
+    "POST /api/agent/{agent_id}/stop": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会停止内置 Agent，影响对话用例",
+      "method": "POST",
+      "path": "/api/agent/{agent_id}/stop",
+      "tags": [
+        "agent"
+      ]
+    },
+    "POST /api/agent/{agent_id}/sync-spec-from-code": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会调用 LLM 改写内置 Agent 规范",
+      "method": "POST",
+      "path": "/api/agent/{agent_id}/sync-spec-from-code",
+      "tags": [
+        "agent"
+      ]
+    },
+    "POST /api/agent/{agent_id}/test-api": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "POST",
+      "path": "/api/agent/{agent_id}/test-api",
+      "tags": [
+        "agent"
+      ]
+    },
+    "POST /api/auth/act-as-system": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "POST",
+      "path": "/api/auth/act-as-system",
+      "tags": [
+        "auth"
+      ]
+    },
+    "POST /api/auth/login": {
+      "mode": "ui-action",
+      "spec": "test_01_auth.py",
+      "reason": "",
+      "method": "POST",
+      "path": "/api/auth/login",
+      "tags": [
+        "auth"
+      ]
+    },
+    "POST /api/auth/logout": {
+      "mode": "ui-action",
+      "spec": "test_01_auth.py",
+      "reason": "",
+      "method": "POST",
+      "path": "/api/auth/logout",
+      "tags": [
+        "auth"
+      ]
+    },
+    "POST /api/auth/password": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "修改当前账号密码会让后续令牌失效",
+      "method": "POST",
+      "path": "/api/auth/password",
+      "tags": [
+        "auth"
+      ]
+    },
+    "POST /api/auth/users": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "POST",
+      "path": "/api/auth/users",
+      "tags": [
+        "auth"
+      ]
+    },
+    "POST /api/chat/platform-call": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "POST",
+      "path": "/api/chat/platform-call",
+      "tags": [
+        "chat"
+      ]
+    },
+    "POST /api/chat/platform-call/cancel": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "POST",
+      "path": "/api/chat/platform-call/cancel",
+      "tags": [
+        "chat"
+      ]
+    },
+    "POST /api/chat/platform-call/confirm": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "POST",
+      "path": "/api/chat/platform-call/confirm",
+      "tags": [
+        "chat"
+      ]
+    },
+    "POST /api/chat/send": {
+      "mode": "ui-action",
+      "spec": "test_04_chat.py",
+      "reason": "",
+      "method": "POST",
+      "path": "/api/chat/send",
+      "tags": [
+        "chat"
+      ]
+    },
+    "POST /api/chat/stop": {
+      "mode": "ui-action",
+      "spec": "test_04_chat.py",
+      "reason": "",
+      "method": "POST",
+      "path": "/api/chat/stop",
+      "tags": [
+        "chat"
+      ]
+    },
+    "POST /api/config/llm": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会改写全局 LLM 配置，破坏假 LLM 环境",
+      "method": "POST",
+      "path": "/api/config/llm",
+      "tags": [
+        "config",
+        "config"
+      ]
+    },
+    "POST /api/cron/jobs": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "POST",
+      "path": "/api/cron/jobs",
+      "tags": [
+        "cron"
+      ]
+    },
+    "POST /api/cron/jobs/{job_id}/toggle": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "POST",
+      "path": "/api/cron/jobs/{job_id}/toggle",
+      "tags": [
+        "cron"
+      ]
+    },
+    "POST /api/cron/jobs/{job_id}/trigger": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会真实触发工具/Agent 执行，依赖工具 venv 与运行态；只验证创建/更新/删除",
+      "method": "POST",
+      "path": "/api/cron/jobs/{job_id}/trigger",
+      "tags": [
+        "cron"
+      ]
+    },
+    "POST /api/data/claim-local": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会把历史条目归属改为当前用户，破坏种子归属",
+      "method": "POST",
+      "path": "/api/data/claim-local",
+      "tags": [
+        "data"
+      ]
+    },
+    "POST /api/data/generate-spec": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "规范生成需真实 LLM 质量评估",
+      "method": "POST",
+      "path": "/api/data/generate-spec",
+      "tags": [
+        "data"
+      ]
+    },
+    "POST /api/data/match-tools": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "工具匹配依赖真实 LLM 语义质量评估",
+      "method": "POST",
+      "path": "/api/data/match-tools",
+      "tags": [
+        "data"
+      ]
+    },
+    "POST /api/data/register": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "POST",
+      "path": "/api/data/register",
+      "tags": [
+        "data"
+      ]
+    },
+    "POST /api/data/scan-directory": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会扫描部署机任意目录，越权面过大",
+      "method": "POST",
+      "path": "/api/data/scan-directory",
+      "tags": [
+        "data"
+      ]
+    },
+    "POST /api/file/upload": {
+      "mode": "ui-action",
+      "spec": "test_08_files_tasks.py",
+      "reason": "",
+      "method": "POST",
+      "path": "/api/file/upload",
+      "tags": [
+        "file"
+      ]
+    },
+    "POST /api/migrate/agent/import-upload": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会写入私有资源根，需专用迁移包夹具",
+      "method": "POST",
+      "path": "/api/migrate/agent/import-upload",
+      "tags": [
+        "migrate"
+      ]
+    },
+    "POST /api/migrate/agent/{agent_id}/install-deps": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会执行 pip 安装，改变环境",
+      "method": "POST",
+      "path": "/api/migrate/agent/{agent_id}/install-deps",
+      "tags": [
+        "migrate"
+      ]
+    },
+    "POST /api/migrate/tool/import-upload": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会写入私有资源根，需专用迁移包夹具",
+      "method": "POST",
+      "path": "/api/migrate/tool/import-upload",
+      "tags": [
+        "migrate"
+      ]
+    },
+    "POST /api/model/purge-missing": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会批量删除模型条目，破坏性写操作",
+      "method": "POST",
+      "path": "/api/model/purge-missing",
+      "tags": [
+        "model",
+        "model"
+      ]
+    },
+    "POST /api/model/register": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "注册模型需要真实权重路径与产物，测试环境不提供",
+      "method": "POST",
+      "path": "/api/model/register",
+      "tags": [
+        "model",
+        "model"
+      ]
+    },
+    "POST /api/task-jobs/{task_id}/cancel": {
+      "mode": "ui-action",
+      "spec": "test_08_files_tasks.py",
+      "reason": "",
+      "method": "POST",
+      "path": "/api/task-jobs/{task_id}/cancel",
+      "tags": [
+        "task-jobs"
+      ]
+    },
+    "POST /api/tool/auto-debug": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会启动自动调试循环并反复调用 LLM",
+      "method": "POST",
+      "path": "/api/tool/auto-debug",
+      "tags": [
+        "tool"
+      ]
+    },
+    "POST /api/tool/auto-debug/stop": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "与 auto-debug 成对使用",
+      "method": "POST",
+      "path": "/api/tool/auto-debug/stop",
+      "tags": [
+        "tool"
+      ]
+    },
+    "POST /api/tool/generate-code": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "代码生成质量需真实 LLM 评估",
+      "method": "POST",
+      "path": "/api/tool/generate-code",
+      "tags": [
+        "tool"
+      ]
+    },
+    "POST /api/tool/generate-spec": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "规范生成质量需真实 LLM 评估",
+      "method": "POST",
+      "path": "/api/tool/generate-spec",
+      "tags": [
+        "tool"
+      ]
+    },
+    "POST /api/tool/import": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会写入私有资源根，需专用迁移包夹具",
+      "method": "POST",
+      "path": "/api/tool/import",
+      "tags": [
+        "tool"
+      ]
+    },
+    "POST /api/tool/register": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "POST",
+      "path": "/api/tool/register",
+      "tags": [
+        "tool"
+      ]
+    },
+    "POST /api/tool/test": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "沙箱代码执行需要额外输入/依赖，静态冒烟已覆盖注册链路",
+      "method": "POST",
+      "path": "/api/tool/test",
+      "tags": [
+        "tool"
+      ]
+    },
+    "POST /api/tool/upload-test-file": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "仅为沙箱测试上传文件，独立端到端价值低",
+      "method": "POST",
+      "path": "/api/tool/upload-test-file",
+      "tags": [
+        "tool"
+      ]
+    },
+    "POST /api/tool/workspace": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "POST",
+      "path": "/api/tool/workspace",
+      "tags": [
+        "tool"
+      ]
+    },
+    "POST /api/tool/{tool_id}/execute": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "执行依赖工具独立 venv/数据；默认只做静态冒烟，按需 --tools 执行",
+      "method": "POST",
+      "path": "/api/tool/{tool_id}/execute",
+      "tags": [
+        "tool"
+      ]
+    },
+    "POST /api/tool/{tool_id}/fork": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "POST",
+      "path": "/api/tool/{tool_id}/fork",
+      "tags": [
+        "tool"
+      ]
+    },
+    "POST /api/tool/{tool_id}/install-deps": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会执行 pip 安装，改变环境",
+      "method": "POST",
+      "path": "/api/tool/{tool_id}/install-deps",
+      "tags": [
+        "tool"
+      ]
+    },
+    "POST /api/tool/{tool_id}/modify-and-debug": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会调用 LLM 改写并启动自动调试",
+      "method": "POST",
+      "path": "/api/tool/{tool_id}/modify-and-debug",
+      "tags": [
+        "tool"
+      ]
+    },
+    "POST /api/tool/{tool_id}/modify-code": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会调用 LLM 改写工具代码",
+      "method": "POST",
+      "path": "/api/tool/{tool_id}/modify-code",
+      "tags": [
+        "tool"
+      ]
+    },
+    "POST /api/tool/{tool_id}/refine-spec-node": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会调用 LLM 精化规范节点",
+      "method": "POST",
+      "path": "/api/tool/{tool_id}/refine-spec-node",
+      "tags": [
+        "tool"
+      ]
+    },
+    "POST /api/tool/{tool_id}/refine-spec-node-stream": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会调用 LLM 精化规范节点（SSE）",
+      "method": "POST",
+      "path": "/api/tool/{tool_id}/refine-spec-node-stream",
+      "tags": [
+        "tool"
+      ]
+    },
+    "POST /api/tool/{tool_id}/save-code": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "POST",
+      "path": "/api/tool/{tool_id}/save-code",
+      "tags": [
+        "tool"
+      ]
+    },
+    "POST /api/tool/{tool_id}/save-spec": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "POST",
+      "path": "/api/tool/{tool_id}/save-spec",
+      "tags": [
+        "tool"
+      ]
+    },
+    "POST /api/tool/{tool_id}/save-step1": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "POST",
+      "path": "/api/tool/{tool_id}/save-step1",
+      "tags": [
+        "tool"
+      ]
+    },
+    "POST /api/tool/{tool_id}/spec-outline": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "POST",
+      "path": "/api/tool/{tool_id}/spec-outline",
+      "tags": [
+        "tool"
+      ]
+    },
+    "POST /api/tool/{tool_id}/spec-table": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "POST",
+      "path": "/api/tool/{tool_id}/spec-table",
+      "tags": [
+        "tool"
+      ]
+    },
+    "POST /api/tool/{tool_id}/sync-spec-from-code": {
+      "mode": "excluded",
+      "spec": "",
+      "reason": "会调用 LLM 改写规范",
+      "method": "POST",
+      "path": "/api/tool/{tool_id}/sync-spec-from-code",
+      "tags": [
+        "tool"
+      ]
+    },
+    "POST /api/tool/{tool_id}/tags": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "POST",
+      "path": "/api/tool/{tool_id}/tags",
+      "tags": [
+        "tool"
+      ]
+    },
+    "POST /api/tool/{tool_id}/update-table-cell": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "POST",
+      "path": "/api/tool/{tool_id}/update-table-cell",
+      "tags": [
+        "tool"
+      ]
+    },
+    "PUT /api/auth/me": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "PUT",
+      "path": "/api/auth/me",
+      "tags": [
+        "auth"
+      ]
+    },
+    "PUT /api/auth/prefs": {
+      "mode": "ui-action",
+      "spec": "test_01_auth.py",
+      "reason": "",
+      "method": "PUT",
+      "path": "/api/auth/prefs",
+      "tags": [
+        "auth"
+      ]
+    },
+    "PUT /api/auth/users/{uid}": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "PUT",
+      "path": "/api/auth/users/{uid}",
+      "tags": [
+        "auth"
+      ]
+    },
+    "PUT /api/auth/users/{uid}/display-name": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "PUT",
+      "path": "/api/auth/users/{uid}/display-name",
+      "tags": [
+        "auth"
+      ]
+    },
+    "PUT /api/auth/users/{uid}/password": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "PUT",
+      "path": "/api/auth/users/{uid}/password",
+      "tags": [
+        "auth"
+      ]
+    },
+    "PUT /api/cron/jobs/{job_id}": {
+      "mode": "api",
+      "spec": "test_09_routes_api_read.py",
+      "reason": "",
+      "method": "PUT",
+      "path": "/api/cron/jobs/{job_id}",
+      "tags": [
+        "cron"
+      ]
+    },
+    "PUT /api/file/workspace/tree": {
+      "mode": "ui-action",
+      "spec": "test_08_files_tasks.py",
+      "reason": "",
+      "method": "PUT",
+      "path": "/api/file/workspace/tree",
+      "tags": [
+        "file"
+      ]
+    }
+  }
+}

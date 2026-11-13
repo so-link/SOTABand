@@ -154,12 +154,12 @@ export function DataPreviewView({ datasetId }: { datasetId?: string }) {
   const pageImages = imageFiles.slice((safePage - 1) * pageSize, safePage * pageSize)
 
   return (
-    <div className="flex flex-col h-full bg-maia-surface">
+    <div data-testid="data-preview" className="flex flex-col h-full bg-maia-surface">
       {/* Header：第一行身份与统计，第二行文档工具条（与工具详情页对齐） */}
       <div className="shrink-0 border-b border-maia-border bg-maia-bg/40">
         <div className="flex items-center gap-2 px-4 h-11 min-w-0">
           <Database className="h-4 w-4 text-blue-500 shrink-0" />
-          <span className="text-[14px] font-semibold text-maia-text-heading truncate min-w-0">{dataset.name}</span>
+          <span data-testid="data-preview-title" className="text-[14px] font-semibold text-maia-text-heading truncate min-w-0">{dataset.name}</span>
           <Badge variant="success" className="shrink-0">v{dataset.version}</Badge>
           <Badge variant="accent" className="shrink-0">{dataset.format?.toUpperCase()}</Badge>
           <div className="ml-auto flex items-center gap-2 shrink-0">
@@ -269,6 +269,7 @@ export function DataPreviewView({ datasetId }: { datasetId?: string }) {
                       {imgUrl ? (
                         <div className="w-full h-full flex items-center justify-center">
                           <img
+                            data-testid="data-preview-image"
                             src={imgUrl}
                             alt={img.name as string}
                             className="max-w-full max-h-full object-contain"
@@ -306,7 +307,7 @@ export function DataPreviewView({ datasetId }: { datasetId?: string }) {
         )}
 
         {showDoc && specMd && (
-          <Card className="border-maia-border">
+          <Card data-testid="data-preview-spec" className="border-maia-border">
             <CardBody>
               <pre className="text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap">
                 {specMd.slice(0, 3000)}

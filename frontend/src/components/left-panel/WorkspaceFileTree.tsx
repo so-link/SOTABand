@@ -165,7 +165,7 @@ export function WorkspaceFileTree() {
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div data-testid="file-tree" className="flex flex-col h-full">
       {/* Search */}
       <div className="px-3 pt-3 pb-1.5">
         <div className="relative">
@@ -378,6 +378,8 @@ function FileTreeItem({
   return (
     <div className="group/tree-item">
       <div
+        data-testid={`file-node-${node.name}`}
+        data-file-name={node.name}
         draggable
         onDragStart={(e) => onDragStart(e, node)}
         onClick={() => {

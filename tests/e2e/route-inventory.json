@@ -1,0 +1,1450 @@
+{
+  "generated_at": "2026-11-13T05:37:21+00:00",
+  "source": "FastAPI app.openapi()",
+  "count": 144,
+  "routes": [
+    {
+      "key": "GET /",
+      "method": "GET",
+      "path": "/",
+      "tags": [],
+      "summary": "Root",
+      "operation_id": "root__get"
+    },
+    {
+      "key": "POST /api/agent/auto-debug",
+      "method": "POST",
+      "path": "/api/agent/auto-debug",
+      "tags": [
+        "agent"
+      ],
+      "summary": "Agent Auto Debug",
+      "operation_id": "agent_auto_debug_api_agent_auto_debug_post"
+    },
+    {
+      "key": "POST /api/agent/auto-debug/stop",
+      "method": "POST",
+      "path": "/api/agent/auto-debug/stop",
+      "tags": [
+        "agent"
+      ],
+      "summary": "Agent Stop Auto Debug",
+      "operation_id": "agent_stop_auto_debug_api_agent_auto_debug_stop_post"
+    },
+    {
+      "key": "POST /api/agent/bus/call",
+      "method": "POST",
+      "path": "/api/agent/bus/call",
+      "tags": [
+        "agent"
+      ],
+      "summary": "Bus Call",
+      "operation_id": "bus_call_api_agent_bus_call_post"
+    },
+    {
+      "key": "POST /api/agent/bus/publish",
+      "method": "POST",
+      "path": "/api/agent/bus/publish",
+      "tags": [
+        "agent"
+      ],
+      "summary": "Bus Publish",
+      "operation_id": "bus_publish_api_agent_bus_publish_post"
+    },
+    {
+      "key": "GET /api/agent/bus/status",
+      "method": "GET",
+      "path": "/api/agent/bus/status",
+      "tags": [
+        "agent"
+      ],
+      "summary": "Bus Status",
+      "operation_id": "bus_status_api_agent_bus_status_get"
+    },
+    {
+      "key": "POST /api/agent/generate-code",
+      "method": "POST",
+      "path": "/api/agent/generate-code",
+      "tags": [
+        "agent"
+      ],
+      "summary": "Generate Code",
+      "operation_id": "generate_code_api_agent_generate_code_post"
+    },
+    {
+      "key": "POST /api/agent/generate-spec",
+      "method": "POST",
+      "path": "/api/agent/generate-spec",
+      "tags": [
+        "agent"
+      ],
+      "summary": "Generate Spec",
+      "operation_id": "generate_spec_api_agent_generate_spec_post"
+    },
+    {
+      "key": "GET /api/agent/list",
+      "method": "GET",
+      "path": "/api/agent/list",
+      "tags": [
+        "agent"
+      ],
+      "summary": "List Agents",
+      "operation_id": "list_agents_api_agent_list_get"
+    },
+    {
+      "key": "POST /api/agent/register",
+      "method": "POST",
+      "path": "/api/agent/register",
+      "tags": [
+        "agent"
+      ],
+      "summary": "Register Agent",
+      "operation_id": "register_agent_api_agent_register_post"
+    },
+    {
+      "key": "DELETE /api/agent/{agent_id}",
+      "method": "DELETE",
+      "path": "/api/agent/{agent_id}",
+      "tags": [
+        "agent"
+      ],
+      "summary": "Delete Agent",
+      "operation_id": "delete_agent_api_agent__agent_id__delete"
+    },
+    {
+      "key": "GET /api/agent/{agent_id}",
+      "method": "GET",
+      "path": "/api/agent/{agent_id}",
+      "tags": [
+        "agent"
+      ],
+      "summary": "Get Agent",
+      "operation_id": "get_agent_api_agent__agent_id__get"
+    },
+    {
+      "key": "GET /api/agent/{agent_id}/api-doc",
+      "method": "GET",
+      "path": "/api/agent/{agent_id}/api-doc",
+      "tags": [
+        "agent"
+      ],
+      "summary": "Get Agent Api Doc",
+      "operation_id": "get_agent_api_doc_api_agent__agent_id__api_doc_get"
+    },
+    {
+      "key": "GET /api/agent/{agent_id}/api-doc/download",
+      "method": "GET",
+      "path": "/api/agent/{agent_id}/api-doc/download",
+      "tags": [
+        "agent"
+      ],
+      "summary": "Download Agent Api Doc",
+      "operation_id": "download_agent_api_doc_api_agent__agent_id__api_doc_download_get"
+    },
+    {
+      "key": "DELETE /api/agent/{agent_id}/chat-history",
+      "method": "DELETE",
+      "path": "/api/agent/{agent_id}/chat-history",
+      "tags": [
+        "agent"
+      ],
+      "summary": "Delete Agent Chat History",
+      "operation_id": "delete_agent_chat_history_api_agent__agent_id__chat_history_delete"
+    },
+    {
+      "key": "GET /api/agent/{agent_id}/chat-history",
+      "method": "GET",
+      "path": "/api/agent/{agent_id}/chat-history",
+      "tags": [
+        "agent"
+      ],
+      "summary": "Get Agent Chat History",
+      "operation_id": "get_agent_chat_history_api_agent__agent_id__chat_history_get"
+    },
+    {
+      "key": "POST /api/agent/{agent_id}/chat-history/migrate",
+      "method": "POST",
+      "path": "/api/agent/{agent_id}/chat-history/migrate",
+      "tags": [
+        "agent"
+      ],
+      "summary": "Migrate Agent Chat History",
+      "operation_id": "migrate_agent_chat_history_api_agent__agent_id__chat_history_migrate_post"
+    },
+    {
+      "key": "POST /api/agent/{agent_id}/execute",
+      "method": "POST",
+      "path": "/api/agent/{agent_id}/execute",
+      "tags": [
+        "agent"
+      ],
+      "summary": "Execute Agent",
+      "operation_id": "execute_agent_api_agent__agent_id__execute_post"
+    },
+    {
+      "key": "GET /api/agent/{agent_id}/export",
+      "method": "GET",
+      "path": "/api/agent/{agent_id}/export",
+      "tags": [
+        "agent"
+      ],
+      "summary": "Export Agent",
+      "operation_id": "export_agent_api_agent__agent_id__export_get"
+    },
+    {
+      "key": "DELETE /api/agent/{agent_id}/fork",
+      "method": "DELETE",
+      "path": "/api/agent/{agent_id}/fork",
+      "tags": [
+        "agent"
+      ],
+      "summary": "Discard Agent Fork",
+      "operation_id": "discard_agent_fork_api_agent__agent_id__fork_delete"
+    },
+    {
+      "key": "POST /api/agent/{agent_id}/fork",
+      "method": "POST",
+      "path": "/api/agent/{agent_id}/fork",
+      "tags": [
+        "agent"
+      ],
+      "summary": "Fork Agent",
+      "operation_id": "fork_agent_api_agent__agent_id__fork_post"
+    },
+    {
+      "key": "GET /api/agent/{agent_id}/fork-status",
+      "method": "GET",
+      "path": "/api/agent/{agent_id}/fork-status",
+      "tags": [
+        "agent"
+      ],
+      "summary": "Get Agent Fork Status",
+      "operation_id": "get_agent_fork_status_api_agent__agent_id__fork_status_get"
+    },
+    {
+      "key": "POST /api/agent/{agent_id}/restart",
+      "method": "POST",
+      "path": "/api/agent/{agent_id}/restart",
+      "tags": [
+        "agent"
+      ],
+      "summary": "Restart Agent",
+      "operation_id": "restart_agent_api_agent__agent_id__restart_post"
+    },
+    {
+      "key": "POST /api/agent/{agent_id}/save-code",
+      "method": "POST",
+      "path": "/api/agent/{agent_id}/save-code",
+      "tags": [
+        "agent"
+      ],
+      "summary": "Save Agent Code",
+      "operation_id": "save_agent_code_api_agent__agent_id__save_code_post"
+    },
+    {
+      "key": "POST /api/agent/{agent_id}/save-spec",
+      "method": "POST",
+      "path": "/api/agent/{agent_id}/save-spec",
+      "tags": [
+        "agent"
+      ],
+      "summary": "Save Agent Spec",
+      "operation_id": "save_agent_spec_api_agent__agent_id__save_spec_post"
+    },
+    {
+      "key": "POST /api/agent/{agent_id}/save-step1",
+      "method": "POST",
+      "path": "/api/agent/{agent_id}/save-step1",
+      "tags": [
+        "agent"
+      ],
+      "summary": "Save Agent Step1",
+      "operation_id": "save_agent_step1_api_agent__agent_id__save_step1_post"
+    },
+    {
+      "key": "GET /api/agent/{agent_id}/service",
+      "method": "GET",
+      "path": "/api/agent/{agent_id}/service",
+      "tags": [
+        "agent"
+      ],
+      "summary": "Get Agent Service",
+      "operation_id": "get_agent_service_api_agent__agent_id__service_get"
+    },
+    {
+      "key": "POST /api/agent/{agent_id}/start",
+      "method": "POST",
+      "path": "/api/agent/{agent_id}/start",
+      "tags": [
+        "agent"
+      ],
+      "summary": "Start Agent",
+      "operation_id": "start_agent_api_agent__agent_id__start_post"
+    },
+    {
+      "key": "GET /api/agent/{agent_id}/status",
+      "method": "GET",
+      "path": "/api/agent/{agent_id}/status",
+      "tags": [
+        "agent"
+      ],
+      "summary": "Agent Status",
+      "operation_id": "agent_status_api_agent__agent_id__status_get"
+    },
+    {
+      "key": "POST /api/agent/{agent_id}/stop",
+      "method": "POST",
+      "path": "/api/agent/{agent_id}/stop",
+      "tags": [
+        "agent"
+      ],
+      "summary": "Stop Agent",
+      "operation_id": "stop_agent_api_agent__agent_id__stop_post"
+    },
+    {
+      "key": "POST /api/agent/{agent_id}/sync-spec-from-code",
+      "method": "POST",
+      "path": "/api/agent/{agent_id}/sync-spec-from-code",
+      "tags": [
+        "agent"
+      ],
+      "summary": "Sync Spec From Code",
+      "operation_id": "sync_spec_from_code_api_agent__agent_id__sync_spec_from_code_post"
+    },
+    {
+      "key": "POST /api/agent/{agent_id}/test-api",
+      "method": "POST",
+      "path": "/api/agent/{agent_id}/test-api",
+      "tags": [
+        "agent"
+      ],
+      "summary": "Test Agent Api",
+      "operation_id": "test_agent_api_api_agent__agent_id__test_api_post"
+    },
+    {
+      "key": "GET /api/apis/list",
+      "method": "GET",
+      "path": "/api/apis/list",
+      "tags": [
+        "api"
+      ],
+      "summary": "List Apis",
+      "operation_id": "list_apis_api_apis_list_get"
+    },
+    {
+      "key": "POST /api/auth/act-as-system",
+      "method": "POST",
+      "path": "/api/auth/act-as-system",
+      "tags": [
+        "auth"
+      ],
+      "summary": "Act As System",
+      "operation_id": "act_as_system_api_auth_act_as_system_post"
+    },
+    {
+      "key": "POST /api/auth/login",
+      "method": "POST",
+      "path": "/api/auth/login",
+      "tags": [
+        "auth"
+      ],
+      "summary": "Login",
+      "operation_id": "login_api_auth_login_post"
+    },
+    {
+      "key": "POST /api/auth/logout",
+      "method": "POST",
+      "path": "/api/auth/logout",
+      "tags": [
+        "auth"
+      ],
+      "summary": "Logout",
+      "operation_id": "logout_api_auth_logout_post"
+    },
+    {
+      "key": "GET /api/auth/me",
+      "method": "GET",
+      "path": "/api/auth/me",
+      "tags": [
+        "auth"
+      ],
+      "summary": "Me",
+      "operation_id": "me_api_auth_me_get"
+    },
+    {
+      "key": "PUT /api/auth/me",
+      "method": "PUT",
+      "path": "/api/auth/me",
+      "tags": [
+        "auth"
+      ],
+      "summary": "Update Me",
+      "operation_id": "update_me_api_auth_me_put"
+    },
+    {
+      "key": "POST /api/auth/password",
+      "method": "POST",
+      "path": "/api/auth/password",
+      "tags": [
+        "auth"
+      ],
+      "summary": "Change Password",
+      "operation_id": "change_password_api_auth_password_post"
+    },
+    {
+      "key": "GET /api/auth/prefs",
+      "method": "GET",
+      "path": "/api/auth/prefs",
+      "tags": [
+        "auth"
+      ],
+      "summary": "Get Prefs",
+      "operation_id": "get_prefs_api_auth_prefs_get"
+    },
+    {
+      "key": "PUT /api/auth/prefs",
+      "method": "PUT",
+      "path": "/api/auth/prefs",
+      "tags": [
+        "auth"
+      ],
+      "summary": "Put Prefs",
+      "operation_id": "put_prefs_api_auth_prefs_put"
+    },
+    {
+      "key": "GET /api/auth/superuser",
+      "method": "GET",
+      "path": "/api/auth/superuser",
+      "tags": [
+        "auth"
+      ],
+      "summary": "Superuser Info",
+      "operation_id": "superuser_info_api_auth_superuser_get"
+    },
+    {
+      "key": "GET /api/auth/users",
+      "method": "GET",
+      "path": "/api/auth/users",
+      "tags": [
+        "auth"
+      ],
+      "summary": "Users",
+      "operation_id": "users_api_auth_users_get"
+    },
+    {
+      "key": "POST /api/auth/users",
+      "method": "POST",
+      "path": "/api/auth/users",
+      "tags": [
+        "auth"
+      ],
+      "summary": "Add User",
+      "operation_id": "add_user_api_auth_users_post"
+    },
+    {
+      "key": "DELETE /api/auth/users/{uid}",
+      "method": "DELETE",
+      "path": "/api/auth/users/{uid}",
+      "tags": [
+        "auth"
+      ],
+      "summary": "Remove User",
+      "operation_id": "remove_user_api_auth_users__uid__delete"
+    },
+    {
+      "key": "PUT /api/auth/users/{uid}",
+      "method": "PUT",
+      "path": "/api/auth/users/{uid}",
+      "tags": [
+        "auth"
+      ],
+      "summary": "Modify User",
+      "operation_id": "modify_user_api_auth_users__uid__put"
+    },
+    {
+      "key": "PUT /api/auth/users/{uid}/display-name",
+      "method": "PUT",
+      "path": "/api/auth/users/{uid}/display-name",
+      "tags": [
+        "auth"
+      ],
+      "summary": "Modify Display Name",
+      "operation_id": "modify_display_name_api_auth_users__uid__display_name_put"
+    },
+    {
+      "key": "PUT /api/auth/users/{uid}/password",
+      "method": "PUT",
+      "path": "/api/auth/users/{uid}/password",
+      "tags": [
+        "auth"
+      ],
+      "summary": "Reset Password",
+      "operation_id": "reset_password_api_auth_users__uid__password_put"
+    },
+    {
+      "key": "POST /api/chat/platform-call",
+      "method": "POST",
+      "path": "/api/chat/platform-call",
+      "tags": [
+        "chat"
+      ],
+      "summary": "Platform Call Endpoint",
+      "operation_id": "platform_call_endpoint_api_chat_platform_call_post"
+    },
+    {
+      "key": "POST /api/chat/platform-call/cancel",
+      "method": "POST",
+      "path": "/api/chat/platform-call/cancel",
+      "tags": [
+        "chat"
+      ],
+      "summary": "Platform Cancel Endpoint",
+      "operation_id": "platform_cancel_endpoint_api_chat_platform_call_cancel_post"
+    },
+    {
+      "key": "POST /api/chat/platform-call/confirm",
+      "method": "POST",
+      "path": "/api/chat/platform-call/confirm",
+      "tags": [
+        "chat"
+      ],
+      "summary": "Platform Confirm Endpoint",
+      "operation_id": "platform_confirm_endpoint_api_chat_platform_call_confirm_post"
+    },
+    {
+      "key": "GET /api/chat/platform-call/pending",
+      "method": "GET",
+      "path": "/api/chat/platform-call/pending",
+      "tags": [
+        "chat"
+      ],
+      "summary": "Platform Pending Endpoint",
+      "operation_id": "platform_pending_endpoint_api_chat_platform_call_pending_get"
+    },
+    {
+      "key": "GET /api/chat/platform-ops",
+      "method": "GET",
+      "path": "/api/chat/platform-ops",
+      "tags": [
+        "chat"
+      ],
+      "summary": "Platform Ops Endpoint",
+      "operation_id": "platform_ops_endpoint_api_chat_platform_ops_get"
+    },
+    {
+      "key": "POST /api/chat/send",
+      "method": "POST",
+      "path": "/api/chat/send",
+      "tags": [
+        "chat"
+      ],
+      "summary": "Chat Send",
+      "operation_id": "chat_send_api_chat_send_post"
+    },
+    {
+      "key": "GET /api/chat/sessions",
+      "method": "GET",
+      "path": "/api/chat/sessions",
+      "tags": [
+        "chat"
+      ],
+      "summary": "List Sessions",
+      "operation_id": "list_sessions_api_chat_sessions_get"
+    },
+    {
+      "key": "DELETE /api/chat/sessions/{session_id}",
+      "method": "DELETE",
+      "path": "/api/chat/sessions/{session_id}",
+      "tags": [
+        "chat"
+      ],
+      "summary": "Delete Session",
+      "operation_id": "delete_session_api_chat_sessions__session_id__delete"
+    },
+    {
+      "key": "GET /api/chat/sessions/{session_id}",
+      "method": "GET",
+      "path": "/api/chat/sessions/{session_id}",
+      "tags": [
+        "chat"
+      ],
+      "summary": "Get Session",
+      "operation_id": "get_session_api_chat_sessions__session_id__get"
+    },
+    {
+      "key": "POST /api/chat/stop",
+      "method": "POST",
+      "path": "/api/chat/stop",
+      "tags": [
+        "chat"
+      ],
+      "summary": "Chat Stop",
+      "operation_id": "chat_stop_api_chat_stop_post"
+    },
+    {
+      "key": "GET /api/config/llm",
+      "method": "GET",
+      "path": "/api/config/llm",
+      "tags": [
+        "config",
+        "config"
+      ],
+      "summary": "Get Llm Config",
+      "operation_id": "get_llm_config_api_config_llm_get"
+    },
+    {
+      "key": "POST /api/config/llm",
+      "method": "POST",
+      "path": "/api/config/llm",
+      "tags": [
+        "config",
+        "config"
+      ],
+      "summary": "Update Llm Config",
+      "operation_id": "update_llm_config_api_config_llm_post"
+    },
+    {
+      "key": "GET /api/cron/jobs",
+      "method": "GET",
+      "path": "/api/cron/jobs",
+      "tags": [
+        "cron"
+      ],
+      "summary": "List Jobs",
+      "operation_id": "list_jobs_api_cron_jobs_get"
+    },
+    {
+      "key": "POST /api/cron/jobs",
+      "method": "POST",
+      "path": "/api/cron/jobs",
+      "tags": [
+        "cron"
+      ],
+      "summary": "Create Job",
+      "operation_id": "create_job_api_cron_jobs_post"
+    },
+    {
+      "key": "DELETE /api/cron/jobs/{job_id}",
+      "method": "DELETE",
+      "path": "/api/cron/jobs/{job_id}",
+      "tags": [
+        "cron"
+      ],
+      "summary": "Delete Job",
+      "operation_id": "delete_job_api_cron_jobs__job_id__delete"
+    },
+    {
+      "key": "GET /api/cron/jobs/{job_id}",
+      "method": "GET",
+      "path": "/api/cron/jobs/{job_id}",
+      "tags": [
+        "cron"
+      ],
+      "summary": "Get Job",
+      "operation_id": "get_job_api_cron_jobs__job_id__get"
+    },
+    {
+      "key": "PUT /api/cron/jobs/{job_id}",
+      "method": "PUT",
+      "path": "/api/cron/jobs/{job_id}",
+      "tags": [
+        "cron"
+      ],
+      "summary": "Update Job",
+      "operation_id": "update_job_api_cron_jobs__job_id__put"
+    },
+    {
+      "key": "GET /api/cron/jobs/{job_id}/runs",
+      "method": "GET",
+      "path": "/api/cron/jobs/{job_id}/runs",
+      "tags": [
+        "cron"
+      ],
+      "summary": "Job Runs",
+      "operation_id": "job_runs_api_cron_jobs__job_id__runs_get"
+    },
+    {
+      "key": "POST /api/cron/jobs/{job_id}/toggle",
+      "method": "POST",
+      "path": "/api/cron/jobs/{job_id}/toggle",
+      "tags": [
+        "cron"
+      ],
+      "summary": "Toggle Job",
+      "operation_id": "toggle_job_api_cron_jobs__job_id__toggle_post"
+    },
+    {
+      "key": "POST /api/cron/jobs/{job_id}/trigger",
+      "method": "POST",
+      "path": "/api/cron/jobs/{job_id}/trigger",
+      "tags": [
+        "cron"
+      ],
+      "summary": "Trigger Job",
+      "operation_id": "trigger_job_api_cron_jobs__job_id__trigger_post"
+    },
+    {
+      "key": "GET /api/cron/options",
+      "method": "GET",
+      "path": "/api/cron/options",
+      "tags": [
+        "cron"
+      ],
+      "summary": "Cron Options",
+      "operation_id": "cron_options_api_cron_options_get"
+    },
+    {
+      "key": "GET /api/cron/runs/recent",
+      "method": "GET",
+      "path": "/api/cron/runs/recent",
+      "tags": [
+        "cron"
+      ],
+      "summary": "Recent Runs",
+      "operation_id": "recent_runs_api_cron_runs_recent_get"
+    },
+    {
+      "key": "POST /api/data/claim-local",
+      "method": "POST",
+      "path": "/api/data/claim-local",
+      "tags": [
+        "data"
+      ],
+      "summary": "Claim Local Datasets",
+      "operation_id": "claim_local_datasets_api_data_claim_local_post"
+    },
+    {
+      "key": "POST /api/data/generate-spec",
+      "method": "POST",
+      "path": "/api/data/generate-spec",
+      "tags": [
+        "data"
+      ],
+      "summary": "Generate Spec",
+      "operation_id": "generate_spec_api_data_generate_spec_post"
+    },
+    {
+      "key": "GET /api/data/list",
+      "method": "GET",
+      "path": "/api/data/list",
+      "tags": [
+        "data"
+      ],
+      "summary": "List Datasets",
+      "operation_id": "list_datasets_api_data_list_get"
+    },
+    {
+      "key": "POST /api/data/match-tools",
+      "method": "POST",
+      "path": "/api/data/match-tools",
+      "tags": [
+        "data"
+      ],
+      "summary": "Match Tools",
+      "operation_id": "match_tools_api_data_match_tools_post"
+    },
+    {
+      "key": "POST /api/data/register",
+      "method": "POST",
+      "path": "/api/data/register",
+      "tags": [
+        "data"
+      ],
+      "summary": "Register Dataset",
+      "operation_id": "register_dataset_api_data_register_post"
+    },
+    {
+      "key": "GET /api/data/repository",
+      "method": "GET",
+      "path": "/api/data/repository",
+      "tags": [
+        "data"
+      ],
+      "summary": "Get Dataset Repository",
+      "operation_id": "get_dataset_repository_api_data_repository_get"
+    },
+    {
+      "key": "POST /api/data/scan-directory",
+      "method": "POST",
+      "path": "/api/data/scan-directory",
+      "tags": [
+        "data"
+      ],
+      "summary": "Scan Directory",
+      "operation_id": "scan_directory_api_data_scan_directory_post"
+    },
+    {
+      "key": "GET /api/data/search/find",
+      "method": "GET",
+      "path": "/api/data/search/find",
+      "tags": [
+        "data"
+      ],
+      "summary": "Search Datasets",
+      "operation_id": "search_datasets_api_data_search_find_get"
+    },
+    {
+      "key": "DELETE /api/data/{dataset_id}",
+      "method": "DELETE",
+      "path": "/api/data/{dataset_id}",
+      "tags": [
+        "data"
+      ],
+      "summary": "Delete Dataset",
+      "operation_id": "delete_dataset_api_data__dataset_id__delete"
+    },
+    {
+      "key": "GET /api/data/{dataset_id}",
+      "method": "GET",
+      "path": "/api/data/{dataset_id}",
+      "tags": [
+        "data"
+      ],
+      "summary": "Get Dataset",
+      "operation_id": "get_dataset_api_data__dataset_id__get"
+    },
+    {
+      "key": "GET /api/data/{dataset_id}/archive",
+      "method": "GET",
+      "path": "/api/data/{dataset_id}/archive",
+      "tags": [
+        "data"
+      ],
+      "summary": "Download Archive",
+      "operation_id": "download_archive_api_data__dataset_id__archive_get"
+    },
+    {
+      "key": "GET /api/data/{dataset_id}/files",
+      "method": "GET",
+      "path": "/api/data/{dataset_id}/files",
+      "tags": [
+        "data"
+      ],
+      "summary": "List Files",
+      "operation_id": "list_files_api_data__dataset_id__files_get"
+    },
+    {
+      "key": "GET /api/data/{dataset_id}/preview",
+      "method": "GET",
+      "path": "/api/data/{dataset_id}/preview",
+      "tags": [
+        "data"
+      ],
+      "summary": "Preview Dataset",
+      "operation_id": "preview_dataset_api_data__dataset_id__preview_get"
+    },
+    {
+      "key": "GET /api/data/{dataset_id}/raw",
+      "method": "GET",
+      "path": "/api/data/{dataset_id}/raw",
+      "tags": [
+        "data"
+      ],
+      "summary": "Get Raw File",
+      "operation_id": "get_raw_file_api_data__dataset_id__raw_get"
+    },
+    {
+      "key": "GET /api/data/{dataset_id}/table",
+      "method": "GET",
+      "path": "/api/data/{dataset_id}/table",
+      "tags": [
+        "data"
+      ],
+      "summary": "Preview Table",
+      "operation_id": "preview_table_api_data__dataset_id__table_get"
+    },
+    {
+      "key": "GET /api/file",
+      "method": "GET",
+      "path": "/api/file",
+      "tags": [
+        "file"
+      ],
+      "summary": "List Registered Files",
+      "operation_id": "list_registered_files_api_file_get"
+    },
+    {
+      "key": "POST /api/file/upload",
+      "method": "POST",
+      "path": "/api/file/upload",
+      "tags": [
+        "file"
+      ],
+      "summary": "Upload File",
+      "operation_id": "upload_file_api_file_upload_post"
+    },
+    {
+      "key": "GET /api/file/workspace/tree",
+      "method": "GET",
+      "path": "/api/file/workspace/tree",
+      "tags": [
+        "file"
+      ],
+      "summary": "Get Workspace Tree",
+      "operation_id": "get_workspace_tree_api_file_workspace_tree_get"
+    },
+    {
+      "key": "PUT /api/file/workspace/tree",
+      "method": "PUT",
+      "path": "/api/file/workspace/tree",
+      "tags": [
+        "file"
+      ],
+      "summary": "Save Workspace Tree",
+      "operation_id": "save_workspace_tree_api_file_workspace_tree_put"
+    },
+    {
+      "key": "DELETE /api/file/{file_id}",
+      "method": "DELETE",
+      "path": "/api/file/{file_id}",
+      "tags": [
+        "file"
+      ],
+      "summary": "Delete Registered File",
+      "operation_id": "delete_registered_file_api_file__file_id__delete"
+    },
+    {
+      "key": "GET /api/file/{file_id}",
+      "method": "GET",
+      "path": "/api/file/{file_id}",
+      "tags": [
+        "file"
+      ],
+      "summary": "Serve File",
+      "operation_id": "serve_file_api_file__file_id__get"
+    },
+    {
+      "key": "GET /api/health",
+      "method": "GET",
+      "path": "/api/health",
+      "tags": [],
+      "summary": "Health",
+      "operation_id": "health_api_health_get"
+    },
+    {
+      "key": "GET /api/llm/config",
+      "method": "GET",
+      "path": "/api/llm/config",
+      "tags": [
+        "llm"
+      ],
+      "summary": "Get Config",
+      "operation_id": "get_config_api_llm_config_get"
+    },
+    {
+      "key": "GET /api/llm/test-connection",
+      "method": "GET",
+      "path": "/api/llm/test-connection",
+      "tags": [
+        "llm"
+      ],
+      "summary": "Test Connection",
+      "operation_id": "test_connection_api_llm_test_connection_get"
+    },
+    {
+      "key": "POST /api/migrate/agent/import-upload",
+      "method": "POST",
+      "path": "/api/migrate/agent/import-upload",
+      "tags": [
+        "migrate"
+      ],
+      "summary": "Import Agent Upload",
+      "operation_id": "import_agent_upload_api_migrate_agent_import_upload_post"
+    },
+    {
+      "key": "POST /api/migrate/agent/{agent_id}/install-deps",
+      "method": "POST",
+      "path": "/api/migrate/agent/{agent_id}/install-deps",
+      "tags": [
+        "migrate"
+      ],
+      "summary": "Install Agent Deps",
+      "operation_id": "install_agent_deps_api_migrate_agent__agent_id__install_deps_post"
+    },
+    {
+      "key": "GET /api/migrate/info",
+      "method": "GET",
+      "path": "/api/migrate/info",
+      "tags": [
+        "migrate"
+      ],
+      "summary": "Migrate Info",
+      "operation_id": "migrate_info_api_migrate_info_get"
+    },
+    {
+      "key": "POST /api/migrate/tool/import-upload",
+      "method": "POST",
+      "path": "/api/migrate/tool/import-upload",
+      "tags": [
+        "migrate"
+      ],
+      "summary": "Import Tool Upload",
+      "operation_id": "import_tool_upload_api_migrate_tool_import_upload_post"
+    },
+    {
+      "key": "GET /api/model/list",
+      "method": "GET",
+      "path": "/api/model/list",
+      "tags": [
+        "model",
+        "model"
+      ],
+      "summary": "List Models",
+      "operation_id": "list_models_api_model_list_get"
+    },
+    {
+      "key": "POST /api/model/purge-missing",
+      "method": "POST",
+      "path": "/api/model/purge-missing",
+      "tags": [
+        "model",
+        "model"
+      ],
+      "summary": "Purge Missing Models",
+      "operation_id": "purge_missing_models_api_model_purge_missing_post"
+    },
+    {
+      "key": "POST /api/model/register",
+      "method": "POST",
+      "path": "/api/model/register",
+      "tags": [
+        "model",
+        "model"
+      ],
+      "summary": "Register Model",
+      "operation_id": "register_model_api_model_register_post"
+    },
+    {
+      "key": "DELETE /api/model/{model_id}",
+      "method": "DELETE",
+      "path": "/api/model/{model_id}",
+      "tags": [
+        "model",
+        "model"
+      ],
+      "summary": "Delete Model",
+      "operation_id": "delete_model_api_model__model_id__delete"
+    },
+    {
+      "key": "GET /api/model/{model_id}",
+      "method": "GET",
+      "path": "/api/model/{model_id}",
+      "tags": [
+        "model",
+        "model"
+      ],
+      "summary": "Get Model",
+      "operation_id": "get_model_api_model__model_id__get"
+    },
+    {
+      "key": "GET /api/task-jobs/list",
+      "method": "GET",
+      "path": "/api/task-jobs/list",
+      "tags": [
+        "task-jobs"
+      ],
+      "summary": "List Jobs",
+      "operation_id": "list_jobs_api_task_jobs_list_get"
+    },
+    {
+      "key": "GET /api/task-jobs/{task_id}",
+      "method": "GET",
+      "path": "/api/task-jobs/{task_id}",
+      "tags": [
+        "task-jobs"
+      ],
+      "summary": "Get Job",
+      "operation_id": "get_job_api_task_jobs__task_id__get"
+    },
+    {
+      "key": "POST /api/task-jobs/{task_id}/cancel",
+      "method": "POST",
+      "path": "/api/task-jobs/{task_id}/cancel",
+      "tags": [
+        "task-jobs"
+      ],
+      "summary": "Cancel Job",
+      "operation_id": "cancel_job_api_task_jobs__task_id__cancel_post"
+    },
+    {
+      "key": "GET /api/task/list",
+      "method": "GET",
+      "path": "/api/task/list",
+      "tags": [
+        "task"
+      ],
+      "summary": "List Tasks",
+      "operation_id": "list_tasks_api_task_list_get"
+    },
+    {
+      "key": "GET /api/task/recent-agents",
+      "method": "GET",
+      "path": "/api/task/recent-agents",
+      "tags": [
+        "task"
+      ],
+      "summary": "Recent Agents",
+      "operation_id": "recent_agents_api_task_recent_agents_get"
+    },
+    {
+      "key": "DELETE /api/task/{task_id}",
+      "method": "DELETE",
+      "path": "/api/task/{task_id}",
+      "tags": [
+        "task"
+      ],
+      "summary": "Delete Task",
+      "operation_id": "delete_task_api_task__task_id__delete"
+    },
+    {
+      "key": "POST /api/tool/auto-debug",
+      "method": "POST",
+      "path": "/api/tool/auto-debug",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Auto Debug",
+      "operation_id": "auto_debug_api_tool_auto_debug_post"
+    },
+    {
+      "key": "POST /api/tool/auto-debug/stop",
+      "method": "POST",
+      "path": "/api/tool/auto-debug/stop",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Stop Auto Debug",
+      "operation_id": "stop_auto_debug_api_tool_auto_debug_stop_post"
+    },
+    {
+      "key": "POST /api/tool/generate-code",
+      "method": "POST",
+      "path": "/api/tool/generate-code",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Generate Code",
+      "operation_id": "generate_code_api_tool_generate_code_post"
+    },
+    {
+      "key": "POST /api/tool/generate-spec",
+      "method": "POST",
+      "path": "/api/tool/generate-spec",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Generate Spec",
+      "operation_id": "generate_spec_api_tool_generate_spec_post"
+    },
+    {
+      "key": "POST /api/tool/import",
+      "method": "POST",
+      "path": "/api/tool/import",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Import Tool",
+      "operation_id": "import_tool_api_tool_import_post"
+    },
+    {
+      "key": "GET /api/tool/list",
+      "method": "GET",
+      "path": "/api/tool/list",
+      "tags": [
+        "tool"
+      ],
+      "summary": "List Tools",
+      "operation_id": "list_tools_api_tool_list_get"
+    },
+    {
+      "key": "POST /api/tool/register",
+      "method": "POST",
+      "path": "/api/tool/register",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Register Tool",
+      "operation_id": "register_tool_api_tool_register_post"
+    },
+    {
+      "key": "GET /api/tool/repository",
+      "method": "GET",
+      "path": "/api/tool/repository",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Repository",
+      "operation_id": "repository_api_tool_repository_get"
+    },
+    {
+      "key": "GET /api/tool/search/find",
+      "method": "GET",
+      "path": "/api/tool/search/find",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Search Tools",
+      "operation_id": "search_tools_api_tool_search_find_get"
+    },
+    {
+      "key": "POST /api/tool/test",
+      "method": "POST",
+      "path": "/api/tool/test",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Test Tool",
+      "operation_id": "test_tool_api_tool_test_post"
+    },
+    {
+      "key": "POST /api/tool/upload-test-file",
+      "method": "POST",
+      "path": "/api/tool/upload-test-file",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Upload Test File",
+      "operation_id": "upload_test_file_api_tool_upload_test_file_post"
+    },
+    {
+      "key": "GET /api/tool/workspace",
+      "method": "GET",
+      "path": "/api/tool/workspace",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Get Workspace",
+      "operation_id": "get_workspace_api_tool_workspace_get"
+    },
+    {
+      "key": "POST /api/tool/workspace",
+      "method": "POST",
+      "path": "/api/tool/workspace",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Add Workspace Tool",
+      "operation_id": "add_workspace_tool_api_tool_workspace_post"
+    },
+    {
+      "key": "DELETE /api/tool/workspace/{tool_id}",
+      "method": "DELETE",
+      "path": "/api/tool/workspace/{tool_id}",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Remove Workspace Tool",
+      "operation_id": "remove_workspace_tool_api_tool_workspace__tool_id__delete"
+    },
+    {
+      "key": "DELETE /api/tool/{tool_id}",
+      "method": "DELETE",
+      "path": "/api/tool/{tool_id}",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Delete Tool",
+      "operation_id": "delete_tool_api_tool__tool_id__delete"
+    },
+    {
+      "key": "GET /api/tool/{tool_id}",
+      "method": "GET",
+      "path": "/api/tool/{tool_id}",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Get Tool",
+      "operation_id": "get_tool_api_tool__tool_id__get"
+    },
+    {
+      "key": "GET /api/tool/{tool_id}/check-deps",
+      "method": "GET",
+      "path": "/api/tool/{tool_id}/check-deps",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Check Deps",
+      "operation_id": "check_deps_api_tool__tool_id__check_deps_get"
+    },
+    {
+      "key": "POST /api/tool/{tool_id}/execute",
+      "method": "POST",
+      "path": "/api/tool/{tool_id}/execute",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Execute Tool",
+      "operation_id": "execute_tool_api_tool__tool_id__execute_post"
+    },
+    {
+      "key": "GET /api/tool/{tool_id}/export",
+      "method": "GET",
+      "path": "/api/tool/{tool_id}/export",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Export Tool",
+      "operation_id": "export_tool_api_tool__tool_id__export_get"
+    },
+    {
+      "key": "DELETE /api/tool/{tool_id}/fork",
+      "method": "DELETE",
+      "path": "/api/tool/{tool_id}/fork",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Discard Tool Fork",
+      "operation_id": "discard_tool_fork_api_tool__tool_id__fork_delete"
+    },
+    {
+      "key": "POST /api/tool/{tool_id}/fork",
+      "method": "POST",
+      "path": "/api/tool/{tool_id}/fork",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Fork Tool",
+      "operation_id": "fork_tool_api_tool__tool_id__fork_post"
+    },
+    {
+      "key": "GET /api/tool/{tool_id}/fork-status",
+      "method": "GET",
+      "path": "/api/tool/{tool_id}/fork-status",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Get Fork Status",
+      "operation_id": "get_fork_status_api_tool__tool_id__fork_status_get"
+    },
+    {
+      "key": "POST /api/tool/{tool_id}/install-deps",
+      "method": "POST",
+      "path": "/api/tool/{tool_id}/install-deps",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Install Deps",
+      "operation_id": "install_deps_api_tool__tool_id__install_deps_post"
+    },
+    {
+      "key": "POST /api/tool/{tool_id}/modify-and-debug",
+      "method": "POST",
+      "path": "/api/tool/{tool_id}/modify-and-debug",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Modify And Debug",
+      "operation_id": "modify_and_debug_api_tool__tool_id__modify_and_debug_post"
+    },
+    {
+      "key": "POST /api/tool/{tool_id}/modify-code",
+      "method": "POST",
+      "path": "/api/tool/{tool_id}/modify-code",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Modify Code",
+      "operation_id": "modify_code_api_tool__tool_id__modify_code_post"
+    },
+    {
+      "key": "POST /api/tool/{tool_id}/refine-spec-node",
+      "method": "POST",
+      "path": "/api/tool/{tool_id}/refine-spec-node",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Refine Spec Node",
+      "operation_id": "refine_spec_node_api_tool__tool_id__refine_spec_node_post"
+    },
+    {
+      "key": "POST /api/tool/{tool_id}/refine-spec-node-stream",
+      "method": "POST",
+      "path": "/api/tool/{tool_id}/refine-spec-node-stream",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Refine Spec Node Stream",
+      "operation_id": "refine_spec_node_stream_api_tool__tool_id__refine_spec_node_stream_post"
+    },
+    {
+      "key": "POST /api/tool/{tool_id}/save-code",
+      "method": "POST",
+      "path": "/api/tool/{tool_id}/save-code",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Save Code",
+      "operation_id": "save_code_api_tool__tool_id__save_code_post"
+    },
+    {
+      "key": "POST /api/tool/{tool_id}/save-spec",
+      "method": "POST",
+      "path": "/api/tool/{tool_id}/save-spec",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Save Spec",
+      "operation_id": "save_spec_api_tool__tool_id__save_spec_post"
+    },
+    {
+      "key": "POST /api/tool/{tool_id}/save-step1",
+      "method": "POST",
+      "path": "/api/tool/{tool_id}/save-step1",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Save Step1",
+      "operation_id": "save_step1_api_tool__tool_id__save_step1_post"
+    },
+    {
+      "key": "POST /api/tool/{tool_id}/spec-outline",
+      "method": "POST",
+      "path": "/api/tool/{tool_id}/spec-outline",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Get Spec Outline",
+      "operation_id": "get_spec_outline_api_tool__tool_id__spec_outline_post"
+    },
+    {
+      "key": "POST /api/tool/{tool_id}/spec-table",
+      "method": "POST",
+      "path": "/api/tool/{tool_id}/spec-table",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Get Spec Table",
+      "operation_id": "get_spec_table_api_tool__tool_id__spec_table_post"
+    },
+    {
+      "key": "POST /api/tool/{tool_id}/sync-spec-from-code",
+      "method": "POST",
+      "path": "/api/tool/{tool_id}/sync-spec-from-code",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Sync Spec From Code",
+      "operation_id": "sync_spec_from_code_api_tool__tool_id__sync_spec_from_code_post"
+    },
+    {
+      "key": "POST /api/tool/{tool_id}/tags",
+      "method": "POST",
+      "path": "/api/tool/{tool_id}/tags",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Update Tool Tags",
+      "operation_id": "update_tool_tags_api_tool__tool_id__tags_post"
+    },
+    {
+      "key": "POST /api/tool/{tool_id}/update-table-cell",
+      "method": "POST",
+      "path": "/api/tool/{tool_id}/update-table-cell",
+      "tags": [
+        "tool"
+      ],
+      "summary": "Update Table Cell Api",
+      "operation_id": "update_table_cell_api_api_tool__tool_id__update_table_cell_post"
+    }
+  ]
+}

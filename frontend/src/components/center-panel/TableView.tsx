@@ -66,7 +66,7 @@ export function TableView({
 
       {/* 纵向由外层内容区统一滚动，这里只保留横向滚动，避免出现两层滚动条 */}
       <div className="overflow-x-auto border border-maia-border rounded">
-        <table className="w-full text-[13px] border-collapse">
+        <table data-testid="data-table-preview" className="w-full text-[13px] border-collapse">
           <thead className="sticky top-0 z-10">
             <tr className="bg-maia-bg">
               <th className="text-left px-2.5 py-2 text-maia-text-muted font-medium border-b border-maia-border whitespace-nowrap w-10">#</th>

@@ -1,0 +1,18 @@
+{
+  "_comment": [
+    "按提示词包含关键字匹配；默认回复带 run nonce，用于证明流式内容真的渲染。",
+    "SLOWSTREAM 规则用于停止按钮用例：分块较多，前端先渲染再中断。"
+  ],
+  "default": "E2E_REPLY_{{nonce}}",
+  "rules": [
+    {
+      "match": "SLOWSTREAM_9f3c",
+      "response": "E2E_SLOW_CHUNK ",
+      "repeat": 600
+    },
+    {
+      "match": "__default__",
+      "response": "E2E_REPLY_{{nonce}}"
+    }
+  ]
+}

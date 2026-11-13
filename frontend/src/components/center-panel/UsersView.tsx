@@ -68,7 +68,7 @@ export function UsersView() {
 
   if (!isAdmin) {
     return (
-      <div className="h-full overflow-auto">
+      <div data-testid="users-view" className="h-full overflow-auto">
         <div className="max-w-2xl mx-auto px-6 py-16 text-center text-[13px] text-maia-text-muted">
           仅超级用户可管理用户。
         </div>
@@ -82,7 +82,7 @@ export function UsersView() {
   }
 
   return (
-    <div className="h-full overflow-auto">
+    <div data-testid="users-view" className="h-full overflow-auto">
       <div className="max-w-4xl mx-auto px-6 py-6">
         <div className="flex items-center gap-3 mb-4">
           <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-maia-accent/10 border border-maia-accent-border">

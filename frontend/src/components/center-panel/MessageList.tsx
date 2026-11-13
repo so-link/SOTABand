@@ -60,7 +60,7 @@ export function MessageList({ messages, isSending }: MessageListProps) {
   }, [isSending])
 
   return (
-    <div ref={containerRef} className="h-full overflow-auto px-4 py-4">
+    <div ref={containerRef} data-testid="chat-message-list" className="h-full overflow-auto px-4 py-4">
       <div ref={contentRef} className="w-full flex flex-col gap-4">
         {messages.map((msg) => (
           <MessageBubble key={msg.id} message={msg} />

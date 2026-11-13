@@ -36,7 +36,7 @@ USER_REQUEST = "广州明天天气怎么样？"
 # 否则还没等到结果就先断言失败。
 TIMEOUT_MS = int(float(__import__("os").environ.get("SOTABAND_E2E_TIMEOUT", "420")) * 1000)
 
-pytestmark = pytest.mark.e2e
+pytestmark = [pytest.mark.e2e, pytest.mark.e2e_live]
 
 
 # ────────────────────────── 页面动作 ──────────────────────────

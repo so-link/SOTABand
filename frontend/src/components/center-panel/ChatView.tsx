@@ -79,6 +79,7 @@ export function ChatView() {
 
   return (
     <div
+      data-testid="chat-view"
       className="relative flex flex-col h-full"
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
@@ -88,6 +89,7 @@ export function ChatView() {
       {messages.length > 0 && (
         <div className="flex items-center justify-end px-4 pt-2 shrink-0">
           <button
+            data-testid="chat-new-session"
             onClick={() => clearMessages()}
             className="inline-flex items-center gap-1 h-6 px-1.5 rounded text-[13px] text-maia-text-muted hover:text-maia-accent hover:bg-maia-sidebar-hover transition-colors"
             title="开启一个新会话（当前会话仍保留在右侧对话历史）"

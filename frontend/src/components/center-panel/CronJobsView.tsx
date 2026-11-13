@@ -231,7 +231,7 @@ export function CronJobsView() {
   }
 
   return (
-    <div className="flex flex-col h-full overflow-auto">
+    <div data-testid="cron-jobs-view" className="flex flex-col h-full overflow-auto">
       <div className="sticky top-0 z-10 flex items-center gap-2 px-4 h-11 bg-maia-surface border-b border-maia-border shrink-0">
         <CalendarClock className="h-4 w-4 text-cyan-500" />
         <span className="text-[14px] font-medium text-maia-text">定时任务</span>

@@ -1,0 +1,147 @@
+{
+  "description": "为 wxbit E2E 可测性对生产前端所做的全部改动。约束：只新增 data-testid 锚点，不改变业务逻辑、接口结构与样式行为。",
+  "generated_at": "2026-11-13",
+  "changes": [
+    {
+      "file": "frontend/src/layouts/MainLayout.tsx",
+      "change": "根容器新增 data-testid=main-layout",
+      "intent": "判定已登录主界面挂载",
+      "impact": "仅新增 DOM 属性；无状态/事件/请求/样式变化"
+    },
+    {
+      "file": "frontend/src/components/topbar/LoginDialog.tsx",
+      "change": "新增 login-dialog / login-username / login-password / login-submit / login-error",
+      "intent": "驱动登录框、错误密码与登录成功流程",
+      "impact": "仅新增 DOM 属性；无行为变化"
+    },
+    {
+      "file": "frontend/src/components/topbar/TopBar.tsx",
+      "change": "新增 topbar-login / user-menu / logout-button / open-settings / open-users",
+      "intent": "登录入口、用户菜单、退出与管理员页面入口",
+      "impact": "仅新增 DOM 属性；无行为变化"
+    },
+    {
+      "file": "frontend/src/components/left-panel/LeftPanel.tsx",
+      "change": "两个页签按钮新增 left-tab-files / left-tab-resources",
+      "intent": "在文件与资源空间之间切换",
+      "impact": "仅新增 DOM 属性；无行为变化"
+    },
+    {
+      "file": "frontend/src/components/left-panel/ResourceBrowser.tsx",
+      "change": "根/分区/计数/资源行新增 resource-browser、resource-section-{type}、resource-count-{type}、resource-row-{type}-{id}、cron-jobs-entry",
+      "intent": "对数据/工具/模型/Agent 计数与条目做接口到 DOM 对账",
+      "impact": "仅新增 DOM 属性；无行为变化"
+    },
+    {
+      "file": "frontend/src/components/left-panel/WorkspaceFileTree.tsx",
+      "change": "根容器新增 file-tree；文件节点新增 file-node-{name} 与 data-file-name",
+      "intent": "上传后定位文件并双击预览",
+      "impact": "仅新增 DOM 属性；无行为变化"
+    },
+    {
+      "file": "frontend/src/components/center-panel/ChatView.tsx",
+      "change": "根容器新增 chat-view；新建对话按钮新增 chat-new-session",
+      "intent": "判定对话视图与新会话入口",
+      "impact": "仅新增 DOM 属性；无行为变化"
+    },
+    {
+      "file": "frontend/src/components/center-panel/MessageList.tsx",
+      "change": "消息容器新增 chat-message-list",
+      "intent": "断言流式回复真的渲染到消息列表",
+      "impact": "仅新增 DOM 属性；无行为变化"
+    },
+    {
+      "file": "frontend/src/components/center-panel/MessageBubble.tsx",
+      "change": "用户/助手消息新增 chat-message；保留原有 data-role/data-msg",
+      "intent": "按消息项断言内容",
+      "impact": "仅新增 DOM 属性；无行为变化"
+    },
+    {
+      "file": "frontend/src/components/center-panel/ChatInput.tsx",
+      "change": "新增 chat-input / chat-send / chat-stop / chat-confirm-policy",
+      "intent": "驱动发送、停止与确认策略",
+      "impact": "仅新增 DOM 属性；无行为变化"
+    },
+    {
+      "file": "frontend/src/components/center-panel/DataPreviewView.tsx",
+      "change": "新增 data-preview / data-preview-title / data-preview-image / data-preview-spec",
+      "intent": "把预览接口的标题、图片、规范与页面实际渲染对账",
+      "impact": "仅新增 DOM 属性；无行为变化"
+    },
+    {
+      "file": "frontend/src/components/right-panel/DatasetFilesPanel.tsx",
+      "change": "新增 data-preview-files / data-preview-file-row（含 data-file-name）",
+      "intent": "对预览接口的 files 清单做区域化对账",
+      "impact": "仅新增 DOM 属性；无行为变化"
+    },
+    {
+      "file": "frontend/src/components/center-panel/TableView.tsx",
+      "change": "表格新增 data-table-preview",
+      "intent": "定位数据集 CSV 表格",
+      "impact": "仅新增 DOM 属性；无行为变化"
+    },
+    {
+      "file": "frontend/src/components/center-panel/ToolDetailView.tsx",
+      "change": "新增 tool-detail / tool-detail-name / tool-md-toggle / tool-code-toggle",
+      "intent": "断言工具详情名称、规范与代码渲染",
+      "impact": "仅新增 DOM 属性；无行为变化"
+    },
+    {
+      "file": "frontend/src/components/center-panel/AgentDetailView.tsx",
+      "change": "新增 agent-detail / agent-detail-name / agent-md-toggle / agent-code-toggle",
+      "intent": "断言 Agent 详情名称、规范与代码渲染",
+      "impact": "仅新增 DOM 属性；无行为变化"
+    },
+    {
+      "file": "frontend/src/components/center-panel/RepositoryView.tsx",
+      "change": "新增 tool-repository / tool-repository-count / tool-repository-search / tool-repository-card-{id}",
+      "intent": "工具仓库列表与计数对账",
+      "impact": "仅新增 DOM 属性；无行为变化"
+    },
+    {
+      "file": "frontend/src/components/center-panel/DatasetRepositoryView.tsx",
+      "change": "根容器新增 dataset-repository",
+      "intent": "数据集仓库视图定位",
+      "impact": "仅新增 DOM 属性；无行为变化"
+    },
+    {
+      "file": "frontend/src/components/center-panel/SettingsView.tsx",
+      "change": "管理员/非管理员两个分支根容器新增 settings-view",
+      "intent": "两种权限状态都能判定设置页",
+      "impact": "仅新增 DOM 属性；无行为变化"
+    },
+    {
+      "file": "frontend/src/components/center-panel/UsersView.tsx",
+      "change": "管理员/非管理员两个分支根容器新增 users-view",
+      "intent": "用户管理页与权限分支定位",
+      "impact": "仅新增 DOM 属性；无行为变化"
+    },
+    {
+      "file": "frontend/src/components/center-panel/CronJobsView.tsx",
+      "change": "根容器新增 cron-jobs-view",
+      "intent": "定时任务列表定位",
+      "impact": "仅新增 DOM 属性；无行为变化"
+    },
+    {
+      "file": "frontend/src/components/center-panel/TaskMonitorView.tsx",
+      "change": "占位视图外层新增 task-monitor-view",
+      "intent": "任务监控占位页定位",
+      "impact": "新增一层无语义包裹 div；无样式/行为变化"
+    },
+    {
+      "file": "frontend/src/components/center-panel/FilePreviewView.tsx",
+      "change": "根容器新增 file-preview",
+      "intent": "文件预览内容定位",
+      "impact": "仅新增 DOM 属性；无行为变化"
+    }
+  ],
+  "test_infrastructure": [
+    "tests/e2e/conftest.py：保留原有 browser/token/page，增加 admin_token、api、fixtures、anon_page、page_factory、守卫、覆盖记录与失败截图",
+    "tests/e2e/helpers/**：API 客户端、接口到 DOM 对账、静默失败守卫、覆盖率记录、选择器、夹具、认证",
+    "tests/e2e/full/**：核心 UI 与路由 API 用例",
+    "scripts/e2e/**：隔离编排、假 LLM、夹具、路由清单、覆盖门禁、工具回归",
+    "pyproject.toml：e2e extra 增加 pandas/openpyxl；新增 e2e_live marker",
+    "Makefile：新增 test-e2e-full",
+    ".gitignore：忽略 dist/e2e-report 与 tests/e2e/.auth"
+  ]
+}

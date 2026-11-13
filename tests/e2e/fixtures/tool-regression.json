@@ -1,0 +1,81 @@
+{
+  "_comment": [
+    "工具执行回归清单。默认不运行；编排器传 --tools / --tool-profile / --tool-tag 才会执行。",
+    "静态冒烟覆盖全部 53 个工具；这里只登记可离线、低依赖的 fast 执行用例。",
+    "执行失败只写 dist/e2e-report/tools.*，不阻断浏览器主套件。"
+  ],
+  "tools": [
+    {
+      "id": "calculate-circle-area",
+      "profile": "fast",
+      "tags": ["几何", "数学"],
+      "cases": [
+        {
+          "name": "半径 2",
+          "params": { "radius": 2 },
+          "timeout_s": 60,
+          "expect": { "success": true, "contains": ["status"] }
+        }
+      ]
+    },
+    {
+      "id": "calc-square",
+      "profile": "fast",
+      "tags": ["数学"],
+      "cases": [
+        {
+          "name": "5 的平方",
+          "params": { "n": 5 },
+          "timeout_s": 60,
+          "expect": { "success": true, "contains": ["status"] }
+        }
+      ]
+    },
+    {
+      "id": "test-greeting",
+      "profile": "fast",
+      "tags": ["示例"],
+      "cases": [
+        {
+          "name": "中文问候",
+          "params": { "command": "你好" },
+          "timeout_s": 60,
+          "expect": { "success": true, "contains": ["status"] }
+        }
+      ]
+    },
+    {
+      "id": "helloword",
+      "profile": "fast",
+      "tags": ["示例"],
+      "cases": [
+        {
+          "name": "字符串拼接",
+          "params": { "str": "world" },
+          "timeout_s": 60,
+          "expect": { "success": true, "contains": ["status"] }
+        }
+      ]
+    },
+    {
+      "id": "github-code-search",
+      "profile": "excluded",
+      "reason": "依赖外网与 GitHub Token；静态冒烟覆盖注册契约"
+    },
+    {
+      "id": "download-voc2007-dataset",
+      "profile": "excluded",
+      "reason": "需要外网下载大型数据集"
+    },
+    {
+      "id": "face-detection",
+      "profile": "excluded",
+      "reason": "需要人脸图片与检测模型权重"
+    },
+    {
+      "id": "meal-replacement-shape-prediction-training",
+      "profile": "excluded",
+      "reason": "训练类工具，耗时且依赖数据文件"
+    }
+  ]
+}

@@ -528,12 +528,12 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
   }
 
   return (
-    <div className="flex flex-col h-full bg-maia-surface">
+    <div data-testid="tool-detail" className="flex flex-col h-full bg-maia-surface">
       {/* Header：第一行身份与操作，第二行文档/代码工具条（与 Agent 详情页对齐） */}
       <div className="shrink-0 border-b border-maia-border bg-maia-bg/40">
         <div className="flex items-center gap-2 px-4 h-11 min-w-0">
           <Wrench className="h-4 w-4 text-amber-500 shrink-0" />
-          <span className="text-[14px] font-semibold text-maia-text-heading truncate min-w-0">
+          <span data-testid="tool-detail-name" className="text-[14px] font-semibold text-maia-text-heading truncate min-w-0">
             {tool.name}
           </span>
           <Badge variant="success" className="shrink-0">v{tool.version}</Badge>
@@ -598,6 +598,7 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
             </button>
           )}
           <button
+            data-testid="tool-md-toggle"
             onClick={() => setShowSpec(!showSpec)}
             className={cn(
               'inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-[12px] whitespace-nowrap border transition-colors shrink-0',
@@ -625,6 +626,7 @@ export function ToolDetailView({ toolId }: { toolId?: string } = {}) {
             </button>
           )}
           <button
+            data-testid="tool-code-toggle"
             onClick={() => setShowCode(!showCode)}
             className={cn(
               'inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-[12px] whitespace-nowrap border transition-colors shrink-0',

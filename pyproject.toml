@@ -36,6 +36,9 @@ dev = [
 # 浏览器端到端测试（tests/e2e）：装完后还需 ./venv/bin/playwright install chromium
 e2e = [
     "playwright>=1.40",
+    # 数据预览的表格接口在后端进程内使用 pandas/openpyxl；只作为测试环境依赖
+    "pandas>=2.2",
+    "openpyxl>=3.1",
 ]
 
 [tool.setuptools.packages.find]
@@ -54,4 +57,5 @@ markers = [
     "unit: 纯逻辑用例，不依赖网络与服务",
     "api: 调用真实后端 HTTP 接口（8201 需已启动）",
     "e2e: 真实浏览器端到端（需前端 5173、后端 8201 与登录密码）",
+    "e2e_live: 依赖真实 LLM/外网的浏览器用例，默认全量排除",
 ]

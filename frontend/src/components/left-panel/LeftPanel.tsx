@@ -21,6 +21,7 @@ export function LeftPanel() {
             return (
               <button
                 key={t.id}
+                data-testid={`left-tab-${t.id}`}
                 onClick={() => setLeftPanelTab(t.id)}
                 className={`flex-1 flex items-center justify-center gap-1.5 h-6 rounded text-[13px] transition-colors ${
                   active

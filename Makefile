@@ -34,6 +34,9 @@ test-api:  ## 只跑 api 层（真实 HTTP，需 8201 已启动）
 test-e2e:  ## 只跑浏览器层（需前后端已启动 + SOTABAND_E2E_PASSWORD，单独一次运行）
 	./venv/bin/python -m pytest tests/e2e -q --run-e2e
 
+test-e2e-full:  ## 一键全量 E2E（临时 SB-USER + 假 LLM + 覆盖门禁 + 工具静态冒烟）
+	./venv/bin/python scripts/e2e/run_e2e.py
+
 test-integration:  ## 兼容旧入口：agent 派发等集成用例
 	./venv/bin/python -m pytest -q tests/integration
 

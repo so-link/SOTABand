@@ -36,7 +36,7 @@ export function TopBar() {
           <UserMenu />
         ) : (
           <Tooltip content="登录（未登录以本机实例身份使用）">
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={openLogin}>
+            <Button data-testid="topbar-login" variant="ghost" size="icon" className="h-7 w-7" onClick={openLogin}>
               <LogIn className="h-3.5 w-3.5" />
             </Button>
           </Tooltip>
@@ -48,7 +48,7 @@ export function TopBar() {
         </Tooltip>
         {user?.role === 'admin' && (
           <Tooltip content="用户管理（仅超级用户）">
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setActiveView('users')}>
+            <Button data-testid="open-users" variant="ghost" size="icon" className="h-7 w-7" onClick={() => setActiveView('users')}>
               <Users className="h-3.5 w-3.5" />
             </Button>
           </Tooltip>
@@ -56,7 +56,7 @@ export function TopBar() {
         {/* 设置是系统级配置（LLM/服务），仅管理员可见 */}
         {user?.role === 'admin' && (
           <Tooltip content="设置（系统级配置，仅管理员）">
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setActiveView('settings')}>
+            <Button data-testid="open-settings" variant="ghost" size="icon" className="h-7 w-7" onClick={() => setActiveView('settings')}>
               <Settings className="h-3.5 w-3.5" />
             </Button>
           </Tooltip>
@@ -95,8 +95,10 @@ function UserMenu() {
     label: string,
     onClick: () => void,
     danger = false,
+    testId?: string,
   ) => (
     <button
+      data-testid={testId}
       onClick={() => { setOpen(false); onClick() }}
       className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-[12px] text-left transition-colors ${
         danger ? 'text-maia-danger hover:bg-maia-danger-bg' : 'text-maia-text hover:bg-maia-bg'
@@ -110,6 +112,7 @@ function UserMenu() {
   return (
     <div className="relative" ref={ref}>
       <button
+        data-testid="user-menu"
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-1 px-1.5 h-7 rounded hover:bg-maia-sidebar-hover text-[12px] text-maia-text-secondary"
         title={user?.role === 'admin' ? '管理员' : '已登录'}
@@ -133,7 +136,7 @@ function UserMenu() {
             item(<User className="h-3.5 w-3.5" />, '个人设置', () => setActiveView('account'))
           )}
           <div className="my-1 border-t border-maia-border" />
-          {item(<LogOut className="h-3.5 w-3.5" />, '退出登录', () => void logout(), true)}
+          {item(<LogOut className="h-3.5 w-3.5" />, '退出登录', () => void logout(), true, 'logout-button')}
         </div>
       )}
     </div>

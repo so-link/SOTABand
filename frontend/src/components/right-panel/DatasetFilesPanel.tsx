@@ -54,7 +54,7 @@ export function DatasetFilesPanel({ hideHeader = false }: { hideHeader?: boolean
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div data-testid="data-preview-files" className="flex flex-col h-full">
       {!hideHeader && (
         <div className="flex items-center justify-between h-9 px-3 shrink-0 border-b border-maia-border">
           <span className="text-[13px] text-maia-text-muted truncate">数据集文件</span>
@@ -101,6 +101,8 @@ export function DatasetFilesPanel({ hideHeader = false }: { hideHeader?: boolean
             return (
               <div
                 key={`${name}-${i}`}
+                data-testid="data-preview-file-row"
+                data-file-name={name}
                 onClick={onClick}
                 title={csvIdx >= 0 || mdIdx >= 0 || textIdx >= 0 ? '点击在中栏预览' : '点击放大预览'}
                 className={`group rounded px-2 py-1.5 cursor-pointer transition-colors ${
