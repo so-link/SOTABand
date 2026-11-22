@@ -363,20 +363,27 @@ class OpenAICompatibleClient(LLMClient):
             pass
 
     async def chat(self, messages: list[dict], **kwargs) -> str:
-        """非流式对话，返回完整响应"""
+        """非流式对话，返回完整响应
+
+        ``extra_body`` 用于透传服务商私有参数（如 DeepSeek 关闭思考模式：
+        ``{"thinking": {"type": "disabled"}}``）。不传时行为不变。
+        """
         sem = self._pool_semaphore()
         await sem.acquire()
         try:
             client = self._build_client()
             cfg = self.config
-            response = await client.chat.completions.create(
-                model=cfg.model,
-                messages=messages,
-                stream=False,
-                max_tokens=kwargs.get("max_tokens", cfg.max_tokens),
-                temperature=kwargs.get("temperature", cfg.temperature),
-                timeout=kwargs.get("timeout", cfg.timeout),
-            )
+            params: dict = {
+                "model": cfg.model,
+                "messages": messages,
+                "stream": False,
+                "max_tokens": kwargs.get("max_tokens", cfg.max_tokens),
+                "temperature": kwargs.get("temperature", cfg.temperature),
+                "timeout": kwargs.get("timeout", cfg.timeout),
+            }
+            if kwargs.get("extra_body"):
+                params["extra_body"] = kwargs["extra_body"]
+            response = await client.chat.completions.create(**params)
             content = response.choices[0].message.content or ""
             if response.choices[0].finish_reason == "length":
                 content += "\n\n# [WARNING] Response truncated due to max_tokens limit"

@@ -12,9 +12,10 @@
 
 ## 典型场景
 
-项目全局主 key（`LLM_PROVIDER` 指向的那家）是纯文本模型，但某个工具需要**看图**
-（多模态）、长上下文或特定模型。此时无需改动全局配置：在 `.env` 里放好
-副 key（如 `DOUBAO_API_KEY=sk-xxx`），工具内只传 `provider + model` 即可，
+项目全局配置的模型不具备某项能力（如 `deepseek-v4-pro` 不支持**看图**），
+但某个工具需要多模态、长上下文或特定模型。此时无需改动全局配置：在 `.env`
+里放好副 key（如 `DEEPSEEK_API_KEY=sk-xxx`），工具内只传
+`provider + model`（如 `deepseek` + `deepseek-flash`）即可，
 **密钥全程不进聊天框、不进工具代码**。
 
 ## 输入

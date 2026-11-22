@@ -70,11 +70,16 @@ PROVIDER_PRESETS: dict[str, dict] = {
     "deepseek": {
         "name": "DeepSeek",
         "env_key": "DEEPSEEK_API_KEY",
-        "default_base_url": "https://api.deepseek.com/v1",
+        # OpenAI 兼容端点（官方：https://api.deepseek.com，不带 /v1）
+        "default_base_url": "https://api.deepseek.com",
         "default_model": "deepseek-v4-pro",
         "endpoint_variants": [
-            {"base_url": "https://api.deepseek.com/v1", "label": "按量付费",
+            {"base_url": "https://api.deepseek.com", "label": "OpenAI 兼容",
              "key_prefix": "sk-", "docs_url": "https://api-docs.deepseek.com/"},
+            # Anthropic 格式端点需配套 Anthropic SDK，当前系统仅用 OpenAI 兼容
+            # 协议，此处仅登记供查询展示，不作为自动解析目标（无 key_prefix）。
+            {"base_url": "https://api.deepseek.com/anthropic", "label": "Anthropic 兼容",
+             "key_prefix": "", "docs_url": "https://api-docs.deepseek.com/"},
         ],
     },
     "openai": {
