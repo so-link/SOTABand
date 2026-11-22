@@ -351,8 +351,8 @@ class ApiLlmChatWithConfig:
     与 api-llm-chat 的区别：api-llm-chat 固定使用项目 .env 的全局配置；
     本 API 允许单次调用时覆盖服务商、端点、模型与密钥。
 
-    典型场景：项目默认用 deepseek-v4-flash（纯文本），但某个工具需要多模态
-    能力，必须换成支持视觉的模型（如 hy4 / 豆包 vision）。此时无需改动
+    典型场景：项目默认用文本模型（如 deepseek-v4-pro），但某个工具需要
+    多模态能力，必须换成支持视觉的模型（如 deepseek-flash）。此时无需改动
     全局 .env，只在该工具内传入自己的配置即可。
 
     【安全约束】
@@ -380,6 +380,22 @@ class ApiLlmChatWithConfig:
             return {"content": "", "error": "messages 不能为空"}
         if not model:
             return {"content": "", "error": "未提供 model"}
+
+        # 【安全闸门】自定义端点禁止借用 .env 的平台主密钥。
+        # 若调用方显式给了 base_url 却没给 api_key，下面的降级链会因为
+        # provider 恰等于 .env 的 LLM_PROVIDER 而取到 LLM_API_KEY，
+        # 随后 resolve() 采用该 base_url → 平台主 key 被发往任意服务器
+        # （密钥外泄）。自定义端点必须自带 key；只是用官方端点时请省略
+        # base_url，单传 provider 仍可走 .env 降级。
+        if base_url and not api_key:
+            return {
+                "content": "",
+                "error": (
+                    "自定义 base_url 时必须同时显式传入 api_key，"
+                    "不允许用 .env 中的平台主密钥访问自定义端点（防止密钥外泄）。"
+                    "若使用服务商官方端点，请省略 base_url 只传 provider。"
+                ),
+            }
 
         # api_key 三层降级：显式传入 > .env 中该 provider 的 <PROVIDER>_API_KEY
         # > 全局主 key（LLM_API_KEY）。key 已配置在 .env 里的副 key 无需
@@ -433,11 +449,15 @@ class ApiLlmChatWithConfig:
         client = None
         try:
             client = create_llm_client(cfg)
-            content = await client.chat(
-                messages=messages,
-                temperature=kwargs.get("temperature", 0.7),
-                max_tokens=kwargs.get("max_tokens", 4096),
-            )
+            chat_kwargs = {
+                "temperature": kwargs.get("temperature", 0.7),
+                "max_tokens": kwargs.get("max_tokens", 4096),
+            }
+            # 服务商私有参数（如 DeepSeek 关闭思考模式）经 extra_body 透传，
+            # 不写入配置文件与注册表，仅本次调用有效。
+            if kwargs.get("extra_body"):
+                chat_kwargs["extra_body"] = kwargs["extra_body"]
+            content = await client.chat(messages=messages, **chat_kwargs)
             return {
                 "content": content,
                 "provider": cfg.provider,
