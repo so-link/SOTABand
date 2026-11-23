@@ -905,7 +905,7 @@
   {
     "id": "batch-ai-bbox-labeling",
     "name": "大模型批量标框",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "type": "function",
     "language": "python",
     "status": "active",
@@ -929,7 +929,7 @@
         "type": "string",
         "required": true,
         "default": null,
-        "desc": "检测目标描述，例如 \"person, car\"，将作为提示词传给豆包大模型",
+        "desc": "检测目标描述，例如 \"person, car\"，将作为提示词传给 DeepSeek 视觉大模型",
         "hints": [
           "person, car"
         ]
@@ -949,7 +949,7 @@
       "目标检测",
       "批量处理",
       "图像标注",
-      "豆包模型"
+      "DeepSeek"
     ],
     "usage_count": 0,
     "created_at": "2026-07-27T07:17:29Z"
@@ -5084,5 +5084,109 @@
     "always_available": true,
     "visibility": "public",
     "owner": ""
+  },
+  {
+    "id": "image-quality-cleaner",
+    "name": "图像数据清洗",
+    "version": "0.1.0",
+    "type": "function",
+    "language": "python",
+    "status": "active",
+    "spec_path": "definitions/image-quality-cleaner.md",
+    "impl_path": "implementations/image-quality-cleaner/",
+    "input_schema": {},
+    "output_schema": {},
+    "param_meta": [
+      {
+        "name": "dataset",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "源图片数据集名称，系统通过【获取数据集信息】解析实际路径；只扫描根目录",
+        "hints": [
+          "原始图片",
+          "待清洗数据集",
+          "raw_images"
+        ]
+      },
+      {
+        "name": "output_dataset",
+        "type": "string",
+        "required": true,
+        "default": null,
+        "desc": "清洗后数据集名称，注册为 YOLO 训练数据集",
+        "hints": [
+          "清洗后数据集",
+          "cleaned_images"
+        ]
+      },
+      {
+        "name": "min_size",
+        "type": "int",
+        "required": false,
+        "default": 64,
+        "desc": "图片宽高下限（像素），小于则剔除；有效范围 16-4096",
+        "hints": [
+          "64",
+          "128",
+          "224"
+        ]
+      },
+      {
+        "name": "dedupe",
+        "type": "bool",
+        "required": false,
+        "default": true,
+        "desc": "是否启用精确去重（文件字节 MD5）",
+        "hints": [
+          "true",
+          "false"
+        ]
+      },
+      {
+        "name": "min_contrast",
+        "type": "float",
+        "required": false,
+        "default": 20.0,
+        "desc": "灰度标准差下限，低于判为纯色/低信息量剔除",
+        "hints": [
+          "3",
+          "5",
+          "10"
+        ]
+      },
+      {
+        "name": "min_edge",
+        "type": "float",
+        "required": false,
+        "default": 6.0,
+        "desc": "边缘强度均值下限，低于判为模糊剔除",
+        "hints": [
+          "2",
+          "5"
+        ]
+      },
+      {
+        "name": "max_edge",
+        "type": "int",
+        "required": false,
+        "default": 0,
+        "desc": "最长边上限（像素），0 表示不缩放",
+        "hints": [
+          "0",
+          "640",
+          "1024"
+        ]
+      }
+    ],
+    "tags": [
+      "数据清洗",
+      "图像质量",
+      "YOLO",
+      "去重",
+      "训练数据准备"
+    ],
+    "usage_count": 0,
+    "created_at": "2026-11-20T00:00:00Z"
   }
 ]

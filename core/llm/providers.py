@@ -49,11 +49,17 @@ CAP_REASONING = "reasoning"  # 推理模型（会先输出思考，max_tokens �
 # 说明：base_url 不在此维护，统一取自 PROVIDER_PRESETS（支持 .env 覆盖）
 _PROVIDER_META: dict[str, dict] = {
     "deepseek": {
-        "capabilities": [CAP_TEXT, CAP_REASONING],
-        "models": ["deepseek-v4-pro", "deepseek-v4-flash", "deepseek-reasoner"],
+        "capabilities": [CAP_TEXT, CAP_VISION, CAP_REASONING],
+        # 官方 API 模型 id（2026-11 现行）：deepseek-flash / deepseek-v4-pro
+        "models": ["deepseek-flash", "deepseek-v4-pro"],
         "key_url": "https://platform.deepseek.com/api_keys",
         "docs_url": "https://api-docs.deepseek.com/",
-        "notes": "性价比高；不支持图像输入。reasoner 为推理模型，max_tokens 需给足。",
+        # 上下文 1M / 输出最大 384K；思考模式默认开启、可关闭；
+        # 图像理解仅 deepseek-flash 支持，deepseek-v4-pro 不支持。
+        "notes": "上下文 1M、输出最大 384K；思考模式默认开启（可切非思考）。"
+                 "deepseek-flash 支持图像理解，deepseek-v4-pro 不支持。"
+                 "支持 JSON Output / Tool Calls / Responses API / Anthropic API；"
+                 "FIM 补全仅非思考模式支持。OpenAI 端点 https://api.deepseek.com（无 /v1）。",
     },
     "openai": {
         "capabilities": [CAP_TEXT, CAP_VISION],
@@ -379,7 +385,12 @@ async def fetch_remote_models(provider: str | None = None,
 
 
 def _lookup_catalog_caps(provider: str | None, model: str) -> list[str] | None:
-    """在静态目录里查某模型的显式能力标注；无则返回 None"""
+    """在静态目录里查某模型的显式能力标注；无则返回 None
+
+    注意：当前目录的 capabilities 是服务商级，不是模型级。deepseek 因
+    flash 支持图像而将整个 provider 标为 vision，查 v4-pro 也会拿到
+    vision（实际不支持）。需要精确模型级能力时应以 notes 与官方文档为准。
+    """
     meta = _PROVIDER_META.get(provider or "", {})
     for m in meta.get("models", []):
         if m and (m == model or m.lower() == (model or "").lower()):

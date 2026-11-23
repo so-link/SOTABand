@@ -89,41 +89,56 @@ class ApiDataList:
 
 
 class ApiDataGet:
-    """api-data-get: 根据名称获取数据集信息
+    """api-data-get: 根据名称或 id 精确获取数据集信息。
 
-    只返回当前用户有权限访问的数据集。若全库存在同名条目但属于他人，
-    会在 message 中明确说明，帮助使用者区分"不存在"与"无权限"。
+    只返回当前用户有权限访问的数据集。只做精确匹配——数据处理工具一旦
+    模糊匹配猜错数据集，会用错数据产出错误结果还报告成功，这是不可接受的。
+    歧义（重名）或未命中一律返回明确信号，由上层追问用户，绝不自行猜测。
     """
 
     @staticmethod
     def call(**kwargs) -> dict:
         name = kwargs.get("name", "").strip()
         if not name:
-            return {"dataset": None, "message": "数据集名称不能为空"}
+            return {"dataset": None, "error": "not_found", "message": "数据集名称不能为空"}
 
         # 直接同步读取 registry.json，避免 asyncio.run() 在 event loop 中冲突
         visible, all_entries, _me = _load_visible_datasets()
 
-        # 1) 在"我的"数据集中精确匹配
-        for ds in visible:
-            if ds.get("name") == name:
-                return {"dataset": ds}
+        # 1) name 精确匹配（唯一命中直接返回；重名返回候选，交上层追问）
+        by_name = [ds for ds in visible if ds.get("name") == name]
+        if len(by_name) == 1:
+            return {"dataset": by_name[0]}
+        if len(by_name) > 1:
+            return {
+                "dataset": None,
+                "error": "ambiguous",
+                "message": f"存在 {len(by_name)} 个名为 '{name}' 的数据集，请指定数据集 id",
+                "candidates": [
+                    {"id": ds.get("id"), "name": ds.get("name")}
+                    for ds in by_name
+                ],
+            }
 
-        # 2) 在"我的"数据集中模糊匹配（包含）
-        for ds in visible:
-            if name.lower() in ds.get("name", "").lower():
-                return {"dataset": ds}
+        # 2) name 未命中 → 按 id 精确匹配（Agent 把 name 解析成 id 后传给工具的场景）
+        by_id = [ds for ds in visible if str(ds.get("id")) == name]
+        if len(by_id) == 1:
+            return {"dataset": by_id[0]}
 
-        # 3) 未找到。若他人环境存在同名条目，给出明确提示，
-        #    避免使用者误以为是"名字写错了"。
-        for ds in all_entries:
-            if ds.get("name") == name or name.lower() in ds.get("name", "").lower():
-                return {
-                    "dataset": None,
-                    "message": (
-                        f"数据集 '{name}' 存在于注册表中，但不属于当前用户，无权访问。"
-                        f"（该数据集可能注册于其他机器或属于其他使用者）"
-                    ),
-                }
+        # 3) 未命中。若全库存在同名条目但属于他人，给出明确提示，
+        #    避免使用者误以为是"名字写错了"。（同样只按 name/id 精确匹配）
+        foreign = [
+            ds for ds in all_entries
+            if ds.get("name") == name or str(ds.get("id")) == name
+        ]
+        if foreign:
+            return {
+                "dataset": None,
+                "error": "not_found",
+                "message": (
+                    f"数据集 '{name}' 存在于注册表中，但不属于当前用户，无权访问。"
+                    f"（该数据集可能注册于其他机器或属于其他使用者）"
+                ),
+            }
 
-        return {"dataset": None, "message": f"未找到名为 '{name}' 的数据集"}
+        return {"dataset": None, "error": "not_found", "message": f"未找到名为 '{name}' 的数据集"}

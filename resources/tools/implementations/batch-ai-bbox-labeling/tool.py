@@ -3,6 +3,7 @@ import base64
 import io
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -89,33 +90,47 @@ def _resolve_path(path: str) -> str:
 
 # === 头部结束，以下由 LLM 生成 ===
 
-# 豆包视觉模型（端点与密钥由平台按 provider 解析，不进工具代码）
-DOUBAO_MODEL = "doubao-seed-2-0-lite-260428"
+# DeepSeek 视觉模型（端点与密钥由平台按 provider 解析，不进工具代码）
+DEEPSEEK_MODEL = "deepseek-flash"
 
 def _image_to_base64(pil_image: Image.Image) -> str:
     buff = io.BytesIO()
     pil_image.save(buff, format="JPEG")
     return base64.b64encode(buff.getvalue()).decode("utf-8")
 
-def _detect_objects(image: Image.Image, prompt_object: str) -> list:
-    """经平台统一通道调用豆包视觉 API，返回归一化边界框列表 [(cid, x, y, w, h), ...]"""
+def _detect_objects(image: Image.Image, prompt_object: str, max_boxes: int = 50) -> list:
+    """经平台统一通道调用 DeepSeek 视觉 API，返回归一化边界框列表 [(cid, x, y, w, h), ...]。
+
+    DeepSeek-flash 原生支持用坐标锚定图像区域（视觉原语 grounding），
+    但边界框可能偏移；因此只框「确实看清的独立完整目标」，宁缺毋滥。
+    """
     max_edge = 640
     # 保持长宽比缩放，最长边不超过640
     w, h = image.size
     scale = max_edge / max(w, h) if max(w, h) > max_edge else 1.0
     new_size = (int(w * scale), int(h * scale))
     resized = image.resize(new_size, Image.LANCZOS)
-    
+
     # 转为base64
     img_b64 = _image_to_base64(resized)
-    
+
+    system_prompt = (
+        "你是一个精确的目标检测助手。请逐颗观察图片，框出你能清楚辨认的、"
+        f"独立完整的「{prompt_object}」。\n"
+        "关键要求：\n"
+        "- 每个框的中心和大小必须来自你在这张图上实际看到的目标的真实位置，"
+        "不要使用等间距坐标、不要使用固定宽高、不要按网格铺框。\n"
+        "- 宁可少框也不要编造：只框边界清晰、独立可辨的目标；"
+        "紧密堆叠成一堆、无法区分单个的区域不要框。\n"
+        f"- 最多输出 {max_boxes} 个框；确实没有清晰可辨的独立目标时输出 []。\n"
+        "- 只输出 JSON 数组，不要解释、不要代码块。\n"
+        "每个元素格式：{\"class_id\":0,\"x_center\":0.5,\"y_center\":0.5,"
+        "\"width\":0.1,\"height\":0.1}，坐标是相对整图的归一化值(0-1)。"
+    )
     result = _call_api(
         "api-llm-chat-with-config",
         messages=[
-            {
-                "role": "system",
-                "content": f"你是一个物体检测助手。检测图片中的 {prompt_object}。请用YOLO格式输出每个检测框，每行一个，格式为：class_id x_center y_center width height（坐标归一化到0-1之间，相对于缩放后图片的尺寸）。只输出框列表，不要其他文字。"
-            },
+            {"role": "system", "content": system_prompt},
             {
                 "role": "user",
                 "content": [
@@ -127,38 +142,82 @@ def _detect_objects(image: Image.Image, prompt_object: str) -> list:
                     },
                     {
                         "type": "text",
-                        "text": f"请检测图片中的 {prompt_object}"
+                        "text": f"只检测独立的完整「{prompt_object}」，按系统要求输出 JSON 数组，最多 {max_boxes} 个。"
                     }
                 ]
             }
         ],
-        provider="doubao",
-        model=DOUBAO_MODEL,
-        max_tokens=2048,
+        provider="deepseek",
+        model=DEEPSEEK_MODEL,
+        max_tokens=4096,
         temperature=0.0,
+        # DeepSeek V4.1 Flash 默认开启思考，2048 额度会被 reasoning 吃光导致
+        # content 为空；显式关闭思考，检测任务不需要推理链。
+        extra_body={"thinking": {"type": "disabled"}},
     )
     if not result or result.get("error"):
         raise RuntimeError(f"大模型调用失败: {(result or {}).get('error', '无返回')}")
+
     content = (result.get("content") or "").strip()
-    
+    # 去除可能的 Markdown 代码块围栏（含 ```json 语言标记）
+    if content.startswith("```"):
+        content = content.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+
     boxes = []
-    for line in content.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        parts = line.split()
-        if len(parts) != 5:
-            continue
-        try:
-            cid = int(parts[0])
-            x, y, bw, bh = map(float, parts[1:])
-            # 确保在0-1之间
-            if not (0 <= x <= 1 and 0 <= y <= 1 and 0 <= bw <= 1 and 0 <= bh <= 1):
+    # 优先解析 JSON 数组（新格式）
+    parsed = None
+    try:
+        candidate = json.loads(content)
+        if isinstance(candidate, list):
+            parsed = candidate
+        elif isinstance(candidate, dict):
+            for key in ("boxes", "detections", "objects"):
+                if isinstance(candidate.get(key), list):
+                    parsed = candidate[key]
+                    break
+    except (ValueError, TypeError):
+        # 兜底：从文本中逐个抠出完整的 JSON 对象（容忍前后有解释文字或截断）
+        objects = re.findall(r'\{[^{}]*\}', content)
+        if objects:
+            parsed = []
+            for obj in objects:
+                try:
+                    parsed.append(json.loads(obj))
+                except (ValueError, TypeError):
+                    continue
+
+    if parsed is not None:
+        for item in parsed:
+            if not isinstance(item, dict):
                 continue
-            boxes.append((cid, x, y, bw, bh))
-        except ValueError:
-            continue
-    return boxes
+            try:
+                cid = int(item.get("class_id", 0))
+                x = float(item["x_center"])
+                y = float(item["y_center"])
+                bw = float(item["width"])
+                bh = float(item["height"])
+                if not (0 <= x <= 1 and 0 <= y <= 1 and 0 < bw <= 1 and 0 < bh <= 1):
+                    continue
+                boxes.append((cid, x, y, bw, bh))
+            except (KeyError, ValueError, TypeError):
+                continue
+    else:
+        # 兼容旧的行格式 "cid x y w h"
+        for line in content.splitlines():
+            parts = line.strip().split()
+            if len(parts) != 5:
+                continue
+            try:
+                cid = int(parts[0])
+                x, y, bw, bh = map(float, parts[1:])
+                if not (0 <= x <= 1 and 0 <= y <= 1 and 0 < bw <= 1 and 0 < bh <= 1):
+                    continue
+                boxes.append((cid, x, y, bw, bh))
+            except ValueError:
+                continue
+
+    # 限幅：宁缺毋滥，最多 max_boxes 个
+    return boxes[:max_boxes]
 
 def execute(**kwargs) -> dict[str, Any]:
     try:
@@ -167,6 +226,10 @@ def execute(**kwargs) -> dict[str, Any]:
         output_dataset = kwargs.get("output_dataset")
         if not dataset_name or not req or not output_dataset:
             return {"status": "failed", "message": "缺少必要参数 dataset, req, output_dataset"}
+        try:
+            max_boxes = max(1, min(500, int(kwargs.get("max_boxes", 50) or 50)))
+        except (ValueError, TypeError):
+            max_boxes = 50
         
         # 1. 获取数据集信息
         ds_resp = _call_api("api-data-get", name=dataset_name)
@@ -184,9 +247,21 @@ def execute(**kwargs) -> dict[str, Any]:
         labeled_dir = target_dir / "labeled"
         labeled_dir.mkdir(parents=True, exist_ok=True)
         
-        # 支持图片格式
+        # 支持图片格式。兼容两种数据集布局：
+        #   1) 图片在根目录（本工具自身产物 / 原始数据空间导入）
+        #   2) 图片在 images/ 子目录（图像清洗工具产出的 YOLO 标准布局）
+        # 先扫根目录，没有再扫 images/；都不认才算失败。
         img_exts = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
-        img_files = sorted([f for f in src_dir.iterdir() if f.is_file() and f.suffix.lower() in img_exts])
+
+        def _scan(d: Path) -> list:
+            return sorted(
+                f for f in d.iterdir()
+                if f.is_file() and f.suffix.lower() in img_exts
+            ) if d.is_dir() else []
+
+        img_files = _scan(src_dir)
+        if not img_files:
+            img_files = _scan(src_dir / "images")
         if not img_files:
             return {"status": "failed", "message": "数据集中没有找到图片文件"}
         
@@ -201,7 +276,7 @@ def execute(**kwargs) -> dict[str, Any]:
                 W, H = orig_image.size
                 
                 # 调用检测 API
-                boxes = _detect_objects(orig_image, req)
+                boxes = _detect_objects(orig_image, req, max_boxes=max_boxes)
                 
                 # 绘制标注
                 draw = ImageDraw.Draw(orig_image)

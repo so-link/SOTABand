@@ -2069,14 +2069,14 @@ class InteractiveAgent(BaseAgent):
             if resolved is None:
                 # 用户回答的是数据集名称/ id 而不是路径（工具把数据集目录做成
                 # 路径参数时的常见答法）：按注册表解析成数据集目录
-                ds_id = self._pick_dataset_id(val)
+                ds_id, ds_status, ds_candidates = self._pick_dataset_id(val)
                 if ds_id:
                     ds_dir = self._dataset_data_path(ds_id)
                     if ds_dir:
                         return {name: ds_dir}
                 raise ValueError(
-                    f"参数 **{name}** 需要一个文件路径，但在「{val}」里没有找到可用的文件。"
-                    f"请提供完整路径或文件名（可先把文件拖入工作区间），或回复「取消」放弃本次执行。"
+                    f"参数 **{name}** 需要一个文件路径，但在「{val}」里没有找到可用的文件，"
+                    f"也没有精确匹配的数据集。\n{self._dataset_hint(val, ds_status, ds_candidates)}"
                 )
             return {name: resolved}
 
@@ -2084,14 +2084,10 @@ class InteractiveAgent(BaseAgent):
         # 再对着真实注册表校验。曾把整句「数据集就用 etf-90d-ohlcv」写进
         # dataset_id，工具随后报「数据集不存在」。
         if (name or "").lower() in ("dataset_id", "dataset", "data_id", "dir_id"):
-            cand = self._pick_dataset_id(val)
+            cand, status, candidates = self._pick_dataset_id(val)
             if cand:
                 return {name: cand}
-            known = self._known_dataset_ids()
-            raise ValueError(
-                f"没有在「{val}」里认出数据集。当前可用的数据集有："
-                f"{'、'.join(known[:8]) or '（暂无）'}。请回复其中一个名称，或回复「取消」放弃本次执行。"
-            )
+            raise ValueError(self._dataset_hint(val, status, candidates))
 
         # 其他类型（string 等）：整句只作为值，但要剥掉明显的口语句式
         return {name: self._pick_scalar_value(val)}
@@ -2114,11 +2110,25 @@ class InteractiveAgent(BaseAgent):
         return None
 
     @staticmethod
-    def _pick_dataset_id(text: str) -> str | None:
-        """从回答里挑出真实存在的数据集 id（先按 id 精确匹配，再按名称/id 包含关系）。"""
+    def _pick_dataset_id(text: str) -> tuple[str | None, str, list[dict]]:
+        """从回答里挑出真实存在的数据集 id（只做精确匹配，绝不模糊猜测）。
+
+        返回 (matched_id, status, candidates)：
+        - matched_id: 唯一命中时返回 id，否则 None
+        - status: "ok" / "ambiguous"（name 重名）/ "not_found"（name 未精确命中）
+        - candidates: 用于提示的候选列表 [{name, id}]，来自模糊匹配（仅提示，不自动选中）
+
+        模糊匹配的唯一用途是生成「你可能想找的是…」提示列表，绝不拿来
+        自动选中数据集执行——猜错数据集会用错数据产出错误结果还报告成功。
+
+        TRADEOFF: 精确匹配才执行，模糊匹配仅作提示；区分重名与未命中分别提示
+        | 降低: 消除猜错数据集的幻觉风险，同时给用户可操作的候选而非刷屏全库
+        | 增加: 提示逻辑略复杂（多一个候选生成步骤）
+        | 触发重构条件: 无——这是数据处理工具的底线与基本可用性
+        """
         s = (text or "").strip().strip("「」“”\"'")
         if not s:
-            return None
+            return None, "not_found", []
         try:
             from core.resource.registry.data_registry import DataRegistry
             entries = DataRegistry()._read()
@@ -2126,35 +2136,76 @@ class InteractiveAgent(BaseAgent):
             entries = []
         entries = [e for e in entries if e.get("id")]
         if not entries:
-            return None
+            return None, "not_found", []
+
         ids = [str(e.get("id")) for e in entries]
         low = s.lower()
         # 1. id 精确匹配
         if low in (i.lower() for i in ids):
-            return next(i for i in ids if i.lower() == low)
-        # 2. 数据集名称精确匹配（用户只会说中文名，不会报 id）
+            return next(i for i in ids if i.lower() == low), "ok", []
+
         names = [(str(e.get("name") or ""), str(e.get("id"))) for e in entries if e.get("name")]
-        if names:
-            nl = s.lower()
-            exact = [i for n, i in names if n.lower() == nl]
-            if exact:
-                return exact[0]
-        # 3. 名称/id 的较长片段与回答互为包含（去掉空格与书名号后比较，
-        #    兼容「ETF近90日 日线行情数据集」这类带空格写法）
+        # 2. name 精确匹配：唯一命中才返回
+        exact = [i for n, i in names if n.lower() == low]
+        if len(exact) == 1:
+            return exact[0], "ok", []
+        if len(exact) > 1:
+            # 重名：候选就是这些精确命中项，不需要模糊
+            cands = [
+                {"name": n, "id": i}
+                for n, i in names if n.lower() == low
+            ]
+            return None, "ambiguous", cands
+
+        # 3. name 未精确命中 → 模糊匹配只生成提示候选，绝不自动选中
         norm = re.sub(r"[\s「」《》“”\"'（）()]", "", s)
-        cands = [i for n, i in names if len(re.sub(r"\s", "", n)) >= 3
-                 and (re.sub(r"\s", "", n).lower() in norm.lower()
-                      or norm.lower() in re.sub(r"\s", "", n).lower())]
-        # id 也纳入包含匹配（长 id 才认，短 id 易误命中普通词）
-        cands += [i for i in ids if len(i) >= 4 and i.lower() in low]
-        cands = list(dict.fromkeys(cands))
-        if len(cands) == 1:
-            return cands[0]
-        if cands:
-            # 多个候选：取名称最长（最具体）的那个
-            best = max(cands, key=lambda i: len(str(next((e.get("name") or "" for e in entries if e.get("id") == i), i))))
-            return best
-        return None
+        similarity = InteractiveAgent._similarity  # staticmethod，不能用 self
+        cands = [
+            {"name": n, "id": i}
+            for n, i in names
+            if n and (
+                (len(re.sub(r"\s", "", n)) >= 2 and re.sub(r"\s", "", n).lower() in norm.lower())
+                or (len(norm) >= 2 and norm.lower() in n.lower())
+                or similarity(n, s) >= 0.4
+            )
+        ]
+        # 去重、按相似度降序、最多 5 条，避免刷屏
+        seen = set()
+        unique = []
+        for c in sorted(cands, key=lambda c: similarity(c["name"], s), reverse=True):
+            key = (c["name"], c["id"])
+            if key not in seen:
+                seen.add(key)
+                unique.append(c)
+            if len(unique) >= 5:
+                break
+        return None, "not_found", unique
+
+    @staticmethod
+    def _similarity(a: str, b: str) -> float:
+        """简单字符级相似度（SequenceMatcher），用于候选提示排序，不用于选中。"""
+        from difflib import SequenceMatcher
+        return SequenceMatcher(None, (a or "").lower(), (b or "").lower()).ratio()
+
+    @staticmethod
+    def _dataset_hint(val: str, status: str, candidates: list[dict]) -> str:
+        """生成数据集未命中/重名的用户提示（候选只作提示，绝不自动选中）。"""
+        lines = []
+        if status == "ambiguous":
+            lines.append(f"找到多个名为「{val}」的数据集，请回复其中一个 **id** 指定：")
+        else:
+            lines.append(f"没有找到名为「{val}」的数据集（请检查名称是否完全一致）。")
+            if candidates:
+                lines.append("你可能想找的是（名称 : id）：")
+        if candidates:
+            for c in candidates:
+                lines.append(f"  - {c['name']} : {c['id']}")
+        lines.append(
+            "如需确认准确 id，可在 **数据空间 → 所需数据集 → 资源详情** 查看"
+            "（属性面板通过右上角「显示/隐藏」按钮打开）。"
+        )
+        lines.append("请回复精确的数据集名称或 id，或回复「取消」放弃本次执行。")
+        return "\n".join(lines)
 
     @staticmethod
     def _known_dataset_ids() -> list[str]:
