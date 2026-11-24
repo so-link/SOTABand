@@ -82,6 +82,93 @@ def test_workspace_tool_schemas_name_map_and_uniqueness(monkeypatch):
         assert n in names
 
 
+# ── 6. schema 合法性（供应商按 JSON Schema uniqueItems 校验）──────────────
+
+def _fake_registry(monkeypatch, tools):
+    import core.resource.registry.tool_registry as tr
+
+    class _FakeReg:
+        def _read(self):
+            return tools
+
+    monkeypatch.setattr(tr, "ToolRegistry", _FakeReg)
+
+
+def test_workspace_tool_schema_required_is_unique(monkeypatch):
+    """多模式工具同名参数重复 → required 必须去重，否则整轮 tools 请求 400。"""
+    _fake_registry(monkeypatch, [{
+        "id": "test-multi-mode", "name": "多模式", "status": "active", "description": "d",
+        "param_meta": [
+            {"name": "x", "type": "string", "required": True},
+            {"name": "x", "type": "string", "required": True},
+            {"name": "y", "type": "string", "required": True},
+            {"name": "file_path", "type": "string", "required": True},
+        ],
+    }])
+
+    schemas = _bare_agent()._workspace_tool_schemas(["test-multi-mode"])
+    params = schemas[0]["function"]["parameters"]
+
+    assert params["required"] == ["x", "y", "file_path"]
+    assert len(set(params["required"])) == len(params["required"])
+    assert set(params["required"]) <= set(params["properties"])
+
+
+def test_workspace_tool_schema_skips_empty_param_name(monkeypatch):
+    _fake_registry(monkeypatch, [{
+        "id": "t", "name": "t", "status": "active", "description": "d",
+        "param_meta": [
+            {"name": "  ", "type": "string", "required": True},
+            {"name": "a", "type": "string", "required": True},
+        ],
+    }])
+
+    params = _bare_agent()._workspace_tool_schemas(["t"])[0]["function"]["parameters"]
+    assert list(params["properties"]) == ["a"]
+    assert params["required"] == ["a"]
+
+
+def test_workspace_tool_schema_isolates_broken_tool(monkeypatch):
+    """一个工具参数脏数据只跳过它自己，其它工具照常可用。"""
+    _fake_registry(monkeypatch, [
+        {"id": "broken", "name": "b", "status": "active", "description": "d",
+         "param_meta": "not-a-list"},                      # 迭代出 str → p.get 抛错
+        {"id": "good", "name": "g", "status": "active", "description": "d",
+         "param_meta": [{"name": "q", "type": "string", "required": True}]},
+    ])
+
+    schemas = _bare_agent()._workspace_tool_schemas(["broken", "good"])
+    assert [s["function"]["name"] for s in schemas] == ["good"]
+
+
+def test_attachment_local_path_resolves_file_id(monkeypatch):
+    """只发图片/文件时，把 file_id 解析成本地绝对路径当作参数值。"""
+    from core import user_files
+
+    monkeypatch.setattr(user_files, "resolve", lambda fid: f"/tmp/{fid}.jpg")
+    agent = _bare_agent()
+
+    assert agent._attachment_local_path([{"fileId": "abc"}]) == "/tmp/abc.jpg"
+    assert agent._attachment_local_path([types.SimpleNamespace(fileId="xyz")]) == "/tmp/xyz.jpg"
+    assert agent._attachment_local_path([]) == ""
+    assert agent._attachment_local_path([{"fileName": "no-id.jpg"}]) == ""
+
+
+def test_empty_workspace_injects_no_tools(monkeypatch):
+    """空工作空间 = 不注入任何工具（新用户首句话不再被全部内置工具拖累）。
+
+    None 仍表示"未提供"→ 全部，保持内部直调与既有单测的语义。
+    """
+    _fake_registry(monkeypatch, [{
+        "id": "t", "name": "t", "status": "active", "description": "d",
+        "param_meta": [{"name": "a", "type": "string", "required": True}],
+    }])
+
+    agent = _bare_agent()
+    assert agent._workspace_tool_schemas([]) == []
+    assert len(agent._workspace_tool_schemas(None)) == 1
+
+
 # ── 2. 确认 TTL ─────────────────────────────────────────────
 
 def test_exec_pending_ttl_expiry(monkeypatch):
