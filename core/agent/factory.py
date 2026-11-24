@@ -30,6 +30,88 @@ def _runtime_limit(name: str, default: int) -> int:
         return default
 
 
+def _role_from_spec(impl_dir: Path | None, agent_id: str) -> str | None:
+    """从规范文档读取 Agent 角色（与 entrypoint 同源），读不到返回 None。
+
+    ## 为什么必须读 MD 而不是猜代码
+
+    entrypoint 真正决定"要不要起 HTTP 服务"时，读的就是这份文档的 ``role:``
+    字段（``core/agent/entrypoint.py:62``）。而 factory 原先按 ``agent.py`` 里的
+    关键字（"web-service" / "AgentRole.WEB_SERVICE"）猜角色 —— 用户自建的
+    Agent 通常把 role 写在 MD、代码里一个相关字面量都没有，于是：
+
+        entrypoint: 起了 HTTP 服务，发了 service_ready
+        factory   : 判定"不是 web-service"，从不去等这个事件
+        ⇒ _services 永远为空，进程在但界面永远显示"启动中"
+
+    文档检索顺序与 entrypoint 一致：``<impl>/spec.md`` → 各资源根的
+    ``agents/definitions/<id>.md``（私有根优先）。
+    """
+    import re as _re
+
+    candidates: list[Path] = []
+    if impl_dir is not None:
+        candidates.append(impl_dir / "spec.md")
+        # 同根定义目录：<root>/agents/implementations/<id>/ → <root>/agents/definitions/<id>.md
+        # 这比全局扫 resource_roots() 更可靠：多用户部署下私有根是按用户隔离的
+        # （/root/SB-USER/<uid>），主进程当前用户未必是 Agent 的归属者。
+        try:
+            candidates.append(impl_dir.parent.parent / "definitions" / f"{agent_id}.md")
+        except Exception:
+            pass
+    try:
+        from core.resource import paths as _paths
+
+        candidates.extend(
+            r / "agents" / "definitions" / f"{agent_id}.md"
+            for r in _paths.resource_roots()
+        )
+    except Exception:
+        pass
+
+    for f in candidates:
+        try:
+            if not f.is_file():
+                continue
+            text = f.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+
+        m = _re.search(r"^\s*role\s*:\s*([a-zA-Z_\-]+)", text, _re.MULTILINE)
+        if not m:
+            m = _re.search(r"[-*]\s*role\s*[:：]\s*([a-zA-Z_\-]+)", text)
+        if m:
+            return m.group(1).strip().lower().replace("_", "-")
+    return None
+
+
+def _role_from_code(agent_file: Path) -> str | None:
+    """从 Agent 类构造里的 ``role=AgentRole.XXX`` 读取角色（内置 Agent 的权威来源）。
+
+    内置 Agent（`interactive_agent`、`city-info-query-agent` 等）不依赖 MD：
+    它们在 `__init__` 里自己构造 ``AgentSpec(role=AgentRole.INTERACTIVE)``，
+    运行时 ``agent.role`` 就取自这里。
+
+    **只匹配赋值形态**（`role=AgentRole.X` / `role = AgentRole.X`），
+    不会把 ``if role == "web-service":`` 这类比较语句误判成声明 ——
+    interactive_agent 代码里正好有这句，靠关键字匹配就会把它错认成 Web 服务式。
+    """
+    try:
+        code = agent_file.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return None
+
+    m = re.search(r"role\s*=\s*AgentRole\.([A-Za-z_]+)", code)
+    if not m:
+        return None
+    mapping = {
+        "WEB_SERVICE": "web-service",
+        "INTERACTIVE": "interactive",
+        "TASK": "task",
+    }
+    return mapping.get(m.group(1).upper())
+
+
 class AgentFactory:
     """Agent 工厂 — 管理 Agent 子进程的完整生命周期
 
@@ -43,6 +125,12 @@ class AgentFactory:
         self._processes: dict[str, asyncio.subprocess.Process] = {}
         # web-service Agent 的 HTTP 服务信息：{agent_id: {"host":..., "port":..., "apis":[...]}}
         self._services: dict[str, dict] = {}
+        # 启动期由子进程上报的错误（如 spec/代码加载失败、端口被占）：
+        # {agent_id: message}。start() 把它带回响应，避免"点了启动没反应"。
+        self._startup_errors: dict[str, str] = {}
+        # 后台补探任务：{agent_id: asyncio.Task}。慢启动 Agent 的就绪事件晚于
+        # start() 的短等待，由它继续等；stop/重启/进程退出时必须取消，否则悬挂。
+        self._service_probe_tasks: dict[str, asyncio.Task] = {}
         # ── 通信总线路由状态（todo 4.5）──
         # 订阅表：{channel: {agent_id}}；随进程退出清理
         self._subscribers: dict[str, set[str]] = {}
@@ -452,6 +540,10 @@ class AgentFactory:
         _home.mkdir(parents=True, exist_ok=True)
         _proc_env = {**os.environ, **runtime_env()}
 
+        # 新一代启动：清掉上一代残留的启动错误与后台补探任务
+        self._startup_errors.pop(agent_id, None)
+        self._cancel_service_probe(agent_id)
+
         try:
             proc = await asyncio.create_subprocess_exec(
                 python, entrypoint,
@@ -496,24 +588,50 @@ class AgentFactory:
                 await self._drop_process(agent_id)
                 return {"agent_id": agent_id, "status": "failed", "running": False, "error": detail}
 
-            # 仅对 web-service 类型尝试捕获 service_ready 事件（从输出队列取，
-            # 取不到不阻塞——事件留在队列里，后续 execute_stream 照常读到）。
+            # 仅对 web-service 类型等待 service_ready。
+            # 快 Agent（1~2s 就绪）在短等待内直接回报；慢 Agent（import torch /
+            # 加载 RKNN 模型）转后台继续等，启动接口不跟着卡十几秒，
+            # 前端通过轮询 /service 自然转成"运行中"。
             if self._is_web_service(agent_id, impl_path):
-                await self._capture_service_ready(agent_id)
+                await self._wait_service_ready(agent_id, timeout=2.0)
+                if agent_id not in self._services and self.is_process_alive(agent_id):
+                    self._cancel_service_probe(agent_id)
+                    self._service_probe_tasks[agent_id] = asyncio.create_task(
+                        self._await_service_ready_bg(agent_id, timeout=20.0))
 
             result = {"agent_id": agent_id, "status": "started", "running": True}
             if agent_id in self._services:
                 result["service"] = self._services[agent_id]
+            startup_error = self._startup_errors.get(agent_id)
+            if startup_error:
+                result["startup_error"] = startup_error
             return result
         except Exception as e:
             return {"agent_id": agent_id, "status": "failed", "error": str(e)}
 
     def _is_web_service(self, agent_id: str, impl_path: str | None = None) -> bool:
-        """判断该 Agent 是否为 web-service 类型（读取其实现代码中的 role 声明）。"""
+        """判断该 Agent 是否为 web-service 类型。
+
+        判定必须与 entrypoint **同源**：先读规范文档的 ``role:``（见
+        :func:`_role_from_spec`），读不到才退回"代码里有没有关键字"的老办法。
+        否则用户自建 Agent（role 只在 MD 里）会被判成非 web-service，factory
+        就不去等 ``service_ready``，界面会永远停在"启动中"。
+        """
         try:
             if impl_path is None:
                 impl_path = self._resolve_impl_path(agent_id) or f"resources/agents/implementations/{agent_id}"
-            agent_file = PROJECT_ROOT / impl_path / "agent.py"
+            impl_dir = PROJECT_ROOT / impl_path
+            agent_file = impl_dir / "agent.py"
+
+            # 1) 规范文档（用户自建 Agent 的权威来源，与 entrypoint 一致）
+            role = _role_from_spec(impl_dir, agent_id)
+            # 2) 构造函数里的 role=AgentRole.XXX（内置 Agent 的权威来源）
+            if role is None:
+                role = _role_from_code(agent_file)
+            if role is not None:
+                return role == "web-service"
+
+            # 3) 兜底：既没有规范文档也没有显式 role 时，才按关键字猜
             if not agent_file.exists():
                 return False
             code = agent_file.read_text(encoding="utf-8")
@@ -521,47 +639,115 @@ class AgentFactory:
         except Exception:
             return False
 
-    async def _capture_service_ready(self, agent_id: str):
-        """从输出队列捕获 web-service 的 service_ready 事件。
+    async def _wait_service_ready(self, agent_id: str, timeout: float = 15.0) -> dict | None:
+        """限时轮询 ``service_ready``，返回服务信息；超时 / 进程退出返回 None。
 
-        短超时；非 service_ready 事件按原顺序放回队列（后续 execute_stream
-        照常读到），失败不影响启动流程。
+        ## 为什么必须轮询而不是"读一次"
+
+        web-service Agent 的 ``on_start`` 里常要 import torch、加载 RKNN/ONNX
+        模型，``service_ready`` 往往 3~15s 才上报。旧实现只等 2s+1s 就判空，
+        于是 ``_services`` 永远为空 —— 表现为「进程已经起来了，界面却一直显示
+        未运行」，刷新页面也没用（后端从未记录过）。这段逻辑此前在
+        ``f7ee390`` 上修过，但没合入 main，属于合并丢失。
+
+        ## 契约（改这里前务必读）
+
+        - **非 service_ready 事件按原顺序回队**：它们是 execute_stream 的输入，
+          吞掉会表现为"每一步输入都要等很久"或消息丢失；
+        - ``error`` 事件记入 ``_startup_errors``，由 ``start()`` 带回响应；
+        - ``host`` 一律收敛为回环地址 —— 子进程自报的 host 不可信，否则
+          ``/test-api`` 的代理会变成任意 host:port 的 SSRF；
+        - 收到 ``None`` 哨兵（EOF）或进程已退出立即返回，不空等。
         """
         if agent_id in self._services:
-            return
+            return self._services[agent_id]
+
         q = self._outputs.get(agent_id)
         if q is None:
-            return
-        others: list = []
+            return None
+
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + max(0.0, timeout)
+        buffered: list = []
         try:
-            ev = await asyncio.wait_for(q.get(), timeout=2.0)
-            if ev and ev.get("event") != "service_ready":
-                others.append(ev)
+            while True:
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    return None
                 try:
-                    ev2 = await asyncio.wait_for(q.get(), timeout=1.0)
-                    if ev2 and ev2.get("event") == "service_ready":
-                        ev = ev2
-                    elif ev2:
-                        others.append(ev2)
+                    ev = await asyncio.wait_for(q.get(), timeout=min(remaining, 1.0))
                 except asyncio.TimeoutError:
-                    pass
-            if ev and ev.get("event") == "service_ready":
-                self._services[agent_id] = {
-                    "host": ev["data"].get("host", "127.0.0.1"),
-                    "port": ev["data"].get("port"),
-                    "apis": ev["data"].get("apis", []),
-                }
-        except asyncio.TimeoutError:
-            pass
+                    proc = self._processes.get(agent_id)
+                    if proc is not None and proc.returncode is not None:
+                        return None          # 进程已退出，再等也没有事件了
+                    continue
+
+                if ev is None:               # EOF 哨兵
+                    return None
+
+                name = ev.get("event")
+                if name == "service_ready":
+                    data = ev.get("data") or {}
+                    svc = {
+                        "host": "127.0.0.1",
+                        "port": data.get("port"),
+                        "apis": data.get("apis", []),
+                    }
+                    self._services[agent_id] = svc
+                    return svc
+
+                if name == "error":
+                    message = str((ev.get("data") or {}).get("message") or "").strip()
+                    if message:
+                        self._startup_errors[agent_id] = message
+
+                buffered.append(ev)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            return None
+        finally:
+            # 无论正常返回、超时还是取消，都要把读过的事件放回去
+            for item in buffered:
+                q.put_nowait(item)
+
+    async def _await_service_ready_bg(self, agent_id: str, timeout: float = 20.0) -> None:
+        """后台补探：start() 已返回后继续等服务就绪，前端轮询即可看到 running。
+
+        慢 Agent 不该让"启动"按钮卡十几秒，所以短等待没拿到就转到这里。
+        """
+        try:
+            await self._wait_service_ready(agent_id, timeout=timeout)
+        except asyncio.CancelledError:
+            raise
         except Exception:
             pass
-        for o in others:
-            q.put_nowait(o)
+        finally:
+            # 只清理"自己这一代"，避免重启后新任务被旧任务误删
+            if self._service_probe_tasks.get(agent_id) is asyncio.current_task():
+                self._service_probe_tasks.pop(agent_id, None)
+
+    def _cancel_service_probe(self, agent_id: str) -> None:
+        """取消该 Agent 的后台补探任务（stop / 重启 / 进程退出时调用）。"""
+        task = self._service_probe_tasks.pop(agent_id, None)
+        if task is not None and not task.done():
+            task.cancel()
+
+    def is_process_alive(self, agent_id: str) -> bool:
+        """子进程是否仍在运行。
+
+        用于区分「启动中」与「未运行」：web-service Agent 起来但还没上报
+        service_ready 时，进程在、服务未就绪 —— 界面应显示"启动中"。
+        """
+        proc = self._processes.get(agent_id)
+        return proc is not None and proc.returncode is None
 
     async def _drop_process(self, agent_id: str):
         """进程死亡后的收尾：取消 reader、清订阅/悬挂请求、唤醒等待者。"""
         self._processes.pop(agent_id, None)
         self._services.pop(agent_id, None)
+        self._startup_errors.pop(agent_id, None)
+        self._cancel_service_probe(agent_id)
         self._cleanup_agent_routes(agent_id)
 
     def get_service(self, agent_id: str) -> dict | None:
@@ -704,8 +890,10 @@ class AgentFactory:
         它不可能再执行任何清理，等满 20 秒只会让用户多等 20 秒。
         """
         proc = self._processes.pop(agent_id, None)
-        # 清理 web-service 服务记录
+        # 清理 web-service 服务记录 + 后台补探（否则任务会一直等一个已死的进程）
         self._services.pop(agent_id, None)
+        self._startup_errors.pop(agent_id, None)
+        self._cancel_service_probe(agent_id)
         if proc is None:
             return {"agent_id": agent_id, "status": "not_running"}
 

@@ -106,7 +106,10 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
   const [taskParams, setTaskParams] = useState<Record<string, string>>({})
 
   // Web 服务式 Agent：服务信息与 API 测试
-  const [serviceInfo, setServiceInfo] = useState<{ running: boolean; host?: string; port?: number; apis?: Array<{ name: string; method?: string; path?: string; params?: Array<{ name: string; type?: string; required?: boolean; desc?: string }> }> }>({ running: false })
+  // running：服务已就绪；starting：进程在但服务还没上报（慢启动 Agent 会处于这个状态）
+  const [serviceInfo, setServiceInfo] = useState<{ running: boolean; starting?: boolean; process_running?: boolean; host?: string; port?: number; apis?: Array<{ name: string; method?: string; path?: string; params?: Array<{ name: string; type?: string; required?: boolean; desc?: string }> }> }>({ running: false })
+  // 启动后的服务状态轮询定时器（切换 Agent / 卸载 / 停止时必须清掉）
+  const servicePollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [testApi, setTestApi] = useState('')
   const [testParams, setTestParams] = useState<Record<string, string>>({})
   const [dataPickerFor, setDataPickerFor] = useState<string | null>(null)
@@ -177,9 +180,24 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streaming, steps])
 
+  // 停止服务状态轮询：只操作 ref，不依赖任何 state，因此可以（也必须）定义在
+  // 提前 return 之前 —— 否则下面的 effect 清理闭包会捕获一个从未初始化的 const，
+  // agent 由 null 变为有值时触发清理，就会报
+  // "Cannot access 'stopServicePoll' before initialization"。
+  const stopServicePoll = () => {
+    if (servicePollRef.current) {
+      clearTimeout(servicePollRef.current)
+      servicePollRef.current = null
+    }
+  }
+
   // Web 服务式 Agent：加载服务信息（未启动时也拉取 API 声明用于展示）
   useEffect(() => {
     if (agent && isWebService) { loadServiceInfo() }
+    // 切换 Agent / 卸载时停掉轮询，避免定时器泄漏到下一个 Agent。
+    // ⚠️ 这个 effect 必须留在下面 `if (!agent) return` 之前：hook 数量不能随
+    // agent 有无而变，否则 React 抛 "Rendered more hooks than during the previous render"。
+    return () => { stopServicePoll() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agent?.id, isWebService])
 
@@ -203,7 +221,7 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
 
   // Web 服务式 Agent：加载服务信息（含未启动时的 API 声明）
   const loadServiceInfo = async () => {
-    if (!agent || !isWebService) return
+    if (!agent || !isWebService) return null
     try {
       const res = await fetch(`${BASE_URL}/api/agent/${agent.id}/service`)
       if (res.ok) {
@@ -214,8 +232,27 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
         if (apis.length && !apis.some((a: { name: string }) => a.name === testApi)) {
           setTestApi(apis[0].name)
         }
+        return data
       }
     } catch { /* ignore */ }
+    return null
+  }
+
+  /**
+   * 启动后轮询服务状态。
+   *
+   * 为什么需要：慢启动 Agent（import torch / 加载 RKNN 模型）在 start() 返回时
+   * 还没上报 service_ready，后端会转后台继续等。只在启动那一刻查一次的话，
+   * 界面会永远停在"未运行"——这正是本次线上问题的表象。
+   */
+  const pollServiceUntilReady = (attempt = 0) => {
+    if (!agent || !isWebService) return
+    stopServicePoll()
+    if (attempt >= 12) return          // 12 × 1.5s ≈ 18s，覆盖后台上限
+    servicePollRef.current = setTimeout(async () => {
+      const data = await loadServiceInfo()
+      if (!data?.running) pollServiceUntilReady(attempt + 1)
+    }, 1500)
   }
 
   // 发起 API 测试（走后端代理）
@@ -457,7 +494,11 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
       setRunning(true)
       setStreaming('')
       setStreamCards([])
-      if (isWebService) await loadServiceInfo()
+      if (isWebService) {
+        const info = await loadServiceInfo()
+        // 未就绪（慢启动 Agent）→ 后台补探 + 前端轮询，徽章会自动转绿
+        if (!info?.running) pollServiceUntilReady()
+      }
     } catch { /* ignore */ }
     setLoading(false)
   }
@@ -467,7 +508,10 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
     try {
       await fetch(`${BASE_URL}/api/agent/${agent.id}/stop`, { method: 'POST' })
       setRunning(false)
-      if (isWebService) setServiceInfo((s) => ({ ...s, running: false, port: undefined }))
+      if (isWebService) {
+        stopServicePoll()
+        setServiceInfo((s) => ({ ...s, running: false, starting: false, port: undefined }))
+      }
     } catch { /* ignore */ }
     setLoading(false)
   }
@@ -935,9 +979,14 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
               <CardBody>
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-[13px] font-medium text-maia-text-secondary">服务状态</span>
-                  <Badge variant={serviceInfo.running ? 'success' : 'default'}>
-                    {serviceInfo.running ? `运行中 :${serviceInfo.port}` : '未运行'}
-                  </Badge>
+                  {/* 三态：运行中 / 启动中（进程在、还没上报就绪）/ 未运行 */}
+                  <span data-testid="agent-service-badge">
+                    <Badge variant={serviceInfo.running ? 'success' : serviceInfo.starting ? 'warning' : 'default'}>
+                      {serviceInfo.running
+                        ? `运行中 :${serviceInfo.port}`
+                        : serviceInfo.starting ? '启动中…' : '未运行'}
+                    </Badge>
+                  </span>
                 </div>
                 {(serviceInfo.apis?.length || 0) > 0 && (
                   <>
@@ -1029,7 +1078,11 @@ export function AgentDetailView({ agentId }: { agentId?: string } = {}) {
                         {testing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
                         发送测试请求
                       </Button>
-                      {!serviceInfo.running && <span className="text-[12px] text-maia-text-muted ml-2">（请先点击顶部「启动」）</span>}
+                      {!serviceInfo.running && (
+                        <span className="text-[12px] text-maia-text-muted ml-2">
+                          {serviceInfo.starting ? '（服务正在启动，请稍候）' : '（请先点击顶部「启动」）'}
+                        </span>
+                      )}
                     </div>
                     {testResult && (
                       <pre className="mt-3 text-[13px] font-mono leading-[22px] text-maia-text whitespace-pre-wrap bg-maia-bg rounded p-3 border border-maia-border">

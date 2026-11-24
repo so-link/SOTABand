@@ -130,9 +130,21 @@ class InteractiveAgent(BaseAgent):
                        "data": {"messageId": f"msg-{int(time.time() * 1000)}"}}
             return
 
-        if not content.strip():
+        # 「只发了图片/文件、没打字」也是有效输入。
+        # 早先这里对空 content 直接 yield done 就返回，前端收不到任何 content
+        # 事件 → 报「Agent 未返回内容」；用户在「请提供 source」之后贴一张图
+        # 也永远得不到回应（图片里的信息完全被丢掉）。
+        if not content.strip() and not attachments:
             yield {"event": "done", "data": {"messageId": ctx.session_id}}
             return
+
+        # 只有附件、且当前不在「收集参数」状态：给主流程一句中性说明，
+        # 否则空串会流进 Agent/工具匹配与 LLM 调用（匹配器拿空查询什么也找不到）。
+        # 注意不能覆盖 pending 分支 —— 那里要用「空 content + 附件」直接当参数值。
+        if not content.strip() and attachments:
+            _sk = ctx.session_id or "default"
+            if not self._pending_calls.get(_sk):
+                content = "（用户只上传了附件，没有文字说明；请结合附件内容理解其意图并继续。）"
 
         try:
             async for event in self._execute_impl(ctx, content, attachments, workspace_tool_ids):
@@ -306,10 +318,17 @@ class InteractiveAgent(BaseAgent):
                 yield {"event": "content", "data": {"text": f"已取消 **{pending['tool_name']}** 的执行。还需要我做什么？"}}
                 return
             target_param = pending["missing"][0]
+            # 「请提供 source」这类场景，用户往往直接贴一张图/一个文件。
+            # 此时 content 为空，但附件本身就是要的答案（工具参数收的是本地路径），
+            # 直接把 file_id 解析成绝对路径，比让 LLM 从空文本里猜可靠得多。
+            attachment_path = "" if content.strip() else self._attachment_local_path(attachments)
             try:
-                answer_params = await self._extract_answer_params(
-                    content, pending["tool_id"], target_param
-                )
+                if attachment_path:
+                    answer_params = {target_param["name"]: attachment_path}
+                else:
+                    answer_params = await self._extract_answer_params(
+                        content, pending["tool_id"], target_param
+                    )
             except ValueError as e:
                 # 类型校验失败（如 int 参数收到无法解析的文本）：
                 # 不写入参数、保持 pending 状态，提示用户重新输入该参数。
@@ -1008,9 +1027,19 @@ class InteractiveAgent(BaseAgent):
             reg = ToolRegistry()
             tools = reg._read()
             active = [t for t in tools if t.get("status") == "active"]
-            if workspace_tool_ids:
+            # 三种入参语义必须区分清楚（历史上这里把"空"当成"全部"，导致新用户
+            # 工作空间为空时被塞进全部内置工具，任何一个工具 schema 有问题都会让
+            # 整轮对话 400）：
+            #   None  → 未提供（内部直调 / 单测）：保持"全部"，向后兼容
+            #   []    → 显式空工作空间：不注入任何工具
+            #   [...] → 只注入选中的工具
+            if workspace_tool_ids is None:
+                pass
+            elif workspace_tool_ids:
                 ws_set = set(workspace_tool_ids)
                 active = [t for t in active if t.get("id") in ws_set]
+            else:
+                active = []
 
             type_map = {
                 "string": "string", "str": "string",
@@ -1025,11 +1054,28 @@ class InteractiveAgent(BaseAgent):
             for t in active:
                 properties = {}
                 required = []
-                for p in t.get("param_meta") or []:
-                    jtype = type_map.get((p.get("type") or "string").lower(), "string")
-                    properties[p["name"]] = {"type": jtype, "description": p.get("desc", "")}
-                    if p.get("required"):
-                        required.append(p["name"])
+                # 同一参数名在多模式工具里会按模式各出现一次（param_meta 保留重复是
+                # 刻意设计，前端按 mode 分组渲染依赖它）。schema 这边必须收敛：
+                #   - properties 是 dict，同名键天然覆盖（后出现的模式定义生效）
+                #   - required 是数组，必须去重 —— 供应商按 JSON Schema 的
+                #     uniqueItems 校验，出现 ["x","x",...] 会让整个 tools 请求 400
+                seen_required: set[str] = set()
+                try:
+                    for p in t.get("param_meta") or []:
+                        name = str(p.get("name") or "").strip()
+                        if not name:
+                            continue          # 空参数名同样会被供应商拒绝
+                        jtype = type_map.get((p.get("type") or "string").lower(), "string")
+                        properties[name] = {"type": jtype, "description": p.get("desc", "")}
+                        if p.get("required") and name not in seen_required:
+                            seen_required.add(name)
+                            required.append(name)
+                except Exception as exc:       # 单个工具的参数脏数据不该拖垮整轮对话
+                    import logging
+
+                    logging.getLogger("sotaband").warning(
+                        "工作空间工具 schema 生成失败，已跳过 %s: %s", t.get("id"), exc)
+                    continue
                 desc = t.get("description") or t.get("name", "")
                 if t.get("tags"):
                     desc = f"{desc}（标签: {', '.join(t['tags'][:3])}）"
@@ -2525,6 +2571,32 @@ class InteractiveAgent(BaseAgent):
             return path_params
         except Exception:
             return []
+
+    def _attachment_local_path(self, attachments: list) -> str:
+        """取第一个附件的本地绝对路径，取不到返回空串。
+
+        用户在「请提供 source / 图片路径」之后直接贴一张图时，附件本身就是
+        答案：工具参数收的是本地路径，这里把 file_id 解析成磁盘路径即可，
+        不需要再让用户手打一遍。
+
+        安全：``user_files.resolve()`` 内部会把结果限制在当前用户 home 之内，
+        越界记录会被删除并抛 FileNotFoundError —— 这里吞掉异常返回空串，
+        由调用方回落到「请重新输入」的提示。
+        """
+        for att in attachments or []:
+            try:
+                if isinstance(att, dict):
+                    file_id = str(att.get("fileId") or att.get("file_id") or "")
+                else:
+                    file_id = str(getattr(att, "fileId", "") or getattr(att, "file_id", ""))
+                if not file_id:
+                    continue
+                from core import user_files
+
+                return str(user_files.resolve(file_id))
+            except Exception:
+                continue
+        return ""
 
     def _resolve_dataset_paths(self, attachments: list) -> list[str]:
         """从附件中解析文件路径"""
