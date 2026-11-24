@@ -6,6 +6,7 @@ import re
 import time
 from datetime import date
 from pathlib import Path
+from urllib.parse import quote
 from fastapi import APIRouter, Form, HTTPException
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
@@ -1326,7 +1327,12 @@ async def get_agent_service(agent_id: str):
 
     apis 始终返回**完整定义**（含 name/method/path/params），
     以便前端渲染参数输入框——无论服务是否已启动。
-    运行状态（running/host/port）来自工厂。
+
+    三态字段（``running`` 语义保持不变，向后兼容）：
+    - ``running``：服务已就绪，可以发起 API 测试；
+    - ``process_running``：子进程还在；
+    - ``starting``：进程在、服务未就绪 —— 前端显示"启动中"而不是"未运行"。
+      慢启动 Agent（import torch / 加载 RKNN 模型）有几秒到十几秒处于这个状态。
     """
     await _visible_agent(agent_id)
     # 始终从 MD 规范解析完整 API 定义（含 params）
@@ -1345,16 +1351,58 @@ async def get_agent_service(agent_id: str):
         ]
 
     svc = agent_factory.get_service(agent_id)
+    process_running = agent_factory.is_process_alive(agent_id)
     if svc:
         return {
             "agent_id": agent_id,
             "running": True,
+            "starting": False,
+            "process_running": process_running,
             "host": svc.get("host"),
             "port": svc.get("port"),
             "apis": apis,
         }
 
-    return {"agent_id": agent_id, "running": False, "host": None, "port": None, "apis": apis}
+    return {
+        "agent_id": agent_id,
+        "running": False,
+        "starting": process_running,
+        "process_running": process_running,
+        "host": None,
+        "port": None,
+        "apis": apis,
+    }
+
+
+def _fill_path_params(path: str, params: dict) -> tuple[str, dict]:
+    """用 params 填充声明 path 中的 ``{name}``，返回 (填充后的 path, 剩余参数)。
+
+    - 值做 URL 编码（``safe=""``），避免含 ``/`` 的参数破坏路径结构；
+    - 被消费的键从剩余参数中移除，避免重复放进 query/body；
+    - 仍有未填充的 ``{name}`` 时抛 ``ValueError``，消息里列出缺失的占位符。
+    """
+    if "{" not in path:
+        return path, dict(params)
+
+    consumed: list[str] = []
+    missing: list[str] = []
+
+    def _sub(match):
+        key = match.group(1)
+        value = params.get(key)
+        if value is not None and str(value) != "":
+            consumed.append(key)
+            return quote(str(value), safe="")
+        missing.append(key)
+        return match.group(0)
+
+    filled = re.sub(r"\{([^{}]+)\}", _sub, path)
+    if missing:
+        names = ", ".join(dict.fromkeys(missing))
+        raise ValueError(names)
+    consumed_set = set(consumed)
+    remaining = {key: value for key, value in params.items() if key not in consumed_set}
+    return filled, remaining
 
 
 class TestApiRequest(BaseModel):
@@ -1393,14 +1441,21 @@ async def test_agent_api(agent_id: str, req: TestApiRequest):
     port = svc["port"]
     path = api_def.get("path", "/")
     method = api_def.get("method", "POST").upper()
-    url = f"http://{host}:{port}{path}"
+
+    # 路径参数（如 /tasks/{task_id}）：用 params 中的值填充，并从 query/body 中移除。
+    # 宿主只按声明 path 匹配路由，字面量 {task_id} 会 404。
+    try:
+        filled_path, payload = _fill_path_params(str(path), dict(req.params))
+    except ValueError as exc:
+        raise HTTPException(400, f"缺少路径参数: {exc}") from exc
+    url = f"http://{host}:{port}{filled_path}"
 
     try:
         async with httpx.AsyncClient(timeout=120) as client:
             if method == "GET":
-                resp = await client.get(url, params=req.params)
+                resp = await client.get(url, params=payload)
             else:
-                resp = await client.request(method, url, json=req.params)
+                resp = await client.request(method, url, json=payload)
         try:
             body = resp.json()
         except Exception:
