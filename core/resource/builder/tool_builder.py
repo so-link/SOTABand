@@ -1311,13 +1311,13 @@ FINAL CHECKLIST (verify before output):
         yield {"event": "debug_start", "message": "自动调试启动", "max_rounds": max_rounds}
 
         # ── 静态安全审查（初始代码）──
-        # block 级违规：不执行，直接要求 LLM 修复后再跑
-        from core.security.review import review_code as _review, block_violations as _blocks
+        # block 级违规：不执行，直接要求 LLM 修复后再跑。
+        # 统一走 gate()：audit 灰度下不阻断（历史上这里无条件驳回，配置不生效）。
+        from core.security.review import gate as _review_gate
 
         security_feedback = ""
         skip_exec_for_security = False
-        _init_violations = _review(current_code)
-        _init_blocks = _blocks(_init_violations)
+        _init_blocks, _init_violations = _review_gate(current_code, tool_id)
         if _init_blocks:
             yield {
                 "event": "security_violation", "round": 0,
@@ -1707,9 +1707,9 @@ stderr: {_safe_stderr}
 
             # ── ⑤b 静态安全审查（LLM 新代码）──
             # block 级违规：不采纳这段代码（也不写入跨轮对话历史，避免 LLM
-            # 误以为它被接受），把违规反馈给 LLM 下一轮重新生成
-            _new_violations = _review(code_text)
-            _new_blocks = _blocks(_new_violations)
+            # 误以为它被接受），把违规反馈给 LLM 下一轮重新生成。
+            # gate() 按 review_mode 决定是否阻断（audit 灰度只记录）。
+            _new_blocks, _new_violations = _review_gate(code_text, tool_id)
             if _new_blocks:
                 yield {
                     "event": "security_violation", "round": round_num,

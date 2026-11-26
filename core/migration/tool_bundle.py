@@ -477,6 +477,7 @@ def import_tool(
 
         # 落盘前静态安全审查：与 /api/tool/import 同一闸门，被阻断的代码不落盘。
         from core.security.code_scan import check_undeclared_imports, scan_code
+        from core.security.review import gate as _review_gate
 
         _req_text = "\n".join(str(d) for d in (manifest.get("dependencies") or []))
         import_warnings: list[str] = []
@@ -488,6 +489,13 @@ def import_tool(
             if not _scan.ok:
                 raise ValueError(
                     f"迁移包 {rel} 静态安全审查未通过：\n" + "\n".join(_scan.errors)
+                )
+            # core API 约束线：与注册/保存同一套规则，避免打包绕过。
+            _blocks, _ = _review_gate(_code, tool_id)
+            if _blocks:
+                raise ValueError(
+                    f"迁移包 {rel} 代码安全审查未通过：\n"
+                    + "\n".join(f"- {v.message}（第 {v.line} 行）" for v in _blocks)
                 )
             for _mod in check_undeclared_imports(_code, _req_text or None):
                 import_warnings.append(f"{rel}: import {_mod} 未在依赖清单声明")

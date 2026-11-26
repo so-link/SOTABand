@@ -1641,6 +1641,21 @@ yield self._step("reply", "回复完成", "done")
                 "stderr": msg,
                 "success": False,
             }
+        # core API 约束线（review）：与工具侧同规则，按 review_mode 灰度。
+        from core.security.review import gate as _review_gate
+        _blocks, _ = _review_gate(code, agent_id)
+        if _blocks:
+            msg = "代码安全审查未通过（core API 约束）：\n" + "\n".join(
+                f"- {v.message}（第 {v.line} 行）" for v in _blocks)
+            return {
+                "exit_code": 1,
+                "stdout": json.dumps({
+                    "status": "failed",
+                    "security_violations": [v.to_dict() for v in _blocks],
+                }, ensure_ascii=False),
+                "stderr": msg,
+                "success": False,
+            }
 
         impl_dir = paths.private_space_dir("agents") / "implementations" / debug_id
         try:

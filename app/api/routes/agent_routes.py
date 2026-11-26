@@ -645,6 +645,13 @@ async def register_agent(req: RegisterAgentRequest):
         scan = scan_code(req.code)
         if not scan.ok:
             raise HTTPException(400, "静态安全审查未通过：\n" + "\n".join(scan.errors))
+        # core API 约束线（review）：按 review_mode 灰度；Agent 此前只接了
+        # code_scan，导致写固定用户目录/工具目录的代码可直接落库。
+        from core.security.review import gate as _review_gate
+        _blocks, _ = _review_gate(req.code, agent_id)
+        if _blocks:
+            raise HTTPException(400, "代码安全审查未通过：\n" + "\n".join(
+                f"- {v.message}（第 {v.line} 行）" for v in _blocks))
 
     # agent_id 直接拼进 implementations/<id> 目录，必须拒绝 "../" 等路径穿越
     from core.resource import paths as _paths
@@ -862,6 +869,11 @@ async def save_agent_code(agent_id: str, req: SaveCodeRequest):
     scan = scan_code(req.code)
     if not scan.ok:
         raise HTTPException(400, "静态安全审查未通过：\n" + "\n".join(scan.errors))
+    from core.security.review import gate as _review_gate
+    _blocks, _ = _review_gate(req.code, agent_id)
+    if _blocks:
+        raise HTTPException(400, "代码安全审查未通过：\n" + "\n".join(
+            f"- {v.message}（第 {v.line} 行）" for v in _blocks))
 
     # 优先写回原位置（内置资源就地更新）；不存在则写私有目录
     impl_dir = _locate_agent_impl_dir(agent_id) or (registry._get_impl_dir() / agent_id)
