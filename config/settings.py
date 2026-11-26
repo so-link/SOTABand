@@ -461,9 +461,10 @@ class SecurityConfig:
                 return "enforce"
         return "audit"
     # 运行时文件写入白名单（绝对路径或相对项目根）。
-    # 用户目录 <USER_HOME>/<uid>/ 与系统临时目录由执行器自动追加，
-    # 不必在此声明（本地工具产物按多用户模型必须落用户目录）。
-    allowed_write_paths: list = field(default_factory=lambda: ["data", "logs", "output"])
+    # **默认空**：产物一律写当前用户目录（SOTABAND_USER_HOME）或系统临时目录，
+    # 二者由执行器自动追加。工具自身目录与项目根 data/logs/output 都是随包
+    # 分发的只读资产，不再默认放行；确需临时放行时再显式配置。
+    allowed_write_paths: list = field(default_factory=list)
     # 运行时网络访问白名单（主机名）；空列表 = 网络不拦截，仅记录
     allowed_network_hosts: list = field(default_factory=list)
     runtime_enforce_network: bool = False
