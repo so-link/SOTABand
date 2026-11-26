@@ -106,10 +106,24 @@ for line in sys.stdin:
 
 
 class ToolRuntime:
-    """管理某 Agent 依赖工具的常驻进程。"""
+    """管理某 Agent 依赖工具的常驻进程。
 
-    def __init__(self, project_root: Path):
+    产物归属：常驻 Worker 属于**服务所有者**（Agent 注册 owner），不是逐次
+    调用方。Web 服务的调用方可能没有平台身份、且可能并行成百上千，按调用方
+    分池/切池都会带来内存与抖动问题；而调用方真正需要的是 HTTP 响应里的数据，
+    不是服务器上的 runs/ 目录。因此这里把 ``SOTABAND_USER_HOME`` 固定为 owner
+    home，worker 全程复用，不因调用方变化而重启。
+    """
+
+    def __init__(self, project_root: Path, owner_uid: str | None = None):
+        import os
+
+        from core.user_paths import SYSTEM_UID
+
         self.project_root = project_root
+        self.owner_uid = (str(owner_uid).strip() if owner_uid
+                          else os.environ.get("SOTABAND_OWNER_UID", "").strip()
+                          or SYSTEM_UID)
         # {tool_id: {"proc": Process, "ready": bool, "load_error": str}}
         self._workers: dict[str, dict] = {}
         self._lock = asyncio.Lock()
@@ -183,7 +197,8 @@ class ToolRuntime:
             try:
                 tool_dir = str(tool_dir_path)
                 from core.user_paths import runtime_env, user_home
-                _home = user_home()
+                # 产物归属服务所有者：worker 全程以 owner 身份运行，不随调用方切换。
+                _home = user_home(self.owner_uid)
                 _home.mkdir(parents=True, exist_ok=True)
                 script = (
                     _WORKER_PRELUDE
@@ -191,7 +206,11 @@ class ToolRuntime:
                     + _WORKER_TAIL
                 )
                 env = dict(
-                    **runtime_env({"TOOL_DIR": tool_dir}),
+                    **runtime_env({
+                        "TOOL_DIR": tool_dir,
+                        "SOTABAND_USER_HOME": str(_home),
+                        "SOTABAND_USER_ID": self.owner_uid,
+                    }),
                     PYTHONUNBUFFERED="1",
                     PYTHONPATH=str(self.project_root),
                 )

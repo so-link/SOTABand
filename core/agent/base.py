@@ -125,6 +125,20 @@ class BaseAgent(ABC):
     def role(self) -> AgentRole:
         return self.spec.role
 
+    @property
+    def owner_uid(self) -> str:
+        """本 Agent 的产物归属用户（服务所有者）。
+
+        Web 服务式 Agent 的常驻工具产物统一落这里：HTTP 调用方可能没有平台
+        身份，也可能成百上千，按调用方分池不现实。owner 由平台在启动时通过
+        ``SOTABAND_OWNER_UID`` 注入（取注册条目 owner）；系统 Agent 缺省 100。
+        """
+        import os
+
+        from core.user_paths import SYSTEM_UID
+
+        return os.environ.get("SOTABAND_OWNER_UID", "").strip() or SYSTEM_UID
+
     # ── 工具调用辅助（任务式 / Web 服务式 Agent 共用） ──
 
     def get_tool_runtime(self):
@@ -134,7 +148,7 @@ class BaseAgent(ABC):
             from pathlib import Path
 
             project_root = Path(__file__).resolve().parent.parent.parent
-            self._tool_runtime = ToolRuntime(project_root)
+            self._tool_runtime = ToolRuntime(project_root, owner_uid=self.owner_uid)
         return self._tool_runtime
 
     def resident_tool_ids(self) -> list[str]:

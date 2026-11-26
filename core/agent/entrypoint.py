@@ -188,12 +188,19 @@ async def main():
         身份：与 execute 轮同语义——「以发起本轮的用户身份跑」。uid 取
         主进程注入的受信帧字段 user_id（帧内 from 是会话标签不是 uid，
         绝不可信）；缺字段（旧帧）或为空时与 execute 轮一致回退 "0"。
-        必须覆写 SOTABAND_USER_ID：共享进程里若不覆写，RPC 触发的工具
-        会沿用上一个 execute 轮残留的用户身份落盘——跨用户串号。
+
+        身份承载分两层：
+        - contextvar（权威）：随本 task 复制，与并发 execute 轮互不干扰，
+          ``current_uid()`` / ``user_home()`` / ``runtime_env()`` 都读它；
+        - 环境变量（兼容）：存量 Agent 代码仍可能直接读 ``os.environ``，
+          这里同步写一份。函数作为独立 task 运行，context 随 task 结束销毁，
+          因此不必 reset；若将来改为长驻 task，必须补 reset。
         """
         from core.agent.base import AgentContext
+        from core.user_paths import set_exec_uid
 
         uid = str(caller_uid or "").strip() or "0"
+        set_exec_uid(uid)
         os.environ["SOTABAND_USER_ID"] = uid
         ctx = AgentContext(agent_id=args.agent_id,
                            session_id=f"rpc:{from_agent}", user_id=uid)
@@ -299,12 +306,13 @@ async def main():
         """
         ctx_data = task.get("context", {})
         from core.agent.base import AgentContext
+        from core.user_paths import reset_exec_uid, set_exec_uid
 
-        uid = ctx_data.get("user_id") or "0"
-        # 关键：工具执行/产物落盘都按"发起本轮的用户"走。进程启动时固化的是
-        # 超管 uid（启动进程无请求身份），若不在此覆盖，任何用户的工具都会
-        # 写到 /root/SB-USER/0/（超管目录）——跨用户数据串位。
-        os.environ["SOTABAND_USER_ID"] = str(uid)
+        uid = str(ctx_data.get("user_id") or "0")
+        # 身份以 contextvar 为准（本 task 独享，跨用户并发不互踩）；
+        # 环境变量同步写一份，仅供仍直接读 os.environ 的存量 Agent 代码。
+        _uid_token = set_exec_uid(uid)
+        os.environ["SOTABAND_USER_ID"] = uid
 
         ctx = AgentContext(
             agent_id=args.agent_id,
@@ -321,6 +329,11 @@ async def main():
         except Exception as e:
             await send_event({"event": "error", "data": {"message": str(e)}})
         finally:
+            try:
+                reset_exec_uid(_uid_token)
+            except (ValueError, LookupError):
+                # token 已被更内层 reset（如 execute 内部自建作用域）
+                pass
             exec_state["task"] = None
 
     exec_state: dict = {"task": None}
