@@ -153,10 +153,18 @@ class WebServiceHost:
             if path_params:
                 params.update(path_params)
 
-            # 调用 Agent 执行该 API 的流程
+            # 调用 Agent 执行该 API 的流程。
+            # 身份 = 服务所有者：HTTP 调用方可能没有平台身份，而工具产物按
+            # 「服务侧归档」语义归属注册 owner（见 ToolRuntime 文档）。每个连接
+            # 由独立 task 处理，contextvar 随连接结束销毁，不必 reset。
             from core.agent.base import AgentContext
+            from core.user_paths import SYSTEM_UID, set_exec_uid
 
-            ctx = AgentContext(agent_id=self.agent.agent_id, session_id="http", user_id="http")
+            # 宿主按 BaseAgent 约定工作，但允许测试桩/第三方实现只提供
+            # agent_id/spec/execute：缺 owner_uid 时归系统用户。
+            owner = getattr(self.agent, "owner_uid", "") or SYSTEM_UID
+            set_exec_uid(owner)
+            ctx = AgentContext(agent_id=self.agent.agent_id, session_id="http", user_id=owner)
             response = None
             # result 事件可选回传 HTTP 状态码（Agent 自己表达 400/404/409/500），
             # 未提供时保持 200，既有 Agent 行为不变。

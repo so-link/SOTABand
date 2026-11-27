@@ -491,6 +491,26 @@ class AgentFactory:
                     return str(impl_dir)
         return None
 
+    @staticmethod
+    def _agent_owner_uid(agent_id: str) -> str:
+        """Agent 的产物归属用户：注册条目 owner，查不到归系统用户。
+
+        Agent 子进程常驻后会被多个用户复用，启动时注入的 env 不能取「谁点的
+        启动」——否则第一个启动者（可能是超管 0）会成为所有用户的产物目录。
+        注册 owner 是稳定语义：公共 Agent 一律 100，用户私有 Agent 是其创建者。
+        """
+        from core.user_paths import SYSTEM_UID
+
+        try:
+            from core.resource.registry.agent_registry import AgentRegistry
+
+            for entry in AgentRegistry()._read():
+                if entry.get("id") == agent_id:
+                    return str(entry.get("owner") or SYSTEM_UID)
+        except Exception:
+            pass
+        return SYSTEM_UID
+
     async def start(self, agent_id: str, impl_path: str = None) -> dict:
         """启动 Agent 子进程。若代码缺失则尝试从 spec 自动重新生成。"""
         if agent_id in self._processes and self._processes[agent_id].returncode is None:
@@ -531,14 +551,24 @@ class AgentFactory:
         python = sys.executable
         entrypoint = str(PROJECT_ROOT / "core" / "agent" / "entrypoint.py")
 
-        # Agent 子进程环境：显式注入系统根与用户目录。
+        # Agent 子进程环境：显式注入系统根与**归属用户**目录。
         # 模板里用 Path(__file__).parents[N] 猜项目根在私有根下会算错
         # （/root/resources/agents/logs 事故根因），统一改为信 env。
-        # cwd 同样定为 USER_HOME：Agent 代码里的相对路径不能落进 git 工作区。
+        # cwd 同样定为归属目录：Agent 代码里的相对路径不能落进 git 工作区。
+        #
+        # 关键：这里注入的是注册 owner，不是「点启动的人」。进程会常驻并被
+        # 多个用户复用，用启动者身份会让所有回合的初始值都指向第一个用户。
+        # 每轮真实身份由 entrypoint 用 contextvar 覆写（见 set_exec_uid）。
         from core.user_paths import runtime_env, user_home
-        _home = user_home()
+
+        _owner = self._agent_owner_uid(agent_id)
+        _home = user_home(_owner)
         _home.mkdir(parents=True, exist_ok=True)
-        _proc_env = {**os.environ, **runtime_env()}
+        _proc_env = {**os.environ, **runtime_env({
+            "SOTABAND_OWNER_UID": _owner,
+            "SOTABAND_USER_HOME": str(_home),
+            "SOTABAND_USER_ID": _owner,
+        })}
 
         # 新一代启动：清掉上一代残留的启动错误与后台补探任务
         self._startup_errors.pop(agent_id, None)

@@ -41,6 +41,7 @@
 
 from __future__ import annotations
 
+import contextvars
 import os
 import re
 from pathlib import Path
@@ -62,6 +63,36 @@ SYSTEM_UID = "100"
 # uid 消毒：只允许安全字符，防 token/env 注入路径穿越
 _UID_RE = re.compile(r"[^A-Za-z0-9_.-]")
 
+# 执行身份：Agent 子进程内按「本轮 execute / 本次 RPC」设置。
+#
+# 为什么需要它：``SOTABAND_USER_ID`` 是**进程级**环境变量，Agent 子进程常驻
+# 并被多用户复用时，一轮覆写会影响同一进程里的其它协程；而模块级常量
+# （工具/Agent 模板的 ``_USER_HOME``）更是在导入时就固化，永远看不到后续覆写。
+# contextvar 随 asyncio task 复制、互不干扰，是「实时当前身份」的权威来源。
+#
+# 优先级见 :func:`current_uid`：登录身份 > 执行身份 > 环境变量 > "0"。
+_exec_uid: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "sotaband_exec_uid", default=None
+)
+
+
+def set_exec_uid(uid: str | None):
+    """设置当前执行身份，返回 token 供 :func:`reset_exec_uid`。
+
+    只影响当前协程/任务及其派生子任务，不污染同进程的其它用户请求。
+    """
+    return _exec_uid.set(sanitize_uid(uid) if uid else None)
+
+
+def reset_exec_uid(token) -> None:
+    """恢复上一个执行身份（必须与 set 成对出现）。"""
+    _exec_uid.reset(token)
+
+
+def exec_uid() -> str | None:
+    """当前协程的执行身份；未设置返回 None。"""
+    return _exec_uid.get()
+
 
 def sanitize_uid(uid: str) -> str:
     uid = _UID_RE.sub("_", str(uid or "").strip())
@@ -69,7 +100,11 @@ def sanitize_uid(uid: str) -> str:
 
 
 def current_uid() -> str:
-    """当前用户 ID：登录身份 > SOTABAND_USER_ID > "0"。"""
+    """当前用户 ID：登录身份 > 执行身份（contextvar）> SOTABAND_USER_ID > "0"。
+
+    登录身份优先：Web 请求线程里 contextvar 由鉴权中间件设置，agent 子进程内
+    为空，于是落到执行身份；两者都没有才回退到进程 env（兼容直跑脚本）。
+    """
     try:
         from core.auth.session import current_identity
         rid = current_identity()
@@ -77,6 +112,9 @@ def current_uid() -> str:
             return sanitize_uid(rid)
     except Exception:
         pass
+    exec_id = _exec_uid.get()
+    if exec_id:
+        return sanitize_uid(exec_id)
     env = os.environ.get("SOTABAND_USER_ID", "").strip()
     return sanitize_uid(env) if env else DEFAULT_UID
 
@@ -97,6 +135,10 @@ def runtime_env(extra: dict | None = None) -> dict:
     生成的工具与 Agent 代码**只能靠这些变量定位目录**——不允许绝对路径，
     也不允许 ``Path(__file__).parents[N]`` 反推根目录（资源搬到任何深度、
     换用户目录、复制到系统目录或换机器，反推都会算错）。
+
+    取值时机是关键：本函数每次都按**当前执行身份**现算（:func:`current_uid`
+    读 contextvar），因此只在「拉起子进程」的那一刻调用它才是正确的。把结果
+    缓存在常驻进程里，就会退化成启动者快照。
 
     - ``SOTABAND_ROOT``      项目根（代码 + 出厂种子包），只读用途
     - ``SOTABAND_USER_HOME`` 当前用户目录，一切产物写这里

@@ -82,18 +82,40 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 # 当前用户目录：Agent 的一切产物（日志、导出文件）写这里，绝不写系统根。
-def _detect_user_home() -> Path:
+#
+# 分两层：
+# - user_home()：每次调用现算，跟随本轮 execute 的身份（平台 contextvar），
+#   共享进程被多用户复用时也能拿到调用者目录 —— 新代码一律用它；
+# - USER_HOME：导入期快照，仅作兼容兜底（值是平台注入的归属目录，不是调用者，
+#   直接引用会跨用户串号）。
+def _fallback_user_home() -> Path:
     uh = os.environ.get("SOTABAND_USER_HOME", "").strip()
     if uh:
         return Path(uh)
     base = os.environ.get("SOTABAND_HOME", "").strip() or str(PROJECT_ROOT.parent / "SB-USER")
     return Path(base) / (os.environ.get("SOTABAND_USER_ID", "").strip() or "0")
 
-USER_HOME = _detect_user_home()
+def user_home() -> Path:
+    """当前执行用户的目录：平台实现优先（实时身份），env 兜底。"""
+    try:
+        from core.user_paths import user_home as _platform_user_home
+        return _platform_user_home()
+    except Exception:
+        return _fallback_user_home()
+
+def current_uid() -> str:
+    """当前执行用户 ID：平台实现优先，env 兜底。"""
+    try:
+        from core.user_paths import current_uid as _platform_uid
+        return _platform_uid()
+    except Exception:
+        return os.environ.get("SOTABAND_USER_ID", "").strip() or "0"
+
+USER_HOME = _fallback_user_home()  # 兼容别名：新代码请用 user_home()
 
 def out_dir(*parts) -> Path:
-    """产物目录：USER_HOME/<子目录>/…，自动创建。日志、导出文件都走这里。"""
-    d = USER_HOME.joinpath(*parts) if parts else USER_HOME
+    """产物目录：user_home()/<子目录>/…，自动创建。日志、导出文件都走这里。"""
+    d = user_home().joinpath(*parts) if parts else user_home()
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -118,7 +140,7 @@ TOOL_HELPER_TEMPLATE = '''
             _sb = Path(os.environ.get("SOTABAND_HOME", "").strip()
                        or str(PROJECT_ROOT.parent / "SB-USER"))
             _uid = os.environ.get("SOTABAND_SYSTEM_UID", "100").strip() or "100"
-            _spaces = [USER_HOME / "tools", _sb / _uid / "tools"]
+            _spaces = [user_home() / "tools", _sb / _uid / "tools"]
         _tool_base = None
         for _space in _spaces:
             _cand = _space / "implementations" / "{tool_id}"
@@ -151,12 +173,13 @@ TOOL_HELPER_TEMPLATE = '''
             proc = subprocess.run(
                 [python_exe, tmp_path],
                 capture_output=True, text=True,
-                # 用户目录一并注入：工具靠它定位产物落点，缺失会写错地方
+                # 用户目录一并注入：工具靠它定位产物落点，缺失会写错地方。
+                # 必须取 user_home()/current_uid()（当轮身份），不能用导入期常量。
                 env={{**os.environ, "TOOL_DIR": str(impl_path.parent),
                       "_PROJECT_ROOT": str(PROJECT_ROOT), "SOTABAND_ROOT": str(PROJECT_ROOT),
-                      "SOTABAND_USER_HOME": str(USER_HOME),
-                      "SOTABAND_USER_ID": os.environ.get("SOTABAND_USER_ID", "0")}},
-                cwd=str(USER_HOME),
+                      "SOTABAND_USER_HOME": str(user_home()),
+                      "SOTABAND_USER_ID": current_uid()}},
+                cwd=str(user_home()),
             )
             if proc.returncode == 0:
                 return json.loads(proc.stdout.strip())
@@ -1316,8 +1339,9 @@ yield self._step("reply", "回复完成", "done")
 - 【禁止】绝对不要使用 pip install、subprocess.run 安装依赖包 — 依赖由系统自动管理
 - 【路径可移植性·强制】生成的 Agent 必须能在任意目录下不改代码运行（私有区、系统 resources/、其他用户目录、其他机器）：
   - 【禁止】任何绝对路径（/root/…、/home/…、C:… 等），包括写成常量、参数默认值、或从规范文档里抄来的数据集目录
-  - 【禁止】用 Path(__file__).parents[N] / .parent.parent 链或 Path.cwd() 猜目录——模板已备好：PROJECT_ROOT（系统根，只读）、USER_HOME（当前用户目录，产物写这里）、out_dir(...) （自动创建并返回 USER_HOME/子目录）
-  - 需要落盘（导出文件、中间结果）一律 out_dir("子目录")；执行日志已由 _log_step 统一落 USER_HOME/agent_logs，不要自己拼日志路径
+  - 【禁止】用 Path(__file__).parents[N] / .parent.parent 链或 Path.cwd() 猜目录——模板已备好：PROJECT_ROOT（系统根，只读）、user_home()（当前执行用户目录，产物写这里）、out_dir(...) （自动创建并返回 user_home()/子目录）
+  - 需要落盘（导出文件、中间结果）一律 out_dir("子目录")；执行日志已由 _log_step 统一落 user_home()/agent_logs，不要自己拼日志路径
+  - 【禁止】直接引用模块级 USER_HOME 常量（导入期快照，共享进程跨用户复用时会串号）；一律调用 user_home()
   - 【禁止】往 PROJECT_ROOT（git 管理的代码区）或系统公共层 SB-USER/100/ 里写任何文件
   - 工具产物的路径从工具返回结果里读，不要自己按目录规则拼出来
 - 直接返回 Python 代码，不要 markdown 代码块"""
@@ -1614,6 +1638,21 @@ yield self._step("reply", "回复完成", "done")
             return {
                 "exit_code": 1,
                 "stdout": json.dumps({"status": "failed", "security_scan": scan.to_dict()}, ensure_ascii=False),
+                "stderr": msg,
+                "success": False,
+            }
+        # core API 约束线（review）：与工具侧同规则，按 review_mode 灰度。
+        from core.security.review import gate as _review_gate
+        _blocks, _ = _review_gate(code, agent_id)
+        if _blocks:
+            msg = "代码安全审查未通过（core API 约束）：\n" + "\n".join(
+                f"- {v.message}（第 {v.line} 行）" for v in _blocks)
+            return {
+                "exit_code": 1,
+                "stdout": json.dumps({
+                    "status": "failed",
+                    "security_violations": [v.to_dict() for v in _blocks],
+                }, ensure_ascii=False),
                 "stderr": msg,
                 "success": False,
             }

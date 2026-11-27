@@ -2293,8 +2293,14 @@ class InteractiveAgent(BaseAgent):
             return None
         project_root = Path(__file__).resolve().parent.parent.parent.parent.parent
         # 数据根（扁平布局）：私有数据目录优先，系统公共层次之，
-        # 均按 factory 注入的 env 还原，不硬编码层级
-        _uh = os.environ.get("SOTABAND_USER_HOME", "").strip()
+        # 均按 factory 注入的 env 还原，不硬编码层级。
+        # 身份取平台实现（contextvar 实时），不能只读 env：那是进程级快照，
+        # 共享 Agent 进程跨用户复用时会把上一个用户的目录带进来。
+        try:
+            from core.user_paths import user_home as _platform_user_home
+            _uh = str(_platform_user_home())
+        except Exception:
+            _uh = os.environ.get("SOTABAND_USER_HOME", "").strip()
         _sb = os.environ.get("SOTABAND_HOME", "").strip() or str(project_root.parent / "SB-USER")
         _sys_uid = os.environ.get("SOTABAND_SYSTEM_UID", "100").strip() or "100"
         data_roots = []

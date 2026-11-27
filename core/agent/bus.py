@@ -86,11 +86,13 @@ class AgentBusClient:
                          timeout: float = 60) -> dict:
         """RPC 调用另一个 Agent，返回 {"ok": bool, "result"|"error": ...}。
 
-        user_id 携带本轮执行身份：取进程环境 SOTABAND_USER_ID（由主进程
-        每轮 execute 注入，非 Agent 代码自报）——与 platform_call 同一
-        信任模型，被调侧据此覆写身份，杜绝沿用上一轮残留 uid。
+        user_id 携带本轮执行身份：取 ``current_uid()``（contextvar 优先，
+        非 Agent 代码自报）——与 platform_call 同一信任模型，被调侧据此
+        覆写身份，杜绝沿用上一轮残留 uid。不能读 os.environ：那是进程级
+        快照，并发 RPC 与 execute 会互相覆盖。
         """
-        import os
+        from core.user_paths import current_uid
+
         req = self._next_req()
         loop = asyncio.get_event_loop()
         fut = loop.create_future()
@@ -98,7 +100,7 @@ class AgentBusClient:
         sent = await self._send(make_frame(
             "o", "agent_call", req=req, to=target, method=method,
             params=params or {}, timeout=timeout, src=self.agent_id,
-            user_id=os.environ.get("SOTABAND_USER_ID") or None))
+            user_id=current_uid()))
         if not sent:
             self._pending.pop(req, None)
             return {"ok": False, "error": "通信通道不可用（stdout 已关闭）"}
@@ -147,15 +149,16 @@ class AgentBusClient:
 
         审计唯一入口在主进程 core.chat_control.audit——子进程不直接写用户的
         platform.db，经帧交主进程落库，与 platform_call 同一信任模型。
-        owner 取进程环境 SOTABAND_USER_ID（主进程每轮 execute 注入，非
-        Agent 代码自报），防止伪造归属。
+        owner 取 ``current_uid()``（contextvar 实时身份，非 Agent 代码自报），
+        防止伪造归属。不能读 os.environ：那是进程级快照。
         """
-        import os
         from core.agent.protocol import FRAME_WORKSPACE_AUDIT, make_frame
+        from core.user_paths import current_uid
+
         return await self._send(make_frame(
             "o", FRAME_WORKSPACE_AUDIT, session_id=session_id,
             op_id=op_id,
-            owner=os.environ.get("SOTABAND_USER_ID") or owner or "default",
+            owner=current_uid(),
             tool=tool, args=args or {}, risk=risk,
             status=status, result=result, error=error, duration_ms=duration_ms,
             src=self.agent_id))

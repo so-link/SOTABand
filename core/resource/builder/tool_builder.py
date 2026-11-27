@@ -94,13 +94,28 @@ _USER_HOME = _env_path("SOTABAND_USER_HOME") or (
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
+def _user_home():
+    """当前执行用户目录：平台实现优先（实时身份），env 兜底。
+
+    常驻 Worker 复用同一进程服务多个调用方时，模块级 ``_USER_HOME`` 只是
+    进程归属（服务所有者）；需要「每次调用现算」的场景用本函数。
+    """
+    try:
+        from core.user_paths import user_home as _platform_user_home
+        return _platform_user_home()
+    except Exception:
+        return _USER_HOME
+
 # ── 数据目录（产物一律落用户目录，系统根随 git 分发不可写脏）──
+# _DATA_DIR 是进程级快照（一次性子进程里等于当前用户；常驻 Worker 里等于
+# 服务所有者）。需要跟随当轮身份的代码请走 _out_dir() / _user_home()。
 _DATA_DIR = _USER_HOME / "data"
 _DOWNLOADS_DIR = _DATA_DIR / "downloads"
 
 def _out_dir(*parts) -> Path:
-    """本工具产物目录：USER_HOME/data/<工具或子目录>/<...>，自动创建。"""
-    d = _DATA_DIR.joinpath(*parts) if parts else _DATA_DIR
+    """本工具产物目录：user_home()/data/<工具或子目录>/<...>，自动创建。"""
+    base = _user_home() / "data"
+    d = base.joinpath(*parts) if parts else base
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -668,11 +683,12 @@ CRITICAL RULES:
    - NEVER write absolute paths ("/root/...", "/home/...", "C:\\...", a dataset dir copied from the spec, etc.) anywhere in the code — not in constants, not in default parameter values, not in comments used as config.
    - NEVER locate anything with Path(__file__).parents[N] / .parent.parent chains or Path.cwd(). The template already resolves everything for you:
        _PROJECT_ROOT  system root (read-only: built-in resources, core/)
-       _USER_HOME     current user's home — ALL outputs go here
-       _DATA_DIR      _USER_HOME/data — the base for files this tool produces
-       _out_dir(...)  create & return _DATA_DIR/<subdir> (preferred for outputs)
+       _user_home()   current execution user's home — ALL outputs go here (recomputed per call)
+       _USER_HOME     process-level snapshot: caller home in one-shot runs, service owner in resident workers
+       _DATA_DIR      _USER_HOME/data — process-level base; prefer _out_dir() for per-call correctness
+       _out_dir(...)  create & return user_home()/data/<subdir> (preferred for outputs)
        _tool_dir      this tool's own directory (static assets shipped with it)
-   - Writing: use _out_dir("xxx") / _DATA_DIR / ... . NEVER write under _PROJECT_ROOT (it is the git-distributed code area) and never mutate the public system resource layer (SB-USER/100) or other users' homes.
+   - Writing: use _out_dir("xxx") / _user_home()/... . NEVER write under _PROJECT_ROOT (it is the git-distributed code area) and never mutate the public system resource layer (SB-USER/100) or other users' homes.
    - Reading a file the user provided: pass the path through _resolve_path(path) (handles relative/absolute/~ cross-platform). Reading a registered dataset/model: use _dataset_file(id, name="", ext="csv") for a dataset FILE, _dataset_dir(id) for a dataset DIRECTORY, _model_data(id) for model contents — NEVER reconstruct those paths yourself, and NEVER assume how many files a dataset directory holds or what they are named (a dataset usually has many CSVs, e.g. one per stock/entity).
    - Default parameter values must be portable too: default to "" or a relative name and resolve at runtime, not a machine-specific absolute path.
 6b. File artifacts & IDs: put every produced file path in a ``*_path`` field of ``data`` (e.g. image_path, file_path, output_path). The platform auto-registers any ``*_path`` pointing inside the user home and injects a ``file_id`` for the UI — NEVER call file APIs or construct download URLs yourself, just return the path fields.
@@ -1295,13 +1311,13 @@ FINAL CHECKLIST (verify before output):
         yield {"event": "debug_start", "message": "自动调试启动", "max_rounds": max_rounds}
 
         # ── 静态安全审查（初始代码）──
-        # block 级违规：不执行，直接要求 LLM 修复后再跑
-        from core.security.review import review_code as _review, block_violations as _blocks
+        # block 级违规：不执行，直接要求 LLM 修复后再跑。
+        # 统一走 gate()：audit 灰度下不阻断（历史上这里无条件驳回，配置不生效）。
+        from core.security.review import gate as _review_gate
 
         security_feedback = ""
         skip_exec_for_security = False
-        _init_violations = _review(current_code)
-        _init_blocks = _blocks(_init_violations)
+        _init_blocks, _init_violations = _review_gate(current_code, tool_id)
         if _init_blocks:
             yield {
                 "event": "security_violation", "round": 0,
@@ -1691,9 +1707,9 @@ stderr: {_safe_stderr}
 
             # ── ⑤b 静态安全审查（LLM 新代码）──
             # block 级违规：不采纳这段代码（也不写入跨轮对话历史，避免 LLM
-            # 误以为它被接受），把违规反馈给 LLM 下一轮重新生成
-            _new_violations = _review(code_text)
-            _new_blocks = _blocks(_new_violations)
+            # 误以为它被接受），把违规反馈给 LLM 下一轮重新生成。
+            # gate() 按 review_mode 决定是否阻断（audit 灰度只记录）。
+            _new_blocks, _new_violations = _review_gate(code_text, tool_id)
             if _new_blocks:
                 yield {
                     "event": "security_violation", "round": round_num,

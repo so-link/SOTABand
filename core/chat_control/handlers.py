@@ -637,6 +637,11 @@ async def create_tool(args: CreateToolArgs, ctx: CallContext) -> dict:
     scan = scan_code(code)
     if not scan.ok:
         return {"error": "静态安全审查未通过，工具未注册：\n" + "\n".join(scan.errors)}
+    from core.security.review import gate as _review_gate
+    _blocks, _ = _review_gate(code, tool_id)
+    if _blocks:
+        return {"error": "代码安全审查未通过，工具未注册：\n" + "\n".join(
+            f"- {v.message}（第 {v.line} 行）" for v in _blocks)}
 
     await ctx.progress({"type": "tool-gen", "step": "register", "message": "正在注册工具…"})
     param_meta = []
@@ -708,6 +713,11 @@ Modified code:"""
     scan = scan_code(modified)
     if not scan.ok:
         return {"error": "静态安全审查未通过，修改未写入：\n" + "\n".join(scan.errors)}
+    from core.security.review import gate as _review_gate
+    _blocks, _ = _review_gate(modified, args.tool_id)
+    if _blocks:
+        return {"error": "代码安全审查未通过，修改未写入：\n" + "\n".join(
+            f"- {v.message}（第 {v.line} 行）" for v in _blocks)}
 
     impl_dir = tool_reg._get_impl_dir() / args.tool_id
     impl_dir.mkdir(parents=True, exist_ok=True)
@@ -845,6 +855,11 @@ async def create_agent(args: CreateAgentArgs, ctx: CallContext) -> dict:
     scan = scan_code(code)
     if not scan.ok:
         return {"error": "静态安全审查未通过，Agent 未注册：\n" + "\n".join(scan.errors)}
+    from core.security.review import gate as _review_gate
+    _blocks, _ = _review_gate(code, agent_id)
+    if _blocks:
+        return {"error": "代码安全审查未通过，Agent 未注册：\n" + "\n".join(
+            f"- {v.message}（第 {v.line} 行）" for v in _blocks)}
 
     # 工作流程步骤事件闸门：task/interactive 对话运行依赖 _step 展示每步过程与
     # 耗时，缺失即视为生成质量不达标，阻断注册（web-service 走 HTTP，不强制）。

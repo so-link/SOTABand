@@ -195,9 +195,10 @@ class ToolExecutor:
         （全局 audit 时可按 REVIEW_ENFORCE_TOOLS 对单个工具升级 enforce）；
         review_mode=off 时整段跳过。
 
-        与上游版本的差异（多用户适配）：写白名单除配置目录/工具目录/临时目录
-        外，追加**当前用户目录**——本分支的工具产物约定就是写
-        SOTABAND_USER_HOME，不加这一条会把合法写入全部误判为违规。
+        写白名单（V3 收敛）：**当前用户目录 + 系统临时目录**，外加显式配置的
+        ``allowed_write_paths``（默认空）。工具自身目录与项目根不再默认可写——
+        它们是随包分发的只读资产，往里写会污染公共资源层。越界写返回的错误
+        带修复指引，而不是只给一个路径。
         """
         sec = _settings.security
         mode = sec.review_mode_for(tool_id)
@@ -217,18 +218,21 @@ class ToolExecutor:
         from core.user_paths import user_home
 
         roots: list[str] = []
+        # 显式配置的额外白名单（默认空，仅供运维临时放行）。
         for p in sec.allowed_write_paths:
             p = str(p)
             if not os.path.isabs(p):
                 p = os.path.join(project_root, p)
             roots.append(os.path.normcase(os.path.normpath(p)))
-        roots.append(os.path.normcase(os.path.normpath(tool_dir)))      # 工具自身目录
-        roots.append(os.path.normcase(os.path.normpath(tempfile.gettempdir())))  # 系统临时目录
+        # 系统临时目录：允许写临时文件，但它不是产物目录。
+        roots.append(os.path.normcase(os.path.normpath(tempfile.gettempdir())))
+        # 当前用户目录：唯一的合法产物落点（V1 已保证按调用者实时解析）。
         try:
-            # 当前用户目录：工具产物（SOTABAND_USER_HOME）必须可写
             roots.append(os.path.normcase(os.path.normpath(str(user_home().resolve()))))
         except Exception:
             pass
+        # 工具自身目录与项目根 data/logs/output 故意不入白名单：
+        # 它们是随包分发的只读资产，写入会污染公共资源层。
 
         # 资源限制：仅在配置 > 0 时下发对应 setrlimit。
         # - RLIMIT_AS 是虚拟地址空间，torch/JVM 类工具保留大量 VA  reservation，
@@ -291,7 +295,8 @@ class ToolExecutor:
             "        if any(c in mode for c in 'wa+'):\n"
             "            rp = _sec_os.path.normcase(_sec_os.path.realpath(path))\n"
             "            if not any(rp == r or rp.startswith(r + _sec_os.sep) for r in _sec_write_roots):\n"
-            "                msg = 'FILE_WRITE_DENY: ' + rp\n"
+            "                msg = ('FILE_WRITE_DENY: ' + rp + ' — 产物请写当前用户目录'\n"
+            "                       '(_out_dir(...)/SOTABAND_USER_HOME)；工具目录与项目根为只读资产')\n"
             "                enforceable = True\n"
             "    elif event in ('os.system', 'os.posix_spawn', 'pty.spawn'):\n"
             "        msg = 'BANNED_SYSCALL: ' + event\n"

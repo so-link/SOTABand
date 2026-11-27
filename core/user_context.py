@@ -119,7 +119,17 @@ def get_current_user_id() -> str:
     if rid:
         return rid
 
-    # 1) 环境变量优先，便于显式指定（Agent 子进程靠它逐轮切换身份）
+    # 0.5) 执行身份：Agent 子进程按轮次设置的 contextvar。
+    # 它优先于环境变量——env 是进程级快照，并发 RPC/execute 会互相覆盖。
+    try:
+        from core.user_paths import exec_uid
+        rid = exec_uid()
+        if rid:
+            return rid
+    except Exception:
+        pass
+
+    # 1) 环境变量兜底（直跑脚本 / 旧调用方）
     env_uid = os.getenv("SOTABAND_USER_ID", "").strip()
     if env_uid:
         return env_uid

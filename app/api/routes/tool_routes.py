@@ -1593,8 +1593,19 @@ Modified code:"""
                 else:
                     full += token
                     yield {"event": "delta", "data": _json.dumps({"token": token}, ensure_ascii=False)}
+            modified_code = builder._clean_code(full)
+            # core API 约束线：与保存/注册同规则。audit 只记录，enforce 拒绝返回，
+            # 避免用户把「改完就能存」的错觉带到 save-code 再被拒。
+            from core.security.review import gate as _review_gate
+            _blocks, _ = _review_gate(modified_code, tool_id)
+            if _blocks:
+                yield {"event": "security_violation", "data": _json.dumps({
+                    "violations": [v.to_dict() for v in _blocks],
+                    "message": f"生成代码存在 {len(_blocks)} 项安全违规，未返回",
+                }, ensure_ascii=False)}
+                return
             yield {"event": "done", "data": _json.dumps(
-                {"modified_code": builder._clean_code(full), "original_code": current_code},
+                {"modified_code": modified_code, "original_code": current_code},
                 ensure_ascii=False)}
         except Exception as exc:
             detail = exc.detail if isinstance(exc, HTTPException) else f"{type(exc).__name__}: {exc}"
@@ -2063,6 +2074,13 @@ async def save_code(tool_id: str, req: dict):
     scan = scan_code(code)
     if not scan.ok:
         raise HTTPException(400, "静态安全审查未通过：\n" + "\n".join(scan.errors))
+    # core API 约束线（review）：按 review_mode 灰度——audit 只记录，enforce 拒绝落盘。
+    # 与 /register、/test 同一套规则，避免「测试过得了、保存却写脏」的旁路。
+    from core.security.review import gate as _review_gate
+    _blocks, _ = _review_gate(code, tool_id)
+    if _blocks:
+        raise HTTPException(400, "代码安全审查未通过：\n" + "\n".join(
+            f"- {v.message}（第 {v.line} 行）" for v in _blocks))
     impl_dir = _impl_write_dir(tool_id)
     impl_dir.mkdir(parents=True, exist_ok=True)
     (impl_dir / "tool.py").write_text(code, encoding="utf-8")
